@@ -9,6 +9,7 @@
  * Amounts are integer paise; the summaries format them without floats.
  */
 import { depositDueDate } from './tdsInterest'
+import { gstr3bDueDate } from './gst/filing'
 import { tcsDepositDueDate } from './tcs'
 import { rupeeText } from './anomalies'
 import type { AssistantSourceId } from './assistantSources'
@@ -133,6 +134,9 @@ export interface CloseFacts {
     /** WP 8.3: meta gstProfile — quarterly (QRMP) filers file GSTR-1 / 3B for the quarter only
      *  (absent = monthly, as before). */
     filing?: 'monthly' | 'quarterly'
+    /** WP 9.9: the company's state (GSTIN prefix) — a quarterly filer's GSTR-3B is the 22nd or
+     *  24th by it (rule 61(1)(ii) Table, shared/gst/filing.ts gstr3bDueDate). */
+    stateCode?: string | null
   } | null
   /** Each tagged TDS / TCS payable ledger: what was deducted per month (credits; `month` null =
    *  the opening balance) up to the month end, and what was paid out of it (debits) up to today —
@@ -181,8 +185,8 @@ export function nextMonthDay(period: string, day: number): string {
 export const GSTR1_DUE_DAY = 11
 export const GSTR3B_DUE_DAY = 20
 /** WP 8.3 — QRMP: GSTR-1 for the quarter by the 13th of the next month (Notification
- *  83/2020-CT; shared/gst/filing.ts). Quarterly GSTR-3B is due the 22nd or 24th by state —
- *  UNVERIFIED, listed on the earlier 22nd. */
+ *  83/2020-CT; shared/gst/filing.ts). Quarterly GSTR-3B: the 22nd or 24th by state (rule
+ *  61(1)(ii), gstr3bDueDate); 22 is the day used when the state is in neither Table entry. */
 export const GSTR1_QRMP_DUE_DAY = 13
 export const GSTR3B_QRMP_DUE_DAY = 22
 export const isQuarterEnd = (period: string): boolean => Number(period.slice(5, 7)) % 3 === 0
@@ -266,7 +270,7 @@ export const CLOSE_CHECK_DEFS: Record<CloseCheckKey, Def> = {
     title: 'GSTR-1 and GSTR-3B prepared',
     area: 'GST',
     fix: { screen: 'gstr1', label: 'Open GST returns' },
-    help: 'A return counts as prepared once its JSON is exported from the GST screens (the app does not file it). Monthly filers: GSTR-1 is due on the 11th and GSTR-3B on the 20th of the next month. Quarterly (QRMP) filers: GSTR-1 by the 13th after the quarter; GSTR-3B by the 22nd or 24th (UNVERIFIED).',
+    help: 'A return counts as prepared once its JSON is exported from the GST screens (the app does not file it). Monthly filers: GSTR-1 is due on the 11th and GSTR-3B on the 20th of the next month. Quarterly (QRMP) filers: GSTR-1 by the 13th after the quarter; GSTR-3B by the 22nd or 24th after the quarter, by the state of the principal place of business (rule 61(1)(ii)).',
     sources: ['s37_1', 'gstr1_11th', 'rule61'],
     build: (f, c) => {
       if (!f.gst) return { status: 'na', summary: 'Not a regular GST registration — no GSTR-1 / GSTR-3B.', rows: [] }
@@ -276,7 +280,10 @@ export const CLOSE_CHECK_DEFS: Record<CloseCheckKey, Def> = {
         return { status: 'na', summary: 'Quarterly filer (QRMP) — GSTR-1 and GSTR-3B are filed for the quarter, after its last month.', rows: [] }
       }
       const d1 = nextMonthDay(c.period, quarterly ? GSTR1_QRMP_DUE_DAY : GSTR1_DUE_DAY)
-      const d3 = nextMonthDay(c.period, quarterly ? GSTR3B_QRMP_DUE_DAY : GSTR3B_DUE_DAY)
+      // WP 9.9: the quarterly 3B day by state (rule 61(1)(ii) Table) — the same function the
+      // Gateway, Home and Taxes use; a state in neither entry keeps the 22nd, flagged UNVERIFIED.
+      const due3b = quarterly ? gstr3bDueDate(c.period, 'quarterly', f.gst.stateCode) : { date: nextMonthDay(c.period, GSTR3B_DUE_DAY), unverified: false }
+      const d3 = due3b.date
       const forms = [
         { form: quarterly ? 'GSTR-1 (quarter)' : 'GSTR-1', at: f.gst.gstr1ExportedAt, due: d1 },
         { form: quarterly ? 'GSTR-3B (quarter)' : 'GSTR-3B', at: f.gst.gstr3bExportedAt, due: d3 }
@@ -285,7 +292,7 @@ export const CLOSE_CHECK_DEFS: Record<CloseCheckKey, Def> = {
         label: x.form,
         detail: x.at
           ? `prepared (JSON exported ${x.at.slice(0, 10)})`
-          : `not prepared — due ${x.due}${quarterly && x.form.startsWith('GSTR-3B') ? ' (22nd or 24th by state — UNVERIFIED)' : ''}${c.today > x.due ? ', OVERDUE' : ''}`,
+          : `not prepared — due ${x.due}${due3b.unverified && x.form.startsWith('GSTR-3B') ? ' (22nd or 24th by state — UNVERIFIED)' : ''}${c.today > x.due ? ', OVERDUE' : ''}`,
         date: x.due
       }))
       const late = forms.some((x) => !x.at && c.today > x.due)

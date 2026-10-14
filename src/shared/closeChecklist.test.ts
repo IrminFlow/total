@@ -81,6 +81,26 @@ describe('buildCloseChecklist', () => {
     expect(buildCloseChecklist(f, { period: '2026-05', today: '2026-06-05' }).checks.find((x) => x.key === 'gst_returns')!.dueDate).toBe('2026-06-11')
   })
 
+  it('GST, quarterly (WP 9.9): the quarter’s GSTR-3B by state — rule 61(1)(ii) Table entry 1 (22nd) / entry 2 (24th)', () => {
+    const f = clean()
+    // Entry 1: "… Maharashtra … twenty-second day of the month succeeding such quarter".
+    f.gst = { gstr1ExportedAt: null, gstr3bExportedAt: null, filing: 'quarterly', stateCode: '27' }
+    const mh = buildCloseChecklist(f, { period: '2026-06', today: '2026-07-12' }).checks.find((x) => x.key === 'gst_returns')!
+    expect(mh.rows.map((r) => r.date)).toEqual(['2026-07-13', '2026-07-22'])
+    expect(mh.rows[1]!.detail).not.toMatch(/UNVERIFIED/)
+    // Entry 2: "… the Union territories of … Chandigarh or Delhi. twenty-fourth day …".
+    f.gst = { gstr1ExportedAt: null, gstr3bExportedAt: null, filing: 'quarterly', stateCode: '07' }
+    const dl = buildCloseChecklist(f, { period: '2026-06', today: '2026-07-23' })
+    const row = dl.checks.find((x) => x.key === 'gst_returns')!
+    expect(row.rows.map((r) => r.date)).toEqual(['2026-07-13', '2026-07-24'])
+    expect(row.rows[1]!.detail).not.toMatch(/OVERDUE|UNVERIFIED/)
+    // In neither entry (97 Other Territory): the 22nd, flagged.
+    f.gst = { gstr1ExportedAt: null, gstr3bExportedAt: null, filing: 'quarterly', stateCode: '97' }
+    const ot = buildCloseChecklist(f, { period: '2026-06', today: '2026-07-12' }).checks.find((x) => x.key === 'gst_returns')!
+    expect(ot.rows[1]!.date).toBe('2026-07-22')
+    expect(ot.rows[1]!.detail).toMatch(/UNVERIFIED/)
+  })
+
   it('TDS outstanding: warn before the 7th, fail after; March is due 30 April', () => {
     const f = clean()
     f.withholding = [{ kind: 'tds', ledgerId: 30, name: 'TDS Payable 194C', deducted: [{ month: '2026-05', amount: 2000_00 }], paid: 0 }]

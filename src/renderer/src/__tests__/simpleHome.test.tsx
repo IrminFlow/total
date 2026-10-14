@@ -114,7 +114,8 @@ describe('simple Home (WP 8.6)', () => {
     await open('money-in', 'See today’s entries', { name: 'daybook', date: '2026-10-13' })
     await open('money-out', 'See today’s entries', { name: 'daybook', date: '2026-10-13' })
     await open('cash', 'See each account’s balance today', { name: 'trial-balance', asOn: '2026-10-13', ledgerIds: [1, 2] })
-    await open('gst', 'Open the GST return for Sep 2026', { name: 'gstr3b', month: '2026-09' })
+    // WP 9.9: the GST tile opens the simple Taxes screen on its period.
+    await open('gst', 'See what to pay and file for Sep 2026', { name: 'simple-taxes', period: '2026-09' })
     await open('profit', 'Open the profit and loss report', { name: 'profit-loss' })
     fireEvent.click(screen.getByTestId('simple-why-profit'))
     expect((await screen.findByTestId('simple-why-profit-sentence')).textContent).toContain('₹1,54,000.00 of goods still on your shelf')
@@ -179,7 +180,7 @@ describe('simple Home (WP 8.6)', () => {
     expect(screen.getByTestId('simple-home-not-sure-gst').textContent).toContain('Ask your CA whether you need GST registration')
   })
 
-  it('quarterly filers: the quarter so far, the plain note, the link to the quarter’s first month; deadlines and the backup nudge', async () => {
+  it('quarterly filers: the quarter so far, the plain note, the link to the quarter on the Taxes screen; deadlines and the backup nudge', async () => {
     renderHome(
       home({
         gst: {
@@ -195,9 +196,9 @@ describe('simple Home (WP 8.6)', () => {
     expect(screen.getByTestId('simple-tile-gst-value').textContent).toBe('So far this quarter: ₹500.00')
     fireEvent.click(screen.getByTestId('simple-why-gst'))
     const link = await screen.findByTestId('simple-why-gst-link')
-    expect(link.textContent).toBe('Open the GST return, month by month from Oct 2026 →')
+    expect(link.textContent).toBe('See what to pay and file for the quarter from Oct 2026 →')
     fireEvent.click(link)
-    await waitFor(() => expect(lastScreen()).toEqual({ name: 'gstr3b', month: '2026-10' }))
+    await waitFor(() => expect(lastScreen()).toEqual({ name: 'simple-taxes', period: '2026-10' }))
     expect(screen.getByTestId('simple-deadline-tds').textContent).toBe('Pay the TDS (tax deducted at source) you deducted — by 7 Nov')
     expect(screen.getByTestId('simple-home-backup-nudge').textContent).toContain('Your last backup was 9 days ago.')
     fireEvent.click(within(screen.getByTestId('simple-home-backup-nudge')).getByRole('button'))

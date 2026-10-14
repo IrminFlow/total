@@ -135,6 +135,10 @@ import * as simpleReturns from './services/simpleReturns'
 import * as simpleBank from './services/simpleBank'
 import * as simpleBuy from './services/simpleBuy'
 import * as simpleStock from './services/simpleStock'
+import * as simpleReports from './services/simpleReports'
+import * as simpleTaxes from './services/simpleTaxes'
+import { doingQuerySchema, owedQuerySchema } from '@shared/simple/reports'
+import { gstFiledInputSchema, taxesQuerySchema } from '@shared/simple/taxes'
 import { simpleIntentSchema } from '@shared/simple/intents'
 import { peopleListSchema, personRemindedSchema, personUpdateSchema, personViewSchema } from '@shared/simple/people'
 import { bankAcceptSchema } from '@shared/simple/bank'
@@ -540,6 +544,41 @@ export function registerIpc(): void {
   handle('simple:stock:setPrice', (payload) => {
     const { itemId, ratePaise, date } = z.object({ itemId: z.number().int().positive(), ratePaise: z.number().int().positive().max(1e13), date: isoDate.optional() }).strict().parse(payload)
     return simpleStock.setSellingPrice(requireCompany().db, itemId, ratePaise, date ?? todayISO())
+  })
+
+  // WP 9.9: the simple Reports screens (services/simpleReports.ts) — read-only, as on today (a
+  // later date asked for is clamped): how the business is doing for a period (the P&L's own
+  // totals), cash in the next 30 days (the Cash forecast), who owes whom (Outstandings) and the
+  // registers by month.
+  handle('simple:reports:doing', (payload) => {
+    const q = doingQuerySchema.parse(payload)
+    return simpleReports.businessDoing(requireCompany().db, q, homeAsOn(q.today, todayISO()))
+  }, 'viewer')
+  handle('simple:reports:cash', (payload) => {
+    const { today } = z.object({ today: isoDate.optional() }).strict().optional().parse(payload) ?? {}
+    const c = requireCompany()
+    return simpleReports.cashNext30(c.db, c.info, homeAsOn(today, todayISO()))
+  }, 'viewer')
+  handle('simple:reports:owed', (payload) => {
+    const { side, today } = owedQuerySchema.parse(payload)
+    return simpleReports.owedList(requireCompany().db, side, homeAsOn(today, todayISO()))
+  }, 'viewer')
+  handle('simple:reports:byMonth', (payload) => {
+    const { today } = z.object({ today: isoDate.optional() }).strict().optional().parse(payload) ?? {}
+    return simpleReports.byMonth(requireCompany().db, homeAsOn(today, todayISO()))
+  }, 'viewer')
+  // WP 9.9: the simple Taxes screen (services/simpleTaxes.ts) — the GST answer for a period (the
+  // Home tile's by default) over gstr3b() / GSTR-2B / the close checklist, TDS / TCS when on;
+  // and "I've filed" (meta gstFiled: ARN + date per return, audited as a company update).
+  handle('simple:taxes', (payload) => {
+    const { period, today } = taxesQuerySchema.parse(payload ?? {})
+    const c = requireCompany()
+    return simpleTaxes.simpleTaxes(c.db, c.info, { period }, homeAsOn(today, todayISO()))
+  }, 'viewer')
+  handle('simple:taxes:filed', (payload) => {
+    const input = gstFiledInputSchema.parse(payload)
+    const c = requireCompany()
+    return simpleTaxes.setGstFiled(c.db, c.info, input, sessionUser?.name ?? null, todayISO())
   })
 
   // WP 9.8: the simple People screens (services/simplePeople.ts) — every figure as on today from

@@ -120,8 +120,8 @@ describe('explain sentences (WP 8.6)', () => {
   })
 
   it('GST link says what opens', () => {
-    expect(gstLinkLabel(gst(), t)).toBe('Open the GST return for Sep 2026')
-    expect(gstLinkLabel(gst({ quarterly: true, from: '2026-07-01', to: '2026-09-30' }), t)).toBe('Open the GST return, month by month from Jul 2026')
+    expect(gstLinkLabel(gst(), t)).toBe('See what to pay and file for Sep 2026')
+    expect(gstLinkLabel(gst({ quarterly: true, from: '2026-07-01', to: '2026-09-30' }), t)).toBe('See what to pay and file for the quarter from Jul 2026')
   })
 
   it('needs attention: plain words per kind, plurals, overdue rows by side, a fallback for an unknown key', () => {

@@ -181,6 +181,13 @@ export const ERROR_MAP = {
   simple_no_recipe: e('errors.intent.noRecipe', 'item', ['name'], 'errors.intent.noRecipePlain'),
   simple_not_enough_material: e('errors.intent.notEnoughMaterial', 'qty', ['names'], 'errors.intent.notEnoughMaterialPlain'),
   simple_no_sale_price: e('errors.intent.noSalePrice', 'price', ['name'], 'errors.intent.noSalePricePlain'),
+  // WP 9.9: the simple Reports / Taxes screens (services/simpleReports.ts, simpleTaxes.ts).
+  simple_report_period: e('errors.reports.period', 'to'),
+  simple_taxes_period: e('errors.taxes.period', 'period'),
+  gst_filed_not_regular: e('errors.taxes.notRegular'),
+  gst_filed_too_early: e('errors.taxes.tooEarly', 'date'),
+  gst_filed_arn: e('errors.taxes.arn', 'arn'),
+  gst_filed_date: e('errors.taxes.filedDate', 'date'),
 
   // ---------- IPC boundary (src/main/ipc.ts) ----------
   duplicate_name: e('errors.duplicateName', 'name'),

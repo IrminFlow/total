@@ -67,6 +67,13 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'simple:stock:product': QUERY,
   'simple:stock:madeSetup': QUERY,
   'simple:stock:setPrice': a('priceRate', 'priceLevel'),
+  // WP 9.9: the simple Reports and Taxes screens' reads; "I've filed" (meta gstFiled) is a company update.
+  'simple:reports:doing': QUERY,
+  'simple:reports:cash': QUERY,
+  'simple:reports:owed': QUERY,
+  'simple:reports:byMonth': QUERY,
+  'simple:taxes': QUERY,
+  'simple:taxes:filed': a('company'),
   // WP 9.6: the simple Bank screen — reads (accounts; lines + suggestions + the BRS sentence) and
   // accepting lines: a confirmed match (voucher_line / bank_statement_line / learned rules) or an
   // intent saved like simple:post and its line reconciled (the same rows reconcileSavedDraft writes).

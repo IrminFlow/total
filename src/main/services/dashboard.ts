@@ -66,7 +66,7 @@ export function dashGst(db: DB, company: CompanyInfo, today: string): DashGst | 
   if (company.gstRegistrationType !== 'regular') return null
   // WP 8.3: GSTR-1 follows the filing frequency (QRMP: the 13th after the quarter).
   const filing = getGstProfile(db).filing
-  const due = upcomingDeadlines(today, 'regular', false, 45, { gstFiling: filing }).filter((d) => d.kind === 'gst')
+  const due = upcomingDeadlines(today, 'regular', false, 45, { gstFiling: filing, stateCode: company.stateCode }).filter((d) => d.kind === 'gst')
   const next3b = due.find((d) => d.form === 'GSTR-3B')
   const next1 = due.find((d) => d.form === 'GSTR-1')
   let from: string
@@ -91,9 +91,7 @@ export function dashGst(db: DB, company: CompanyInfo, today: string): DashGst | 
     to = monthEnd(month)
   }
   const period = monthOf(to)
-  const r = gstr3b(db, company, from, to, gstPeriodOf(`${period}-01`))
-  const outwardTax = sum4(r.outward) + r.zeroRated.igst + r.zeroRated.cess
-  const rcmTax = sum4(r.rcm)
+  const f = gst3bFigures(db, company, from, to, period)
   return {
     period,
     from,
@@ -102,12 +100,25 @@ export function dashGst(db: DB, company: CompanyInfo, today: string): DashGst | 
     soFar,
     gstr1Due: next1?.date ?? null,
     gstr3bDue: next3b?.date ?? null,
-    liability: outwardTax + rcmTax,
-    outwardTax,
-    rcmTax,
-    itc: sum4(r.itc),
-    payable: sum4(r.netPayable) + sum4(r.rcmPayable),
+    liability: f.outwardTax + f.rcmTax,
+    outwardTax: f.outwardTax,
+    rcmTax: f.rcmTax,
+    itc: f.itc,
+    payable: f.payable,
     annual: annualGstDeadlines(db, today)
+  }
+}
+
+/** The Compliance row's figures from gstr3b() for [from, to] (return period = `period`'s month):
+ *  sales tax (3.1(a)–(c) incl. zero-rated), reverse charge (3.1(d)), net eligible credit and the
+ *  cash payable after set-off incl. RCM. WP 9.9: the simple Taxes screen reads the same sums. */
+export function gst3bFigures(db: DB, company: CompanyInfo, from: string, to: string, period: string): { outwardTax: number; rcmTax: number; itc: number; payable: number } {
+  const r = gstr3b(db, company, from, to, gstPeriodOf(`${period}-01`))
+  return {
+    outwardTax: sum4(r.outward) + r.zeroRated.igst + r.zeroRated.cess,
+    rcmTax: sum4(r.rcm),
+    itc: sum4(r.itc),
+    payable: sum4(r.netPayable) + sum4(r.rcmPayable)
   }
 }
 

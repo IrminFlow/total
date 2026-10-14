@@ -120,10 +120,14 @@ await scenario('52-home', async (h) => {
   }
   await backHome(h)
 
+  // WP 9.9: the GST tile opens the simple Taxes screen on its period, with the same cash figure.
   await openLink(h, 'gst')
-  await h.waitScreen('gstr3b')
-  await page.waitForFunction((v) => document.querySelector('[data-testid="input-gstr3b-month"]')?.value === v, home.gst.row.period)
-  await backHome(h)
+  await attached(h, '[data-testid="simple-taxes"] [data-testid="tile-gst-to-pay"]')
+  await page.waitForFunction((v) => document.querySelector('[data-testid="taxes-period"]')?.value === v, home.gst.row.period)
+  assertEq(Number(await page.getAttribute('[data-testid="tile-gst-to-pay"]', 'data-paise')), home.gst.row.payable, 'Taxes shows the tile’s cash to pay')
+  // A simple screen: straight back to Home (no "Back to simple" button).
+  await h.click('simple-nav-home')
+  await attached(h, '[data-testid="simple-tile-receivables"]')
 
   // ---------- the accountant Dashboard shows the same figures ----------
   await attached(h, '[data-testid="btn-accountant-view"]')
