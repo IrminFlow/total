@@ -12,7 +12,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { formatMicroUsd, type AiContext, type AiDraftDto, type AiEvent, type AiMessageDto, type AiPreCall } from '@shared/ai'
 import { screenContextLines } from '@shared/aiExplain'
-import { classifyAiError, draftOffer, figuresFromSentence, turnCostText, usdRateOn } from '@shared/simple/aiPlain'
+import { classifyAiError, draftOffer, draftSentence, figuresFromSentence, turnCostText, usdRateOn } from '@shared/simple/aiPlain'
 import { todayISO } from '@shared/dates'
 import type { VoucherKind } from '@shared/domain'
 import { aiApi, onAiEvent } from '../../lib/aiClient'
@@ -256,7 +256,7 @@ function PlainSent({ context, privacy, useMemory }: { context: AiContext; privac
   const lines = screenContextLines(context)
   return (
     <div className="rounded-md border border-line bg-panel2 px-2.5 py-1.5 text-caption text-muted" data-testid="ai-plain-sent">
-      <p className="text-ink">{t('simple.ai.panel.sent.what', { screen: context.label ?? t('simple.ai.panel.sent.screen') })}</p>
+      <p className="text-ink">{t('simple.ai.panel.sent.what', { screen: context.screen === 'gateway' ? t('simple.nav.home') : (context.label ?? t('simple.ai.panel.sent.screen')) })}</p>
       <p>
         {privacy.maskIds ? t('simple.ai.panel.sent.idsHidden') : t('simple.ai.panel.sent.idsShown')}{' '}
         {privacy.pseudonymiseParties ? t('simple.ai.panel.sent.namesHidden') : t('simple.ai.panel.sent.namesShown')}
@@ -355,7 +355,7 @@ function PlainDraftCard({ draftId, known, onLeavePanel }: { draftId: number; kno
   return (
     <div className="rounded-md border border-amber/50 bg-amberbar/10 px-3 py-2" data-testid="ai-plain-draft" data-draft-id={draft.id} data-status={draft.status}>
       <p className="text-small font-semibold text-ink">{t('simple.ai.draft.title')}</p>
-      <p className="mt-0.5 text-body-sm text-ink">{draft.summary}</p>
+      <p className="mt-0.5 text-body-sm text-ink" data-testid="ai-plain-draft-what">{draftSentence(draft, t)}</p>
       {draft.unrequested && (
         <p className="mt-1 text-caption text-danger" data-testid="ai-plain-draft-not-asked">
           {t('simple.ai.draft.notAsked')}
@@ -377,12 +377,11 @@ function PlainDraftCard({ draftId, known, onLeavePanel }: { draftId: number; kno
       )}
       {draft.status === 'consumed' && <p className="mt-1 text-caption text-muted">{t('simple.ai.draft.saved')}</p>}
       {draft.status === 'discarded' && <p className="mt-1 text-caption text-muted">{t('simple.ai.draft.left')}</p>}
-      {draft.unrequested && (
-        <details className="mt-1 text-caption text-muted">
-          <summary className="cursor-pointer">{t('common.details')}</summary>
-          <p className="num">{t('simple.ai.panel.details.flag')}</p>
-        </details>
-      )}
+      <details className="mt-1 text-caption text-muted" data-testid="ai-plain-draft-details">
+        <summary className="cursor-pointer">{t('common.details')}</summary>
+        <p className="num">{draft.summary}</p>
+        {draft.unrequested && <p className="num">{t('simple.ai.panel.details.flag')}</p>}
+      </details>
     </div>
   )
 }

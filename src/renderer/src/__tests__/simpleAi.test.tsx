@@ -349,6 +349,7 @@ describe('the AI panel in plain words (simple mode)', () => {
     const sent = await screen.findByTestId('ai-plain-sent')
     expect(screen.queryByTestId('ai-plain-answer')).toBeNull()
     expect(sent.textContent).toContain('What is sent with each question: your question')
+    expect(sent.textContent).toContain('what this screen shows (Home)')
     expect(sent.textContent).toContain('GST, PAN and bank numbers are hidden.')
     expect(sent.textContent).toContain('Customer and supplier names are sent as they are.')
     expect(sent.textContent).toContain('What Total remembers goes too.')
@@ -366,6 +367,10 @@ describe('the AI panel in plain words (simple mode)', () => {
     await waitFor(() => expect(within(card).getByTestId('ai-plain-draft-question').textContent).toBe('Save this as money paid?'))
     expect(within(card).getByTestId('ai-plain-draft-not-asked').textContent).toContain('You did not ask for this')
     expect(card.textContent).not.toMatch(/unrequested/i)
+    // The server's accountant summary (Dr / Cr) only behind Details; the card says it plainly.
+    expect(within(card).getByTestId('ai-plain-draft-what').textContent).toBe('Money paid: ₹2,500.00 on 14 Oct 2026.')
+    const outside = card.textContent!.replace(within(card).getByTestId('ai-plain-draft-details').textContent!, '')
+    expect(outside).not.toMatch(/\bDr\b|\bCr\b|Payment of/)
     fireEvent.click(within(card).getByTestId('ai-plain-draft-open'))
     await waitFor(() => expect(useNav.getState().stack.length).toBe(2))
     const top = useNav.getState().stack.at(-1) as { name: string; ask?: unknown }

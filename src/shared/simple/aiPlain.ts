@@ -340,3 +340,21 @@ export function draftOffer(d: Pick<AiDraftDto, 'payload'>): DraftOffer {
       return { question: 'simple.ai.draft.noFlow', prefill: null }
   }
 }
+
+/** The draft in plain words for its card ("Money paid: ₹2,500.00 on 14 Oct 2026.") — the server's
+ *  summary speaks the accountant's language (Dr / Cr, ledger names) and goes behind Details. */
+export function draftSentence(d: Pick<AiDraftDto, 'payload'>, t: Translate): string {
+  const p = d.payload
+  const lines: Line[] = Array.isArray(p.lines) ? p.lines : []
+  const total = p.total ?? lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
+  const date = p.date ? toPlainDate(p.date) : ''
+  if (!(total > 0)) return t('simple.ai.draft.what.noAmount', { date })
+  const amount = formatPaise(total, { symbol: true })
+  const key: MessageKey =
+    p.voucherKind === 'sales' ? 'simple.ai.draft.what.sale'
+      : p.voucherKind === 'purchase' ? 'simple.ai.draft.what.purchase'
+        : p.voucherKind === 'payment' ? 'simple.ai.draft.what.payment'
+          : p.voucherKind === 'receipt' ? 'simple.ai.draft.what.receipt'
+            : 'simple.ai.draft.what.other'
+  return t(key, { amount, date }) // i18n-technical: keys above
+}

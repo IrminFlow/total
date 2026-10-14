@@ -5,7 +5,7 @@ import type { AiMessageDto, AiUsageRow } from '../ai'
 import type { FxRate } from '../cashFinance'
 import { bannedWordsIn } from './bannedWords'
 import {
-  classifyAiError, costText, draftOffer, figuresFromSentence, microUsdToPaise, monthSpend, monthSpendSentence, pickModels, rateNote, toolPlace, turnCostText, usdRateOn
+  classifyAiError, costText, draftOffer, draftSentence, figuresFromSentence, microUsdToPaise, monthSpend, monthSpendSentence, pickModels, rateNote, toolPlace, turnCostText, usdRateOn
 } from './aiPlain'
 
 const t = translator('en')
@@ -178,5 +178,14 @@ describe('the catalogue', () => {
     const keys = Object.keys(en).filter((k) => k.startsWith('simple.ai.'))
     expect(keys.length).toBeGreaterThan(100)
     for (const k of keys) expect(bannedWordsIn(en[k as keyof typeof en]), k).toEqual([])
+  })
+})
+
+describe('draftSentence — the draft in plain words (the server summary says Dr / Cr)', () => {
+  const base = { voucherTypeId: 1, date: '2026-10-14', partyLedgerId: null, narration: null, reference: null }
+  it('says what it is, how much and when', () => {
+    expect(draftSentence({ payload: { ...base, voucherKind: 'payment', lines: [{ ledgerId: 2, drCr: 'dr', amount: 250000 }, { ledgerId: 1, drCr: 'cr', amount: 250000 }] } }, t)).toBe('Money paid: ₹2,500.00 on 14 Oct 2026.')
+    expect(draftSentence({ payload: { ...base, voucherKind: 'sales', lines: [], total: 1180000 } }, t)).toBe('A bill of ₹11,800.00, dated 14 Oct 2026.')
+    expect(draftSentence({ payload: { ...base, voucherKind: 'journal', lines: [] } }, t)).toBe('An entry dated 14 Oct 2026.')
   })
 })
