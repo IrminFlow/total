@@ -637,10 +637,8 @@ export const SCREENS: ScreenDef[] = [
   {
     name: 'banking',
     modes: ['accountant'],
+    // "Back to simple" from here goes to Money (WP 9.6 moved the Bank entry to simple-bank).
     simpleSection: 'money',
-    simpleEntries: [
-      { id: 'bank', label: 'simple.entries.bank', screen: { name: 'banking', tab: 'import' } }
-    ],
     keywords: ['bank reconciliation', 'brs', 'post-dated', 'pdc', 'bank statement import', 'mt940', 'camt', 'cheque printing', 'cheque register', 'bulk payments', 'neft', 'rtgs'],
     title: 'Banking — reconciliation, statements, cheques & PDC',
     screen: { name: 'banking' },
@@ -969,6 +967,22 @@ export const SCREENS: ScreenDef[] = [
     screen: null, // simple shell only
     navSection: null,
     invalidates: ['openings', 'ledgers', 'stockItems', 'dashboard']
+  },
+  // WP 9.6: Money → Bank (simple/bank/BankScreen): import a statement, "What is this?" for each
+  // line (the WP 5.4 categoriser's suggestion without a key), accepted lines saved through the
+  // simple:post service and reconciled; the BRS in one sentence ("see them" opens the full
+  // Banking → BRS on that account). Its accountant counterpart is Banking → Statement import.
+  {
+    name: 'simple-bank',
+    modes: ['simple'],
+    simpleView: 'bank/BankScreen',
+    simpleSection: 'money',
+    simpleEntries: [{ id: 'bank', label: 'simple.entries.bank', screen: { name: 'simple-bank' } }],
+    title: 'Bank',
+    keywords: ['bank statement', 'statement import', 'bank reconciliation', 'brs', 'bank'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simpleBankSetup', 'simpleBankLines', 'bankLedgers', 'bankWorkspace', 'brs', 'ledgers']
   },
   // WP 9.4: Money → Money in / Money out / Move money (simple/money/…: plain questions → a
   // money_in / money_out (or, an expense with a GST bill, a purchase paid now) / move_money intent

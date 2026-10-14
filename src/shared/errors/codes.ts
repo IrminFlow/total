@@ -164,6 +164,13 @@ export const ERROR_MAP = {
   simple_year_closed: e('errors.intent.yearClosed', 'date'),
   simple_duplicate_bill: e('errors.intent.duplicateBill', 'billNo', ['number'], 'errors.intent.duplicateBillPlain'),
   simple_client_reused: e('errors.intent.clientReused'),
+  // WP 9.6: the simple Bank screen (services/simpleBank.ts) — on the line's row.
+  simple_bank_not_bank: e('errors.bank.notBank', 'bank'),
+  simple_bank_line_gone: e('errors.bank.lineGone', 'line'),
+  simple_bank_line_done: e('errors.bank.lineDone', 'line'),
+  simple_bank_wrong_choice: e('errors.bank.wrongChoice', 'choice'),
+  simple_bank_no_match: e('errors.bank.noMatch', 'choice'),
+  simple_bank_not_matched: e('errors.bank.notMatched', 'line'),
   simple_items_no_gst: e('errors.intent.itemsNoGst', 'gstOnBill'),
 
   // ---------- IPC boundary (src/main/ipc.ts) ----------
