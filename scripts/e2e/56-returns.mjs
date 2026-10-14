@@ -136,6 +136,8 @@ await scenario('56-returns', async (h) => {
   assertEq(await text('return-preview'), 'Sale return ₹590.00 from Ramesh. Includes GST ₹90.00. ₹590.00 paid back by UPI. Ramesh has paid everything.', 'the plain preview (simple:preview)')
   await fill('input-return-reason', 'Damaged')
   await noBanned('the return')
+  // The preview sits at the bottom of the form: scroll there, as the user would before saving.
+  await page.evaluate(() => document.querySelector('[data-testid="return-preview"]')?.scrollIntoView({ block: 'center' }))
   await shoot('02-return-refund')
 
   await page.keyboard.press('Meta+Enter')
@@ -159,7 +161,6 @@ await scenario('56-returns', async (h) => {
   await attached(h, '[data-testid="return-bill-picker"]')
   await attached(h, '[data-testid="rows-return-bills"] tr')
   await noBanned('the bill list')
-  await shoot('01-bill-list')
   await page.click('[data-testid="rows-return-bills"] tr')
   await attached(h, '[data-testid="return-bill"]')
   await fill('input-return-qty-0', '1')
@@ -184,6 +185,15 @@ await scenario('56-returns', async (h) => {
   await h.click('simple-nav-people')
   await h.click('simple-entry-who-owes')
   await h.waitScreen('outstandings')
+  // The bill list now says what came back.
+  await h.click('btn-back-to-simple')
+  await h.click('simple-nav-sell')
+  await h.click('simple-entry-sale-returns')
+  await h.waitScreen('simple-return-sale')
+  await attached(h, '[data-testid="rows-return-bills"] tr[data-left="part"]')
+  assert((await text('rows-return-bills')).includes('590.00'), 'returned so far on the bill')
+  await noBanned('the bill list')
+  await shoot('01-bill-list')
 
   // ================= 2. an unregistered kirana: just an amount =================
   await h.click('btn-switch-company')
