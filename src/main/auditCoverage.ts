@@ -42,6 +42,9 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'simple:sell:setup': QUERY,
   'simple:sales': QUERY,
   'simple:sale': QUERY,
+  // WP 9.5: the simple return screens' reads (recent bills with what is returnable, one bill).
+  'simple:returns:bills': QUERY,
+  'simple:returns:bill': QUERY,
   'simple:preview': r('rehearses simple:post in a transaction that is always rolled back; writes nothing'),
   'company:delete': a('company'),
   'company:open': a('backup', 'voucher', 'audit_log', 'attachment'),

@@ -366,8 +366,34 @@ export interface IntentOriginal {
    *  bill's tax (one per line, distinct), the bill's own rate for a ledger-line bill; null = they
    *  can't be told from the bill (a rate changed since) — a return then asks / refuses. */
   rates: number[] | null
-  lines: { lineUid: string; itemId: number; qtyMilli: number; ratePaise: number; discountPaise: number; godownId: number | null; batchId: number | null; leftMilli: number }[]
+  lines: IntentOriginalLine[]
+  /** WP 9.5: the note's `reference` — the original's number (a sale: e-invoice PrecDocDtls looks
+   *  it up), the supplier's bill number for a purchase (the 2B netting key, mismatch2b.ts).
+   *  Omitted = its number. */
+  noteReference?: string
+  /** WP 9.5: a bill without item lines — its value before GST still returnable (the account lines
+   *  less the returns made against it: in-books notes of this party carrying `noteReference`);
+   *  null / omitted = not capped (an item bill caps each line by `leftMilli`). */
+  amountLeft?: number | null
 }
+
+export interface IntentOriginalLine { lineUid: string; itemId: number; qtyMilli: number; ratePaise: number; discountPaise: number; godownId: number | null; batchId: number | null; leftMilli: number }
+
+/** WP 9.5: a returned line as the note editor holds it — the rate on the bill, its discount pro
+ *  rata (integer half-up), the same godown / batch, linked to the bill's line as a `return`. One
+ *  definition for mapReturn and the return screen's live total. */
+export function returnRow(line: IntentOriginalLine, qtyMilli: number): InvoiceRowState {
+  const discount = line.discountPaise > 0 ? Math.floor((line.discountPaise * qtyMilli * 2 + line.qtyMilli) / (2 * line.qtyMilli)) : 0
+  return {
+    itemId: line.itemId, qtyText: qtyText(qtyMilli), rate: line.ratePaise, discount: discount || null,
+    godownId: line.godownId, batchId: line.batchId, source: { lineUid: line.lineUid, linkType: 'return' as const }
+  }
+}
+
+/** WP 8.0 / s.34: a note dated when the company doesn't charge GST keeps the GST of an original
+ *  from a GST-charging period (or one that carries tax). */
+export const returnTaxedOriginal = (facts: Parameters<typeof chargesGstOn>[0], noteDate: string, o: { date: string; carriesGst: boolean }): boolean =>
+  !chargesGstOn(facts, noteDate) && (chargesGstOn(facts, o.date) || o.carriesGst)
 
 export interface IntentDefaults {
   walkInId: number | null
@@ -800,7 +826,8 @@ function mapReturn(n: Extract<NormalIntent, { kind: 'return_sale' | 'return_purc
   const accountId = o.accountId ?? (sale ? ctx.defaults.salesId : ctx.defaults.purchaseId)
   const account = ledgerOf(ctx, accountId, sale ? ['income'] : ['expense'], 'simple_wrong_account', 'bill', sale ? 'sales account' : 'purchase account')
   // WP 8.0 / s.34: a note against a bill of a GST-charging period (or one that carries tax) keeps its GST.
-  const taxedOriginal = !chargesGstOn(ctx.invoice, date) && (chargesGstOn(ctx.invoice, o.date) || o.carriesGst)
+  const taxedOriginal = returnTaxedOriginal(ctx.invoice, date, o)
+  const reference = o.noteReference ?? o.number
   const facts: IntentFacts = { ...emptyFacts(n.kind), partyName: party.name, side: sale ? 'customer' : 'supplier' }
 
   let note: MappedEntry
@@ -830,15 +857,10 @@ function mapReturn(n: Extract<NormalIntent, { kind: 'return_sale' | 'return_purc
       const left = line.leftMilli - (taken.get(line.lineUid) ?? 0)
       if (r.qtyMilli > left) fail('simple_return_qty', `Only ${left / 1000} left to return on this line`, `items.${i}.qty`, { qty: String(left / 1000) })
       taken.set(line.lineUid, (taken.get(line.lineUid) ?? 0) + r.qtyMilli)
-      // The rate on the bill; its discount pro rata (integer half-up).
-      const discount = line.discountPaise > 0 ? Math.floor((line.discountPaise * r.qtyMilli * 2 + line.qtyMilli) / (2 * line.qtyMilli)) : 0
-      return {
-        itemId: line.itemId, qtyText: qtyText(r.qtyMilli), rate: line.ratePaise, discount: discount || null,
-        godownId: line.godownId, batchId: line.batchId, source: { lineUid: line.lineUid, linkType: 'return' as const }
-      }
+      return returnRow(line, r.qtyMilli)
     })
     const state: InvoiceFormState = {
-      ...emptyInvoiceState(date), number, partyId: party.id, accountId: account.id, rows, narration: n.narration, billName: '', billDueDate: date,
+      ...emptyInvoiceState(date), number, partyId: party.id, accountId: account.id, rows, narration: n.narration, billName: '', billDueDate: date, reference,
       ...(taxedOriginal ? { taxedOriginal: true } : {})
     }
     const probe = computeInvoice(state, { ...ctx.invoice, kind })
@@ -852,6 +874,10 @@ function mapReturn(n: Extract<NormalIntent, { kind: 'return_sale' | 'return_purc
     facts.tax = built.tax
   } else {
     const a = n.amount!
+    if (o.amountLeft != null && a.amount > o.amountLeft) {
+      const left = formatPaise(Math.max(0, o.amountLeft), { symbol: true })
+      fail('simple_return_amount', `Only ${left} of bill ${o.number} is left to return`, 'amount', { amount: left })
+    }
     let rate = a.gstRate
     if (rate == null && charges && o.carriesGst) {
       if (o.rates == null || o.rates.length !== 1) return fail('simple_return_rate', 'The bill has more than one GST rate — say the rate of what is returned', 'amount')
@@ -861,7 +887,7 @@ function mapReturn(n: Extract<NormalIntent, { kind: 'return_sale' | 'return_purc
     total = lines.total
     facts.tax = lines.gst.total - lines.gst.taxable
     settled = settle(total)
-    note = accountingEntry(ctx, 'note', kind, type, { date, number, rows: lines.rows, narration: n.narration, billRefs: settled.refs })
+    note = accountingEntry(ctx, 'note', kind, type, { date, number, rows: lines.rows, narration: n.narration, reference, billRefs: settled.refs })
   }
   facts.total = total
   facts.credit = settled.credit

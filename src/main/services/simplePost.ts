@@ -30,7 +30,7 @@ import {
 import { pickTaxLedger, taxLedgerIdsFrom, taxSideOf, voucherCarriesGst, voucherTaxLedgers, type TaxLedgerIds, type TaxSide } from '@shared/voucherEdit'
 import { companyT } from '../i18n'
 import { createLedger, listLedgers, listStockItems, listVoucherTypes } from './masters'
-import { getLockDate, getVoucher, lockedError, nextVoucherNumber, NOT_DELETED, saveVoucher } from './vouchers'
+import { getLockDate, getVoucher, IN_BOOKS, lockedError, nextVoucherNumber, NOT_DELETED, saveVoucher } from './vouchers'
 import { counterAccounts, ensureWalkIn } from './counter'
 import { pricingLoader, rememberSalePrices } from './pricing'
 import { openBills, partyAllocation, partyAllocationWithCredits } from './analysis'
@@ -85,7 +85,11 @@ function partyOf(n: NormalIntent, walkInId: number | null): number | null {
   }
 }
 
-function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<typeof listLedgers>, billId: number, date: string): IntentOriginal | null {
+/** The bill a return is made against, as on the return's date (WP 9.1; WP 9.5's return screens
+ *  read it too — services/simpleReturns.ts): what is pending on it, its GST rates as it posted
+ *  them, each item line with what is left to return (live `return` links), and — for a bill
+ *  without item lines — the value before GST still returnable. */
+export function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<typeof listLedgers>, billId: number, date: string): IntentOriginal | null {
   const v = getVoucher(db, billId)
   if (!v || v.deletedAt || v.partyLedgerId == null) return null
   const kind = (db.prepare('SELECT kind FROM voucher_types WHERE id = ?').get(v.voucherTypeId) as { kind: VoucherKind } | undefined)?.kind
@@ -106,6 +110,8 @@ function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<typeof l
   const stored = v.lines.filter((l) => l.ledgerId === tax.cgst || l.ledgerId === tax.sgst || l.ledgerId === tax.igst || l.ledgerId === tax.cess).reduce((s, l) => s + l.amount, 0)
   const taxOf = (g: { cgst: number; sgst: number; igst: number; cess: number }): number => g.cgst + g.sgst + g.igst + g.cess
   let rates: number[] | null
+  let amountLeft: number | null = null
+  const noteReference = kind === 'sales' ? v.number : (v.reference?.trim() || v.number)
   if (v.inventory.length) {
     const buckets = new Map<string, { rate: number; cess: number; taxable: number }>()
     for (const l of v.inventory) {
@@ -123,6 +129,19 @@ function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<typeof l
     const taxable = v.lines.filter((l) => accountIds.includes(l.ledgerId)).reduce((s, l) => s + l.amount, 0)
     const r = taxable > 0 ? Math.round((stored * 10_000) / taxable) / 100 : 0
     rates = stored === 0 ? [0] : taxOf(computeGst(taxable, r, supply)) === stored ? [r] : null
+    // WP 9.5: less what earlier returns took back — in-books notes of this party that carry the
+    // bill as their reference, on the same account(s) (the note's side of them).
+    if (accountIds.length) {
+      const returnedTaxable = (db
+        .prepare(
+          `SELECT COALESCE(SUM(vl.amount), 0) AS t FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+           JOIN voucher_lines vl ON vl.voucher_id = v.id
+           WHERE vt.kind = ? AND v.party_ledger_id = ? AND TRIM(v.reference) = ? AND v.date >= ? AND v.id <> ?
+             AND vl.dr_cr = ? AND vl.ledger_id IN (${accountIds.map(() => '?').join(',')}) AND ${IN_BOOKS}`
+        )
+        .get(kind === 'sales' ? 'credit_note' : 'debit_note', v.partyLedgerId, noteReference, v.date, v.id, kind === 'sales' ? 'dr' : 'cr', ...accountIds) as { t: number }).t
+      amountLeft = Math.max(0, taxable - returnedTaxable)
+    }
   }
   const returned = db.prepare(
     `SELECT COALESCE(SUM(ll.qty_milli), 0) AS q FROM line_links ll JOIN vouchers v ON v.id = ll.to_voucher_id
@@ -139,6 +158,8 @@ function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<typeof l
     pending,
     carriesGst: voucherCarriesGst(v, tax),
     rates,
+    noteReference,
+    amountLeft,
     lines: v.inventory
       .filter((l) => !!l.lineUid)
       .map((l) => ({
@@ -188,6 +209,17 @@ export function loadIntentContext(db: DB, company: CompanyInfo, n: NormalIntent)
   for (const pid of [partyId, original?.partyId].filter((x): x is number => x != null)) {
     const a = partyAllocationWithCredits(db, pid, '9999-12-31')
     takenNames.set(pid, new Set([...a.bills.filter((b) => b.pending > 0).map((b) => b.number), ...a.credits.map((c) => c.name)]))
+  }
+  // WP 9.5: a return's own bill (its credit) never reuses ANY name the party's bills have had — a
+  // note numbered like a settled sale ("1" and "1") would otherwise look settled by that sale's
+  // receipt (by name), so Undo would call it "already used" and a later refund-by-name could land
+  // on the wrong bill.
+  if (original) {
+    const used = db
+      .prepare(`SELECT DISTINCT br.name FROM bill_refs br JOIN vouchers v ON v.id = br.voucher_id WHERE br.party_ledger_id = ? AND ${NOT_DELETED}`)
+      .all(original.partyId) as { name: string }[]
+    const set = takenNames.get(original.partyId)!
+    for (const u of used) set.add(u.name)
   }
   const bills = new Map<number, { name: string; date: string; pending: number; voucherId: number | null }[]>()
   if ((n.kind === 'money_in' || n.kind === 'money_out') && partyId != null) {

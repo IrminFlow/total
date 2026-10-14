@@ -127,6 +127,7 @@ import { createDemoCompany } from './services/demo'
 import { createCompanyFromSetup } from './services/companySetup'
 import * as simplePost from './services/simplePost'
 import * as simpleSell from './services/simpleSell'
+import * as simpleReturns from './services/simpleReturns'
 import { simpleIntentSchema } from '@shared/simple/intents'
 import { simpleSetupSchema } from '@shared/simple/setup'
 import { simpleOpeningsSchema } from '@shared/simple/openings'
@@ -464,6 +465,21 @@ export function registerIpc(): void {
   handle('simple:sale', (payload) => {
     const { id, today } = z.object({ id: z.number().int().positive(), today: isoDate.optional() }).strict().parse(payload)
     return simpleSell.saleView(requireCompany().db, id, homeAsOn(today, todayISO()))
+  }, 'viewer')
+
+  // WP 9.5: the simple return screens' reads (services/simpleReturns.ts) — the recent bills with
+  // what is still returnable, and one bill as simple:post maps a return from it (as on the
+  // return's date, never past today). Writing goes through simple:post only.
+  const returnSide = z.enum(['sale', 'purchase'])
+  handle('simple:returns:bills', (payload) => {
+    const { side, today, q } = z.object({ side: returnSide, today: isoDate.optional(), q: z.string().max(80).optional() }).strict().parse(payload)
+    const c = requireCompany()
+    return simpleReturns.returnBills(c.db, c.info, side, homeAsOn(today, todayISO()), q)
+  }, 'viewer')
+  handle('simple:returns:bill', (payload) => {
+    const { side, id, asOn } = z.object({ side: returnSide, id: z.number().int().positive(), asOn: isoDate.optional() }).strict().parse(payload)
+    const c = requireCompany()
+    return simpleReturns.returnBill(c.db, c.info, side, id, homeAsOn(asOn, todayISO()))
   }, 'viewer')
 
   // WP 8.3: `mode` 'simple' = the wizard's "Try with sample data" (D2); omitted = accountant, as before.
