@@ -294,6 +294,12 @@ export function saleStatus(total: number, due: number, overdueDays: number, paid
   return (paid ?? total - due) > 0 ? 'part' : 'due'
 }
 
+/** WP 9.5: what returns took off a sale / purchase bill — total = paid + due + this (the lists'
+ *  `paid` leaves it out, services/simpleSell.ts / simpleBuy.ts); 0 without returns. */
+export function offBillByReturns(b: { total: number; paid: number; due: number; returned: number }): number {
+  return b.returned > 0 ? Math.max(0, b.total - b.paid - Math.max(0, b.due)) : 0
+}
+
 // ---------------------------------------------------------------- read shapes (services/simpleSell.ts)
 
 export interface SellCustomer {

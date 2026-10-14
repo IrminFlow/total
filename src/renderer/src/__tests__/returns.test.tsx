@@ -275,6 +275,21 @@ describe('the Sales bill view starts a return (WP 9.5)', () => {
     renderUi(<SalesList billId={7} />)
     await screen.findByTestId('sale-returned')
     await waitFor(() => expect(screen.queryByTestId('btn-bill-return')).toBeNull())
+    // Review fix: cleared by the return with nothing paid — neither "Paid" nor "Paid in full".
+    expect(screen.getByTestId('sale-status').dataset.status).toBe('returned')
+    expect(screen.getByTestId('sale-status').textContent).toBe('Nothing due')
+    expect(screen.getByTestId('simple-sale-due').textContent).toBe('₹1,180.00 came off it with returns. Nothing more is due.')
+  })
+
+  it('part paid, the rest taken off by a return: says both, never "Paid in full" (review fix)', async () => {
+    const view: SaleView = {
+      voucherId: 7, number: '1', date: '2026-10-12', partyId: 10, partyName: 'Ramesh', walkIn: false, items: [], amounts: [], note: null,
+      total: 261_000, tax: 31_000, rounding: 0, paid: 100_000, due: 0, dueDate: null, overdueDays: 0, returned: 177_000
+    }
+    invoke.mockImplementation(async (channel: string) => (channel === 'simple:sale' ? { ok: true, data: view } : channel === 'simple:returns:bill' ? { ok: true, data: bill } : { ok: true, data: [] }))
+    renderUi(<SalesList billId={7} />)
+    expect((await screen.findByTestId('simple-sale-due')).textContent).toBe('₹1,000.00 paid so far. ₹1,610.00 came off it with returns. Nothing more is due.')
+    expect(screen.getByTestId('sale-status').dataset.status).toBe('paid')
   })
 })
 
@@ -292,6 +307,7 @@ describe('the purchase bill view starts a return; the purchase list carries the 
     expect((await screen.findByTestId('purchase-returned')).textContent).toBe('Returned ₹236.00')
     // A return off an unpaid bill is not a payment: still "Due", never "Part paid".
     expect(screen.getByTestId('purchase-status').dataset.status).toBe('due')
+    expect(screen.getByTestId('simple-purchase-due').textContent).toBe('₹944.00 still to pay. ₹236.00 came off it with returns.')
     await waitFor(() => expect(calls('simple:returns:bill')[0]).toMatchObject({ side: 'purchase', id: 7 }))
     click('btn-purchase-return')
     await waitFor(() => expect(lastScreen()).toEqual({ name: 'simple-return-purchase', billId: 7 }))

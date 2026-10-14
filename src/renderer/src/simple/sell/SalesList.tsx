@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { MessageKey } from '@shared/i18n'
 import { formatPaise, formatQtyMilli } from '@shared/money'
 import { toPlainDate } from '@shared/dates'
-import { saleStatus, type SaleRow, type SaleStatus } from '@shared/simple/sell'
+import { offBillByReturns, saleStatus, type SaleRow, type SaleStatus } from '@shared/simple/sell'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession } from '../../state/stores'
@@ -158,6 +158,8 @@ function BillView({ billId }: { billId: number }): React.JSX.Element {
     )
   }
   const status = saleStatus(bill.total, bill.due, bill.overdueDays, bill.paid)
+  // WP 9.5: what returns took off the bill (total = paid + due + this) — said, never read as paid.
+  const offByReturns = offBillByReturns(bill)
   return (
     <Page data-testid="simple-sale" data-bill={bill.voucherId}>
       <button type="button" className="mb-3 text-detail text-blue hover:underline" data-testid="btn-bill-back" onClick={() => nav.back()}>
@@ -219,12 +221,15 @@ function BillView({ billId }: { billId: number }): React.JSX.Element {
           </dd>
         </dl>
         <p className="mt-3 text-body text-ink" data-testid="simple-sale-due">
-          {bill.due <= 0
+          {bill.due <= 0 && offByReturns > 0
+            ? [bill.paid > 0 ? t('simple.bill.paidSoFar', { amount: money(bill.paid) }) : '', t('simple.bill.offByReturns', { amount: money(offByReturns) }), t('simple.bill.nothingMore')].filter(Boolean).join(' ')
+            : bill.due <= 0
             ? t('simple.bill.paidAll')
             : bill.dueDate
               ? t('simple.bill.dueBy', { amount: money(bill.due), date: toPlainDate(bill.dueDate) })
               : t('simple.bill.due', { amount: money(bill.due) })}
           {bill.due > 0 && bill.paid > 0 && ` ${t('simple.bill.paidSoFar', { amount: money(bill.paid) })}`}
+          {bill.due > 0 && offByReturns > 0 && ` ${t('simple.bill.offByReturns', { amount: money(offByReturns) })}`}
         </p>
 
         <div className="mt-5 flex flex-wrap gap-2">
