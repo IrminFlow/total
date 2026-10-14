@@ -112,13 +112,20 @@ export function dashGst(db: DB, company: CompanyInfo, today: string): DashGst | 
 /** The Compliance row's figures from gstr3b() for [from, to] (return period = `period`'s month):
  *  sales tax (3.1(a)–(c) incl. zero-rated), reverse charge (3.1(d)), net eligible credit and the
  *  cash payable after set-off incl. RCM. WP 9.9: the simple Taxes screen reads the same sums. */
-export function gst3bFigures(db: DB, company: CompanyInfo, from: string, to: string, period: string): { outwardTax: number; rcmTax: number; itc: number; payable: number } {
+export function gst3bFigures(
+  db: DB, company: CompanyInfo, from: string, to: string, period: string
+): { outwardTax: number; rcmTax: number; itc: number; payable: number; cashOnSales: number; rcmCash: number } {
   const r = gstr3b(db, company, from, to, gstPeriodOf(`${period}-01`))
   return {
     outwardTax: sum4(r.outward) + r.zeroRated.igst + r.zeroRated.cess,
     rcmTax: sum4(r.rcm),
     itc: sum4(r.itc),
-    payable: sum4(r.netPayable) + sum4(r.rcmPayable)
+    payable: sum4(r.netPayable) + sum4(r.rcmPayable),
+    // WP 10.2 (the "Why?" of the cash to pay): its two parts as gstr3b() returns them — what is
+    // left of the tax on sales after the set-off (netPayable) and the reverse charge (rcmPayable,
+    // cash only). payable = cashOnSales + rcmCash.
+    cashOnSales: sum4(r.netPayable),
+    rcmCash: sum4(r.rcmPayable)
   }
 }
 

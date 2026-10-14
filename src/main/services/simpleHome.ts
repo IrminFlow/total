@@ -22,6 +22,8 @@ import {
   type HomeAttention, type HomeCash, type HomeGst, type HomeGstCredit, type HomeMoneyDay, type HomeProfitPeriod, type SimpleHomeData
 } from '@shared/simple/home'
 import { GST_FILED_META_KEY, normalizeGstFiled, type GstFiledMeta } from '@shared/simple/taxes'
+import { doingLines, previousSpan, topParts } from '@shared/simple/reports'
+import type { ProfitAndLoss } from '@shared/reports'
 import { descendantIdSet, profitAndLoss } from './reports'
 import { outstandingsWithAdvances } from './analysis'
 import { stockValuesAt } from './stockAnalysis'
@@ -110,13 +112,24 @@ function compute(db: DB, company: CompanyInfo, opts: { today: string; backups: D
   // ---- profit: this month and the FY, to today (the Gateway's month and period P&L) ----
   const month = monthOf(today)
   const span = monthSpan(month, { from: fy.from, asOn: today }) ?? { from: today, to: today }
-  const stock = stockValuesAt(db, [addDays(fy.from, -1), addDays(span.from, -1), today])
-  const pnl = (from: string, to: string): HomeProfitPeriod => {
+  // WP 10.2: the month is compared with the same days of the month before (Reports' rule).
+  const prevSpan = previousSpan('this-month', span)
+  const stock = stockValuesAt(db, [addDays(fy.from, -1), addDays(span.from, -1), today, addDays(prevSpan.from, -1), prevSpan.to])
+  const pnlOf = (from: string, to: string): { pnl: ProfitAndLoss; openingStock: number; closingStock: number } => {
     const openingStock = stock.get(addDays(from, -1))!
     const closingStock = stock.get(to)!
-    return { from, to, netProfit: profitAndLoss(db, from, to, { openingStock, closingStock }).netProfit, openingStock, closingStock }
+    return { pnl: profitAndLoss(db, from, to, { openingStock, closingStock }), openingStock, closingStock }
   }
-  const profit = { month: { month, ...pnl(span.from, span.to) }, year: pnl(fy.from, today) }
+  const pnl = (from: string, to: string): HomeProfitPeriod => {
+    const p = pnlOf(from, to)
+    const top = topParts(p.pnl.indirectExpenses, 1)[0] ?? null
+    return { from, to, netProfit: p.pnl.netProfit, openingStock: p.openingStock, closingStock: p.closingStock, lines: doingLines(p.pnl), topExpense: top }
+  }
+  const profit = {
+    month: { month, ...pnl(span.from, span.to) },
+    year: pnl(fy.from, today),
+    previousMonth: { ...prevSpan, lines: doingLines(pnlOf(prevSpan.from, prevSpan.to).pnl) }
+  }
 
   // ---- GST: the Gateway's row for a regular registration; composition gets its note ----
   const filing = company.gstRegistrationType === 'regular' ? getGstProfile(db).filing : 'monthly'

@@ -67,7 +67,8 @@ function withholdingAnswers(db: DB, today: string): TaxesWithholding[] {
       thisMonth: mine.reduce((s, w) => s + w.deducted.filter((d) => d.month === month).reduce((t, d) => t + d.amount, 0), 0),
       thisMonthDue: kind === 'tds' ? depositDueDate(`${month}-15`) : tcsDepositDueDate(`${month}-15`),
       unpaid,
-      totalUnpaid: unpaid.reduce((s, u) => s + u.amount, 0)
+      totalUnpaid: unpaid.reduce((s, u) => s + u.amount, 0),
+      lateUnpaid: unpaid.filter((u) => u.late).reduce((s, u) => s + u.amount, 0)
     }
   })
 }
@@ -137,7 +138,11 @@ export function simpleTaxes(db: DB, company: CompanyInfo, q: { period?: string }
         onPurchases: f.itc,
         awaiting: credit.awaiting,
         checked: credit.checked,
-        toPay: f.payable
+        toPay: f.payable,
+        cashOnSales: f.cashOnSales,
+        rcmCash: f.rcmCash,
+        creditUsed: f.outwardTax - f.cashOnSales,
+        creditLeft: f.itc - (f.outwardTax - f.cashOnSales)
       },
       due: {
         gstr1: gstr1DueDate(period.period, filing),

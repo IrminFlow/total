@@ -54,6 +54,15 @@ export interface GstFigures {
   checked: 'none' | 'some' | 'all'
   /** Cash to pay after the credit is used: 3B's netPayable + rcmPayable. */
   toPay: number
+  /** WP 10.2 — the parts of `toPay` as gstr3b() returns them: the tax on sales left after the
+   *  credit is used (netPayable) and the reverse charge (rcmPayable, always cash). toPay =
+   *  cashOnSales + rcmCash. */
+  cashOnSales: number
+  rcmCash: number
+  /** Of the credit, what the set-off used against the tax on sales (collected − cashOnSales) and
+   *  what is left over for the next return (onPurchases − creditUsed). */
+  creditUsed: number
+  creditLeft: number
 }
 
 export interface GstDue {
@@ -143,6 +152,8 @@ export interface TaxesWithholding {
   /** Still unpaid, oldest first (FIFO against every payment up to today). */
   unpaid: { month: string | null; amount: number; dueDate: string | null; late: boolean }[]
   totalUnpaid: number
+  /** WP 10.2 — of `totalUnpaid`, the part already past its due date. */
+  lateUnpaid: number
 }
 
 export interface CompositionDue {

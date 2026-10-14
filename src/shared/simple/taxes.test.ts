@@ -105,7 +105,7 @@ describe('the GST answer sentences', () => {
   const regular = (over: Partial<Extract<SimpleTaxes, { kind: 'regular' }>['figures']> = {}): Extract<SimpleTaxes, { kind: 'regular' }> => ({
     kind: 'regular', today: '2026-10-14', filing: 'monthly',
     period: { period: '2026-09', from: '2026-09-01', to: '2026-09-30', quarterly: false, soFar: false },
-    periods: [], figures: { collected: 18_000_00, reverseCharge: 0, onPurchases: 10_800_00, awaiting: 0, checked: 'none', toPay: 7_200_00, ...over },
+    periods: [], figures: { collected: 18_000_00, reverseCharge: 0, onPurchases: 10_800_00, awaiting: 0, checked: 'none', toPay: 7_200_00, cashOnSales: 7_200_00, rcmCash: 0, creditUsed: 10_800_00, creditLeft: 0, ...over },
     due: { gstr1: '2026-10-11', gstr3b: '2026-10-20', gstr3bUnverified: false, pmt06: [] },
     missing: [], supplierBills: [], prepared: { gstr1: null, gstr3b: null }, filesMonthly: false, filed: {}, withholding: []
   })

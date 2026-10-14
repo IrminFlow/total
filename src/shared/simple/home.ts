@@ -16,6 +16,7 @@ import type { CloseCheck, CloseCheckKey } from '../closeChecklist'
 import type { AnomalyKind, AnomalySeverity } from '../anomalies'
 import type { Deadline } from '../compliance'
 import type { GstFilingFrequency } from '../gst/filing'
+import type { DoingLines, DoingPart } from './reports'
 
 /** One side of what is owed (customers → you, or you → suppliers), from the Outstandings
  *  allocation as on today. Paise, positive. */
@@ -69,6 +70,10 @@ export interface HomeProfitPeriod {
   netProfit: number
   openingStock: number
   closingStock: number
+  /** WP 10.2 — the same P&L's totals as Reports' one column (shared/simple/reports doingLines:
+   *  lines.profit = netProfit) and its biggest running cost, for the "Why?" sentences. */
+  lines: DoingLines
+  topExpense: DoingPart | null
 }
 
 export interface HomeProfit {
@@ -76,6 +81,9 @@ export interface HomeProfit {
   month: HomeProfitPeriod & { month: string }
   /** The financial year to today. */
   year: HomeProfitPeriod
+  /** WP 10.2 — the month's comparison: the same days of the month before (Reports' previousSpan
+   *  for this month), its P&L's lines. */
+  previousMonth: { from: string; to: string; lines: DoingLines }
 }
 
 /** GST paid on purchases against GSTR-2B (the portal's statement of suppliers' bills, imported

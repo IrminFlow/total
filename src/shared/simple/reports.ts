@@ -208,6 +208,30 @@ export interface BusinessDoing {
 /** Signed change from the previous period, paise (current − previous). */
 export const changeOf = (current: number, previous: number): number => current - previous
 
+/** The lines that make up profit, each with the sign it has in it. */
+export const PROFIT_PARTS = ['sales', 'costOfGoods', 'otherIncome', 'expenses'] as const
+export type ProfitPart = (typeof PROFIT_PARTS)[number]
+const PART_SIGN: Record<ProfitPart, 1 | -1> = { sales: 1, costOfGoods: -1, otherIncome: 1, expenses: -1 }
+
+/**
+ * WP 10.2 — "mostly from …": of the lines that make up profit, the one whose change moved profit
+ * the most in the same direction as profit moved (sales up, running costs down …). `change` is the
+ * line's own change (current − previous, signed as the line reads); null when profit did not move
+ * or no line moved it that way. Pure — the lines are the service's (doingLines of each P&L).
+ */
+export function biggestChange(current: Pick<DoingLines, ProfitPart | 'profit'>, previous: Pick<DoingLines, ProfitPart | 'profit'>): { part: ProfitPart; change: number } | null {
+  const diff = current.profit - previous.profit
+  if (diff === 0) return null
+  let best: { part: ProfitPart; change: number; effect: number } | null = null
+  for (const part of PROFIT_PARTS) {
+    const change = current[part] - previous[part]
+    const effect = PART_SIGN[part] * change
+    if (Math.sign(effect) !== Math.sign(diff)) continue
+    if (!best || Math.abs(effect) > Math.abs(best.effect)) best = { part, change, effect }
+  }
+  return best && { part: best.part, change: best.change }
+}
+
 // ---------------------------------------------------------------- cash in the next 30 days
 
 export const CASH_HORIZON_DAYS = 30
@@ -241,6 +265,11 @@ export interface SimpleCash {
   topOut: CashItem[]
   /** Parts of the forecast that could not be read (shown as a note). */
   warnings: number
+  /** WP 10.2 — today's `now` in parts: the trial balance's cash / bank rows (= the forecast's
+   *  opening) and the accounts, for the "Why?" and its link. */
+  split: DoingCash
+  /** The first day the running balance goes below zero, and how far — null when it never does. */
+  belowZero: { amount: number; date: string } | null
 }
 
 // ---------------------------------------------------------------- who owes whom
@@ -298,6 +327,13 @@ export interface SimpleByMonth {
   months: MonthBar[]
   from: string
   to: string
+  /** WP 10.2 — the 12 months together (the registers' taxable values, summed per side). */
+  totals: { sales: number; purchases: number }
+}
+
+/** The 12 bars' totals. Pure. */
+export function monthTotals(bars: readonly MonthBar[]): SimpleByMonth['totals'] {
+  return { sales: bars.reduce((s, m) => s + m.sales, 0), purchases: bars.reduce((s, m) => s + m.purchases, 0) }
 }
 
 /** The 12 months ending with `today`'s month, oldest first. */
