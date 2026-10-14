@@ -93,7 +93,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | WP | Feature | Scenario(s) | Notes |
 | --- | --- | --- | --- |
 | 7.1 | Performance budgets | — | `*.perf.dbtest.ts` |
-| 7.2 | Security (encryption, session lock) | 10, 65 | |
+| 7.2 | Security (encryption, session lock) | 10, 65 (WP 7.2 PR, in flight) | |
 | 7.3 | Windows parity | — | CI `build-win` (unit + DB + build) |
 | 7.4 | This matrix, date helpers, `--repeat`, zero-flake runs | all | |
 | — | Tally import, backup / restore, roles + lock | 04, 09, 10 | |
