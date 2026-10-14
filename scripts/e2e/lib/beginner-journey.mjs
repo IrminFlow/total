@@ -380,7 +380,8 @@ export function journey(h) {
         collected: await paise('tile-gst-collected'),
         purchases: await paise('tile-gst-purchases'),
         toPay: await paise('tile-gst-to-pay'),
-        period: await page.inputValue('[data-testid="taxes-period"]')
+        period: await page.inputValue('[data-testid="taxes-period"]'),
+        running: (await has('taxes-running')) ? await text('taxes-running') : null
       }
     },
 
