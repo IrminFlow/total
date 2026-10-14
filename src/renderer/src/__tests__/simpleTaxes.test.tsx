@@ -4,7 +4,7 @@
 // filer's note, unregistered / composition, TDS when on, a viewer who can't note a filing. No
 // banned word ("ITC", "set-off" …) anywhere on it.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { CompanyInfo } from '@shared/domain'
 import type { SimpleTaxes } from '@shared/simple/taxes'
@@ -158,7 +158,7 @@ describe('Taxes — not regular (WP 9.9)', () => {
   it('unregistered: nothing to file; TDS when on', async () => {
     reply = { kind: 'unregistered', today: '2026-10-13', withholding: [{ kind: 'tds', thisMonth: 300_00, thisMonthDue: '2026-11-07', totalUnpaid: 900_00, unpaid: [{ month: '2026-09', amount: 600_00, dueDate: '2026-10-07', late: true }, { month: '2026-10', amount: 300_00, dueDate: '2026-11-07', late: false }] }] }
     renderUi(<TaxesScreen />)
-    expect((await screen.findByTestId('taxes-unregistered')).textContent).toBe('You are not registered for GST, so there is nothing to file.')
+    expect(within(await screen.findByTestId('taxes-unregistered')).getByTestId('empty-purpose').textContent).toBe('You are not registered for GST, so there is nothing to file.')
     expect(screen.getByTestId('taxes-tds-this-month').textContent).toBe('TDS you deducted this month: ₹300.00, pay by 7 Nov.')
     expect(screen.getByTestId('taxes-tds').textContent).toContain('Sep 2026: ₹600.00 still to pay, due 7 Oct — late')
     expect(screen.queryByTestId('taxes-figures')).toBeNull()

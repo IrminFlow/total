@@ -8,6 +8,7 @@ import { useNav, useSession } from '../../state/stores'
 import { Page, Select, SkeletonTiles } from '../../components/ui'
 import { FigureTile, LoadError, ReportHeader, cardCls, money } from '../reports/parts'
 import { GstSteps } from './GstSteps'
+import { EmptyTeach } from '../help/EmptyTeach'
 import { WithholdingCards } from './Withholding'
 
 type Regular = Extract<SimpleTaxes, { kind: 'regular' }>
@@ -25,6 +26,7 @@ const taxesScreen = (period: string): { name: 'simple-taxes'; period: string } =
 export function TaxesScreen({ period }: { period?: string }): React.JSX.Element {
   const t = useT()
   const today = useSession((s) => s.workingDate)
+  const nav = useNav()
   const q = useQuery({ queryKey: ['simpleTaxes', period ?? null, today], queryFn: () => api.simpleTaxes.get(period, today) }) // i18n-technical
   const x = q.data
   const accountant = x?.kind === 'regular' ? { screen: gstr3bScreen(x.period.from.slice(0, 7)), hint: t('simple.taxes.accountant3b') } : undefined
@@ -34,9 +36,12 @@ export function TaxesScreen({ period }: { period?: string }): React.JSX.Element 
       {q.isError && <LoadError testId="taxes" text={t('simple.taxes.loadError')} onRetry={() => void q.refetch()} />}
       {!x && !q.isError && <SkeletonTiles count={3} />}
       {x?.kind === 'unregistered' && (
-        <section className={cardCls} data-testid="taxes-unregistered">
-          <p className="text-lead text-ink">{t('simple.taxes.gst.unregistered')}</p>
-        </section>
+        <EmptyTeach
+          testId="taxes-unregistered"
+          purpose={t('simple.taxes.gst.unregistered')}
+          action={{ label: t('simple.empty.taxesBusiness'), testId: 'btn-taxes-business', onClick: () => nav.go({ name: 'company-info' }) }} // i18n-technical
+          help="gst" // i18n-technical
+        />
       )}
       {x?.kind === 'composition' && (
         <section className={cardCls} data-testid="taxes-composition">
@@ -79,6 +84,16 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
           {t('simple.taxes.filing', { filing: x.filing })}
         </span>
       </div>
+      {f.collected === 0 && f.onPurchases === 0 && f.toPay === 0 && f.reverseCharge === 0 && (
+        <div className="mb-4">
+          <EmptyTeach
+            testId="taxes-empty"
+            purpose={t('simple.empty.taxesRegular')}
+            action={{ label: t('simple.sales.makeBill'), testId: 'btn-taxes-empty-sell', onClick: () => nav.go({ name: 'simple-sell' }) }} // i18n-technical
+            help="gst" // i18n-technical
+          />
+        </div>
+      )}
       {x.period.soFar && (
         <p className="mb-3 text-detail text-muted" data-testid="taxes-so-far">
           {t('simple.taxes.gst.soFarNote', { date: toPlainDate(x.period.to) })}

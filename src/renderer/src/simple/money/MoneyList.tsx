@@ -8,6 +8,7 @@ import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession } from '../../state/stores'
 import { Button, Page } from '../../components/ui'
+import { EmptyTeach } from '../help/EmptyTeach'
 import { DataTable, defineColumns } from '../../components/table'
 
 const DIR_TEXT: Record<MoneyDirection, MessageKey> = { in: 'simple.money.dir.in', out: 'simple.money.dir.out', move: 'simple.money.dir.move' }
@@ -59,6 +60,7 @@ function MoneyTable(): React.JSX.Element {
   const until = workingDate < to ? workingDate : to
   const { data, isLoading } = useQuery({ queryKey: ['simpleMoneyList', from, until], queryFn: () => api.simpleMoney.list(from, until) }) // i18n-technical
   const rows = data ?? []
+  const empty = !isLoading && data != null && rows.length === 0
   const columns = useMemo(
     () =>
       defineColumns<MoneyRow>([
@@ -94,7 +96,7 @@ function MoneyTable(): React.JSX.Element {
           <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.money.list.title')}</h1>
           <p className="mt-1 text-detail text-muted">{t('simple.money.list.period', { from: toPlainDate(from), to: toPlainDate(until) })}</p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        {!empty && <div className="flex flex-wrap gap-2">
           <Button variant="primary" data-testid="btn-money-list-in" onClick={() => nav.go(IN)}>
             {t('simple.money.list.in')}
           </Button>
@@ -104,8 +106,16 @@ function MoneyTable(): React.JSX.Element {
           <Button data-testid="btn-money-list-move" onClick={() => nav.go(MOVE)}>
             {t('simple.money.list.move')}
           </Button>
-        </div>
+        </div>}
       </div>
+      {empty ? (
+        <EmptyTeach
+          testId="simple-money-empty"
+          purpose={t('simple.empty.money')}
+          action={{ label: t('simple.money.list.in'), testId: 'btn-money-empty-in', onClick: () => nav.go(IN) }} // i18n-technical
+          help="money-in-out" // i18n-technical
+        />
+      ) : (
       <section className="rounded-lg border border-line bg-panel shadow-elev-1">
         <DataTable
           testId="simple-money"
@@ -119,6 +129,7 @@ function MoneyTable(): React.JSX.Element {
           onRowActivate={(r) => nav.go({ name: 'simple-money', entryId: r.voucherId })} // i18n-technical
         />
       </section>
+      )}
     </Page>
   )
 }
