@@ -56,7 +56,8 @@ await scenario('29-counter-billing', async (h) => {
   await h.invoke('master:stockItems:update', { id: mouse.id, data: { ...mouseData, barcode: '8901000000011' } })
   await h.invoke('master:stockItems:update', { id: notebook.id, data: { ...notebookData, barcode: '8901000000028' } })
   const level = await h.invoke('master:priceLevels:create', { name: 'Shop MRP', inclusiveOfTax: true, isDefault: true })
-  const today = await page.evaluate(() => new Date().toISOString().slice(0, 10))
+  // The app's working date is LOCAL (toISOString is UTC — a day behind in India before 05:30).
+  const today = await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })
   await h.invoke('pricing:setGridRate', { priceLevelId: level.id, stockItemId: mouse.id, date: '2000-01-01', rate: 94400 }) // ₹944 incl. 18% = ₹800
   await h.invoke('pricing:setGridRate', { priceLevelId: level.id, stockItemId: notebook.id, date: '2000-01-01', rate: 47250 }) // ₹472.50 incl. 5% = ₹450
   await h.invoke('pricing:saveScheme', {

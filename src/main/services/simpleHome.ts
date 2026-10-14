@@ -252,8 +252,9 @@ export function simpleHomeAttention(db: DB, company: CompanyInfo, today: string)
     if (low > 0) items.push({ source: 'stock', key: 'low_stock', count: low, amount: null, level: 'medium' })
     // WP 10.8: stock sold before its purchase was recorded is costed at nothing by the valuation
     // pass — said on Home as on today (the month-end check only sees last month).
-    const negative = getFeatures(db).inventory ? negativeStockCount(db, today) : 0
-    if (negative > 0) items.unshift({ source: 'stock', key: 'negative_stock', count: negative, amount: null, level: 'high' })
+    // Only when last month's checks don't already say it (one row per finding).
+    const negative = getFeatures(db).inventory && !items.some((i) => i.key === 'negative_stock') ? negativeStockCount(db, today) : 0
+    if (negative > 0) items.push({ source: 'stock', key: 'negative_stock', count: negative, amount: null, level: 'high' })
     return { period, items, anomaliesSkipped }
   })()
 }

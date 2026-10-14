@@ -428,7 +428,7 @@ describe('advances and credits read as credit (outstanding.ts follows the sign)'
     expect(v.billRefs).toEqual([expect.objectContaining({ kind: 'new', amount: 200_000 })])
     expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 200_000 })
     expect(out.summary.parties[0]!.balance).toBe(-200_000)
-    expect(out.sentences).toContain('Ramesh has paid ₹2,000.00 in advance.')
+    expect(out.sentences).toContain('Ramesh has a credit of ₹2,000.00 to use on the next bill.')
     // A later bill set against the advance uses it: ₹1,180 − ₹2,000 → ₹820 credit left.
     roundTrips(v.id, 'accounting')
     const { twin, ids } = handEntered([acc('receipt', TODAY, [r('dr', L('HDFC Bank'), 200_000), r('cr', L('Ramesh'), 200_000)], [{ kind: 'new', name: v.number, amount: 200_000, dueDate: null }])])
