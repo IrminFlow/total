@@ -98,6 +98,9 @@ export interface GstFiledEntry {
 
 export type GstFiledPeriod = Partial<Record<GstForm, GstFiledEntry>>
 
+/** The company meta key of the "I've filed" marks. */
+export const GST_FILED_META_KEY = 'gstFiled'
+
 /** meta `gstFiled`: { 'YYYY-MM' (the period's last month): { gstr1?, gstr3b? } }. */
 export type GstFiledMeta = Record<string, GstFiledPeriod>
 

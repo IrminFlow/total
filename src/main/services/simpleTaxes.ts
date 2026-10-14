@@ -23,27 +23,18 @@ import { depositDueDate } from '@shared/tdsInterest'
 import { tcsDepositDueDate } from '@shared/tcs'
 import { cmp08DueDate, gstr1DueDate, gstr3bDueDate, gstr4DueDate, pmt06DueDate } from '@shared/gst/filing'
 import {
-  MISSING_BILL_CHECKS, gstPeriodChoices, gstPeriodFor, nextCompositionDue, normalizeArn, normalizeGstFiled,
+  GST_FILED_META_KEY, MISSING_BILL_CHECKS, gstPeriodChoices, gstPeriodFor, nextCompositionDue, normalizeArn, normalizeGstFiled,
   type GstFiledInput, type GstFiledMeta, type GstFiledPeriod, type GstForm, type GstPeriod, type MissingBillsItem, type SimpleTaxes, type SupplierBillsMonth, type TaxesWithholding
 } from '@shared/simple/taxes'
 import { getFeatures, getGstProfile } from './config'
 import { dashGst, gst3bFigures } from './dashboard'
-import { gstCredit } from './simpleHome'
+import { gstCredit, readGstFiled } from './simpleHome'
 import { closeChecklist, getStatement, gst2bMismatches, withholdingFacts } from './assistants'
 import { listLedgers } from './masters'
 import { writeAudit } from './audit'
 
-const META_KEY = 'gstFiled'
-
-export function readGstFiled(db: DB): GstFiledMeta {
-  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(META_KEY) as { value: string } | undefined
-  if (!row) return {}
-  try {
-    return normalizeGstFiled(JSON.parse(row.value))
-  } catch {
-    return {}
-  }
-}
+const META_KEY = GST_FILED_META_KEY
+export { readGstFiled }
 
 /** When the GSTR-1 / 3B file for a return month was last prepared (gstAnnual's export snapshot). */
 function preparedAt(db: DB, form: GstForm, lastMonth: string): string | null {

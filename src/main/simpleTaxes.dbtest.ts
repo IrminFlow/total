@@ -13,10 +13,10 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import Database from 'better-sqlite3'
 import { gstPeriodOf, todayISO } from '@shared/dates'
-import { addDays } from '@shared/dashboard'
+import { addDays, addMonths } from '@shared/dashboard'
 import { cmp08DueDate, gstr1DueDate, gstr3bDueDate, gstr4DueDate } from '@shared/gst/filing'
 import { nextCompositionDue, type SimpleTaxes } from '@shared/simple/taxes'
-import type { SimpleHomeData } from '@shared/simple/home'
+import type { HomeAttention, SimpleHomeData } from '@shared/simple/home'
 import { seededDb, TEST_INFO } from './db/testdb'
 import { createLedger } from './services/masters'
 import { saveVoucher } from './services/vouchers'
@@ -190,6 +190,50 @@ describe('simple:taxes — regular (WP 9.9)', () => {
     const v = await view3b(x.period.from, x.period.to, x.period.period)
     expect(x.figures.collected).toBe(sum4(v.outward) + v.zeroRated.igst + v.zeroRated.cess)
     await ok('gstProfile:set', { filing: 'monthly' })
+  })
+})
+
+describe('simple:taxes — hand-worked figures (review, WP 9.9)', () => {
+  it('a Maharashtra trader’s month: collected ₹1,260, on purchases ₹1,080, cash ₹180; both filed → Home stops asking for the files', async () => {
+    const month = addMonths(TODAY.slice(0, 7), -1)
+    const { slug } = await ok<{ slug: string }>('simple:setup', {
+      name: 'Hand Worked Traders', stateCode: '27', businessType: 'trader', gst: 'regular', gstin: '27AAPFU0939F1ZV', filing: 'monthly',
+      stock: true, startDate: `${month}-01`, fresh: true
+    })
+    await ok('company:open', { slug })
+    const groups = await ok<{ id: number; name: string }[]>('master:groups:list')
+    const g = (n: string): number => groups.find((x) => x.name === n)!.id
+    const base = { openingBalance: 0, address: null, taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, exportType: null }
+    const supplier = await ok<{ id: number }>('master:ledgers:create', { ...base, name: 'Shiv Wholesale', groupId: g('Sundry Creditors'), gstin: '27AABCG3456H1ZN', stateCode: '27', creditDays: 30 })
+    const delhi = await ok<{ id: number }>('master:ledgers:create', { ...base, name: 'Kapoor Electricals', groupId: g('Sundry Debtors'), gstin: '07AAACK1234L1ZP', stateCode: '07', creditDays: 15 })
+    const units = await ok<{ id: number; symbol: string }[]>('master:units:list')
+    const unitId = (units.find((u) => u.symbol === 'Nos') ?? units[0]!).id
+    const fan = (await ok<{ item: { id: number } }>('master:stockItems:quickCreate', {
+      item: { name: 'Table fan', groupId: null, unitId, hsn: '8414', gstRate: 18, cessRate: null, openingQtyMilli: 0, openingValue: 0, barcode: null, reorderLevelMilli: null },
+      sellingPricePaise: 1_000_00, purchasePricePaise: null
+    })).item
+    // Bought 10 × ₹600 in-state: CGST 9% ₹540 + SGST 9% ₹540 = ₹1,080 credit.
+    await ok('simple:post', { intent: { clientId: 'hw-buy-0001', kind: 'purchase', date: `${month}-05`, supplierId: supplier.id, billNo: 'SW/1', items: [{ itemId: fan.id, qty: '10', rate: 600_00 }], payment: { how: 'credit' } } })
+    // Sold 4 × ₹1,000 in-state: CGST ₹360 + SGST ₹360; 3 × ₹1,000 to Delhi: IGST 18% ₹540.
+    await ok('simple:post', { intent: { clientId: 'hw-sale-0001', kind: 'sale', date: `${month}-10`, items: [{ itemId: fan.id, qty: '4', rate: 1_000_00 }], payment: { how: 'cash' } } })
+    await ok('simple:post', { intent: { clientId: 'hw-sale-0002', kind: 'sale', date: `${month}-12`, customerId: delhi.id, items: [{ itemId: fan.id, qty: '3', rate: 1_000_00 }] } })
+    const x = await ok<Regular>('simple:taxes', { period: month, today: TODAY })
+    // Collected 360 + 360 + 540 = ₹1,260. Credit ₹1,080 (all IGST-free). Set-off: CGST 540 pays
+    // CGST 360, its 180 left pays IGST; SGST likewise → IGST 540 − 180 − 180 = ₹180 in cash.
+    expect(x.figures).toEqual({ collected: 1_260_00, reverseCharge: 0, onPurchases: 1_080_00, awaiting: 0, checked: 'none', toPay: 180_00 })
+    // The accountant GSTR-3B screen's "Net payable in cash" says the same.
+    const v = await view3b(x.period.from, x.period.to, month)
+    expect(v.netPayable).toEqual({ igst: 180_00, cgst: 0, sgst: 0, cess: 0 })
+
+    // Home asks for the month's files while they are neither prepared nor noted as filed …
+    const keys = async (): Promise<string[]> => (await ok<HomeAttention>('simple:homeAttention', { today: TODAY })).items.map((i) => String(i.key))
+    expect(await keys()).toContain('gst_returns')
+    const filedOn = addDays(x.period.to, 5) <= TODAY ? addDays(x.period.to, 5) : TODAY
+    await ok('simple:taxes:filed', { period: month, form: 'gstr1', arn: 'AA2709261234567', date: filedOn })
+    expect(await keys()).toContain('gst_returns') // one of two is not enough
+    await ok('simple:taxes:filed', { period: month, form: 'gstr3b', arn: 'AA2709261234568', date: filedOn })
+    // … and stops once both are noted as filed.
+    expect(await keys()).not.toContain('gst_returns')
   })
 })
 
