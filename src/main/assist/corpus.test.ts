@@ -2,6 +2,7 @@
 // with and without amounts and dates) → the intent and slots the classifier must pick. Pure.
 import { describe, expect, it } from 'vitest'
 import { classify, normalise, periodOf } from './classify'
+import { CATALOGUES, LANGUAGES } from '@shared/i18n'
 
 const TODAY = '2026-10-14'
 
@@ -186,4 +187,18 @@ describe('Ask Total normalising', () => {
   it('a named month later than today means last year’s', () => {
     expect(periodOf('sales in march', TODAY)).toMatchObject({ from: '2026-03-01', to: '2026-03-31' })
   })
+})
+
+// WP 10.4 review: the suggestion chips are sent as questions — each must be understood in every
+// language (the Hindi "who owes me" chip used to fall through to "unknown").
+describe('Ask Total suggestion chips in every language', () => {
+  const want = { owed: 'owed', profit: 'figure', profitHinglish: 'figure', cash: 'money', gst: 'gst', entry: 'entry' } as const
+  for (const lang of LANGUAGES) {
+    for (const [key, kind] of Object.entries(want)) {
+      it(`${lang} assist.suggest.${key}`, () => {
+        const text = (CATALOGUES[lang] as Record<string, string | undefined>)[`assist.suggest.${key}`] ?? (CATALOGUES.en as Record<string, string>)[`assist.suggest.${key}`]!
+        expect(classify(text, TODAY).kind, text).toBe(kind)
+      })
+    }
+  }
 })
