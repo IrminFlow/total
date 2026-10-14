@@ -19,5 +19,13 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.people.msg.final': '{company} ki taraf se aakhri yaad: {amount} {days, plural, one {# din} other {# din}} se baaki hai. Kripya 7 din mein payment kar dein.',
   'simple.people.msg.bill': '• Bill {bill}, {date}: {amount}',
   'simple.people.msg.more': '…aur {count, plural, one {# bill} other {# bill}}',
+  'assist.panel.byTotal': 'Total ne khud jawab diya',
+  'assist.panel.ask': 'Poochhein',
+  'assist.home.ask': 'Poochhein',
+  'assist.unknown': 'Iska jawab abhi nahi de sakta. Inme se koi poochh kar dekhiye:',
+  'assist.figure.profit': '{period} aapka profit {amount} hua.',
+  'assist.figure.loss': '{period} aapko {amount} ka nuksan hua.',
+  'assist.money.cash': 'Galle mein {amount} cash hai.',
+  'assist.entry.notSaved': 'Abhi kuch save nahi hua — {screen} kholiye, check kijiye aur Save dabaiye.',
   'simple.people.msg.thanks': 'Agar aap payment kar chuke hain, to dhanyavaad — is message ko ignore karein.'
 }

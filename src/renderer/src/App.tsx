@@ -200,17 +200,17 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-looks' && <SimpleLooks />}
           {screen.name === 'simple-features' && <SimpleFeatures />}
           {screen.name === 'simple-openings' && <Openings />}
-          {screen.name === 'simple-money-in' && <MoneyIn key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}|${screen.date ?? ''}|${screen.bankId ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} date={screen.date} bankId={screen.bankId} reference={screen.reference} note={screen.note} />}
-          {screen.name === 'simple-money-out' && <MoneyOut key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}|${screen.date ?? ''}|${screen.bankId ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} date={screen.date} bankId={screen.bankId} reference={screen.reference} note={screen.note} />}
+          {screen.name === 'simple-money-in' && <MoneyIn key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}|${screen.date ?? ''}|${screen.bankId ?? ''}|${screen.ask ? JSON.stringify(screen.ask) : ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} date={screen.date} bankId={screen.bankId} reference={screen.reference} note={screen.note} ask={screen.ask} />}
+          {screen.name === 'simple-money-out' && <MoneyOut key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}|${screen.date ?? ''}|${screen.bankId ?? ''}|${screen.ask ? JSON.stringify(screen.ask) : ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} date={screen.date} bankId={screen.bankId} reference={screen.reference} note={screen.note} ask={screen.ask} />}
           {screen.name === 'simple-move-money' && <MoveMoney />}
           {screen.name === 'simple-money' && <MoneyList key={screen.entryId ?? 'list'} entryId={screen.entryId} />}
-          {screen.name === 'simple-sell' && <MakeBill key={screen.party ?? 'new'} party={screen.party} />}
+          {screen.name === 'simple-sell' && <MakeBill key={screen.ask ? JSON.stringify(screen.ask) : (screen.party ?? 'new')} party={screen.party} ask={screen.ask} />}
           {screen.name === 'simple-sales' && <SalesList key={screen.billId ?? 'list'} billId={screen.billId} />}
           {screen.name === 'simple-quick-bill' && <QuickBill />}
           {screen.name === 'simple-return-sale' && <ReturnSale key={screen.billId ?? 'pick'} billId={screen.billId} />}
           {screen.name === 'simple-return-purchase' && <ReturnPurchase key={screen.billId ?? 'pick'} billId={screen.billId} />}
           {screen.name === 'simple-bank' && <BankScreen key={screen.bankId ?? 'bank'} bankId={screen.bankId} />}
-          {screen.name === 'simple-buy' && <RecordPurchase key={screen.party ?? 'new'} party={screen.party} />}
+          {screen.name === 'simple-buy' && <RecordPurchase key={screen.ask ? JSON.stringify(screen.ask) : (screen.party ?? 'new')} party={screen.party} ask={screen.ask} />}
           {screen.name === 'simple-purchases' && <PurchaseList key={screen.billId ?? 'list'} billId={screen.billId} />}
           {screen.name === 'simple-people' && <PeopleList key={`${screen.tab ?? 'people'}|${screen.filter ?? 'all'}`} tab={screen.tab} filter={screen.filter} />}
           {screen.name === 'simple-person' && <PersonView key={screen.id} id={screen.id} />}

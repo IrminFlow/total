@@ -17,7 +17,8 @@ import { useFeatures } from '../../lib/useFeatures'
 import { useSimplePost } from '../../lib/simplePost'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { confirmDialog } from '../../lib/dialogs'
-import { useNav, useSession } from '../../state/stores'
+import { useNav, useSession, type AskOpen } from '../../state/stores'
+import { sellFromAsk } from '@shared/simple/askPrefill'
 import { Button, DateInput, Field, isAnyModalOpen, Page, TextInput, useFormErrors } from '../../components/ui'
 import { TypeAhead, useGroups, useLedgers, useStockItems } from '../../components/pickers'
 import { CATEGORIES } from '@shared/simple/categories'
@@ -61,7 +62,7 @@ const isDirty = (f: SellForm & { lines: FormLine[] }, party?: number): boolean =
  * bill once there is one). WP 9.8: `party` starts the bill for that customer (People → Make a
  * bill), on credit until the user says how it was paid.
  */
-export function MakeBill({ party }: { party?: number } = {}): React.JSX.Element {
+export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple-sell'> } = {}): React.JSX.Element {
   const t = useT()
   const nav = useNav()
   const queryClient = useQueryClient()
@@ -73,14 +74,17 @@ export function MakeBill({ party }: { party?: number } = {}): React.JSX.Element 
   const groups = useGroups()
   const { data: setup } = useQuery({ queryKey: ['simpleSellSetup'], queryFn: api.simple.sellSetup }) // i18n-technical
   const { data: units } = useQuery({ queryKey: ['units'], queryFn: api.units.list }) // i18n-technical
-  const poster = useSimplePost()
+  const poster = useSimplePost({ aiDraftId: ask?.draftId ?? null })
 
   const startMode: SellForm['mode'] = stockOn ? 'items' : 'amount' // i18n-technical
   const blank = useCallback(
     (): SellForm & { lines: FormLine[] } => ({ ...emptySellForm(workingDate, { mode: startMode, ratesIncludeGst: readIncl(slug) }), lines: startMode === 'items' ? [newLine()] : [] }),
     [workingDate, startMode, slug]
   )
-  const [form, setForm] = useState<SellForm & { lines: FormLine[] }>(() => (party != null ? { ...blank(), customerId: party, paid: CREDIT } : blank()))
+  // WP 10.1: an Ask Total entry request opens the bill pre-filled (askPrefill.ts — the draft's own mapping).
+  const [form, setForm] = useState<SellForm & { lines: FormLine[] }>(() =>
+    ask ? sellFromAsk(blank(), ask.prefill, (l) => ({ ...l, key: ++lineSeq, auto: l.auto ?? true })) : party != null ? { ...blank(), customerId: party, paid: CREDIT } : blank()
+  )
   const [savedIds, setSavedIds] = useState<number[] | null>(null)
   const [savedWalkIn, setSavedWalkIn] = useState(false)
   const [preview, setPreview] = useState<SimplePreview | null>(null)
@@ -88,7 +92,7 @@ export function MakeBill({ party }: { party?: number } = {}): React.JSX.Element 
   const [creating, setCreating] = useState<{ what: 'customer' | 'product' | 'bank'; name: string; lineKey?: number } | null>(null)
   // Plan §3: Paid how defaults to Cash for the walk-in and On credit for a named customer — until
   // the user picks a way themselves.
-  const [paidChosen, setPaidChosen] = useState(false)
+  const [paidChosen, setPaidChosen] = useState(!!ask?.prefill.how)
   const [previewProblem, setPreviewProblem] = useState<string | null>(null)
   const [showDiscount, setShowDiscount] = useState(false)
   const [leaving, setLeaving] = useState(false)

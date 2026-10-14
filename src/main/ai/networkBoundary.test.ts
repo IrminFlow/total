@@ -77,3 +77,15 @@ describe('inside main, only the provider adapter imports openai', () => {
     expect(pkg.devDependencies.openai).toBeUndefined()
   })
 })
+
+describe('Ask Total (WP 10.1, src/main/assist/) needs no key and no network', () => {
+  it('no assist file imports openai, the provider adapter or the agent loop (whole graph: assist/assistBoundary.test.ts)', () => {
+    const files = walk(join(ROOT, 'src', 'main', 'assist'), /\.ts$/).filter((p) => !isTest(p))
+    expect(files.length).toBeGreaterThanOrEqual(5)
+    const offenders = files.filter((p) => {
+      const text = readFileSync(p, 'utf8')
+      return IMPORTS_OPENAI.test(text) || /from\s+['"][./]*(?:ai\/)?(?:provider|agent|mockProvider)['"]/.test(text) || NETWORK_API.test(code(p))
+    })
+    expect(offenders.map((p) => relative(ROOT, p))).toEqual([])
+  })
+})
