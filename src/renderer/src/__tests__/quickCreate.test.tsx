@@ -364,6 +364,9 @@ describe('review fixes', () => {
     await screen.findByText('Pcs')
     expect(screen.getByText('What it usually costs you')).toBeTruthy()
     expect(screen.getByText('Optional, for your reference.')).toBeTruthy()
-    expect(screen.getByText('HSN code (needed for GST returns and e-invoices)')).toBeTruthy()
+    expect(screen.getByText('HSN code (the product’s GST code)')).toBeTruthy()
+    // WP 10.8: one message — it may be left empty, and says when it matters (not "needed" + "optional").
+    const hint = screen.getByText(/You can leave it empty and add it later/)
+    expect(hint.textContent).not.toMatch(/Optional|needed/i)
   })
 })

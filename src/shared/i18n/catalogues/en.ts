@@ -1031,8 +1031,8 @@ export const en = {
   'simple.newProduct.customRateWarn': 'This rate is not in the GST rate table for this date. Use it only if your CA says so.',
   'simple.newProduct.cessNote': 'A few goods may carry cess on top of GST. If yours does, set it later in the full product form.',
   'simple.newProduct.hsn': 'HSN code (product code for GST)',
-  'simple.newProduct.hsnRegular': 'HSN code (needed for GST returns and e-invoices)',
-  'simple.newProduct.hsnHint': 'Optional. Total doesn’t look the code up yet — copy it from your supplier’s bill or ask your CA.',
+  'simple.newProduct.hsnRegular': 'HSN code (the product’s GST code)',
+  'simple.newProduct.hsnHint': 'You can leave it empty and add it later. It is printed on your bills and listed in your GST return — your CA can tell you when your bills must show it. Total doesn’t look the code up: copy it from your supplier’s bill.',
   'simple.newProduct.create': 'Add product',
   'simple.newProduct.created': '“{name}” added.',
 
