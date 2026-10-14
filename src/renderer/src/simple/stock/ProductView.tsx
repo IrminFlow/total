@@ -56,7 +56,7 @@ export function ProductView({ itemId }: { itemId: number }): React.JSX.Element {
   const columns = useMemo(
     () =>
       defineColumns<StockHistoryRow>([
-        { id: 'date', header: t('simple.stock.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date), width: 130, groupable: false }, // i18n-technical
+        { id: 'date', header: t('simple.stock.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date, t.lang), width: 130, groupable: false }, // i18n-technical
         {
           id: 'what', header: t('simple.stock.col.what'), kind: 'text', groupable: false, // i18n-technical
           value: (r) => (r.party ? t('simple.stock.whatWho', { what: t(WHAT_TEXT[r.what]), name: r.party }) : t(WHAT_TEXT[r.what])) // i18n-technical: typed key table
@@ -116,7 +116,7 @@ export function ProductView({ itemId }: { itemId: number }): React.JSX.Element {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{p.name}</h1>
-            <p className="mt-1 text-detail text-muted">{t('simple.stock.asOn', { date: toPlainDate(p.asOn) })}</p>
+            <p className="mt-1 text-detail text-muted">{t('simple.stock.asOn', { date: toPlainDate(p.asOn, t.lang) })}</p>
           </div>
           <LevelChip level={p.level} />
         </div>
@@ -168,7 +168,7 @@ export function ProductView({ itemId }: { itemId: number }): React.JSX.Element {
                 </button>
               </dd>
             )}
-            {editingPrice && <dd className="mt-1 text-small text-muted">{t('simple.stock.priceFrom', { date: toPlainDate(workingDate) })}</dd>}
+            {editingPrice && <dd className="mt-1 text-small text-muted">{t('simple.stock.priceFrom', { date: toPlainDate(workingDate, t.lang) })}</dd>}
           </div>
           <div>
             <dt className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">{t('simple.stock.lowAt')}</dt>
@@ -210,7 +210,7 @@ export function ProductView({ itemId }: { itemId: number }): React.JSX.Element {
         <div className="flex flex-wrap items-baseline justify-between gap-3 px-panel pt-panel">
           <h2 className="text-subtitle font-semibold text-ink">{t('simple.stock.history')}</h2>
           <span className="text-small text-muted" data-testid="stock-history-opening">
-            {t('simple.stock.historyFrom', { date: toPlainDate(p.history.from), qty: formatQtyMilli(p.history.openingMilli), unit })}
+            {t('simple.stock.historyFrom', { date: toPlainDate(p.history.from, t.lang), qty: formatQtyMilli(p.history.openingMilli), unit })}
           </span>
         </div>
         <DataTable

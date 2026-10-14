@@ -26,7 +26,7 @@ export function CashNext30(): React.JSX.Element {
       <ReportHeader
         testId="cash"
         title={t('simple.reports.cashNext30')}
-        subtitle={c ? t('simple.reports.cash.subtitle', { from: toPlainDate(c.asOn), to: toPlainDate(c.until) }) : t('common.loading')}
+        subtitle={c ? t('simple.reports.cash.subtitle', { from: toPlainDate(c.asOn, t.lang), to: toPlainDate(c.until, t.lang) }) : t('common.loading')}
         accountant={{ screen: FORECAST, hint: t('simple.reports.cash.accountant') }}
       />
       {q.isError && <LoadError testId="cash" text={t('simple.reports.loadError')} onRetry={() => void q.refetch()} />}
@@ -49,7 +49,7 @@ function CashBody({ c }: { c: SimpleCash }): React.JSX.Element {
         <FigureTile id="cash-now" title={t('simple.reports.cash.now')} paise={c.now} why={cashNowWhy(c, t)} link={tb} />
         <FigureTile id="cash-in" title={t('simple.reports.cash.in')} paise={c.moneyIn} why={cashInWhy(c, t)} whyExtra={(c.inBy.customers ?? 0) > 0 ? t('simple.reports.cash.estimate') : null} link={link} />
         <FigureTile id="cash-out" title={t('simple.reports.cash.out')} paise={c.moneyOut} why={cashOutWhy(c, t)} link={link} />
-        <FigureTile id="cash-end" emphasis title={t('simple.reports.cash.end', { date: shortDate(c.until, c.asOn) })} paise={c.end} why={cashEndWhy(c, t)} link={link} />
+        <FigureTile id="cash-end" emphasis title={t('simple.reports.cash.end', { date: shortDate(c.until, c.asOn, t.lang) })} paise={c.end} why={cashEndWhy(c, t)} link={link} />
       </ul>
       <p className="mt-3 text-detail text-ink" data-testid="cash-sentence">
         {why}
@@ -83,7 +83,7 @@ function Flows({ title, by, items, empty, asOn, testId }: { title: string; by: S
           {items.map((i, n) => (
             <li key={n} className="flex items-baseline justify-between gap-3 text-small">
               <span className="min-w-0 truncate text-muted">
-                {t('simple.reports.cash.item', { name: i.label || t('simple.reports.cash.source', { source: i.source }), date: shortDate(i.date, asOn) })}
+                {t('simple.reports.cash.item', { name: i.label || t('simple.reports.cash.source', { source: i.source }), date: shortDate(i.date, asOn, t.lang) })}
               </span>
               <span className="num text-muted">{money(i.amount)}</span>
             </li>

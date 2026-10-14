@@ -76,7 +76,11 @@ export interface TOptions {
   fallback?: string
 }
 
-export type Translate = (key: MessageKey, vars?: MessageVars, options?: TOptions) => string
+export type Translate = ((key: MessageKey, vars?: MessageVars, options?: TOptions) => string) & {
+  /** WP 10.4: the language this `t` is bound to (set by `translator`), so date / amount
+   *  formatters next to it can follow it: `toPlainDate(d, t.lang)`. Absent = English. */
+  readonly lang?: Language
+}
 
 function render(key: MessageKey, message: string, vars: MessageVars | undefined, lang: Language): string | null {
   try {
@@ -120,5 +124,6 @@ function lastSegment(key: string): string {
 
 /** A `t` bound to one language (what `useT()` and the main-side accessor return). */
 export function translator(lang: Language): Translate {
-  return (key, vars, options) => t(key, vars, lang, options)
+  const bound = (key: MessageKey, vars?: MessageVars, options?: TOptions): string => t(key, vars, lang, options)
+  return Object.assign(bound, { lang })
 }

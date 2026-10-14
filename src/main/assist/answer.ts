@@ -79,18 +79,18 @@ export function periodText(p: AssistPeriod, today: string, t: Translate): string
     case 'today':
       return t('assist.period.today')
     case 'yesterday':
-      return p.from === today ? t('assist.period.today') : t('assist.period.on', { date: toPlainDate(p.from) })
+      return p.from === today ? t('assist.period.today') : t('assist.period.on', { date: toPlainDate(p.from, t.lang) })
     case 'thisMonth':
-      return t('assist.period.thisMonth', { from: toPlainDate(p.from), to: toPlainDate(p.to) })
+      return t('assist.period.thisMonth', { from: toPlainDate(p.from, t.lang), to: toPlainDate(p.to, t.lang) })
     case 'lastMonth':
     case 'month':
-      return t('assist.period.month', { month: toMonthLabel(p.from.slice(0, 7), 'long') })
+      return t('assist.period.month', { month: toMonthLabel(p.from.slice(0, 7), 'long', t.lang) })
     case 'thisQuarter':
     case 'fyToDate':
-      return t('assist.period.soFar', { from: toPlainDate(p.from), to: toPlainDate(p.to) })
+      return t('assist.period.soFar', { from: toPlainDate(p.from, t.lang), to: toPlainDate(p.to, t.lang) })
     case 'lastQuarter':
     case 'lastFy':
-      return t('assist.period.range', { from: toPlainDate(p.from), to: toPlainDate(p.to) })
+      return t('assist.period.range', { from: toPlainDate(p.from, t.lang), to: toPlainDate(p.to, t.lang) })
   }
 }
 
@@ -174,7 +174,7 @@ function gstAnswer(db: DB, company: CompanyInfo, intent: AssistIntent, input: As
   if (x.kind === 'composition') {
     const c = x.composition
     return answer(intent, [
-      t('simple.taxes.composition.cmp08', { from: toPlainDate(c.cmp08.from), to: toPlainDate(c.cmp08.to), date: toPlainDate(c.cmp08.due) }),
+      t('simple.taxes.composition.cmp08', { from: toPlainDate(c.cmp08.from, t.lang), to: toPlainDate(c.cmp08.to, t.lang), date: toPlainDate(c.cmp08.due, t.lang) }),
       t('simple.taxes.composition.note')
     ], { links: [{ label: t('assist.link.gst'), target: taxes }] })
   }

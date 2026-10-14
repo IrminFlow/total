@@ -55,7 +55,7 @@ export function SimpleHome(): React.JSX.Element {
       <div className="mb-5 flex flex-wrap items-baseline justify-between gap-2">
         <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.home.title')}</h1>
         <span className="text-small text-muted" data-testid="simple-home-date">
-          {t('simple.home.asOn', { date: toPlainDate(today) })}
+          {t('simple.home.asOn', { date: toPlainDate(today, t.lang) })}
         </span>
       </div>
 

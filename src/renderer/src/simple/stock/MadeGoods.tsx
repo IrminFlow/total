@@ -255,7 +255,7 @@ export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
                 />
               </Field>
               <Field label={t('simple.made.date')} name="date" error={errors.get(F.date)}>
-                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={toPlainDate} testId="input-made-date" />
+                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={((d: string) => toPlainDate(d, t.lang))} testId="input-made-date" />
               </Field>
             </div>
 

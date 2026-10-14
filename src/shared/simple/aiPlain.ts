@@ -201,7 +201,7 @@ export function monthSpendSentence(s: MonthSpend, rate: FxRate | null, t: Transl
 /** The rate sentence under a rupee cost ("At your dollar rate of ₹84.10 from 1 Oct 2026"). */
 export function rateNote(rate: FxRate | null, t: Translate): string {
   if (!rate) return t('simple.ai.cost.noRate')
-  return t('simple.ai.cost.rate', { rate: formatPaise(Math.round(rate.rateMicro / 10_000), { symbol: true }), date: toPlainDate(rate.date) })
+  return t('simple.ai.cost.rate', { rate: formatPaise(Math.round(rate.rateMicro / 10_000), { symbol: true }), date: toPlainDate(rate.date, t.lang) })
 }
 
 // ---------- a turn: where its figures came from, its cost ----------
@@ -347,7 +347,7 @@ export function draftSentence(d: Pick<AiDraftDto, 'payload'>, t: Translate): str
   const p = d.payload
   const lines: Line[] = Array.isArray(p.lines) ? p.lines : []
   const total = p.total ?? lines.filter((l) => l.drCr === 'dr').reduce((s, l) => s + l.amount, 0)
-  const date = p.date ? toPlainDate(p.date) : ''
+  const date = p.date ? toPlainDate(p.date, t.lang) : ''
   if (!(total > 0)) return t('simple.ai.draft.what.noAmount', { date })
   const amount = formatPaise(total, { symbol: true })
   const key: MessageKey =

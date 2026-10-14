@@ -85,7 +85,7 @@ export function MoveMoney(): React.JSX.Element {
                 <AmountInput paise={form.amount} onPaise={(p) => update({ amount: p })} testId="input-money-amount" />
               </Field>
               <Field label={t('simple.money.date')} name={F.date} error={errors.get(F.date)}>
-                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={toPlainDate} testId="input-money-date" />
+                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={((d: string) => toPlainDate(d, t.lang))} testId="input-money-date" />
               </Field>
               <Field label={t('simple.money.reference')}>
                 <TextInput value={form.reference} placeholder={t('simple.money.referencePlaceholder')} onChange={(e) => update({ reference: e.target.value })} data-testid="input-money-reference" />

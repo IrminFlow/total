@@ -246,7 +246,7 @@ export function AiHelper(): React.JSX.Element {
             </ul>
           </details>
           {s.noticeAcceptedAt && noticeCurrent && (
-            <p className="mt-2 text-hint text-muted" data-testid="simple-ai-notice-accepted">{t('simple.ai.notice.accepted', { date: toPlainDate(s.noticeAcceptedAt.slice(0, 10)) })}</p>
+            <p className="mt-2 text-hint text-muted" data-testid="simple-ai-notice-accepted">{t('simple.ai.notice.accepted', { date: toPlainDate(s.noticeAcceptedAt.slice(0, 10), t.lang) })}</p>
           )}
           {s.noticeAcceptedAt && !noticeCurrent && <p className="mt-2 text-hint text-warning">{t('simple.ai.turnOn.noticeChanged')}</p>}
         </Card>

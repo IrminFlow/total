@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { Skeleton } from './Feedback'
 import { ExplainButton } from './ExplainButton'
 import { looksLikeMoney, nodeText, useAiAffordances, type ExplainInput } from '../../lib/explain'
+import { useKitLabels } from './labels'
 
 /**
  * A headline figure: uppercase label, a large mono value, an optional delta / hint line and a
@@ -63,6 +64,7 @@ export function StatTile({
   /** Extra source for "Explain this" (ids, period), or false for none. Default: label + value. */
   explain?: Partial<ExplainInput> | false
 }): React.JSX.Element {
+  const labels = useKitLabels()
   const aiOn = useAiAffordances()
   const deltaCls = {
     neutral: 'text-muted',
@@ -83,7 +85,7 @@ export function StatTile({
           <Skeleton className="mt-1 h-4 w-24" />
         ) : error ? (
           <span role="alert" className="text-small text-danger" title={error}>
-            Unavailable
+            {labels.unavailable}
           </span>
         ) : (
           <span className={`num block truncate font-medium leading-tight ${size === 'lg' ? 'text-brand' : 'text-subtitle'} ${valueCls}`}>{value}</span>

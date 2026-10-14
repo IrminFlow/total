@@ -74,7 +74,7 @@ function PurchaseTable(): React.JSX.Element {
   const columns = useMemo(
     () =>
       defineColumns<PurchaseRow>([
-        { id: 'date', header: t('simple.purchases.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date), width: 130, groupable: false }, // i18n-technical
+        { id: 'date', header: t('simple.purchases.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date, t.lang), width: 130, groupable: false }, // i18n-technical
         {
           id: 'supplier', header: t('simple.purchases.col.supplier'), kind: 'text', hideable: false, groupable: false, // i18n-technical
           value: (r) => r.partyName
@@ -102,7 +102,7 @@ function PurchaseTable(): React.JSX.Element {
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.purchases.title')}</h1>
-          <p className="mt-1 text-detail text-muted">{t('simple.purchases.period', { from: toPlainDate(from), to: toPlainDate(until) })}</p>
+          <p className="mt-1 text-detail text-muted">{t('simple.purchases.period', { from: toPlainDate(from, t.lang), to: toPlainDate(until, t.lang) })}</p>
         </div>
         {!empty && (
           <Button variant="primary" data-testid="btn-purchases-record" onClick={() => nav.go(BUY_SCREEN)}>
@@ -171,7 +171,7 @@ function PurchaseBillView({ billId }: { billId: number }): React.JSX.Element {
               {bill.billNo ? t('simple.purchase.heading', { billNo: bill.billNo }) : t('simple.purchase.headingNoNumber')}
             </h1>
             <p className="mt-1 text-detail text-muted">
-              {t('simple.purchase.from', { name: bill.partyName })} · {t('simple.purchase.on', { date: toPlainDate(bill.date) })}
+              {t('simple.purchase.from', { name: bill.partyName })} · {t('simple.purchase.on', { date: toPlainDate(bill.date, t.lang) })}
             </p>
           </div>
           <span className="flex flex-wrap items-center gap-1">
@@ -228,7 +228,7 @@ function PurchaseBillView({ billId }: { billId: number }): React.JSX.Element {
             : bill.due <= 0
             ? t('simple.purchase.paidAll')
             : bill.dueDate
-              ? t('simple.purchase.dueBy', { amount: money(bill.due), date: toPlainDate(bill.dueDate) })
+              ? t('simple.purchase.dueBy', { amount: money(bill.due), date: toPlainDate(bill.dueDate, t.lang) })
               : t('simple.purchase.due', { amount: money(bill.due) })}
           {bill.due > 0 && bill.paid > 0 && ` ${t('simple.purchase.paidSoFar', { amount: money(bill.paid) })}`}
           {bill.due > 0 && offByReturns > 0 && ` ${t('simple.purchase.offByReturns', { amount: money(offByReturns) })}`}

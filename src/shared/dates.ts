@@ -55,16 +55,30 @@ export function toDisplayDate(date: string): string {
   return `${d.toString().padStart(2, '0')}-${months[m - 1]}-${(y % 100).toString().padStart(2, '0')}`
 }
 
-/** WP 8.3: 'YYYY-MM-DD' → '1 Apr 2026' — plain words for simple screens (the setup wizard). */
-export function toPlainDate(date: string): string {
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+// WP 10.4: month names for the plain formatters. Hinglish reads Latin script, so it keeps the
+// English short names (as before). Hindi writes the FULL month name in a date (1 अक्तूबर 2026):
+// the clipped forms without the abbreviation mark are other words (जन = people, नव = new), so
+// only the chart axes use short forms, and those carry the mark (जन॰, अक्तू॰) — review decision.
+const MONTHS_EN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+const MONTHS_HI = ['जनवरी', 'फ़रवरी', 'मार्च', 'अप्रैल', 'मई', 'जून', 'जुलाई', 'अगस्त', 'सितंबर', 'अक्तूबर', 'नवंबर', 'दिसंबर']
+const MONTHS_HI_SHORT = ['जन॰', 'फ़र॰', 'मार्च', 'अप्रैल', 'मई', 'जून', 'जुल॰', 'अग॰', 'सित॰', 'अक्तू॰', 'नव॰', 'दिस॰']
+
+/** The 12 month names in `lang` as a date writes them (anything but 'hi' = English short). */
+export function plainMonthNames(lang?: string, style: 'short' | 'long' = 'long'): readonly string[] {
+  return lang === 'hi' ? (style === 'short' ? MONTHS_HI_SHORT : MONTHS_HI) : MONTHS_EN
+}
+
+/** WP 8.3: 'YYYY-MM-DD' → '1 Apr 2026' — plain words for simple screens (the setup wizard).
+ *  WP 10.4: `lang` 'hi' → '1 अप्रैल 2026'; Hinglish and English keep '1 Apr 2026'. */
+export function toPlainDate(date: string, lang?: string): string {
+  const months = plainMonthNames(lang)
   const [y, m, d] = date.split('-').map(Number) as [number, number, number]
   return `${d} ${months[m - 1]} ${y}`
 }
 
-/** 'YYYY-MM' → 'Apr' (short) or 'Apr 2026' (long) — chart axes and tooltips. */
-export function toMonthLabel(ym: string, style: 'short' | 'long' = 'short'): string {
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+/** 'YYYY-MM' → 'Apr' (short) or 'Apr 2026' (long) — chart axes and tooltips (`lang` as toPlainDate). */
+export function toMonthLabel(ym: string, style: 'short' | 'long' = 'short', lang?: string): string {
+  const months = plainMonthNames(lang, style)
   const [y, m] = ym.split('-').map(Number) as [number, number]
   return style === 'short' ? months[m - 1]! : `${months[m - 1]} ${y}`
 }

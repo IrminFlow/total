@@ -48,7 +48,7 @@ export function FiledForm({ form, period, periodEnd, today, filed }: { form: Gst
     return (
       <div className="flex flex-wrap items-center gap-3 rounded-md border border-success/50 bg-success-soft px-3 py-2" data-testid={`taxes-filed-${form}`} data-arn={filed.arn}>
         <span className="text-detail font-medium text-ink">{name}</span>
-        <span className="text-detail text-ink">{t('simple.taxes.step5.filed', { date: toPlainDate(filed.date), arn: filed.arn })}</span>
+        <span className="text-detail text-ink">{t('simple.taxes.step5.filed', { date: toPlainDate(filed.date, t.lang), arn: filed.arn })}</span>
         {!viewer && (
           <span className="ml-auto flex gap-2">
             <Button size="sm" data-testid={`taxes-filed-change-${form}`} onClick={() => setEditing(true)}>
@@ -91,7 +91,7 @@ export function FiledForm({ form, period, periodEnd, today, filed }: { form: Gst
             allowEmpty
             value={date}
             context={today}
-            format={toPlainDate}
+            format={((d: string) => toPlainDate(d, t.lang))}
             onChange={(v) => {
               setDate(v)
               if (errors.date) setErrors((x) => ({ ...x, date: undefined }))
