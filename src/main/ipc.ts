@@ -126,6 +126,7 @@ import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
 import { createCompanyFromSetup } from './services/companySetup'
 import * as simplePost from './services/simplePost'
+import * as simpleMoney from './services/simpleMoney'
 import { simpleIntentSchema } from '@shared/simple/intents'
 import { simpleSetupSchema } from '@shared/simple/setup'
 import { simpleOpeningsSchema } from '@shared/simple/openings'
@@ -450,6 +451,24 @@ export function registerIpc(): void {
     if (!out.replayed && configSvc.getAgentBridgeEnabled(c.db)) agentBridge.scheduleMirrorRefresh(c.db, c.slug)
     return out
   })
+
+  // WP 9.4: the simple Money screens' reads (services/simpleMoney.ts) — the forms' customers,
+  // suppliers, cash / bank accounts and their defaults (WP 5.6 memory, else the counter's), a
+  // party's open bills (the Outstandings allocation), the money list and one entry's view.
+  // Writing goes through simple:post only.
+  handle('simple:money:setup', () => simpleMoney.moneySetup(requireCompany().db), 'viewer')
+  handle('simple:money:bills', (payload) => {
+    const { partyId, date } = z.object({ partyId: z.number().int().positive(), date: isoDate }).strict().parse(payload)
+    return simpleMoney.moneyBills(requireCompany().db, partyId, date)
+  }, 'viewer')
+  handle('simple:money:list', (payload) => {
+    const { from, to } = z.object({ from: isoDate, to: isoDate }).strict().parse(payload)
+    return simpleMoney.moneyList(requireCompany().db, from, to)
+  }, 'viewer')
+  handle('simple:money:entry', (payload) => {
+    const { id } = z.object({ id: z.number().int().positive() }).strict().parse(payload)
+    return simpleMoney.moneyEntry(requireCompany().db, id)
+  }, 'viewer')
 
   // WP 8.3: `mode` 'simple' = the wizard's "Try with sample data" (D2); omitted = accountant, as before.
   handle('company:createDemo', (payload) =>

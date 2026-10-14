@@ -10,6 +10,10 @@ import { SimpleSection } from './simple/SimpleSection'
 import { SimpleLooks } from './simple/SimpleLooks'
 import { SimpleFeatures } from './simple/SimpleFeatures'
 import { Openings } from './simple/Openings'
+import { MoneyIn } from './simple/money/MoneyIn'
+import { MoneyOut } from './simple/money/MoneyOut'
+import { MoveMoney } from './simple/money/MoveMoney'
+import { MoneyList } from './simple/money/MoneyList'
 import { useScreenView } from './lib/mode'
 import { DayBook } from './screens/DayBook'
 import { ImportTallyScreen } from './screens/ImportTally'
@@ -178,6 +182,10 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-looks' && <SimpleLooks />}
           {screen.name === 'simple-features' && <SimpleFeatures />}
           {screen.name === 'simple-openings' && <Openings />}
+          {screen.name === 'simple-money-in' && <MoneyIn key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} />}
+          {screen.name === 'simple-money-out' && <MoneyOut key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} />}
+          {screen.name === 'simple-move-money' && <MoveMoney />}
+          {screen.name === 'simple-money' && <MoneyList key={screen.entryId ?? 'list'} entryId={screen.entryId} />}
           {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} date={screen.date} />}
           {screen.name === 'import-tally' && <ImportTallyScreen />}
           {screen.name === 'data-import' && <ImportWizardScreen />}

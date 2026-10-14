@@ -69,6 +69,12 @@ export type Screen =
   | { name: 'simple-looks' }
   | { name: 'simple-features' }
   | { name: 'simple-openings'; from?: 'home' }
+  // WP 9.4: Money — Money in / out (optionally for a party, an amount and a bill: what "Record a
+  // payment" on a bill passes), Move money, the money list (`entryId` = one entry's simple view).
+  | { name: 'simple-money-in'; party?: number; amount?: number; bill?: string }
+  | { name: 'simple-money-out'; party?: number; amount?: number; bill?: string }
+  | { name: 'simple-move-money' }
+  | { name: 'simple-money'; entryId?: number }
   | { name: 'counter-billing' }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).

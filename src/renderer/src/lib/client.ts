@@ -10,6 +10,7 @@ import type { CaughtError, ErrorIssue, ErrorParams } from '@shared/errors'
 import type { SaveSummary } from '@shared/simple/saveCard'
 import type { HomeAttention, SimpleHomeData } from '@shared/simple/home'
 import type { SimpleIntentInput, SimplePostResult, SimplePreview } from '@shared/simple/intents'
+import type { MoneyEntryView, MoneyOpenBill, MoneyRow, MoneySetup } from '@shared/simple/money'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type { McpConfig, McpLogRow, McpSettingsView } from '@shared/mcp'
 import type { AiDraftDto, AiDraftStatus } from '@shared/ai'
@@ -679,6 +680,17 @@ export const api = {
     preview: (intent: SimpleIntentInput, today?: string) => call<SimplePreview>('simple:preview', { intent, ...(today ? { today } : {}) }),
     /** WP 9.1: save an intent (idempotent by its clientId); the vouchers come back together for the save card. */
     post: (intent: SimpleIntentInput, today?: string) => call<SimplePostResult>('simple:post', { intent, ...(today ? { today } : {}) })
+  },
+  /** WP 9.4: the simple Money screens' reads (writing is simple:post). */
+  simpleMoney: {
+    /** Customers, suppliers, cash / bank accounts and their defaults, owner / loan accounts. */
+    setup: () => call<MoneySetup>('simple:money:setup'),
+    /** A party's open bills, oldest first, as on `date` (the Outstandings allocation). */
+    bills: (partyId: number, date: string) => call<MoneyOpenBill[]>('simple:money:bills', { partyId, date }),
+    /** Receipts, payments and moves dated from…to, newest first. */
+    list: (from: string, to: string) => call<MoneyRow[]>('simple:money:list', { from, to }),
+    /** One entry's simple (read-only) view; null when it is not an in-books money entry. */
+    entry: (id: number) => call<MoneyEntryView | null>('simple:money:entry', { id })
   },
   /** WP 8.7: the opening setup (what a continuing business had on day one). */
   openings: {
