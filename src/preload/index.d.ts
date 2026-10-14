@@ -18,6 +18,7 @@ declare global {
       onAiEvent?: (listener: (event: unknown) => void) => () => void
       /** WP 7.2: main locked the session (⌘L / idle auto-lock). */
       onSessionLocked?: (listener: (event: { reason: 'manual' | 'idle' }) => void) => () => void
+      onUpdateEvent?: (listener: (notice: unknown) => void) => () => void
     }
   }
 }
