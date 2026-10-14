@@ -23,6 +23,15 @@ afterAll(() => {
 })
 
 let n = 0
+/** Read with the plain (unkeyed) driver — the handle is always closed (Windows can't remove an open file). */
+function readWithoutKey(path: string, sql: string): unknown {
+  const d = new Database(path, { readonly: true })
+  try {
+    return d.prepare(sql).get()
+  } finally {
+    d.close()
+  }
+}
 function companyFile(migrations = MIGRATIONS): string {
   const dir = join(ROOT, `co-${++n}`)
   mkdirSync(dir, { recursive: true })
@@ -52,7 +61,7 @@ describe('encrypted company files', () => {
     const key = newDataKey()
     rekeyFile(path, null, key)
     expect(isEncryptedFile(path)).toBe(true)
-    expect(() => new Database(path, { readonly: true }).prepare('SELECT 1 FROM meta').get()).toThrow(/not a database/)
+    expect(() => readWithoutKey(path, 'SELECT 1 FROM meta')).toThrow(/not a database/)
     expect(() => openDb(path)).toThrow(expect.objectContaining({ code: 'db_locked' }))
     expect(() => openDb(path, { key: newDataKey() })).toThrow(expect.objectContaining({ code: 'db_key_mismatch' }))
     rememberFolderKey(join(path, '..'), key)

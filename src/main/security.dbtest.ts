@@ -162,7 +162,12 @@ describe('the passphrase lock', () => {
     const secrets = existsSync(join(DATA_DIR, 'secrets.json')) ? readFileSync(join(DATA_DIR, 'secrets.json'), 'utf8') : ''
     expect(secrets).not.toContain(PASS)
     // The plain driver without a key cannot read the books.
-    expect(() => new Database(dbFile(slug), { readonly: true }).prepare('SELECT COUNT(*) FROM vouchers').get()).toThrow(/not a database/)
+    const plain = new Database(dbFile(slug), { readonly: true })
+    try {
+      expect(() => plain.prepare('SELECT COUNT(*) FROM vouchers').get()).toThrow(/not a database/)
+    } finally {
+      plain.close() // Windows can't remove a file a handle still holds
+    }
     // The change is in the encrypted books' own trail, chained.
     const audit = { rows: await auditRows('security') }
     expect(audit.rows.some((r) => r.after?.encrypted === true)).toBe(true)
