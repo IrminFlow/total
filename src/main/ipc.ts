@@ -9,8 +9,8 @@ import { z } from 'zod'
 import { forgetFolderKey, isEncryptedFile, keyForPath, keyOfHandle, openDb, plainCopy, rekeyFile, removeDbFiles, rememberFolderKey } from './db/encryption'
 import { DEFAULT_SCRYPT, newDataKey, unwrapKeyAsync, wrapKeyAsync, WrongPassphraseError, type ScryptParams } from './db/keyEnvelope'
 import { insecureTestCipherAllowed } from './services/secrets'
-import { readEnvelope, removeEnvelope, writeEnvelope } from './services/companyKeys'
-import { commitConvertedCopy, convertBackups, prepareConvertedCopy } from './services/dbEncryption'
+import { readEnvelope, readEnvelopes, removeEnvelope, unlockKey, writeEnvelope } from './services/companyKeys'
+import { commitConvertedCopy, convertBackups, prepareConvertedCopy, removeLeftoverCopies } from './services/dbEncryption'
 import { checkBackupIfDue, latestBackupCheck, listBackupChecks, recordBackupCheck, verifyBackupFile } from './services/backupVerify'
 import { AUTO_LOCK_CHOICES, IdleClock, getAutoLockMinutes, setAutoLockMinutes } from './services/sessionLock'
 import { capabilityAllows, channelCapabilities } from './capabilities'
@@ -762,20 +762,34 @@ export function registerIpc(): void {
   )
 
   handle('company:delete', async (payload) => {
-    const { slug, confirmName, pin } = z
+    const { slug, confirmName, pin, passphrase } = z
       .object({
         slug: z.string().min(1),
         confirmName: z.string(),
-        pin: z.string().regex(/^\d{4,12}$/, 'PIN must be 4-12 digits').optional()
+        pin: z.string().regex(/^\d{4,12}$/, 'PIN must be 4-12 digits').optional(),
+        passphrase: z.string().max(1024).optional()
       })
       .parse(payload)
     const reg = readRegistry()
     const company = reg.companies.find((c) => c.slug === slug)
     if (!company) throw new Error('Company not found')
     if (confirmName !== company.name) throw new Error('Company name does not match')
+    // WP 7.2 review: a business locked with a passphrase cannot be read for its owners' PINs until
+    // it is unlocked — without this, locking the books took away the PIN that protects the delete
+    // (the unreadable file was treated as "no users"). The passphrase is asked first (throttled
+    // like opening); once it opens the file the PIN check below runs as for any business.
+    const keyWasKnown = keyForPath(companyDbPath(slug)) !== null
+    // (No key file anywhere = nobody can ever read these books again: nothing left to protect.)
+    if (readEnvelopes(companyDir(slug), slug, appSecretStore()).length) await unlockFolderIfNeeded(slug, passphrase)
     // The name check above protects nothing by itself — it's readable off the same screen it's
     // typed into. If this company has users, an active owner's PIN is required too.
-    assertDeleteAuthorized(companyDbPath(slug), pin)
+    try {
+      assertDeleteAuthorized(companyDbPath(slug), pin)
+    } catch (err) {
+      // A refused delete leaves the business as locked as it was.
+      if (!keyWasKnown) forgetFolderKey(companyDir(slug))
+      throw err
+    }
     // [lane-Q audit] durable record in the app log (survives the rmSync) + best-effort tombstone
     // row inside the DB itself.
     auditCompanyDeletion(companyDbPath(slug), slug, sessionUser?.name ?? null)
@@ -815,11 +829,11 @@ export function registerIpc(): void {
     const now = Date.now()
     const state = passphraseFails.get(slug)
     if (state && state.until > now) throw new AppError('passphrase_throttled', 'Too many tries — wait 30 seconds', { field: 'passphrase' })
-    const env = readEnvelope(companyDir(slug), slug, appSecretStore())
-    if (!env) throw new AppError('db_key_mismatch', 'The key file of this business (company.key.json) is missing — restore the folder or open a recovery copy')
+    const envs = readEnvelopes(companyDir(slug), slug, appSecretStore())
+    if (!envs.length) throw new AppError('db_key_mismatch', 'The key file of this business (company.key.json) is missing — restore the folder or open a recovery copy')
     let key: Buffer
     try {
-      key = await unwrapKeyAsync(env, passphrase)
+      key = await unlockKey(dbPath, envs, passphrase)
     } catch (err) {
       if (!(err instanceof WrongPassphraseError)) throw err
       const fails = (state?.fails ?? 0) + 1
@@ -835,6 +849,13 @@ export function registerIpc(): void {
    *  on-open housekeeping — company:open, and the passphrase on / off flows that reopen the file. */
   async function openCompanyNow(slug: string, opts: { keepKey?: boolean } = {}): Promise<{ slug: string; info: CompanyInfo; integrity: ReturnType<typeof checkIntegrity>; locked: boolean; ui: ReturnType<typeof configSvc.getUi>; encrypted: boolean }> {
     closeCurrentCompany({ keepKey: opts.keepKey ?? true })
+    // WP 7.2 review: what an interrupted lock change / restore / export left beside the books
+    // (a plaintext copy, when the lock was being taken off) goes before the books open.
+    try {
+      removeLeftoverCopies(companyDbPath(slug), companyBackupsDir(slug), companyExportsDir(slug))
+    } catch (err) {
+      log('warn', 'leftover-copies-not-removed', { slug, error: err instanceof Error ? err.message : String(err) })
+    }
     const t0 = performance.now()
     const mark = (step: string): void => {
       if (TRACE_IPC) console.log(`[ipc] company:open/${step} ${(performance.now() - t0).toFixed(0)} ms`)
@@ -2797,6 +2818,9 @@ export function registerIpc(): void {
     const keepUser = sessionUser
     const from = keyOfHandle(c.db)
     await backupCompany(c.db, slug, to ? 'pre-encrypt' : 'pre-decrypt', by)
+    // WP 7.2 review: no background check (the weekly integrity_check) may hold the live file open
+    // while it is swapped — on Windows the rename fails, and its read snapshot keeps the WAL alive.
+    await stopChecks(companyDbPath(slug))
     const tmp = prepareConvertedCopy({
       db: c.db,
       dbPath: companyDbPath(slug),
@@ -2805,7 +2829,15 @@ export function registerIpc(): void {
       audit: { before: { encrypted: !!from }, after: { encrypted: !!to, ...auditAfter }, user: by }
     })
     closeCurrentCompany({ keepKey: true })
-    commitConvertedCopy(tmp, companyDbPath(slug))
+    try {
+      commitConvertedCopy(tmp, companyDbPath(slug))
+    } catch (err) {
+      // The original is untouched (the rename is the commit): open it again as it was.
+      removeDbFiles(tmp)
+      await openCompanyNow(slug, { keepKey: true })
+      sessionUser = keepUser
+      throw err
+    }
     if (to) rememberFolderKey(companyDir(slug), to)
     else forgetFolderKey(companyDir(slug))
     await openCompanyNow(slug, { keepKey: true })
@@ -2820,13 +2852,16 @@ export function registerIpc(): void {
 
   /** The passphrase opens the open company's key (passphrase off / change), else wrong_passphrase. */
   const assertPassphrase = async (c: OpenCompany, passphrase: string, field: string): Promise<Buffer> => {
-    const env = readEnvelope(companyDir(c.slug), c.slug, appSecretStore())
+    const envs = readEnvelopes(companyDir(c.slug), c.slug, appSecretStore())
     const key = keyOfHandle(c.db)
     let unwrapped: Buffer | null = null
-    try {
-      unwrapped = env ? await unwrapKeyAsync(env, passphrase) : null
-    } catch {
-      unwrapped = null
+    for (const env of envs) {
+      try {
+        unwrapped = await unwrapKeyAsync(env, passphrase)
+      } catch {
+        unwrapped = null
+      }
+      if (unwrapped && key && unwrapped.equals(key)) break
     }
     if (!unwrapped || !key || !unwrapped.equals(key)) throw new AppError('wrong_passphrase', 'That passphrase is not right', { field })
     return key
@@ -2846,7 +2881,9 @@ export function registerIpc(): void {
       return { ...securityView(), ...out, mirrored }
     } catch (err) {
       // Nothing was swapped in (the copy failed its check): the key file goes again.
-      if (!current?.encrypted) removeEnvelope(companyDir(c.slug), c.slug, appSecretStore())
+      // Decided by the FILE, never by `current` (null when the reopen after the swap failed): an
+      // encrypted file must never lose its key file.
+      if (!isEncryptedFile(companyDbPath(c.slug))) removeEnvelope(companyDir(c.slug), c.slug, appSecretStore())
       throw err
     }
   }, 'owner')
@@ -2857,7 +2894,10 @@ export function registerIpc(): void {
     if (!c.encrypted) throw new AppError('security_not_locked', 'This business is not locked with a passphrase')
     await assertPassphrase(c, passphrase, 'passphrase')
     const out = await convertOpenCompany(null, {})
-    removeEnvelope(companyDir(c.slug), c.slug, appSecretStore())
+    // The key goes only once nothing needs it: the books are plaintext AND every backup was
+    // converted — a backup left encrypted (it failed to convert) still opens with this passphrase.
+    if (!isEncryptedFile(companyDbPath(c.slug)) && out.backupsFailed.length === 0) removeEnvelope(companyDir(c.slug), c.slug, appSecretStore())
+    else log('warn', 'security-key-kept', { slug: c.slug, backupsFailed: out.backupsFailed.length })
     return { ...securityView(), ...out }
   }, 'owner')
 

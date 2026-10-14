@@ -394,6 +394,9 @@ function DeleteCompanyModal({
   // wrong) PIN was supplied — see company:delete / assertDeleteAuthorized. The typed-name confirm
   // above stays visible; this just adds the PIN field the protected path additionally requires.
   const [needsPin, setNeedsPin] = useState(false)
+  // WP 7.2 review: a business locked with a passphrase asks for it before its PIN can be checked.
+  const [passphrase, setPassphrase] = useState('')
+  const [needsPassphrase, setNeedsPassphrase] = useState(false)
   const [busy, setBusy] = useState(false)
   const matches = confirmName.trim() === company.name
 
@@ -401,11 +404,16 @@ function DeleteCompanyModal({
     if (!matches) return
     setBusy(true)
     try {
-      await api.company.remove(company.slug, confirmName.trim(), needsPin ? pin : undefined)
+      await api.company.remove(company.slug, confirmName.trim(), needsPin ? pin : undefined, needsPassphrase ? passphrase : undefined)
       onDeleted()
     } catch (err) {
       const message = (err as Error).message
-      if (message.includes('protected') && message.includes('PIN')) {
+      const code = err instanceof IpcError ? err.code : undefined
+      if (code === 'passphrase_required' || code === 'wrong_passphrase' || code === 'passphrase_throttled') {
+        if (needsPassphrase) toast.push('error', message)
+        setNeedsPassphrase(true)
+        setPassphrase('')
+      } else if (message.includes('protected') && message.includes('PIN')) {
         setNeedsPin(true)
         if (pin) toast.push('error', 'Wrong PIN')
       } else {
@@ -428,11 +436,26 @@ function DeleteCompanyModal({
             value={confirmName}
             onChange={(e) => setConfirmName(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !needsPin) void doDelete()
+              if (e.key === 'Enter' && !needsPin && !needsPassphrase) void doDelete()
             }}
             placeholder={company.name}
           />
         </Field>
+        {needsPassphrase && (
+          <Field label="Passphrase" hint="This business is locked with a passphrase — type it to delete the business">
+            <TextInput
+              autoFocus
+              type="password"
+              autoComplete="current-password"
+              value={passphrase}
+              onChange={(e) => setPassphrase(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void doDelete()
+              }}
+              data-testid="input-delete-passphrase"
+            />
+          </Field>
+        )}
         {needsPin && (
           <Field label="Owner PIN" hint="This company has signed-in users — an owner PIN is required to delete it">
             <TextInput
@@ -455,7 +478,7 @@ function DeleteCompanyModal({
           <Button
             variant="danger"
             onClick={() => void doDelete()}
-            disabled={!matches || busy || (needsPin && !pin)}
+            disabled={!matches || busy || (needsPin && !pin) || (needsPassphrase && !passphrase)}
           >
             {busy ? 'Deleting…' : 'Delete company'}
           </Button>

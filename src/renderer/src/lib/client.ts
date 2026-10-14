@@ -812,8 +812,9 @@ export const api = {
     create: (input: CompanyCreateInput & { mode?: UiMode }) => call<{ slug: string }>('company:create', input),
     /** WP 8.3: `mode` 'simple' = the setup wizard's "Try with sample data"; omitted = accountant. */
     createDemo: (mode?: UiMode) => call<{ slug: string }>('company:createDemo', mode ? { mode } : undefined),
-    remove: (slug: string, confirmName: string, pin?: string) =>
-      call<null>('company:delete', { slug, confirmName, pin }),
+    /** WP 7.2 review: `passphrase` for a business locked with one (code 'passphrase_required'). */
+    remove: (slug: string, confirmName: string, pin?: string, passphrase?: string) =>
+      call<null>('company:delete', { slug, confirmName, pin, ...(passphrase ? { passphrase } : {}) }),
     /** WP 7.2: `passphrase` for a business locked with one (company:open fails with code
      *  'passphrase_required' without it). */
     open: (slug: string, passphrase?: string) =>
