@@ -1,0 +1,5505 @@
+{
+ "regular": {
+  "docs": [
+   {
+    "voucherId": 1,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "1",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 118000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 2,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "2",
+    "partyName": "B2B 29",
+    "partyGstin": "29AABCF9012G1ZQ",
+    "pos": "29",
+    "invoiceValue": 112000,
+    "items": [
+     {
+      "rate": 12,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 12000,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 12",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 12,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 12000,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 3,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "3",
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "pos": "27",
+    "invoiceValue": 5000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 5000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales bare",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 5000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 4,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "4",
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "pos": "27",
+    "invoiceValue": 7000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 7000
+     }
+    ],
+    "hsnLines": [],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 1,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 5,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "5",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 100000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales exempt",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 6,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "6",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 218200,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     },
+     {
+      "hsn": "9983",
+      "description": "Sales exempt",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 200,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 7,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "7",
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "pos": "27",
+    "invoiceValue": 118000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales exempt",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 18000,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 8,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "8",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 140000,
+    "items": [
+     {
+      "rate": 28,
+      "taxable": 100000,
+      "cgst": 14000,
+      "sgst": 14000,
+      "igst": 0,
+      "cess": 12000
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "2202",
+      "description": "Sales 28 + cess",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 28,
+      "taxable": 100000,
+      "cgst": 14000,
+      "sgst": 14000,
+      "igst": 0,
+      "cess": 12000
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 9,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "9",
+    "partyName": "Export WOP",
+    "partyGstin": null,
+    "pos": "96",
+    "invoiceValue": 100000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales bare",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "EXPWOP",
+    "rchrg": false,
+    "shippingBill": {
+     "num": null,
+     "date": null
+    },
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 10,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "10",
+    "partyName": "Export WOP",
+    "partyGstin": null,
+    "pos": "96",
+    "invoiceValue": 100000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "EXPWOP",
+    "rchrg": false,
+    "shippingBill": {
+     "num": null,
+     "date": null
+    },
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 11,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "11",
+    "partyName": "SEZ WOP",
+    "partyGstin": "27AABCS1429B1ZU",
+    "pos": "27",
+    "invoiceValue": 100000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "SEWOP",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 12,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "12",
+    "partyName": "Export WP",
+    "partyGstin": null,
+    "pos": "96",
+    "invoiceValue": 118000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "invTyp": "EXPWP",
+    "rchrg": false,
+    "shippingBill": {
+     "num": null,
+     "date": null
+    },
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 13,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "13",
+    "partyName": "SEZ WP",
+    "partyGstin": "27AABCS1429B1ZU",
+    "pos": "27",
+    "invoiceValue": 118000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "invTyp": "SEWP",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 14,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "14",
+    "partyName": "RCM buyer",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 100000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales bare",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": true,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 15,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "15",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "29",
+    "invoiceValue": 118000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 16,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "16",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 123000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [
+     {
+      "taxable": 5000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 1,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 17,
+    "kind": "credit_note",
+    "date": "2025-07-05",
+    "number": "1",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 11800,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 10000,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 10000,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 18,
+    "kind": "credit_note",
+    "date": "2025-07-05",
+    "number": "2",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 5000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 5000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales bare",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 5000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 19,
+    "kind": "debit_note",
+    "date": "2025-07-05",
+    "number": "1",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 11800,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 10000,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 10000,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   }
+  ],
+  "edocs": [
+   {
+    "voucherId": 1,
+    "number": "1",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 9000,
+    "sgst": 9000,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 2,
+    "number": "2",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 29",
+    "partyGstin": "29AABCF9012G1ZQ",
+    "partyAddress": null,
+    "partyStateCode": "29",
+    "pos": "29",
+    "items": [
+     {
+      "name": "Sales 12",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 12,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 12000,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 12000,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 112000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 3,
+    "number": "3",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales bare",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 5000,
+      "taxablePaise": 5000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 5000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 5000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 4,
+    "number": "4",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales bare no HSN",
+      "hsn": "",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 7000,
+      "taxablePaise": 7000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 7000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 7000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 5,
+    "number": "5",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales exempt",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 6,
+    "number": "6",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     },
+     {
+      "name": "Sales exempt",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 200000,
+    "cgst": 9000,
+    "sgst": 9000,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 200,
+    "total": 218200,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 7,
+    "number": "7",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales exempt",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 18000,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 8,
+    "number": "8",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 28 + cess",
+      "hsn": "2202",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 28,
+      "cessRate": 12,
+      "cgst": 14000,
+      "sgst": 14000,
+      "igst": 0,
+      "cess": 12000,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 14000,
+    "sgst": 14000,
+    "igst": 0,
+    "cess": 12000,
+    "roundOff": 0,
+    "total": 140000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 9,
+    "number": "9",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "EXPWOP",
+    "rchrg": false,
+    "partyName": "Export WOP",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "96",
+    "pos": "96",
+    "items": [
+     {
+      "name": "Sales bare",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 10,
+    "number": "10",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "EXPWOP",
+    "rchrg": false,
+    "partyName": "Export WOP",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "96",
+    "pos": "96",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 11,
+    "number": "11",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "SEZWOP",
+    "rchrg": false,
+    "partyName": "SEZ WOP",
+    "partyGstin": "27AABCS1429B1ZU",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 12,
+    "number": "12",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "EXPWP",
+    "rchrg": false,
+    "partyName": "Export WP",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "96",
+    "pos": "96",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 18000,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 13,
+    "number": "13",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "SEZWP",
+    "rchrg": false,
+    "partyName": "SEZ WP",
+    "partyGstin": "27AABCS1429B1ZU",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 18000,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 14,
+    "number": "14",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": true,
+    "partyName": "RCM buyer",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales bare",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 15,
+    "number": "15",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "29",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 18000,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 16,
+    "number": "16",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     },
+     {
+      "name": "Freight charged",
+      "hsn": "",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 5000,
+      "taxablePaise": 5000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 105000,
+    "cgst": 9000,
+    "sgst": 9000,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 123000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 17,
+    "number": "1",
+    "date": "2025-07-05",
+    "docType": "CRN",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 10000,
+      "taxablePaise": 10000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 10000,
+    "cgst": 900,
+    "sgst": 900,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 11800,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 18,
+    "number": "2",
+    "date": "2025-07-05",
+    "docType": "CRN",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales bare",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 5000,
+      "taxablePaise": 5000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 5000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 5000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 19,
+    "number": "1",
+    "date": "2025-07-05",
+    "docType": "DBN",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 10000,
+      "taxablePaise": 10000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 10000,
+    "cgst": 900,
+    "sgst": 900,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 11800,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 21,
+    "number": "2",
+    "date": "2025-07-05",
+    "docType": "DBN",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "Vendor",
+    "partyGstin": "27AABCG3456H1ZN",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [],
+    "taxable": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 11800,
+    "total": 11800,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   }
+  ],
+  "gstr1": [
+   {
+    "section": "b2b",
+    "label": "B2B — registered buyers",
+    "docs": 9,
+    "taxable": 900000,
+    "igst": 48000,
+    "cgst": 50000,
+    "sgst": 50000,
+    "cess": 12000
+   },
+   {
+    "section": "b2cl",
+    "label": "B2C (Large) — inter-state > ₹1,00,000",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "b2cs",
+    "label": "B2C (Small) — consolidated",
+    "docs": 4,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "exp",
+    "label": "Exports (Table 6A)",
+    "docs": 4,
+    "taxable": 400000,
+    "igst": 18000,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "cdnr",
+    "label": "Credit/Debit Notes (registered)",
+    "docs": 2,
+    "taxable": 20000,
+    "igst": 0,
+    "cgst": 1800,
+    "sgst": 1800,
+    "cess": 0
+   },
+   {
+    "section": "cdnur",
+    "label": "Credit/Debit Notes (unregistered)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "nil",
+    "label": "Nil-rated (Table 8)",
+    "docs": 0,
+    "taxable": 1035456,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "hsn_b2b",
+    "label": "HSN summary — B2B (Table 12)",
+    "docs": 4,
+    "taxable": 1718456,
+    "igst": 48000,
+    "cgst": 50000,
+    "sgst": 50000,
+    "cess": 12000
+   },
+   {
+    "section": "hsn_b2c",
+    "label": "HSN summary — B2C (Table 12)",
+    "docs": 2,
+    "taxable": 505000,
+    "igst": 18000,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "at",
+    "label": "Advances received (11A)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "txpd",
+    "label": "Advances adjusted (11B)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "doc_issue",
+    "label": "Documents issued (Table 13)",
+    "docs": 29,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   }
+  ]
+ },
+ "composition": {
+  "docs": [
+   {
+    "voucherId": 1,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "1",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 118000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 2,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "2",
+    "partyName": "B2B 29",
+    "partyGstin": "29AABCF9012G1ZQ",
+    "pos": "29",
+    "invoiceValue": 112000,
+    "items": [
+     {
+      "rate": 12,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 12000,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 12",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 12,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 12000,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 3,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "3",
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "pos": "27",
+    "invoiceValue": 5000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 5000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales bare",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 5000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 4,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "4",
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "pos": "27",
+    "invoiceValue": 7000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 7000
+     }
+    ],
+    "hsnLines": [],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 1,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 5,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "5",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 100000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales exempt",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 6,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "6",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 218200,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     },
+     {
+      "hsn": "9983",
+      "description": "Sales exempt",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 200,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 7,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "7",
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "pos": "27",
+    "invoiceValue": 118000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales exempt",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 18000,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 8,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "8",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 140000,
+    "items": [
+     {
+      "rate": 28,
+      "taxable": 100000,
+      "cgst": 14000,
+      "sgst": 14000,
+      "igst": 0,
+      "cess": 12000
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "2202",
+      "description": "Sales 28 + cess",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 28,
+      "taxable": 100000,
+      "cgst": 14000,
+      "sgst": 14000,
+      "igst": 0,
+      "cess": 12000
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 9,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "9",
+    "partyName": "Export WOP",
+    "partyGstin": null,
+    "pos": "96",
+    "invoiceValue": 100000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales bare",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "EXPWOP",
+    "rchrg": false,
+    "shippingBill": {
+     "num": null,
+     "date": null
+    },
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 10,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "10",
+    "partyName": "Export WOP",
+    "partyGstin": null,
+    "pos": "96",
+    "invoiceValue": 100000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "EXPWOP",
+    "rchrg": false,
+    "shippingBill": {
+     "num": null,
+     "date": null
+    },
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 11,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "11",
+    "partyName": "SEZ WOP",
+    "partyGstin": "27AABCS1429B1ZU",
+    "pos": "27",
+    "invoiceValue": 100000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "SEWOP",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 12,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "12",
+    "partyName": "Export WP",
+    "partyGstin": null,
+    "pos": "96",
+    "invoiceValue": 118000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "invTyp": "EXPWP",
+    "rchrg": false,
+    "shippingBill": {
+     "num": null,
+     "date": null
+    },
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 13,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "13",
+    "partyName": "SEZ WP",
+    "partyGstin": "27AABCS1429B1ZU",
+    "pos": "27",
+    "invoiceValue": 118000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "invTyp": "SEWP",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 14,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "14",
+    "partyName": "RCM buyer",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 100000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales bare",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": true,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 15,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "15",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "29",
+    "invoiceValue": 118000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 16,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "16",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 123000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [
+     {
+      "taxable": 5000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 1,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 17,
+    "kind": "credit_note",
+    "date": "2025-07-05",
+    "number": "1",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 11800,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 10000,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 10000,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 18,
+    "kind": "credit_note",
+    "date": "2025-07-05",
+    "number": "2",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 5000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 5000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales bare",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 5000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 19,
+    "kind": "debit_note",
+    "date": "2025-07-05",
+    "number": "1",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 11800,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 10000,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 10000,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   }
+  ],
+  "edocs": [
+   {
+    "voucherId": 1,
+    "number": "1",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 9000,
+    "sgst": 9000,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 2,
+    "number": "2",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 29",
+    "partyGstin": "29AABCF9012G1ZQ",
+    "partyAddress": null,
+    "partyStateCode": "29",
+    "pos": "29",
+    "items": [
+     {
+      "name": "Sales 12",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 12,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 12000,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 12000,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 112000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 3,
+    "number": "3",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales bare",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 5000,
+      "taxablePaise": 5000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 5000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 5000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 4,
+    "number": "4",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales bare no HSN",
+      "hsn": "",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 7000,
+      "taxablePaise": 7000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 7000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 7000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 5,
+    "number": "5",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales exempt",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 6,
+    "number": "6",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     },
+     {
+      "name": "Sales exempt",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 200000,
+    "cgst": 9000,
+    "sgst": 9000,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 200,
+    "total": 218200,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 7,
+    "number": "7",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales exempt",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 18000,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 8,
+    "number": "8",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 28 + cess",
+      "hsn": "2202",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 28,
+      "cessRate": 12,
+      "cgst": 14000,
+      "sgst": 14000,
+      "igst": 0,
+      "cess": 12000,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 14000,
+    "sgst": 14000,
+    "igst": 0,
+    "cess": 12000,
+    "roundOff": 0,
+    "total": 140000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 9,
+    "number": "9",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "EXPWOP",
+    "rchrg": false,
+    "partyName": "Export WOP",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "96",
+    "pos": "96",
+    "items": [
+     {
+      "name": "Sales bare",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 10,
+    "number": "10",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "EXPWOP",
+    "rchrg": false,
+    "partyName": "Export WOP",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "96",
+    "pos": "96",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 11,
+    "number": "11",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "SEZWOP",
+    "rchrg": false,
+    "partyName": "SEZ WOP",
+    "partyGstin": "27AABCS1429B1ZU",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 12,
+    "number": "12",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "EXPWP",
+    "rchrg": false,
+    "partyName": "Export WP",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "96",
+    "pos": "96",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 18000,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 13,
+    "number": "13",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "SEZWP",
+    "rchrg": false,
+    "partyName": "SEZ WP",
+    "partyGstin": "27AABCS1429B1ZU",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 18000,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 14,
+    "number": "14",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": true,
+    "partyName": "RCM buyer",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales bare",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 15,
+    "number": "15",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "29",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 18000,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 16,
+    "number": "16",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     },
+     {
+      "name": "Freight charged",
+      "hsn": "",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 5000,
+      "taxablePaise": 5000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 105000,
+    "cgst": 9000,
+    "sgst": 9000,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 123000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 17,
+    "number": "1",
+    "date": "2025-07-05",
+    "docType": "CRN",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 10000,
+      "taxablePaise": 10000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 10000,
+    "cgst": 900,
+    "sgst": 900,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 11800,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 18,
+    "number": "2",
+    "date": "2025-07-05",
+    "docType": "CRN",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales bare",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 5000,
+      "taxablePaise": 5000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 5000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 5000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 19,
+    "number": "1",
+    "date": "2025-07-05",
+    "docType": "DBN",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 10000,
+      "taxablePaise": 10000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 10000,
+    "cgst": 900,
+    "sgst": 900,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 11800,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 21,
+    "number": "2",
+    "date": "2025-07-05",
+    "docType": "DBN",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "Vendor",
+    "partyGstin": "27AABCG3456H1ZN",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [],
+    "taxable": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 11800,
+    "total": 11800,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   }
+  ],
+  "gstr1": [
+   {
+    "section": "b2b",
+    "label": "B2B — registered buyers",
+    "docs": 9,
+    "taxable": 900000,
+    "igst": 48000,
+    "cgst": 50000,
+    "sgst": 50000,
+    "cess": 12000
+   },
+   {
+    "section": "b2cl",
+    "label": "B2C (Large) — inter-state > ₹1,00,000",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "b2cs",
+    "label": "B2C (Small) — consolidated",
+    "docs": 4,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "exp",
+    "label": "Exports (Table 6A)",
+    "docs": 4,
+    "taxable": 400000,
+    "igst": 18000,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "cdnr",
+    "label": "Credit/Debit Notes (registered)",
+    "docs": 2,
+    "taxable": 20000,
+    "igst": 0,
+    "cgst": 1800,
+    "sgst": 1800,
+    "cess": 0
+   },
+   {
+    "section": "cdnur",
+    "label": "Credit/Debit Notes (unregistered)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "nil",
+    "label": "Nil-rated (Table 8)",
+    "docs": 0,
+    "taxable": 1035456,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "hsn_b2b",
+    "label": "HSN summary — B2B (Table 12)",
+    "docs": 4,
+    "taxable": 1718456,
+    "igst": 48000,
+    "cgst": 50000,
+    "sgst": 50000,
+    "cess": 12000
+   },
+   {
+    "section": "hsn_b2c",
+    "label": "HSN summary — B2C (Table 12)",
+    "docs": 2,
+    "taxable": 505000,
+    "igst": 18000,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "at",
+    "label": "Advances received (11A)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "txpd",
+    "label": "Advances adjusted (11B)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "doc_issue",
+    "label": "Documents issued (Table 13)",
+    "docs": 29,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   }
+  ]
+ },
+ "unregistered": {
+  "docs": [
+   {
+    "voucherId": 1,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "1",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 118000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 2,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "2",
+    "partyName": "B2B 29",
+    "partyGstin": "29AABCF9012G1ZQ",
+    "pos": "29",
+    "invoiceValue": 112000,
+    "items": [
+     {
+      "rate": 12,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 12000,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 12",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 12,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 12000,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 3,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "3",
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "pos": "27",
+    "invoiceValue": 5000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 5000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales bare",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 5000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 4,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "4",
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "pos": "27",
+    "invoiceValue": 7000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 7000
+     }
+    ],
+    "hsnLines": [],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 1,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 5,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "5",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 100000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales exempt",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 6,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "6",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 218200,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     },
+     {
+      "hsn": "9983",
+      "description": "Sales exempt",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 200,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 7,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "7",
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "pos": "27",
+    "invoiceValue": 118000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales exempt",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 18000,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 8,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "8",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 140000,
+    "items": [
+     {
+      "rate": 28,
+      "taxable": 100000,
+      "cgst": 14000,
+      "sgst": 14000,
+      "igst": 0,
+      "cess": 12000
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "2202",
+      "description": "Sales 28 + cess",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 28,
+      "taxable": 100000,
+      "cgst": 14000,
+      "sgst": 14000,
+      "igst": 0,
+      "cess": 12000
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 9,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "9",
+    "partyName": "Export WOP",
+    "partyGstin": null,
+    "pos": "96",
+    "invoiceValue": 100000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales bare",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "EXPWOP",
+    "rchrg": false,
+    "shippingBill": {
+     "num": null,
+     "date": null
+    },
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 10,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "10",
+    "partyName": "Export WOP",
+    "partyGstin": null,
+    "pos": "96",
+    "invoiceValue": 100000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "EXPWOP",
+    "rchrg": false,
+    "shippingBill": {
+     "num": null,
+     "date": null
+    },
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 11,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "11",
+    "partyName": "SEZ WOP",
+    "partyGstin": "27AABCS1429B1ZU",
+    "pos": "27",
+    "invoiceValue": 100000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "SEWOP",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 12,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "12",
+    "partyName": "Export WP",
+    "partyGstin": null,
+    "pos": "96",
+    "invoiceValue": 118000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "invTyp": "EXPWP",
+    "rchrg": false,
+    "shippingBill": {
+     "num": null,
+     "date": null
+    },
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 13,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "13",
+    "partyName": "SEZ WP",
+    "partyGstin": "27AABCS1429B1ZU",
+    "pos": "27",
+    "invoiceValue": 118000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "invTyp": "SEWP",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 14,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "14",
+    "partyName": "RCM buyer",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 100000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 100000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales bare",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": true,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 15,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "15",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "29",
+    "invoiceValue": 118000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 16,
+    "kind": "sales",
+    "date": "2025-07-05",
+    "number": "16",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 123000,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [
+     {
+      "taxable": 5000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 100000,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 1,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 17,
+    "kind": "credit_note",
+    "date": "2025-07-05",
+    "number": "1",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 11800,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 10000,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 10000,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 18,
+    "kind": "credit_note",
+    "date": "2025-07-05",
+    "number": "2",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 5000,
+    "items": [],
+    "nilLines": [
+     {
+      "taxable": 5000
+     }
+    ],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales bare",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 0,
+      "taxable": 5000,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   },
+   {
+    "voucherId": 19,
+    "kind": "debit_note",
+    "date": "2025-07-05",
+    "number": "1",
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "pos": "27",
+    "invoiceValue": 11800,
+    "items": [
+     {
+      "rate": 18,
+      "taxable": 10000,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "nilLines": [],
+    "hsnLines": [
+     {
+      "hsn": "9983",
+      "description": "Sales 18",
+      "uqc": "OTH",
+      "qtyMilli": 0,
+      "rate": 18,
+      "taxable": 10000,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0
+     }
+    ],
+    "invTyp": "R",
+    "rchrg": false,
+    "shippingBill": null,
+    "validation": {
+     "valDiff": 0,
+     "missingHsnCount": 0,
+     "missingGstin": false
+    }
+   }
+  ],
+  "edocs": [
+   {
+    "voucherId": 1,
+    "number": "1",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 9000,
+    "sgst": 9000,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 2,
+    "number": "2",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 29",
+    "partyGstin": "29AABCF9012G1ZQ",
+    "partyAddress": null,
+    "partyStateCode": "29",
+    "pos": "29",
+    "items": [
+     {
+      "name": "Sales 12",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 12,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 12000,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 12000,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 112000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 3,
+    "number": "3",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales bare",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 5000,
+      "taxablePaise": 5000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 5000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 5000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 4,
+    "number": "4",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales bare no HSN",
+      "hsn": "",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 7000,
+      "taxablePaise": 7000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 7000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 7000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 5,
+    "number": "5",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales exempt",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 6,
+    "number": "6",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     },
+     {
+      "name": "Sales exempt",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 200000,
+    "cgst": 9000,
+    "sgst": 9000,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 200,
+    "total": 218200,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 7,
+    "number": "7",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2C 27",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales exempt",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 18000,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 8,
+    "number": "8",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 28 + cess",
+      "hsn": "2202",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 28,
+      "cessRate": 12,
+      "cgst": 14000,
+      "sgst": 14000,
+      "igst": 0,
+      "cess": 12000,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 14000,
+    "sgst": 14000,
+    "igst": 0,
+    "cess": 12000,
+    "roundOff": 0,
+    "total": 140000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 9,
+    "number": "9",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "EXPWOP",
+    "rchrg": false,
+    "partyName": "Export WOP",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "96",
+    "pos": "96",
+    "items": [
+     {
+      "name": "Sales bare",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 10,
+    "number": "10",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "EXPWOP",
+    "rchrg": false,
+    "partyName": "Export WOP",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "96",
+    "pos": "96",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 11,
+    "number": "11",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "SEZWOP",
+    "rchrg": false,
+    "partyName": "SEZ WOP",
+    "partyGstin": "27AABCS1429B1ZU",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 12,
+    "number": "12",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "EXPWP",
+    "rchrg": false,
+    "partyName": "Export WP",
+    "partyGstin": null,
+    "partyAddress": null,
+    "partyStateCode": "96",
+    "pos": "96",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 18000,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 13,
+    "number": "13",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "SEZWP",
+    "rchrg": false,
+    "partyName": "SEZ WP",
+    "partyGstin": "27AABCS1429B1ZU",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 18000,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 14,
+    "number": "14",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": true,
+    "partyName": "RCM buyer",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales bare",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 100000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 15,
+    "number": "15",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "29",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 18000,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 100000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 18000,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 118000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 16,
+    "number": "16",
+    "date": "2025-07-05",
+    "docType": "INV",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 100000,
+      "taxablePaise": 100000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 9000,
+      "sgst": 9000,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     },
+     {
+      "name": "Freight charged",
+      "hsn": "",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 5000,
+      "taxablePaise": 5000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 105000,
+    "cgst": 9000,
+    "sgst": 9000,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 123000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 17,
+    "number": "1",
+    "date": "2025-07-05",
+    "docType": "CRN",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 10000,
+      "taxablePaise": 10000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 10000,
+    "cgst": 900,
+    "sgst": 900,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 11800,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 18,
+    "number": "2",
+    "date": "2025-07-05",
+    "docType": "CRN",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales bare",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 5000,
+      "taxablePaise": 5000,
+      "rate": 0,
+      "cessRate": 0,
+      "cgst": 0,
+      "sgst": 0,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 5000,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 5000,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 19,
+    "number": "1",
+    "date": "2025-07-05",
+    "docType": "DBN",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "B2B 27",
+    "partyGstin": "27AAPFU0939F1ZV",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [
+     {
+      "name": "Sales 18",
+      "hsn": "9983",
+      "qtyMilli": 0,
+      "uqc": "OTH",
+      "unitPricePaise": 10000,
+      "taxablePaise": 10000,
+      "rate": 18,
+      "cessRate": 0,
+      "cgst": 900,
+      "sgst": 900,
+      "igst": 0,
+      "cess": 0,
+      "isService": true,
+      "barcode": null
+     }
+    ],
+    "taxable": 10000,
+    "cgst": 900,
+    "sgst": 900,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 0,
+    "total": 11800,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   },
+   {
+    "voucherId": 21,
+    "number": "2",
+    "date": "2025-07-05",
+    "docType": "DBN",
+    "supTyp": "B2B",
+    "rchrg": false,
+    "partyName": "Vendor",
+    "partyGstin": "27AABCG3456H1ZN",
+    "partyAddress": null,
+    "partyStateCode": "27",
+    "pos": "27",
+    "items": [],
+    "taxable": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "igst": 0,
+    "cess": 0,
+    "roundOff": 11800,
+    "total": 11800,
+    "transporterId": null,
+    "vehicleNo": null,
+    "distanceKm": null,
+    "transport": null,
+    "shipTo": null,
+    "precedingDoc": null,
+    "irn": null
+   }
+  ],
+  "gstr1": [
+   {
+    "section": "b2b",
+    "label": "B2B — registered buyers",
+    "docs": 9,
+    "taxable": 900000,
+    "igst": 48000,
+    "cgst": 50000,
+    "sgst": 50000,
+    "cess": 12000
+   },
+   {
+    "section": "b2cl",
+    "label": "B2C (Large) — inter-state > ₹1,00,000",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "b2cs",
+    "label": "B2C (Small) — consolidated",
+    "docs": 4,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "exp",
+    "label": "Exports (Table 6A)",
+    "docs": 4,
+    "taxable": 400000,
+    "igst": 18000,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "cdnr",
+    "label": "Credit/Debit Notes (registered)",
+    "docs": 2,
+    "taxable": 20000,
+    "igst": 0,
+    "cgst": 1800,
+    "sgst": 1800,
+    "cess": 0
+   },
+   {
+    "section": "cdnur",
+    "label": "Credit/Debit Notes (unregistered)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "nil",
+    "label": "Nil-rated (Table 8)",
+    "docs": 0,
+    "taxable": 1035456,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "hsn_b2b",
+    "label": "HSN summary — B2B (Table 12)",
+    "docs": 4,
+    "taxable": 1718456,
+    "igst": 48000,
+    "cgst": 50000,
+    "sgst": 50000,
+    "cess": 12000
+   },
+   {
+    "section": "hsn_b2c",
+    "label": "HSN summary — B2C (Table 12)",
+    "docs": 2,
+    "taxable": 505000,
+    "igst": 18000,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "at",
+    "label": "Advances received (11A)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "txpd",
+    "label": "Advances adjusted (11B)",
+    "docs": 0,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   },
+   {
+    "section": "doc_issue",
+    "label": "Documents issued (Table 13)",
+    "docs": 29,
+    "taxable": 0,
+    "igst": 0,
+    "cgst": 0,
+    "sgst": 0,
+    "cess": 0
+   }
+  ]
+ }
+}
