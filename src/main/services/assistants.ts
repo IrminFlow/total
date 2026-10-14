@@ -212,7 +212,7 @@ export function closeFacts(db: DB, company: CompanyInfo, period: string, today: 
     }
   }
   // WP 8.3: the filing frequency decides which months have returns due (QRMP: quarter ends only).
-  const gst = company.gstRegistrationType === 'regular' && company.gstin ? { gstr1ExportedAt: snapAt('gstr1'), gstr3bExportedAt: snapAt('gstr3b'), filing: getGstProfile(db).filing } : null
+  const gst = company.gstRegistrationType === 'regular' && company.gstin ? { gstr1ExportedAt: snapAt('gstr1'), gstr3bExportedAt: snapAt('gstr3b'), filing: getGstProfile(db).filing, stateCode: company.stateCode } : null
 
   // TDS / TCS: per tagged payable ledger, what was deducted each month (credits, by voucher date)
   // up to TODAY — the check reports the months up to this one — and everything paid out of it
