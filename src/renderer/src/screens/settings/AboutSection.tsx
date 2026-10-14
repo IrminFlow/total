@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../lib/client'
+import { isOwnerOrNoUsers } from '../../lib/roles'
 import { useSession, useToasts, type Toast } from '../../state/stores'
 import { Button, DateInput, Field, Modal, Panel, SectionTitle } from '../../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
@@ -80,7 +81,7 @@ export function AboutSection(): React.JSX.Element {
 
 function PeriodLockCard(): React.JSX.Element {
   const { user } = useSession()
-  const canEdit = user?.role === 'owner'
+  const canEdit = isOwnerOrNoUsers(user)
   const { data } = useQuery({ queryKey: ['companyLock'], queryFn: api.company.lockGet })
   const [editing, setEditing] = useState(false)
 

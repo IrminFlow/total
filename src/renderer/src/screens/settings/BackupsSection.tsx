@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { refreshUiFromMain } from '../../lib/mode'
 import { api, type BackupInfo, type IntegrityResult } from '../../lib/client'
+import { canWriteOrNoUsers, isOwnerOrNoUsers } from '../../lib/roles'
 import { useSession, useToasts } from '../../state/stores'
 import { Button, Field, Modal, Panel, SectionTitle, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
@@ -56,8 +57,8 @@ export function BackupsSection(): React.JSX.Element {
   const [exporting, setExporting] = useState(false)
   const [runningBackup, setRunningBackup] = useState(false)
   const rows = data ?? []
-  const isOwner = user?.role === 'owner'
-  const canBackup = user?.role !== 'viewer'
+  const isOwner = isOwnerOrNoUsers(user)
+  const canBackup = canWriteOrNoUsers(user)
 
   // Runs FULLY and UNCONDITIONALLY, synchronously with the restore response — nothing here is
   // deferred for later acknowledgment. A restore very often also flips `locked`, which unmounts
