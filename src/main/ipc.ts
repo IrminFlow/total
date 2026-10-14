@@ -12,6 +12,7 @@ import * as attachments from './services/attachments'
 import { embedAttachments, restoreAttachmentFiles, restoreAttachmentFilesAt, type RestoreFilesResult, type StashResult } from './db/attachmentBackup'
 import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheckAsync, type BackupInfo } from './db/backup'
 import { checkIntegrity, checkIntegrityAsync } from './db/integrity'
+import { stopChecks } from './db/checkHost'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
@@ -664,7 +665,7 @@ export function registerIpc(): void {
     createDemoCompany(z.object({ mode: z.enum(UI_MODES).optional() }).optional().parse(payload)?.mode)
   )
 
-  handle('company:delete', (payload) => {
+  handle('company:delete', async (payload) => {
     const { slug, confirmName, pin } = z
       .object({
         slug: z.string().min(1),
@@ -684,6 +685,8 @@ export function registerIpc(): void {
     auditCompanyDeletion(companyDbPath(slug), slug, sessionUser?.name ?? null)
     log('warn', 'company-deleted', { slug, user: sessionUser?.name ?? null })
     if (current?.slug === slug) closeCurrentCompany()
+    // WP 7.1 review: a background check (the weekly integrity_check) may still hold the file open.
+    await stopChecks(companyDbPath(slug))
     rmSync(companyDir(slug), { recursive: true, force: true })
     removeCompany(slug)
     // Secrets live outside the company folder; drop them so a future company reusing this slug
@@ -875,6 +878,8 @@ export function registerIpc(): void {
     // and atomically swaps it into place. Throws — leaving the live DB completely untouched —
     // if the backup fails validation. `current`/`c.db` are still fully intact at that point,
     // since we haven't closed anything yet.
+    // WP 7.1 review: no background check may hold the live file open while it is swapped.
+    await stopChecks(dbPath)
     const { preRestoreSnapshotPath } = restoreCompanyDb(c.db, dbPath, backupPath, companyBackupsDir(slug))
     // WP 6.4: the pre-restore snapshot's attachments are still in the live store — keep copies,
     // so restoring that snapshot later brings them back too.

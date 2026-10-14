@@ -30,15 +30,35 @@ export function runPragmaCheck(db: Database.Database, pragma: CheckPragma): stri
 }
 
 // The bundler may put this module in out/main/ or in a shared chunk under out/main/chunks/.
+let workerOverride: string | null | undefined
+/** Tests: run the checks with this worker file (null = in-process; undefined = the built one). */
+export function setCheckWorkerFile(file: string | null | undefined): void {
+  workerOverride = file
+}
 const workerFile = (): string | null => {
+  if (workerOverride !== undefined) return workerOverride
   for (const f of [join(__dirname, 'checkWorker.js'), join(__dirname, '..', 'checkWorker.js')]) if (existsSync(f)) return f
   return null
 }
 
 let seq = 0
 
+/** Workers still running a check, by database path (stopChecks). */
+const running = new Map<string, Set<Worker>>()
+const stopped = new WeakSet<Worker>()
+
+/** The rejection of a check stopped by stopChecks — not a finding about the file. */
+export class CheckStoppedError extends Error {
+  constructor() {
+    super('check stopped: the file is being replaced or removed')
+    this.name = 'CheckStoppedError'
+  }
+}
+
 /** Run `PRAGMA <pragma>` on the database file at `path` (read-only). Rejects when the file
- *  cannot be opened or the pragma throws — callers decide what a failure means, as before. */
+ *  cannot be opened, the pragma throws, the worker dies (an 'error' or an exit without an
+ *  answer — never a promise that hangs company:open) or the check is stopped (stopChecks) —
+ *  callers decide what a failure means, as before. */
 export async function pragmaCheck(path: string, pragma: CheckPragma): Promise<string> {
   const file = workerFile()
   if (!file) {
@@ -50,10 +70,14 @@ export async function pragmaCheck(path: string, pragma: CheckPragma): Promise<st
     }
   }
   const worker = new Worker(file)
+  const set = running.get(path) ?? new Set<Worker>()
+  set.add(worker)
+  running.set(path, set)
   const id = ++seq
   try {
     return await new Promise<string>((resolve, reject) => {
       worker.once('error', reject)
+      worker.once('exit', (code) => reject(stopped.has(worker) ? new CheckStoppedError() : new Error(`check worker exited (${code}) before answering`)))
       worker.on('message', (m: { id: number; ok: boolean; result?: string; error?: string }) => {
         if (m.id !== id) return
         if (m.ok) resolve(m.result!)
@@ -62,9 +86,29 @@ export async function pragmaCheck(path: string, pragma: CheckPragma): Promise<st
       worker.postMessage({ id, path, pragma })
     })
   } finally {
+    set.delete(worker)
+    if (set.size === 0 && running.get(path) === set) running.delete(path)
     void worker.terminate()
   }
 }
+
+/** Stop every check still reading the file at `path` and wait until their threads are gone (their
+ *  read-only connections closed with them). Call before the file is replaced or removed (restore,
+ *  delete): on Windows an open handle refuses the rename / unlink (EPERM / EBUSY). The stopped
+ *  checks reject; their callers treat that as a failed check of a file that is going away. */
+export async function stopChecks(path: string): Promise<void> {
+  const set = running.get(path)
+  if (!set) return
+  await Promise.all(
+    [...set].map((w) => {
+      stopped.add(w)
+      return w.terminate().catch(() => undefined)
+    })
+  )
+}
+
+/** How many checks are reading `path` right now (tests). */
+export const runningChecks = (path: string): number => running.get(path)?.size ?? 0
 
 /** quickCheckOk (db/backup.ts) off the main thread: true iff the file opens read-only and passes
  *  quick_check. Never throws. */

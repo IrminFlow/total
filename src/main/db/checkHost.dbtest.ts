@@ -3,17 +3,18 @@
 // books), runWeeklyIntegrityCheckAsync = runWeeklyIntegrityCheck (stamp + 7-day throttle). The
 // dbtests run the sources, so this exercises the in-process path; the worker path runs the same
 // runPragmaCheck on its own connection (e2e / smoke cover the built app).
-import { describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import Database from 'better-sqlite3'
-import { mkdtempSync, writeFileSync } from 'fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { createRequire } from 'module'
 import { tmpdir } from 'os'
 import { migrate } from './migrate'
 import { seedCompany } from './seed'
 import { TEST_INFO, postSimpleVoucher } from './testdb'
 import { quickCheckOk, runWeeklyIntegrityCheck, runWeeklyIntegrityCheckAsync, snapshotTo, INTEGRITY_CHECK_META_KEY } from './backup'
 import { checkIntegrity, checkIntegrityAsync } from './integrity'
-import { pragmaCheck, quickCheckOkAsync } from './checkHost'
+import { pragmaCheck, quickCheckOkAsync, runningChecks, setCheckWorkerFile, stopChecks } from './checkHost'
 
 function fileDb(): { db: Database.Database; path: string; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'total-checkhost-'))
@@ -65,5 +66,77 @@ describe('off-main-thread SQLite checks (WP 7.1)', () => {
     db.close()
     // A company closed before the check ends: nothing is stamped or reported.
     expect(await runWeeklyIntegrityCheckAsync(db, path, new Date(Date.now() + 30 * 86_400_000))).toBeNull()
+  })
+})
+
+// WP 7.1 review: the worker path itself — the built checkWorker (bundled here with esbuild, as
+// electron-vite bundles it), a worker that dies without answering, and stopChecks.
+describe('the check worker thread', () => {
+  let bundleDir = ''
+  const bundle = async (): Promise<string> => {
+    const { build } = await import('esbuild')
+    bundleDir = mkdtempSync(join(tmpdir(), 'total-checkworker-'))
+    const out = join(bundleDir, 'checkWorker.js')
+    const sqlite = createRequire(import.meta.url).resolve('better-sqlite3')
+    await build({
+      entryPoints: [join(__dirname, 'checkWorker.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: out, logLevel: 'silent',
+      plugins: [{ name: 'sqlite', setup: (b) => b.onResolve({ filter: /^better-sqlite3$/ }, () => ({ path: sqlite, external: true })) }]
+    })
+    return out
+  }
+  afterEach(() => setCheckWorkerFile(undefined))
+  afterAll(() => {
+    if (bundleDir) rmSync(bundleDir, { recursive: true, force: true })
+  })
+
+  it('answers like the in-process check, on a file the main connection keeps writing', async () => {
+    setCheckWorkerFile(await bundle())
+    const { db, path, dir } = fileDb()
+    const snap = join(dir, 'snap.db')
+    await snapshotTo(db, snap)
+    const busy = setInterval(() => postSimpleVoucher(db, { date: '2025-05-02', amount: 100, kind: 'receipt' }), 1)
+    try {
+      expect(await quickCheckOkAsync(snap)).toBe(true)
+      expect(await pragmaCheck(path, 'quick_check')).toBe('ok')
+      expect(await pragmaCheck(path, 'integrity_check')).toBe('ok')
+    } finally {
+      clearInterval(busy)
+    }
+    expect(await checkIntegrityAsync(db, path)).toEqual(checkIntegrity(db))
+    expect(await quickCheckOkAsync(join(dir, 'missing.db'))).toBe(false)
+    expect(runningChecks(path)).toBe(0)
+    db.close()
+  }, 60_000)
+
+  it('a worker that exits without answering rejects (company:open never hangs on it)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'total-checkworker-dead-'))
+    const dead = join(dir, 'dead.js')
+    writeFileSync(dead, 'process.exit(3)\n')
+    setCheckWorkerFile(dead)
+    const { db, path } = fileDb()
+    await expect(pragmaCheck(path, 'quick_check')).rejects.toThrow(/exited/)
+    expect(await quickCheckOkAsync(path)).toBe(false)
+    // checkIntegrityAsync falls back to the main connection, as before.
+    expect(await checkIntegrityAsync(db, path)).toEqual(checkIntegrity(db))
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('stopChecks ends a running check; the weekly check then reports and stamps nothing', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'total-checkworker-hang-'))
+    const hang = join(dir, 'hang.js')
+    writeFileSync(hang, 'setInterval(() => {}, 1000)\n')
+    setCheckWorkerFile(hang)
+    const { db, path } = fileDb()
+    const weekly = runWeeklyIntegrityCheckAsync(db, path)
+    await new Promise((r) => setTimeout(r, 50))
+    expect(runningChecks(path)).toBe(1)
+    await stopChecks(path)
+    expect(await weekly).toBeNull()
+    expect(runningChecks(path)).toBe(0)
+    expect(db.prepare('SELECT 1 FROM meta WHERE key = ?').get(INTEGRITY_CHECK_META_KEY)).toBeUndefined()
+    await expect(stopChecks(path)).resolves.toBeUndefined()
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
   })
 })

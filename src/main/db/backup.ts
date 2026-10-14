@@ -4,7 +4,7 @@ import Database from 'better-sqlite3'
 import { existsSync, readdirSync, statSync, unlinkSync, copyFileSync, renameSync, rmSync } from 'fs'
 import { join, basename } from 'path'
 import type { DB } from './connection'
-import { pragmaCheck } from './checkHost'
+import { CheckStoppedError, pragmaCheck } from './checkHost'
 
 export interface BackupInfo {
   file: string
@@ -176,7 +176,8 @@ export async function runWeeklyIntegrityCheckAsync(db: DB, path: string, now = n
     )
     return { ran: true, ok: detail === 'ok', detail }
   } catch (err) {
-    if (!db.open) return null
+    // Stopped because the file is being restored / removed (stopChecks): no finding, no stamp.
+    if (!db.open || err instanceof CheckStoppedError) return null
     return { ran: true, ok: false, detail: err instanceof Error ? err.message : String(err) }
   }
 }
