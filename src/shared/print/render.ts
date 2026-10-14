@@ -1028,7 +1028,7 @@ function renderVoucher(c: Ctx, doc: VoucherDocument, opts: RenderOptions): strin
       </div>
       <table class="items">
         <thead><tr>
-          <th>${esc(c.L.particulars)}</th><th class="r" style="width:130px">${esc(c.L.debit)}</th><th class="r" style="width:130px">${esc(c.L.credit)}</th>
+          <th>${esc(c.L.particulars)}</th><th class="r" style="width:130px">${esc(c.L.lineDebit)}</th><th class="r" style="width:130px">${esc(c.L.lineCredit)}</th>
         </tr></thead>
         <tbody>${v.lines
           .map(

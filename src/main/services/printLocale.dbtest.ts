@@ -16,7 +16,8 @@ import { saveVoucher } from './vouchers'
 import { plexFontFaceCss, resetDevanagariFontForTests } from './printFonts'
 import { printLocale } from './printLocale'
 import * as pt from './printTemplates'
-import { statementHtml } from './receivables'
+import { statementData, statementHtml } from './receivables'
+import { resolveTemplate } from './printTemplates'
 
 const INFO: CompanyInfo = { ...TEST_INFO, name: 'Bhasha Traders', gstin: '27AAPFU0939F1ZV', address: '12 MG Road, Pune 411001' }
 
@@ -97,6 +98,65 @@ describe('prints in the company language (WP 10.4)', () => {
     const { html } = statementHtml(db, INFO, buyer, '2026-04-01', '2026-07-31')
     expect(html).toContain('विवरण')
     expect(html).toContain("font-family: 'Noto Sans Devanagari'")
+  })
+
+  it('WP 10.4 review: an accountant company\'s statement is byte-identical too', () => {
+    for (const ui of [null, { mode: 'accountant', language: 'hi' }]) {
+      const { db, buyer } = setup(ui)
+      const data = statementData(db, INFO, buyer, '2026-04-01', '2026-07-31')
+      const before = renderDocument(resolveTemplate(db, 'statement'), { shape: 'statement', kind: 'statement', company: INFO, statement: data }, { fontFaceCss: plexFontFaceCss })
+      expect(statementHtml(db, INFO, buyer, '2026-04-01', '2026-07-31').html).toBe(before)
+    }
+  })
+
+  it('WP 10.4 review: a Hindi statement says its rows in Hindi and the balance side from the reader\'s view', () => {
+    const { db, buyer } = setup({ mode: 'simple', language: 'hi' })
+    const { html } = statementHtml(db, INFO, buyer, '2026-04-01', '2026-07-31')
+    // the customer owes ₹1,41,600: "देना है" (you have to pay); no English kind / bill-wise jargon
+    expect(html).toContain('देना है')
+    expect(html).not.toMatch(/New ref|Agst ref|Against the oldest|>Sales </)
+    expect(html).toContain('बिल</') // the entry is named by its kind
+    expect(html).toContain('<th class="r" style="width:110px">बिल</th>')
+    expect(html).toContain('<th class="r" style="width:110px">चुकाया</th>')
+  })
+
+  it('WP 10.4 review: a supplier\'s Hindi statement puts their bills in the credit column and our balance as "लेना है" for them', () => {
+    const { db } = setup({ mode: 'simple', language: 'hi' })
+    const groupId = (name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
+    const vtId = (kind: string): number => (db.prepare('SELECT id FROM voucher_types WHERE kind = ?').get(kind) as { id: number }).id
+    const supplier = createLedger(db, { name: 'Mohan Supplies', groupId: groupId('Sundry Creditors') }).id
+    const purchases = createLedger(db, { name: 'Purchases', groupId: groupId('Purchase Accounts') }).id
+    saveVoucher(db, {
+      voucherTypeId: vtId('purchase'), date: '2026-07-06', partyLedgerId: supplier, reference: 'M-1', narration: null,
+      lines: [
+        { ledgerId: purchases, drCr: 'dr', amount: 500000, costAllocations: [] },
+        { ledgerId: supplier, drCr: 'cr', amount: 500000, costAllocations: [] }
+      ],
+      inventory: [], billRefs: [], tds: null
+    })
+    const { html } = statementHtml(db, INFO, supplier, '2026-04-01', '2026-07-31')
+    const heads = [...html.matchAll(/<th class="r" style="width:110px">([^<]+)<\/th>/g)].map((m) => m[1])
+    expect(heads.slice(0, 2)).toEqual(['चुकाया', 'बिल'])
+    expect(html).toContain('लेना है') // we owe the supplier: from their side, "to receive"
+    expect(html).toContain('खरीद बिल')
+  })
+
+  it('WP 10.4 review: a Hindi receipt print heads its lines नामे / जमा, never the statement\'s बिल / चुकाया', () => {
+    const { db, buyer } = setup({ mode: 'simple', language: 'hi' })
+    const groupId = (name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
+    const vtId = (kind: string): number => (db.prepare('SELECT id FROM voucher_types WHERE kind = ?').get(kind) as { id: number }).id
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE group_id = ? LIMIT 1").get(groupId('Cash-in-Hand')) as { id: number }).id
+    const r = saveVoucher(db, {
+      voucherTypeId: vtId('receipt'), date: '2026-07-07', partyLedgerId: buyer, reference: null, narration: null,
+      lines: [
+        { ledgerId: cash, drCr: 'dr', amount: 100000, costAllocations: [] },
+        { ledgerId: buyer, drCr: 'cr', amount: 100000, costAllocations: [] }
+      ],
+      inventory: [], billRefs: [], tds: null
+    })
+    const html = pt.documentHtml(db, INFO, r.id).html
+    expect(html).toContain('>नामे</th>')
+    expect(html).toContain('>जमा</th>')
   })
 
   it('when the Devanagari face cannot be loaded a Hindi company gets the English print, never boxes', () => {

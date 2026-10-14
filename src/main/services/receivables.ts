@@ -44,7 +44,8 @@ import { resolveTemplate } from './printTemplates'
 import { plexFontFaceCss } from './printFonts'
 import { printLocale } from './printLocale'
 import { companyT } from '../i18n'
-import type { MessageKey } from '@shared/i18n'
+import type { MessageKey, Translate } from '@shared/i18n'
+import { partySide } from './openingBills'
 import { htmlToPdf } from './pdf'
 import { openSalesOrderValue } from './tradeDocs'
 import { IN_BOOKS, NOT_DELETED, saveVoucher } from './vouchers'
@@ -161,7 +162,47 @@ export function statementHtml(db: DB, company: CompanyInfo, ledgerId: number, fr
   const data = statementData(db, company, ledgerId, from, to)
   const doc: StatementDocument = { shape: 'statement', kind: 'statement', company, statement: data }
   const locale = printLocale(db)
-  return { html: renderDocument(locale.template(resolveTemplate(db, 'statement')), doc, locale.opts), data }
+  if (locale.lang === 'en') return { html: renderDocument(locale.template(resolveTemplate(db, 'statement')), doc, locale.opts), data }
+  // WP 10.4 review: a localised statement says its rows in the company language too (the entry's
+  // kind instead of the English type name, the bill-wise lines without "New ref / Agst ref"), and
+  // a supplier's statement puts their bills in the credit column, an advance paid under "paid".
+  const t = companyT(db)
+  const printed: StatementDocument = { ...doc, statement: { ...data, rows: localisedStatementRows(db, ledgerId, data.rows, t) } }
+  const labels = locale.opts.labels!
+  const sup = labels.supplierStatement
+  const opts =
+    sup && partySide(db, partyRow(db, ledgerId).groupId) === -1
+      ? { ...locale.opts, labels: { ...labels, debit: sup.debit, credit: sup.credit, unadjusted: sup.unadjusted } }
+      : locale.opts
+  return { html: renderDocument(locale.template(resolveTemplate(db, 'statement')), printed, opts), data }
+}
+
+const KIND_WORD: Record<string, MessageKey> = {
+  sales: 'simple.print.kind.sales', purchase: 'simple.print.kind.purchase', receipt: 'simple.print.kind.receipt', payment: 'simple.print.kind.payment',
+  credit_note: 'simple.print.kind.creditNote', debit_note: 'simple.print.kind.debitNote'
+}
+
+/** The statement rows in the company language: each entry named by its kind, its bill-wise lines in plain words. */
+function localisedStatementRows(db: DB, partyId: number, rows: StatementRow[], t: Translate): StatementRow[] {
+  if (!rows.length) return rows
+  const ids = [...new Set(rows.map((r) => r.voucherId))]
+  const kinds = new Map(
+    (db.prepare(`SELECT v.id, vt.kind FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: number; kind: string }[]).map((r) => [r.id, r.kind])
+  )
+  const refs = db
+    .prepare(`SELECT voucher_id AS voucherId, kind, name, amount FROM bill_refs WHERE party_ledger_id = ? AND voucher_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`)
+    .all(partyId, ...ids) as { voucherId: number; kind: 'new' | 'against'; name: string; amount: number }[]
+  const by = new Map<number, string[]>()
+  for (const r of refs) {
+    const list = by.get(r.voucherId) ?? []
+    list.push(t(r.kind === 'new' ? 'simple.print.alloc.new' : 'simple.print.alloc.against', { name: r.name, amount: rupees(r.amount) }))
+    by.set(r.voucherId, list)
+  }
+  return rows.map((r) => ({
+    ...r,
+    voucherType: t(KIND_WORD[kinds.get(r.voucherId) ?? ''] ?? 'simple.print.kind.other'),
+    allocation: by.get(r.voucherId)?.join(' · ') ?? (r.credit > 0 ? t('simple.print.alloc.oldest') : '')
+  }))
 }
 
 async function writePdf(dir: string, file: string, html: string, db: DB, kind: 'statement' | 'reminder'): Promise<string> {

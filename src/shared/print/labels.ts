@@ -68,6 +68,12 @@ export interface PrintLabels {
   particulars: string
   debit: string
   credit: string
+  /** WP 10.4 review: a statement for a SUPPLIER — their bills are the credit column, what was
+   *  paid them the debit one, an unapplied amount is an advance paid (customer = the default). */
+  supplierStatement?: { debit: string; credit: string; unadjusted: string }
+  /** The debit / credit heads of a receipt / payment print's lines (not a statement's). */
+  lineDebit: string
+  lineCredit: string
   balance: string
   openingBalance: string
   totalsClosing: string
@@ -142,6 +148,8 @@ export const ENGLISH_PRINT_LABELS: PrintLabels = {
   particulars: 'Particulars',
   debit: 'Debit',
   credit: 'Credit',
+  lineDebit: 'Debit',
+  lineCredit: 'Credit',
   balance: 'Balance',
   openingBalance: 'Opening balance',
   totalsClosing: 'Totals / closing balance',
@@ -230,6 +238,9 @@ export function printLabelsFor(t: Translate): PrintLabels {
     particulars: t('simple.print.details'),
     debit: t('simple.print.debit'),
     credit: t('simple.print.credit'),
+    supplierStatement: { debit: t('simple.print.credit'), credit: t('simple.print.debit'), unadjusted: t('simple.print.unadjustedPaid') },
+    lineDebit: t('simple.print.lineDebit'),
+    lineCredit: t('simple.print.lineCredit'),
     balance: t('simple.print.balance'),
     openingBalance: t('simple.print.openingBalance'),
     totalsClosing: t('simple.print.totalsClosing'),
