@@ -23,6 +23,7 @@ import { emptyMoneyInForm, emptyMoneyOutForm, moneyInErrors, moneyInIntentFrom, 
 import { emptySellForm, saleIntentFrom, sellFormErrors, sellTotals, type SellContext, type SellForm } from '@shared/simple/sell'
 import { buyFormErrors, emptyBuyForm, purchaseIntentFrom, type BuyContext, type BuyForm } from '@shared/simple/buy'
 import { money } from '@shared/simple/explain'
+import { buyFromAsk, moneyInFromAsk, moneyOutFromAsk, sellFromAsk } from '@shared/simple/askPrefill'
 import { listLedgers, listStockItems, listVoucherTypes } from '../services/masters'
 import { moneyBills, moneySetup } from '../services/simpleMoney'
 import { sellSetup } from '../services/simpleSell'
@@ -120,21 +121,20 @@ function moneyOut(db: DB, company: CompanyInfo, s: AssistEntrySlots, input: AskI
     payeeId = categoryAccount(db, s.what, today)
     if (payeeId == null && !missing) missing = s.what ? t('assist.entry.pickWhat', { what: s.what }) : null
   }
-  const how = s.how ?? 'cash'
-  const form: MoneyOutForm = { ...emptyMoneyOutForm(date, { supplierId, amount: s.amount ?? null }), who, payeeId, how, note: s.what && who !== 'supplier' ? s.what : '' }
+  const note = s.what && who !== 'supplier' ? s.what : ''
+  const prefill: Extract<AssistPrefill, { screen: 'simple-money-out' }> = {
+    screen: 'simple-money-out', who, ...(supplierId != null ? { party: supplierId } : {}), ...(payeeId != null ? { payee: payeeId } : {}),
+    ...(s.amount != null ? { amount: s.amount } : {}), how: s.how ?? 'cash', ...(s.date ? { date: s.date } : {}), ...(note ? { note } : {})
+  }
+  // The flow's own form, pre-filled the way the screen pre-fills it (askPrefill.ts).
+  const form: MoneyOutForm = moneyOutFromAsk(emptyMoneyOutForm(today), prefill)
   const facts = gstRegistrationOf(company)
   const ctx = { facts, companyStateCode: company.stateCode, supplierState: (id: number) => setup.suppliers.find((x) => x.id === id)?.stateCode ?? null, drawingsId: setup.drawingsId }
   const open = supplierId != null ? moneyBills(db, supplierId, date) : []
   const errs = moneyOutErrors(form, open, setup.defaultsOut, ctx)
   missing ??= firstError(errs, t)
   const intent = missing ? null : (moneyOutIntentFrom(form, open, setup.defaultsOut, ctx) as Intent)
-  return {
-    prefill: {
-      screen: 'simple-money-out', who, ...(supplierId != null ? { party: supplierId } : {}), ...(payeeId != null ? { payee: payeeId } : {}),
-      ...(s.amount != null ? { amount: s.amount } : {}), how, ...(s.date ? { date: s.date } : {}), ...(form.note ? { note: form.note } : {})
-    },
-    intent, missing, readAs
-  }
+  return { prefill, intent, missing, readAs }
 }
 
 function moneyIn(db: DB, s: AssistEntrySlots, input: AskInput, t: Translate): Built {
@@ -154,16 +154,16 @@ function moneyIn(db: DB, s: AssistEntrySlots, input: AskInput, t: Translate): Bu
     else missing = t('assist.entry.noCustomer', { name: s.party })
   }
   if (s.readAs === 'koMila' && s.party && s.amount != null) readAs.push(t('assist.entry.koMila', { name: s.party, amount: money(s.amount) }))
-  const how = s.how ?? 'cash'
-  const form: MoneyInForm = { ...emptyMoneyInForm(date, { customerId, amount: s.amount ?? null }), who, how, note: s.what ?? '' }
+  const prefill: Extract<AssistPrefill, { screen: 'simple-money-in' }> = {
+    screen: 'simple-money-in', who, ...(customerId != null ? { party: customerId } : {}), ...(s.amount != null ? { amount: s.amount } : {}), how: s.how ?? 'cash',
+    ...(s.date ? { date: s.date } : {}), ...(s.what ? { note: s.what } : {})
+  }
+  const form: MoneyInForm = moneyInFromAsk(emptyMoneyInForm(today), prefill)
   const open = customerId != null ? moneyBills(db, customerId, date) : []
   const errs = moneyInErrors(form, open, setup.defaultsIn, { ownerId: setup.ownerId })
   missing ??= firstError(errs, t)
   const intent = missing ? null : (moneyInIntentFrom(form, open, setup.defaultsIn, { ownerId: setup.ownerId }) as Intent)
-  return {
-    prefill: { screen: 'simple-money-in', who, ...(customerId != null ? { party: customerId } : {}), ...(s.amount != null ? { amount: s.amount } : {}), how, ...(s.date ? { date: s.date } : {}), ...(form.note ? { note: form.note } : {}) },
-    intent, missing, readAs
-  }
+  return { prefill, intent, missing, readAs }
 }
 
 function invoiceCtx(db: DB, company: CompanyInfo): SellContext['invoice'] {
@@ -216,28 +216,21 @@ function sale(db: DB, company: CompanyInfo, s: AssistEntrySlots, input: AskInput
   const g = goods(db, s, input, t, 'sale', customerId ?? setup.walkInId)
   if (g.choice) return { prefill: { screen: 'simple-sell' }, intent: null, missing: null, choice: g.choice, readAs: [] }
   missing ??= g.missing
-  const mode: SellForm['mode'] = g.itemId != null ? 'items' : 'amount'
-  const paid = s.how ?? (customerId == null ? 'cash' : 'credit')
-  const base = emptySellForm(date, { mode, ratesIncludeGst: g.incl })
-  const form: SellForm = {
-    ...base, customerId, paid,
-    lines: g.itemId != null ? [{ key: 1, itemId: g.itemId, qtyText: String(g.qtyMilli / 1000), rate: g.rate, discount: null, auto: g.rate == null }] : [],
-    amount: g.itemId == null ? (s.amount ?? null) : null
+  const prefill: Extract<AssistPrefill, { screen: 'simple-sell' }> = {
+    screen: 'simple-sell', ...(customerId != null ? { party: customerId } : {}), ...(g.itemId != null ? { itemId: g.itemId, qtyMilli: g.qtyMilli } : {}),
+    ...(g.itemId != null && s.amount != null && g.rate != null ? { rate: g.rate } : {}), ...(g.itemId == null && s.amount != null ? { amount: s.amount } : {}),
+    how: s.how ?? (customerId == null ? 'cash' : 'credit'), ...(s.date ? { date: s.date } : {})
   }
+  let form: SellForm = sellFromAsk(emptySellForm(today, { mode: 'amount', ratesIncludeGst: false }), prefill, (l) => ({ ...l, key: 1 }))
+  // A line without a said price takes the price list's — what the screen's own prefill does.
+  if (g.rate != null && prefill.rate == null) form = { ...form, lines: form.lines.map((l) => (l.auto && l.rate == null ? { ...l, rate: g.rate } : l)) }
   const ctx: SellContext = { invoice: invoiceCtx(db, company), salesAccountId: setup.salesAccountId }
   const totals = sellTotals(form, ctx)
   const customer = setup.customers.find((c) => c.id === customerId)
   const errs = sellFormErrors(form, ctx, { onHold: !!customer?.creditHold, regular: totals.charges })
   missing ??= firstError(errs, t)
   const intent = missing ? null : (saleIntentFrom(form, ctx, setup.defaults) as Intent)
-  return {
-    prefill: {
-      screen: 'simple-sell', ...(customerId != null ? { party: customerId } : {}), ...(g.itemId != null ? { itemId: g.itemId, qtyMilli: g.qtyMilli } : {}),
-      ...(g.rate != null && g.itemId != null && s.amount != null ? { rate: g.rate } : {}), ...(g.itemId == null && s.amount != null ? { amount: s.amount } : {}),
-      how: paid, ...(s.date ? { date: s.date } : {})
-    },
-    intent, missing, readAs: []
-  }
+  return { prefill, intent, missing, readAs: [] }
 }
 
 function purchase(db: DB, company: CompanyInfo, s: AssistEntrySlots, input: AskInput, t: Translate): Built {
@@ -256,26 +249,18 @@ function purchase(db: DB, company: CompanyInfo, s: AssistEntrySlots, input: AskI
   if (g.choice) return { prefill: { screen: 'simple-buy' }, intent: null, missing: null, choice: g.choice, readAs: [] }
   missing ??= g.missing
   const regular = company.gstRegistrationType === 'regular'
-  const mode: BuyForm['mode'] = g.itemId != null ? 'items' : 'amount'
-  const paid = s.how ?? 'credit'
-  const form: BuyForm = {
-    ...emptyBuyForm(date, { mode, ratesIncludeGst: g.itemId != null ? g.incl || !regular : !regular }),
-    supplierId, paid,
-    lines: g.itemId != null ? [{ key: 1, itemId: g.itemId, qtyText: String(g.qtyMilli / 1000), rate: g.rate, discount: null }] : [],
-    amount: g.itemId == null ? (s.amount ?? null) : null
+  const prefill: Extract<AssistPrefill, { screen: 'simple-buy' }> = {
+    screen: 'simple-buy', ...(supplierId != null ? { party: supplierId } : {}), ...(g.itemId != null ? { itemId: g.itemId, qtyMilli: g.qtyMilli } : {}),
+    ...(g.rate != null && g.itemId != null ? { rate: g.rate } : {}), ...(g.itemId == null && s.amount != null ? { amount: s.amount } : {}),
+    how: s.how ?? 'credit', ...(s.date ? { date: s.date } : {})
   }
+  // The screen's blank form: bills print prices before GST for a regular registration.
+  const form: BuyForm = buyFromAsk(emptyBuyForm(today, { mode: 'amount', ratesIncludeGst: !regular }), prefill, (l) => ({ ...l, key: 1 }))
   const ctx: BuyContext = { invoice: invoiceCtx(db, company), purchaseAccountId: setup.purchaseAccountId }
   const errs = buyFormErrors(form, ctx)
   missing ??= firstError(errs, t)
   const intent = missing ? null : (purchaseIntentFrom(form, ctx, setup.defaults) as Intent)
-  return {
-    prefill: {
-      screen: 'simple-buy', ...(supplierId != null ? { party: supplierId } : {}), ...(g.itemId != null ? { itemId: g.itemId, qtyMilli: g.qtyMilli } : {}),
-      ...(g.rate != null && g.itemId != null ? { rate: g.rate } : {}), ...(g.itemId == null && s.amount != null ? { amount: s.amount } : {}),
-      how: paid, ...(s.date ? { date: s.date } : {})
-    },
-    intent, missing, readAs: []
-  }
+  return { prefill, intent, missing, readAs: [] }
 }
 
 let previewSeq = 0
