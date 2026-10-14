@@ -136,7 +136,7 @@ describe('explain sentences (WP 8.6)', () => {
     expect(attentionText({ source: 'owed', key: 'payable', count: 1, amount: 100, level: 'medium' }, '2026-09', t)).toBe('1 supplier bill (₹1.00) past the due date')
     expect(attentionText({ source: 'anomaly', key: 'duplicate_bill_number', count: 2, amount: null, level: 'high' }, '2026-09', t)).toBe('2 bill numbers are entered twice')
     expect(attentionText({ source: 'close', key: 'lock', count: 1, amount: null, level: 'medium' }, '2026-09', t)).toBe('A month-end check needs a look')
-    expect(attentionText({ source: 'close', key: 'gst_returns', count: 1, amount: null, level: 'medium' }, '2026-09', t)).toBe('The GST files for Sep 2026 are not prepared yet')
+    expect(attentionText({ source: 'close', key: 'gst_returns', count: 1, amount: null, level: 'medium' }, '2026-09', t)).toBe('The GST files for Sep 2026 are not prepared yet (Total asks for the months since your books began)')
     expect(attentionText({ source: 'close', key: 'pdc_due', count: 2, amount: 5, level: 'medium' }, '2026-09', t)).toBe('2 cheques dated by the end of Sep 2026 are still waiting to be cleared')
     expect(attentionText({ source: 'close', key: 'depreciation', count: 1, amount: null, level: 'high' }, '2026-09', t)).toBe('Wear and tear of things you own (depreciation) is not entered for Sep 2026')
     expect(attentionText({ source: 'close', key: 'suspense', count: 1, amount: 5, level: 'high' }, '2026-09', t)).toBe('Money parked in Suspense needs a home — move it to the right account')
