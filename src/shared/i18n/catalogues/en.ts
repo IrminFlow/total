@@ -1190,7 +1190,7 @@ export const en = {
   'simple.taxes.gst.toPayLabel': 'To pay in cash',
   'simple.taxes.gst.byDate': 'by {date}',
   'simple.taxes.gst.soFarNote': 'This period is still running — the figures are so far, to {date}.',
-  'simple.taxes.runningSoFar': '{period}: you have collected {collected} of GST so far and paid {purchases} on purchases — that goes in the next return.',
+  'simple.taxes.runningSoFar': '{period}: you have collected {collected} of GST and paid {purchases} on purchases — that goes in the next return.',
   'simple.taxes.runningOpen': 'See it',
   'simple.taxes.gst.rcmLine': 'plus {amount} under reverse charge',
   'simple.taxes.why.collected': 'GST you charged on your sales from {from} to {to}: {amount}. It is the government’s money that you hold until you pay it.',

@@ -1124,7 +1124,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.taxes.gst.toPayLabel': 'नकद में भरना है',
   'simple.taxes.gst.byDate': '{date} तक',
   'simple.taxes.gst.soFarNote': 'यह अवधि अभी चल रही है — आँकड़े अब तक के हैं, {date} तक।',
-  'simple.taxes.runningSoFar': '{period}: अब तक आपने {collected} GST लिया है और खरीद पर {purchases} दिया है — यह अगले रिटर्न में जाएगा।',
+  'simple.taxes.runningSoFar': '{period}: आपने {collected} GST लिया है और खरीद पर {purchases} दिया है — यह अगले रिटर्न में जाएगा।',
   'simple.taxes.runningOpen': 'देखें',
   'simple.taxes.gst.rcmLine': 'साथ में रिवर्स चार्ज के {amount}',
   'simple.taxes.why.collected': '{from} से {to} तक अपनी बिक्री पर आपने जो GST वसूला: {amount}। यह सरकार का पैसा है जो भरने तक आपके पास रहता है।',

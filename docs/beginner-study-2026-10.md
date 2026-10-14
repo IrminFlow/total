@@ -11,8 +11,15 @@ real study" list before relying on any number here.
 - Driver: `~/.claude/total-orch/study-10.8/study.mjs` over the journey steps shared with e2e 60
   (`scripts/e2e/lib/beginner-journey.mjs`) and the counters in `scripts/e2e/lib/journey-metrics.mjs`.
 - Before the fixes: main at `860f012d` + PR #105 (Hindi), run 14 Oct 2026. After: this branch.
-- Screenshots: `~/.claude/total-orch/shots-10.8/pre/<persona>/` and `…/post/<persona>/`
-  (one per step, `-STUCK-at` where a step did not finish). They are not in the repo.
+- Screenshots: `~/.claude/total-orch/shots-10.8/pre/<persona>/`, `…/post/<persona>/` and
+  `…/post-gst/` (the GST re-run), one per step (`-STUCK-at` where a step did not finish), plus
+  e2e 60's review set in `…/e2e60/`. They are not in the repo. The ones this report leans on:
+  `pre/trader/04-purchase.png` (Home: "nothing to pay" after a GST sale), `pre/freelancer/03-sale-STUCK-at.png`
+  (add a bank), `pre/restaurant/03-purchase-STUCK-at.png` (supplier asked), `pre/trader/09-return-STUCK-at.png`
+  (due today), `pre/restaurant/05-bank-STUCK-at.png` (UPI settlement), `pre/kirana/near-duplicate.png`,
+  `pre/freelancer/ask-5000.png`, `post/kirana/near-duplicate.png`, `post/freelancer/ask-5000.png`,
+  `post/trader/12-reminder.png`, `e2e60/06-gst-answer.png`, `e2e60/08-backup.png`, `e2e60/04-bank-agree.png`,
+  `e2e60/09-ask-which-way.png`.
 
 ## Personas
 
@@ -109,7 +116,7 @@ running-month line landed).
 | Bank | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Return | ✓ "credit of ₹50 … next bill" | — | ✓ | — | ✓ | — |
 | Stock count | ✓ | — | ✓ | — | ✓ | — |
-| GST answer | ✓ | ✓ | ✓ RUNNING-P3 | ✓ | ✓ RUNNING-P5 | ✓ |
+| GST answer | ✓ | ✓ | ✓ Sep (due next) + "Oct – Dec 2026 so far: ₹81 collected, ₹200 on purchases" | ✓ | ✓ Sep (due next) + "Oct 2026 so far: ₹90 / ₹250" | ✓ |
 | Reminder | ✓ "nothing is late yet" | — | ✓ "nothing is late yet" | — | ✓ "nothing is late yet" | ✓ "nothing is late yet" |
 | Backup | ✓ plain screen | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Trap | ✓ "Did you mean Sharma Stores?" | ✓ "did Bluebird pay you, or …?" | — | — | ✓ same bill refused | — |
