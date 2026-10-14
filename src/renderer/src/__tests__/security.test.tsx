@@ -165,3 +165,34 @@ describe('opening a locked business and the lock screen', () => {
     expect(useSession.getState().user).toBeNull()
   })
 })
+
+describe('deleting a business locked with a passphrase (WP 7.2 review)', () => {
+  it('the delete dialog asks for the passphrase, then the owner PIN, and sends both', async () => {
+    const { CompanySelect } = await import('../screens/CompanySelect')
+    const deletes: Record<string, unknown>[] = []
+    invoke.mockImplementation(async (channel: string, payload: Record<string, unknown>) => {
+      if (channel === 'company:list') return { ok: true, data: { companies: [{ slug: 'locked-co', name: 'Locked Co', stateCode: '27', gstin: null, lastOpenedAt: null }] } }
+      if (channel === 'company:delete') {
+        deletes.push(payload)
+        if (!payload.passphrase) return { ok: false, error: 'This business is locked with a passphrase — type it to open the books', code: 'passphrase_required', field: 'passphrase' }
+        if (!payload.pin) return { ok: false, error: 'This company is protected — an owner PIN is required to delete it' }
+        return { ok: true, data: null }
+      }
+      return { ok: false, error: `unmocked ${channel}` }
+    })
+    renderUi(<CompanySelect />)
+    await waitFor(() => expect(screen.getByTestId('btn-company-delete-locked-co')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('btn-company-delete-locked-co'))
+    fireEvent.change(screen.getByPlaceholderText('Locked Co'), { target: { value: 'Locked Co' } })
+    fireEvent.click(screen.getByText('Delete company'))
+    await waitFor(() => expect(screen.getByTestId('input-delete-passphrase')).toBeTruthy())
+    expect((screen.getByText('Delete company').closest('button') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(screen.getByTestId('input-delete-passphrase'), { target: { value: 'monsoon ledger 77' } })
+    fireEvent.click(screen.getByText('Delete company'))
+    await waitFor(() => expect(screen.getByPlaceholderText('PIN')).toBeTruthy())
+    fireEvent.change(screen.getByPlaceholderText('PIN'), { target: { value: '4321' } })
+    fireEvent.click(screen.getByText('Delete company'))
+    await waitFor(() => expect(deletes).toHaveLength(3))
+    expect(deletes[2]).toEqual({ slug: 'locked-co', confirmName: 'Locked Co', pin: '4321', passphrase: 'monsoon ledger 77' })
+  })
+})
