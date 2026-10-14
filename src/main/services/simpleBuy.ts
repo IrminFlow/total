@@ -130,12 +130,15 @@ export function purchaseView(db: DB, id: number, today: string): PurchaseView | 
   const ledger = db.prepare('SELECT name, tax_type AS taxType FROM ledgers WHERE id = ?')
   const item = db.prepare('SELECT s.name, u.symbol FROM stock_items s LEFT JOIN units u ON u.id = s.unit_id WHERE s.id = ?')
   const amounts: PurchaseView['amounts'] = []
-  if (v.inventory.length === 0) {
-    for (const l of v.lines) {
-      if (l.drCr !== 'dr' || l.ledgerId === v.partyLedgerId) continue
-      const lg = ledger.get(l.ledgerId) as { name: string; taxType: string | null } | undefined
-      if (!lg?.taxType && !/^round ?off$/i.test(lg?.name ?? '')) amounts.push({ name: lg?.name ?? '', amount: l.amount })
-    }
+  // The round-off the editor posted (the "Round Off" ledger it picks by name): + rounded up (a
+  // purchase's counter side is the debit).
+  let rounding = 0
+  for (const l of v.lines) {
+    if (l.ledgerId === v.partyLedgerId) continue
+    const lg = ledger.get(l.ledgerId) as { name: string; taxType: string | null } | undefined
+    const isRound = /^round ?off$/i.test((lg?.name ?? '').trim())
+    if (isRound) rounding += l.drCr === 'dr' ? l.amount : -l.amount
+    else if (v.inventory.length === 0 && l.drCr === 'dr' && !lg?.taxType) amounts.push({ name: lg?.name ?? '', amount: l.amount })
   }
   const billName = v.billRefs.find((r) => r.kind === 'new')?.name ?? v.number
   const open = v.partyLedgerId != null ? partyAllocation(db, v.partyLedgerId, today).bills.find((b) => b.voucherId === v.id && b.number === billName) : undefined
@@ -158,6 +161,7 @@ export function purchaseView(db: DB, id: number, today: string): PurchaseView | 
       return { name: it?.name ?? '', qtyMilli: l.qtyMilli, unit: it?.symbol ?? '', ratePaise: l.ratePaise, discountPaise: l.discountPaise, amount: l.amount }
     }),
     amounts,
+    rounding,
     note: v.narration
   }
 }

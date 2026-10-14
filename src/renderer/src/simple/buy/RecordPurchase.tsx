@@ -9,7 +9,7 @@ import type { SimplePreview } from '@shared/simple/intents'
 import { CATEGORIES } from '@shared/simple/categories'
 import { categoriesFor } from '@shared/simple/accountKinds'
 import {
-  asksAmountRate, BUY_MODES, buyFormErrors, buyGst, buyTotals, emptyBuyForm, purchaseIntentFrom, purchasePreviewLine, showsPriceBasis,
+  asksAmountRate, BUY_MODES, buyFormErrors, buyGst, buyTotals, emptyBuyForm, productsNeedGst, purchaseIntentFrom, purchasePreviewLine, showsPriceBasis,
   type BuyContext, type BuyField, type BuyForm, type BuyLine, type BuyMode
 } from '@shared/simple/buy'
 import type { MessageKey } from '@shared/i18n'
@@ -99,9 +99,12 @@ export function RecordPurchase(): React.JSX.Element {
   const [form, setForm] = useState<BuyForm>(blank)
   const [savedIds, setSavedIds] = useState<number[] | null>(null)
   const [preview, setPreview] = useState<SimplePreview | null>(null)
+  const [previewProblem, setPreviewProblem] = useState<string | null>(null)
+  /** The last preview was refused (its reason is in previewProblem, or under its question). */
+  const [previewFailed, setPreviewFailed] = useState(false)
   const [general, setGeneral] = useState<{ text: string; details: string } | null>(null)
   const [dupId, setDupId] = useState<number | null>(null)
-  const [creating, setCreating] = useState<{ what: 'supplier' | 'product'; name: string; lineKey?: number } | null>(null)
+  const [creating, setCreating] = useState<{ what: 'supplier' | 'product' | 'bank'; name: string; lineKey?: number } | null>(null)
   const [showDiscount, setShowDiscount] = useState(false)
   const [leaving, setLeaving] = useState(false)
   const saving = poster.status === 'posting'
@@ -161,11 +164,22 @@ export function RecordPurchase(): React.JSX.Element {
   previewRef.current = poster.preview
   useEffect(() => {
     setPreview(null)
+    setPreviewProblem(null)
+    setPreviewFailed(false)
     if (!intent || savedIds) return
     const id = window.setTimeout(() => {
       previewRef.current(intent).then(
         (p) => setPreview(p),
-        () => setPreview(null)
+        (err: unknown) => {
+          // Never "Checking…" for ever: say what stops the bill (Save puts it under its question).
+          setPreview(null)
+          setPreviewFailed(true)
+          const caught = err as CaughtError & { code?: string }
+          // The same supplier's bill again: said under the bill number at once, with its link.
+          if (caught.code === DUPLICATE) return placeRef.current(caught)
+          const m = mapError(caught, { simple: true, t })
+          setPreviewProblem([m.general, ...Object.values(m.fields)].filter(Boolean).join(' ') || t('simple.buy.err.problem'))
+        }
       )
     }, 350)
     return () => window.clearTimeout(id)
@@ -187,6 +201,9 @@ export function RecordPurchase(): React.JSX.Element {
       setGeneral({ text: mapped.general || t('simple.buy.err.problem'), details: mapError(caught, { simple: true, t }).details })
     }
   }
+
+  const placeRef = useRef(place)
+  placeRef.current = place
 
   const save = async (): Promise<void> => {
     if (!ctx || !setup || saving) return
@@ -210,6 +227,7 @@ export function RecordPurchase(): React.JSX.Element {
     poster.reset()
     setSavedIds(null)
     setPreview(null)
+    setPreviewProblem(null)
     setGeneral(null)
     setDupId(null)
     errors.clear()
@@ -400,7 +418,7 @@ export function RecordPurchase(): React.JSX.Element {
                   ))}
                 </div>
                 <FieldError name="gstOnBill" error={errors.get(F.gstOnBill)} />
-                {form.mode === 'items' && !form.gstOnBill && (
+                {form.mode === 'items' && !form.gstOnBill && ctx && productsNeedGst(form, ctx) && (
                   <button type="button" className="mt-1 text-detail text-blue hover:underline" data-testid="btn-buy-as-amount" onClick={() => setMode(AMOUNT_MODE)}>
                     {t('simple.buy.recordAsAmount')}
                   </button>
@@ -480,11 +498,17 @@ export function RecordPurchase(): React.JSX.Element {
           </section>
 
           {/* Paid now? */}
-          <PaidNow form={form} setup={setup ?? null} error={errors.get(F.payment)} onChange={update} />
+          <PaidNow
+            form={form}
+            setup={setup ?? null}
+            error={errors.get(F.payment)}
+            onChange={update}
+            onAddBank={() => setCreating({ what: 'bank', name: '' })} // i18n-technical
+          />
 
           {/* Totals + the plain preview line */}
           <section className="rounded-lg border border-line bg-panel2 p-panel" aria-live="polite" data-testid="buy-totals">
-            {(gst === 'claim' || (totals?.folded ?? 0) > 0) && (
+            {(gst === 'claim' || (totals?.folded ?? 0) > 0 || !!totals?.rounding) && (
               <dl className="mb-1 grid grid-cols-[1fr_auto] gap-x-6 gap-y-0.5 text-detail text-muted">
                 {gst === 'claim' ? (
                   <>
@@ -497,11 +521,19 @@ export function RecordPurchase(): React.JSX.Element {
                       {formatPaise(totals?.tax ?? 0, { symbol: true })}
                     </dd>
                   </>
-                ) : (
+                ) : (totals?.folded ?? 0) > 0 ? (
                   <>
                     <dt>{t('simple.buy.gstInCost')}</dt>
                     <dd className="num text-right" data-testid="buy-folded" data-paise={totals?.folded ?? 0}>
                       {formatPaise(totals?.folded ?? 0, { symbol: true })}
+                    </dd>
+                  </>
+                ) : null}
+                {!!totals?.rounding && (
+                  <>
+                    <dt>{t('simple.buy.roundOff')}</dt>
+                    <dd className="num text-right" data-testid="buy-rounding" data-paise={totals.rounding}>
+                      {formatPaise(totals.rounding, { symbol: true })}
                     </dd>
                   </>
                 )}
@@ -514,8 +546,13 @@ export function RecordPurchase(): React.JSX.Element {
               </span>
             </div>
             <p className="mt-2 min-h-5 text-body text-ink" data-testid="buy-preview">
-              {preview ? purchasePreviewLine(preview.facts, t) : ready ? t('simple.buy.preview.checking') : ''}
+              {preview ? purchasePreviewLine(preview.facts, t) : ready && !previewFailed ? t('simple.buy.preview.checking') : ''}
             </p>
+            {previewProblem && (
+              <p role="status" className="mt-1 text-detail text-warning" data-testid="buy-preview-problem">
+                {t('simple.buy.previewProblem', { reason: previewProblem })}
+              </p>
+            )}
           </section>
 
           {general && (
@@ -556,6 +593,18 @@ export function RecordPurchase(): React.JSX.Element {
             setCreating(null)
             void queryClient.invalidateQueries({ queryKey: ['simpleBuySetup'] }) // i18n-technical
             update({ supplierId: l.id })
+          }}
+        />
+      )}
+      {creating?.what === 'bank' && (
+        <NewAccountDialog
+          name={creating.name}
+          context={{ field: 'line', voucherKind: 'payment', drCr: 'cr' }} // i18n-technical: money out → where it came from = a bank
+          onClose={() => setCreating(null)}
+          onCreated={(l: Ledger) => {
+            setCreating(null)
+            void queryClient.invalidateQueries({ queryKey: ['simpleBuySetup'] }) // i18n-technical
+            update({ accountId: l.id })
           }}
         />
       )}

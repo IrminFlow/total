@@ -177,6 +177,14 @@ function PurchaseBillView({ billId }: { billId: number }): React.JSX.Element {
               <dd className="num text-right text-muted" data-testid="simple-purchase-tax">{money(bill.tax)}</dd>
             </>
           )}
+          {bill.rounding !== 0 && (
+            <>
+              <dt className="text-muted">{t('simple.buy.roundOff')}</dt>
+              <dd className="num text-right text-muted" data-testid="simple-purchase-rounding" data-paise={bill.rounding}>
+                {money(bill.rounding)}
+              </dd>
+            </>
+          )}
           <dt className="text-lead font-semibold text-ink">{t('simple.buy.total')}</dt>
           <dd className="num text-right text-lead font-semibold text-ink" data-testid="simple-purchase-total" data-paise={bill.total}>
             {money(bill.total)}

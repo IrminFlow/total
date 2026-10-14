@@ -2,7 +2,7 @@ import type { MessageKey } from '@shared/i18n'
 import type { MoneyHow } from '@shared/simple/intents'
 import { BUY_PAID_CHOICES, BUY_PART_HOWS, type BuyForm, type BuyPaidChoice, type BuySetup } from '@shared/simple/buy'
 import { useT } from '../../lib/i18n'
-import { AmountInput, Field, FieldError, Select } from '../../components/ui'
+import { AmountInput, Button, Field, FieldError, Select } from '../../components/ui'
 
 const PAID_TEXT: Record<BuyPaidChoice, MessageKey> = {
   cash: 'simple.buy.paid.cash',
@@ -23,12 +23,15 @@ export function PaidNow({
   form,
   setup,
   error,
-  onChange
+  onChange,
+  onAddBank
 }: {
   form: BuyForm
   setup: BuySetup | null
   error: string | null
   onChange: (patch: Partial<BuyForm>) => void
+  /** Opens the plain new-account dialog as a bank (a setup company has none yet). */
+  onAddBank: () => void
 }): React.JSX.Element {
   const t = useT()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed table above
@@ -98,7 +101,13 @@ export function PaidNow({
               </Select>
             </Field>
           ) : (
-            <p className="text-small text-muted" data-testid="buy-no-account">{t('simple.buy.noAccount')}</p>
+            // A business set up with the wizard has no bank yet: add it right here (never a dead end).
+            <div className="flex flex-wrap items-center gap-3" data-testid="buy-no-account">
+              <p className="text-small text-ink">{t('simple.buy.noAccount')}</p>
+              <Button data-testid="btn-buy-add-bank" onClick={onAddBank}>
+                {t('simple.buy.addBank')}
+              </Button>
+            </div>
           )}
         </div>
       )}

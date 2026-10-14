@@ -287,6 +287,29 @@ describe('WP 9.3 Record a purchase: the form → simple:post = the purchase an a
     expect(count(`SELECT COUNT(*) AS n FROM vouchers WHERE id IN (${bill}, ${pay}) AND deleted_at IS NOT NULL`)).toBe(2)
   })
 
+  it('review: nil-rated products on a bill without GST post with no tax; the bill view carries the rupee round-off', () => {
+    const unit = db.prepare("SELECT id FROM units WHERE symbol = 'Nos'").get() as { id: number }
+    createStockItem(db, stockItemInputSchema.parse({ name: 'Loose salt', unitId: unit.id, gstRate: 0, hsn: '2501' }))
+    const salt = buy({ supplierId: L('Bharat Steel'), billNo: 'S-1', gstOnBill: false, lines: [ln(1, 'Loose salt', '3', 1_030)] })
+    const v = getVoucher(db, salt.voucherIds[0]!)!
+    expect(salt.facts).toMatchObject({ total: 3_100, tax: 0 })
+    expect(v.lines.some((l) => [L('Input CGST'), L('Input SGST'), L('Input IGST')].includes(l.ledgerId))).toBe(false)
+    roundTrips(v.id, 'invoice')
+    // Products that carry GST are still refused without it (main too).
+    const setup = buySetup(db)
+    const ctx: BuyContext = { invoice: invoiceCtx(db), purchaseAccountId: setup.purchaseAccountId }
+    const taxed = { ...emptyBuyForm('2025-08-10', { mode: 'items', ratesIncludeGst: false }), supplierId: L('Bharat Steel'), gstOnBill: false, lines: [ln(1, 'Widget', '1', 10_000)] }
+    expect(() => postIntent(db, INFO, { clientId: 'taxed-no-gst-1', ...purchaseIntentFrom(taxed, ctx, setup.defaults) }, TODAY)).toThrow(expect.objectContaining({ code: 'simple_items_no_gst', field: 'gstOnBill' }))
+    // ₹31.00 from ₹30.90: rounded up ₹0.10 — the view says so (lines + round-off = total).
+    expect(purchaseView(db, v.id, TODAY)).toMatchObject({ total: 3_100, rounding: 10, items: [{ amount: 3_090 }] })
+    // A rounded-down bill: Widget at ₹100.30 + 18 % = ₹118.36 → ₹118.00.
+    const down = buy({ supplierId: L('Bharat Steel'), billNo: 'W-1', lines: [ln(1, 'Widget', '1', 10_030)] })
+    const view = purchaseView(db, down.voucherIds[0]!, TODAY)!
+    expect(view.total).toBe(11_800)
+    expect(view.items[0]!.amount + view.tax + view.rounding).toBe(view.total)
+    expect(view.rounding).toBeLessThan(0)
+  })
+
   it('the "Pay from" default: WP 5.6 memory (a bank), else the counter / first bank; suppliers are the creditors', () => {
     const sbi = ledger(db, 'SBI', 'Bank Accounts')
     expect(buySetup(db)).toMatchObject({ defaults: { upi: L('HDFC Bank'), card: L('HDFC Bank'), bank: L('HDFC Bank') }, memoryId: null, purchaseAccountId: L('Purchases') })

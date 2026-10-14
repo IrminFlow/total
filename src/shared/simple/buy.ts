@@ -25,7 +25,7 @@ import { chargesGstOn } from '../gst/registration'
 import { inclusiveLine, solveTaxable } from '../pricing'
 import { computeInvoice, emptyInvoiceState, type InvoiceContext } from '../voucherEdit'
 import { qtyText } from '../voucherEdit/payload'
-import { foldGstIntoAmount, foldGstIntoLine, type IntentFacts, type MoneyHow, type SimpleIntentInput } from './intents'
+import { foldGstIntoAmount, foldGstIntoLine, itemsCarryGst, type IntentFacts, type MoneyHow, type SimpleIntentInput } from './intents'
 import { qtyMilliOf } from './sell'
 
 /** "Paid now?" — Cash / UPI / Card / Bank transfer / Not yet (`credit`) / Partly. */
@@ -216,6 +216,8 @@ export interface BuyTotals {
   folded: number
   /** The bill, rounded to the rupee (what is owed to the supplier). */
   total: number
+  /** The rupee round-off in that total (+ rounded up), its own line on the form. */
+  rounding: number
   /** Each form line's value (before GST when claimed, the cost otherwise); null = not complete. */
   lineAmounts: (number | null)[]
   gst: BuyGst
@@ -227,14 +229,16 @@ export function buyTotals(form: BuyForm, ctx: BuyContext): BuyTotals {
   const supply = supplyFor(form, ctx)
   if (form.mode !== 'items') {
     const taxable = amountTaxable(form, ctx)
-    if (taxable == null) return { taxable: 0, tax: 0, folded: 0, total: 0, lineAmounts: [], gst: g }
+    if (taxable == null) return { taxable: 0, tax: 0, folded: 0, total: 0, rounding: 0, lineAmounts: [], gst: g }
     if (g === 'claim') {
       const gst = addBreakups([computeGst(taxable, amountRate(form, ctx) ?? 0, supply)])
-      return { taxable: gst.taxable, tax: gst.total - gst.taxable, folded: 0, total: roundToRupee(gst.total), lineAmounts: [], gst: g }
+      const total = roundToRupee(gst.total)
+      return { taxable: gst.taxable, tax: gst.total - gst.taxable, folded: 0, total, rounding: total - gst.total, lineAmounts: [], gst: g }
     }
     const cost = g === 'fold' ? foldGstIntoAmount(taxable, amountRate(form, ctx)) : taxable
     const gst = addBreakups([computeGst(cost, 0, supply)])
-    return { taxable: gst.taxable, tax: 0, folded: cost - taxable, total: roundToRupee(gst.total), lineAmounts: [], gst: g }
+    const total = roundToRupee(gst.total)
+    return { taxable: gst.taxable, tax: 0, folded: cost - taxable, total, rounding: total - gst.total, lineAmounts: [], gst: g }
   }
   const { lines } = buyIntentLines(form, ctx)
   // A bill without GST in a regular company can't hold products (refused); its preview total is
@@ -258,7 +262,7 @@ export function buyTotals(form: BuyForm, ctx: BuyContext): BuyTotals {
     const plain = computeInvoice({ ...emptyInvoiceState(form.date), partyId: form.supplierId ?? -1, accountId: ctx.purchaseAccountId ?? -2, rows: lines.map((l) => ({ itemId: l.itemId, qtyText: qtyText(l.qtyMilli), rate: l.rate, discount: l.discount || null, godownId: null, batchId: null })) }, invCtx)
     folded = c.gst.taxable - plain.gst.taxable
   }
-  return { taxable: c.gst.taxable, tax: c.gst.total - c.gst.taxable, folded, total: c.rounded, lineAmounts, gst: g }
+  return { taxable: c.gst.taxable, tax: c.gst.total - c.gst.taxable, folded, total: c.rounded, rounding: c.roundDiff, lineAmounts, gst: g }
 }
 
 /** The default cash / bank account for each way of paying. */
@@ -303,6 +307,13 @@ export function purchaseIntentFrom(form: BuyForm, ctx: BuyContext, defaults: Buy
   return { ...base, items: lines.map((l) => ({ itemId: l.itemId, qty: l.qtyMilli, rate: l.rate, ...(l.discount > 0 ? { discount: l.discount } : {}) })) }
 }
 
+/** A regular company's product bill WITHOUT GST: does a picked product carry GST (so the bill
+ *  can't be held as products — mapIntent's `simple_items_no_gst`)? Nil-rated products are fine. */
+export function productsNeedGst(form: Pick<BuyForm, 'lines'>, ctx: BuyContext): boolean {
+  const picked = form.lines.flatMap((l) => (l.itemId != null ? [{ itemId: l.itemId }] : []))
+  return itemsCarryGst(picked, ctx.invoice, ctx.purchaseAccountId)
+}
+
 export type BuyField = 'date' | 'party' | 'billNo' | 'items' | 'account' | 'amount' | 'gstRate' | 'gstOnBill' | 'payment'
 
 /** Checks before main is asked (each message under its question). */
@@ -317,7 +328,7 @@ export function buyFormErrors(form: BuyForm, ctx: BuyContext): Partial<Record<Bu
     else if (bad.some((l) => buyQtyMilli(l.qtyText) == null)) out.items = 'simple.buy.err.qty'
     else if (bad.some((l) => l.rate == null)) out.items = 'simple.buy.err.price'
     else if (lines.length === 0) out.items = 'simple.buy.err.noItems'
-    if (g === 'none') out.gstOnBill = 'errors.intent.itemsNoGst'
+    if (g === 'none' && productsNeedGst(form, ctx)) out.gstOnBill = 'errors.intent.itemsNoGst'
   } else {
     if (form.mode === 'expense' && form.categoryId == null) out.account = 'simple.buy.err.category'
     if (form.amount == null || form.amount <= 0) out.amount = 'simple.buy.err.amount'
@@ -397,5 +408,7 @@ export interface PurchaseView extends PurchaseRow {
   items: { name: string; qtyMilli: number; unit: string; ratePaise: number; discountPaise: number; amount: number }[]
   /** Expense / amount bills: the accounts charged. */
   amounts: { name: string; amount: number }[]
+  /** The rupee round-off the editor posted (+ rounded up), 0 when none. */
+  rounding: number
   note: string | null
 }

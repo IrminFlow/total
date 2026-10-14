@@ -595,6 +595,20 @@ export function foldGstIntoAmount(taxable: number, gstRate: number | null): numb
   return rateBp > 0 ? nonClaimableCosts([{ taxable, rateBp, printedTax: null }], null)[0]!.cost : taxable
 }
 
+/** Would these product lines carry GST in the editor (computeInvoice's rate: the item's, else the
+ *  account's; or a cess)? A product bill without GST is refused only then (WP 9.3). */
+export function itemsCarryGst(
+  lines: readonly { itemId: number }[],
+  invoice: Pick<InvoiceContext, 'items' | 'ledgers'>,
+  accountId: number | null
+): boolean {
+  const accountRate = accountId != null ? (invoice.ledgers.get(accountId)?.gstRate ?? null) : null
+  return lines.some((l) => {
+    const item = invoice.items.get(l.itemId)
+    return (item?.gstRate ?? accountRate ?? 0) > 0 || (item?.cessRate ?? 0) > 0
+  })
+}
+
 function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: IntentContext): MappedIntent {
   const sale = n.kind === 'sale'
   const kind: VoucherKind = sale ? 'sales' : 'purchase'
@@ -615,11 +629,14 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
   let bill: MappedEntry
   let total: number
   if (n.items) {
-    // WP 9.3: the purchase editor's item lines always carry their items' GST while the company
-    // charges it — a bill WITHOUT GST can't be held there, so it is refused (never posted with tax
-    // the bill doesn't show); as "just an amount" it books no tax.
-    if (!sale && charges && !gstOnBill) fail('simple_items_no_gst', 'A bill without GST can’t list products here — record it as just an amount, or in the full editor', 'gstOnBill')
     const account = ledgerOf(ctx, n.accountId ?? defaultAccount, accountClasses, 'simple_wrong_account', 'account', sale ? 'sales account' : 'purchase account')
+    // WP 9.3: the purchase editor's item lines always carry their items' GST while the company
+    // charges it — a bill WITHOUT GST can't be held there when a product carries GST, so it is
+    // refused (never posted with tax the bill doesn't show); as "just an amount" it books no tax.
+    // Products at nil GST (and no cess) post no tax either way, so they are fine.
+    if (!sale && charges && !gstOnBill && itemsCarryGst(n.items, ctx.invoice, account.id)) {
+      fail('simple_items_no_gst', 'A bill without GST can’t list products here — record it as just an amount, or in the full editor', 'gstOnBill')
+    }
     const rows: InvoiceRowState[] = n.items.map((l, i) => {
       if (!ctx.items.has(l.itemId)) fail('simple_no_item', 'Pick the product', `items.${i}.item`)
       const priced = l.rate == null ? ctx.prices.get(i) : undefined

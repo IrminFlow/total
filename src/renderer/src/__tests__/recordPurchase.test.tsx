@@ -31,7 +31,8 @@ const ledger = (id: number, name: string, groupId: number, extra: Partial<Ledger
 const LEDGERS = [ledger(10, 'Bharat Steel', 3), ledger(20, 'Purchases', 6, { simpleCategory: 'purchases' }), ledger(21, 'Rent', 7, { gstRate: 18, simpleCategory: 'rent' }), ledger(30, 'Cash', 1), ledger(31, 'HDFC Bank', 1)]
 const ITEMS = [
   { id: 1, name: 'Steel bolt', unitId: 4, gstRate: 18, cessRate: null, barcode: null },
-  { id: 2, name: 'Rice 5kg', unitId: 4, gstRate: 5, cessRate: null, barcode: null }
+  { id: 2, name: 'Rice 5kg', unitId: 4, gstRate: 5, cessRate: null, barcode: null },
+  { id: 3, name: 'Loose salt', unitId: 4, gstRate: 0, cessRate: null, barcode: null }
 ]
 const SETUP: BuySetup = {
   suppliers: [{ id: 10, name: 'Bharat Steel', stateCode: '27', gstin: '27AABCG3456H1ZN', phone: null }],
@@ -247,6 +248,54 @@ describe('Record a purchase (WP 9.3)', () => {
     await waitFor(() => expect(lastScreen()).toEqual({ name: 'capture' }))
     click('btn-buy-accountant-view')
     await waitFor(() => expect(lastScreen()).toEqual({ name: 'voucher-entry', kindHint: 'purchase' }))
+  })
+
+  it('review: no bank account yet — UPI offers "Add a bank account" right there (no dead end)', async () => {
+    const noBank: BuySetup = { ...SETUP, moneyAccounts: [{ id: 30, name: 'Cash', kind: 'cash' }], defaults: { cash: 30, upi: null, card: null, bank: null } }
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload: unknown) => (channel === 'simple:buy:setup' ? { ok: true, data: noBank } : base(channel, payload)))
+    renderUi()
+    await ready()
+    click('buy-paid-upi')
+    expect(text('buy-no-account')).toContain('Add the account this money came from')
+    expect(text('buy-no-account')).not.toMatch(/Settings/)
+    click('btn-buy-add-bank')
+    expect(await screen.findByTestId('dialog-new-account')).toBeTruthy()
+    expect(screen.getByTestId('account-kind-bank').getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('review: a preview the books refuse says why — never "Checking…" for ever; a duplicate goes under the bill number at once', async () => {
+    let reply: unknown = { ok: false, error: 'No money account', code: 'simple_no_money_account', field: 'payment', params: {} }
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload: unknown) => (channel === 'simple:preview' ? reply : base(channel, payload)))
+    renderUi()
+    await ready()
+    await pick('picker-buy-supplier', 'Bharat')
+    await pick('picker-buy-item-0', 'Steel bolt')
+    typeIn('input-buy-rate-0', '100')
+    await waitFor(() => expect(text('buy-preview-problem')).toContain('can’t be saved yet'), { timeout: 3000 })
+    expect(text('buy-preview')).not.toContain('Checking')
+    reply = { ok: false, error: 'Bill BS/101 from this supplier is already in the books', code: 'simple_duplicate_bill', field: 'billNo', params: { number: 'P-3', voucherId: 42, part: 'bill' } }
+    typeIn('input-buy-bill-no', 'BS/101')
+    await waitFor(() => expect(text('field-error-billNo')).toContain('already recorded'), { timeout: 3000 })
+    expect(screen.getByTestId('btn-buy-open-duplicate')).toBeTruthy()
+    expect(text('buy-preview')).not.toContain('Checking')
+  })
+
+  it('review: nil-rated products on a bill without GST are fine; the rupee round-off is its own line', async () => {
+    renderUi()
+    await ready()
+    await pick('picker-buy-supplier', 'Bharat')
+    await pick('picker-buy-item-0', 'Loose salt')
+    typeIn('input-buy-qty-0', '3')
+    typeIn('input-buy-rate-0', '10.30')
+    click('buy-gst-no')
+    await waitFor(() => expect(screen.getByTestId('buy-total').getAttribute('data-paise')).toBe('3100'))
+    expect(screen.queryByTestId('btn-buy-as-amount')).toBeNull()
+    expect(screen.getByTestId('buy-rounding').getAttribute('data-paise')).toBe('10')
+    click('btn-buy-save')
+    await screen.findByTestId('save-card')
+    expect(calls('simple:post')[0]).toMatchObject({ intent: { kind: 'purchase', gstOnBill: false, items: [{ itemId: 3, qty: 3_000, rate: 1_030 }] } })
   })
 
   it('Record a payment opens Money out — the payment editor pre-filled while Money out is still the full app', () => {

@@ -99,7 +99,8 @@ describe('live totals = the editor calculation = what is posted', () => {
   it('an expense with GST: computeGst at the picked rate (or the account’s) + rupee round-off', () => {
     const c = ctxFor()
     const f = form({ mode: 'expense', categoryId: 22, amount: 100_050, gstRate: 18 })
-    expect(buyTotals(f, c)).toMatchObject({ taxable: 100_050, tax: 18_010, total: 118_100 })
+    // ₹1,180.60 → ₹1,181.00: the round-off is its own figure (the form's "Rounded off" line).
+    expect(buyTotals(f, c)).toMatchObject({ taxable: 100_050, tax: 18_010, total: 118_100, rounding: 40 })
     expect(posted(f, c).facts.total).toBe(118_100)
     // Rent carries 18 % itself: nothing to pick.
     const rent = form({ mode: 'expense', categoryId: 21, amount: 118_000, ratesIncludeGst: true })
@@ -119,6 +120,18 @@ describe('live totals = the editor calculation = what is posted', () => {
     const items = form({ gstOnBill: false, lines: [line(1, 1, '1', 10_000)] })
     expect(buyFormErrors(items, c).gstOnBill).toBe('errors.intent.itemsNoGst')
     expect(() => posted(items, c)).toThrow(expect.objectContaining({ code: 'simple_items_no_gst', field: 'gstOnBill' }))
+    // Review fix: nil-rated products (no GST on the product, none on the account) post no tax
+    // either way — a bill without GST may list them.
+    const nil = form({ gstOnBill: false, lines: [line(1, 3, '4', 2_500)] })
+    expect(buyFormErrors(nil, c)).toEqual({})
+    expect(buyTotals(nil, c)).toMatchObject({ tax: 0, total: 10_000 })
+    const pm = posted(nil, c)
+    expect(pm.facts).toMatchObject({ total: 10_000, tax: 0 })
+    expect(linesOf(pm)).toEqual([[10, 'cr', 10_000], [20, 'dr', 10_000]])
+    // …but one taxed product among them is still refused.
+    const mixed = form({ gstOnBill: false, lines: [line(1, 3, '4', 2_500), line(2, 2, '1', 1_000)] })
+    expect(buyFormErrors(mixed, c).gstOnBill).toBe('errors.intent.itemsNoGst')
+    expect(() => posted(mixed, c)).toThrow(expect.objectContaining({ code: 'simple_items_no_gst' }))
   })
 
   it('a business that can’t claim GST: typed with GST = the cost; before GST = folded in (WP 8.0)', () => {
