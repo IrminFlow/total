@@ -8,7 +8,8 @@ import type { AccountContext } from '@shared/simple/accountKinds'
 import { choiceComplete, choiceLabelKey, choicesFor, intentForChoice, type BankChoice, type BankChoiceKind, type BankLineView, type BankSetup, type BankSuggestion } from '@shared/simple/bank'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
-import { useSession } from '../../state/stores'
+import { useNav, useSession } from '../../state/stores'
+import { moneyInScreen, moneyOutScreen } from '../money/moneyLinks'
 import { Button, Field, FieldError, Select } from '../../components/ui'
 import { TypeAhead } from '../../components/pickers'
 import { CategoryPicker } from '../CategoryPicker'
@@ -90,6 +91,7 @@ export function LineCard({
 }): React.JSX.Element {
   const t = useT()
   const workingDate = useSession((s) => s.workingDate)
+  const nav = useNav()
   const label = (k: MessageKey, vars?: Record<string, string | number>): string => t(k, vars) // i18n-technical: keys from shared/simple/bank.ts
   const deposit = line.side === 'deposit'
   const kinds = choicesFor(line.side, !!line.match)
@@ -186,6 +188,23 @@ export function LineCard({
               onCreate={(name) => onCreate(choice.kind === 'customer' ? 'customer' : 'supplier', name)} // i18n-technical
               testId={`picker-bank-party-${line.id}`}
             />
+            {choice.partyId > 0 && (
+              <button
+                type="button"
+                className="mt-1 text-small text-blue hover:underline"
+                data-testid={`btn-bank-pick-bills-${line.id}`}
+                title={choice.kind === 'customer' ? t('simple.bank.pickBillsInHint') : t('simple.bank.pickBillsOutHint')}
+                onClick={() => {
+                  // The Money in / out screen, filled in from this line (its date, this bank, the
+                  // amount, reference and description): saved there, the entry is what the bank
+                  // shows, so back here the line offers "Already recorded".
+                  const p = { party: choice.partyId, amount: line.amount, date: line.date, bankId: bankLedgerId, reference: line.reference.trim().slice(0, 60), note: line.description.trim().slice(0, 500) }
+                  nav.go(choice.kind === 'customer' ? moneyInScreen(p) : moneyOutScreen(p))
+                }}
+              >
+                {t('simple.bank.pickBills')}
+              </button>
+            )}
           </Field>
         )}
         {(choice?.kind === 'expense' || choice?.kind === 'income') && (

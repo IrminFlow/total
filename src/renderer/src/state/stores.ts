@@ -71,8 +71,8 @@ export type Screen =
   | { name: 'simple-openings'; from?: 'home' }
   // WP 9.4: Money — Money in / out (optionally for a party, an amount and a bill: what "Record a
   // payment" on a bill passes), Move money, the money list (`entryId` = one entry's simple view).
-  | { name: 'simple-money-in'; party?: number; amount?: number; bill?: string; billId?: number }
-  | { name: 'simple-money-out'; party?: number; amount?: number; bill?: string; billId?: number }
+  | { name: 'simple-money-in'; party?: number; amount?: number; bill?: string; billId?: number; date?: string; bankId?: number; reference?: string; note?: string }
+  | { name: 'simple-money-out'; party?: number; amount?: number; bill?: string; billId?: number; date?: string; bankId?: number; reference?: string; note?: string }
   | { name: 'simple-move-money' }
   | { name: 'simple-money'; entryId?: number }
   // WP 9.2: Sell — Make a bill, the sales list (`billId` = that bill's simple view), Quick bill

@@ -188,4 +188,16 @@ describe('simple Bank (WP 9.6)', () => {
     expect(screen.getByTestId('btn-bank-add-bank')).toBeTruthy()
     expect(bannedWordsIn(visibleText())).toEqual([])
   })
+  it('"Pick the bills yourself" opens Money in for this customer, filled in from the line (date, bank, amount, reference, description)', async () => {
+    renderUi()
+    await waitFor(() => expect(screen.getAllByTestId('bank-line')).toHaveLength(3))
+    fireEvent.click(within(lineCard(1)).getByTestId('btn-bank-pick-bills-1'))
+    await waitFor(() =>
+      expect(useNav.getState().stack.at(-1)).toEqual({
+        name: 'simple-money-in', party: 10, amount: 400_000, date: '2026-10-02', bankId: 31, reference: 'N1', note: 'NEFT-RAMESH TRADERS-UTR9'
+      })
+    )
+    // Lines that are not a customer's / supplier's money offer no such link.
+    expect(within(lineCard(2)).queryByTestId('btn-bank-pick-bills-2')).toBeNull()
+  })
 })

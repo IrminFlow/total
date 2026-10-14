@@ -46,7 +46,17 @@ const isDirty = (f: MoneyInForm): boolean => f.amount != null || f.customerId !=
  * simple:post (a receipt through the editor's own mapping); the preview says what will be saved
  * and where the customer then stands. "Accountant view" opens the receipt editor.
  */
-export function MoneyIn({ party, amount, bill, billId }: { party?: number; amount?: number; bill?: string; billId?: number }): React.JSX.Element {
+export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, note }: {
+  party?: number
+  amount?: number
+  bill?: string
+  billId?: number
+  /** WP 9.6: opened from a bank statement line — its date, bank account, reference and description. */
+  date?: string
+  bankId?: number
+  reference?: string
+  note?: string
+}): React.JSX.Element {
   const t = useT()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed tables above
   const nav = useNav()
@@ -56,7 +66,7 @@ export function MoneyIn({ party, amount, bill, billId }: { party?: number; amoun
   const groups = useGroups()
   const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup'], queryFn: api.simpleMoney.setup }) // i18n-technical
   const blank = (): MoneyInForm => emptyMoneyInForm(workingDate)
-  const [form, setForm] = useState<MoneyInForm>(() => emptyMoneyInForm(workingDate, { customerId: party ?? null, amount: amount ?? null, bill: bill ?? null }))
+  const [form, setForm] = useState<MoneyInForm>(() => emptyMoneyInForm(date ?? workingDate, { customerId: party ?? null, amount: amount ?? null, bill: bill ?? null, bankId: bankId ?? null, reference: reference ?? null, note: note ?? null }))
   const [creating, setCreating] = useState<{ what: 'customer' | 'loan'; name: string } | null>(null)
 
   const billsParty = form.who === 'customer' ? form.customerId : null

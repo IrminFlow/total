@@ -50,7 +50,17 @@ const isDirty = (f: MoneyOutForm): boolean => f.amount != null || f.supplierId !
  * existing eligibility rules fire, a read-only hint points at the accountant view (no TDS is
  * added here). "Accountant view" opens the payment editor.
  */
-export function MoneyOut({ party, amount, bill, billId }: { party?: number; amount?: number; bill?: string; billId?: number }): React.JSX.Element {
+export function MoneyOut({ party, amount, bill, billId, date, bankId, reference, note }: {
+  party?: number
+  amount?: number
+  bill?: string
+  billId?: number
+  /** WP 9.6: opened from a bank statement line — its date, bank account, reference and description. */
+  date?: string
+  bankId?: number
+  reference?: string
+  note?: string
+}): React.JSX.Element {
   const t = useT()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed tables above
   const nav = useNav()
@@ -60,7 +70,7 @@ export function MoneyOut({ party, amount, bill, billId }: { party?: number; amou
   const groups = useGroups()
   const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup'], queryFn: api.simpleMoney.setup }) // i18n-technical
   const blank = (): MoneyOutForm => emptyMoneyOutForm(workingDate)
-  const [form, setForm] = useState<MoneyOutForm>(() => emptyMoneyOutForm(workingDate, { supplierId: party ?? null, amount: amount ?? null, bill: bill ?? null }))
+  const [form, setForm] = useState<MoneyOutForm>(() => emptyMoneyOutForm(date ?? workingDate, { supplierId: party ?? null, amount: amount ?? null, bill: bill ?? null, bankId: bankId ?? null, reference: reference ?? null, note: note ?? null }))
   const [creating, setCreating] = useState<{ what: 'supplier' | 'billSupplier'; name: string } | null>(null)
 
   const facts = useMemo(() => (info ? gstRegistrationOf(info) : null), [info])

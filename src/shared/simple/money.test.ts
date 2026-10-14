@@ -66,6 +66,14 @@ describe('Money in → money_in', () => {
     const f = { ...emptyMoneyInForm(TODAY, { customerId: 10, bill: 'S-2' }), amount: 70_000, advance: true, accountId: 9, reference: 'UTR 77' }
     expect(moneyInIntentFrom(f, OPEN, DEFAULTS, { ownerId: 7 })).toMatchObject({ into: { how: 'cash', accountId: 9, reference: 'UTR 77' }, bills: [{ name: 'S-2', amount: 60_000 }], advance: true })
   })
+  it('opened from a bank statement line (WP 9.6): that bank, its reference and description, the line\'s date', () => {
+    const f = { ...emptyMoneyInForm('2025-08-12', { customerId: 10, amount: 400_000, bankId: 31, reference: 'N1', note: 'NEFT-RAMESH' }) }
+    expect(f).toMatchObject({ date: '2025-08-12', how: 'bank', accountId: 31, reference: 'N1', note: 'NEFT-RAMESH', amount: 400_000 })
+    expect(moneyInIntentFrom(f, OPEN, DEFAULTS, { ownerId: 7 })).toMatchObject({ date: '2025-08-12', amount: 400_000, into: { how: 'bank', accountId: 31, reference: 'N1' }, customerId: 10 })
+    expect(emptyMoneyOutForm('2025-08-12', { supplierId: 20, bankId: 31 })).toMatchObject({ how: 'bank', accountId: 31, reference: '', note: '' })
+    // Not from a bank line: unchanged (cash, the default account).
+    expect(emptyMoneyInForm(TODAY, { customerId: 10 })).toMatchObject({ how: 'cash', accountId: null })
+  })
   it('the owner (their capital account), a loan, a supplier refund', () => {
     const base = { ...emptyMoneyInForm(TODAY), amount: 500_000 }
     expect(moneyInIntentFrom({ ...base, who: 'owner' }, [], DEFAULTS, { ownerId: 7 })).toMatchObject({ sourceId: 7 })
