@@ -67,7 +67,6 @@ async function openSecurity(h) {
 }
 
 await scenario('65-security', async (h) => {
-  const page = h.page
   await h.stubDialogs()
   await h.waitScreen('company-select')
   await wizard(h, 'Safe Traders')
@@ -78,18 +77,18 @@ await scenario('65-security', async (h) => {
 
   // ---------- lock with a passphrase ----------
   await openSecurity(h)
-  assert((await page.textContent('[data-testid="security-warning"]')).includes('nobody'), 'the lost-passphrase warning shows')
+  assert((await h.page.textContent('[data-testid="security-warning"]')).includes('nobody'), 'the lost-passphrase warning shows')
   await h.shot('01-lock-off')
   await h.fill('input-new-passphrase', PASS)
   await h.fill('input-confirm-passphrase', PASS)
-  assert(await page.isDisabled('[data-testid="btn-security-lock-on"]'), 'locking waits for "I understand"')
+  assert(await h.page.isDisabled('[data-testid="btn-security-lock-on"]'), 'locking waits for "I understand"')
   await h.click('check-passphrase-understood')
   await h.click('btn-security-lock-on')
   await attached(h, '[data-testid="security-locked-text"]', 120000)
   await attached(h, '[data-testid="security-recovery"]')
   await h.shot('02-locked-recovery')
   await h.click('btn-security-recovery')
-  await page.waitForSelector('[data-testid="security-recovery"]', { state: 'detached', timeout: 60000 })
+  await h.page.waitForSelector('[data-testid="security-recovery"]', { state: 'detached', timeout: 60000 })
   const dir = path.join(h.dataDir, 'companies', slug)
   assert(fs.readdirSync(path.join(dir, 'exports')).some((f) => f.endsWith('.totalbak')), 'the recovery copy is saved')
   assert(fs.readFileSync(path.join(dir, 'company.db')).subarray(0, 15).toString('latin1') !== 'SQLite format 3', 'the books file is encrypted')
@@ -103,7 +102,7 @@ await scenario('65-security', async (h) => {
   await attached(h, '[data-testid="passphrase-prompt"]')
   await h.fill('input-passphrase', 'not the passphrase')
   await h.click('btn-passphrase-open')
-  await page.waitForFunction(() => document.body.textContent.includes('That passphrase is not right'), null, { timeout: 60000 })
+  await h.page.waitForFunction(() => document.body.textContent.includes('That passphrase is not right'), null, { timeout: 60000 })
   await h.shot('03-wrong-passphrase')
   await h.fill('input-passphrase', PASS)
   await h.click('btn-passphrase-open')
@@ -114,11 +113,11 @@ await scenario('65-security', async (h) => {
   // ---------- the restore check of a backup ----------
   await openSecurity(h)
   await h.click('btn-backup-check')
-  await page.waitForSelector('[data-testid="security-backup-status"][data-ok="true"]', { state: 'attached', timeout: 60000 })
+  await h.page.waitForSelector('[data-testid="security-backup-status"][data-ok="true"]', { state: 'attached', timeout: 60000 })
   await h.shot('04-backup-checked')
   await h.click('simple-nav-home')
   await attached(h, '[data-testid="simple-home-backup-check"]')
-  assert((await page.textContent('[data-testid="simple-home-backup-check"]')).includes('checked OK'), 'Home says the last backup checked OK')
+  assert((await h.page.textContent('[data-testid="simple-home-backup-check"]')).includes('checked OK'), 'Home says the last backup checked OK')
 
   // ---------- People & roles: plain switches stored on the user ----------
   const owner = await h.invoke('users:save', { data: { name: 'Meera', role: 'owner', pin: '1234', active: true } })
@@ -127,28 +126,29 @@ await scenario('65-security', async (h) => {
   await attached(h, '[data-testid="simple-entry-people-roles"]')
   await h.click('simple-entry-people-roles')
   await attached(h, `[data-testid="roles-user-${acct.id}"]`)
-  assert((await page.textContent(`[data-testid="roles-user-${owner.id}"]`)).includes('Can do everything'), 'the owner has no switches')
+  assert((await h.page.textContent(`[data-testid="roles-user-${owner.id}"]`)).includes('Can do everything'), 'the owner has no switches')
   await h.click(`roles-${acct.id}-canSeeProfit`)
-  await page.waitForFunction((id) => !document.querySelector(`[data-testid="roles-${id}-canSeeProfit"]`)?.checked, acct.id, { timeout: 10000 })
+  await h.page.waitForFunction((id) => !document.querySelector(`[data-testid="roles-${id}-canSeeProfit"]`)?.checked, acct.id, { timeout: 10000 })
   const users = await h.invoke('users:list')
   assertEq(JSON.stringify(users.find((u) => u.id === acct.id).capabilities), '{"canSeeProfit":false}', 'the flag is stored on the user')
   await h.shot('05-people-roles')
 
   // ---------- ⌘L locks; main refuses while locked; the PIN brings the user back ----------
-  await page.keyboard.press('Meta+l')
+  await h.page.keyboard.press('Meta+l')
   await attached(h, '[data-screen="lock"][data-lock="simple"]')
-  const refused = await page.evaluate(() => window.total.invoke('report:trialBalance', { asOn: '2027-03-31' }))
+  const refused = await h.page.evaluate(() => window.total.invoke('report:trialBalance', { asOn: '2027-03-31' }))
   assertEq(refused.code, 'session_locked', 'main refuses a call while the screen is locked')
   await h.shot('06-lock-screen')
   await h.click(`lock-user-${owner.id}`)
   await h.fill('input-pin', '1234')
   await h.click('btn-unlock')
-  await attached(h, '[data-testid="simple-home"]')
+  // Back where the user was (the screen's state is kept under the lock).
+  await attached(h, '[data-testid="simple-people-roles"]')
 
   // ---------- auto-lock after idle minutes (owner) ----------
   await openSecurity(h)
-  await page.selectOption('[data-testid="select-autolock"]', '5')
-  await page.waitForFunction(() => document.querySelector('[data-testid="select-autolock"]')?.value === '5', null, { timeout: 10000 })
+  await h.page.selectOption('[data-testid="select-autolock"]', '5')
+  await h.page.waitForFunction(() => document.querySelector('[data-testid="select-autolock"]')?.value === '5', null, { timeout: 10000 })
   assertEq((await h.invoke('security:get')).autoLockMinutes, 5, 'auto-lock saved')
   await h.shot('07-auto-lock')
 })
