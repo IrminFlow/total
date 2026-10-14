@@ -103,6 +103,26 @@ describe('simple:home (WP 8.6)', () => {
     const pl = await ok<ProfitAndLoss>('report:profitLoss', { from: FY.from, to: TODAY })
     expect(home.profit.year.netProfit).toBe(pl.netProfit)
     expect(home.profit.year.closingStock).toBe(pl.closingStock)
+    // WP 10.2: the "Why?" parts are the same P&L's — stock on the shelf = its closing − opening
+    // stock, sales / running costs its trading incomes / indirect expenses, the lines add up to
+    // its net profit, the biggest running cost its largest indirect expense.
+    const sumOf = (n: { amount: number }[]): number => n.reduce((s, x) => s + x.amount, 0)
+    const yl = home.profit.year.lines
+    expect(home.profit.year.openingStock).toBe(pl.openingStock)
+    expect(yl.sales).toBe(sumOf(pl.tradingIncomes))
+    expect(yl.costOfGoods).toBe(pl.openingStock + sumOf(pl.tradingExpenses) - pl.closingStock)
+    expect(yl.expenses).toBe(sumOf(pl.indirectExpenses))
+    expect(yl.sales - yl.costOfGoods + yl.otherIncome - yl.expenses).toBe(pl.netProfit)
+    expect(yl.profit).toBe(pl.netProfit)
+    if (yl.expenses > 0) expect(home.profit.year.topExpense!.amount).toBeGreaterThan(0)
+    // The month's comparison = the P&L for the same days of the month before.
+    const pm = home.profit.previousMonth
+    const plPrev = await ok<ProfitAndLoss>('report:profitLoss', { from: pm.from, to: pm.to })
+    expect(pm.lines.profit).toBe(plPrev.netProfit)
+    expect(pm.lines.sales).toBe(sumOf(plPrev.tradingIncomes))
+    expect(pm.from.slice(0, 7)).toBe(addMonths(TODAY.slice(0, 7), -1))
+    const plMonth = await ok<ProfitAndLoss>('report:profitLoss', { from: home.profit.month.from, to: TODAY })
+    expect(home.profit.month.lines.profit).toBe(plMonth.netProfit)
 
     // Money in − money out today = today's change in cash + bank (moves between them net to zero).
     const yesterday = await ok<SimpleHomeData>('simple:home', { today: addDays(TODAY, -1) })
