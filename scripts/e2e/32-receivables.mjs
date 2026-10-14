@@ -240,9 +240,9 @@ await scenario('32-receivables', async (h) => {
   await page.waitForTimeout(500)
   assertEq(await count('sales'), salesBefore, 'the invoice is blocked')
   // The server refuses it too (the banner is not the only gate).
-  const direct = await page.evaluate(([p, t, s]) => window.total.invoke('voucher:save', {
-    data: { voucherTypeId: t, date: localToday(), partyLedgerId: p, lines: [{ ledgerId: p, drCr: 'dr', amount: 100 }, { ledgerId: s, drCr: 'cr', amount: 100 }], inventory: [], billRefs: [] }
-  }), [party.id, typeOf('sales').id, service.id])
+  const direct = await page.evaluate(([p, t, s, d]) => window.total.invoke('voucher:save', {
+    data: { voucherTypeId: t, date: d, partyLedgerId: p, lines: [{ ledgerId: p, drCr: 'dr', amount: 100 }, { ledgerId: s, drCr: 'cr', amount: 100 }], inventory: [], billRefs: [] }
+  }), [party.id, typeOf('sales').id, service.id, localToday()])
   assert(!direct.ok && direct.error.startsWith('Credit hold:'), `saveVoucher refuses: ${direct.error}`)
   // Owner override (the demo company has no users: the user is the owner).
   await h.click('btn-credit-override')
