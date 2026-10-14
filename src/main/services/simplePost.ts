@@ -437,7 +437,7 @@ function guardDate(db: DB, company: CompanyInfo, date: string, today: string): v
   const fy = fyOf(date)
   if (fyIsClosed(db, fy.startYear)) throw new AppError('simple_year_closed', `FY ${fy.label} is closed — bin its closing journal to reopen the year`, { field: 'date' })
   const begin = company.booksBeginDate ?? `${company.booksFrom}-04-01`
-  if (date < begin) throw new AppError('simple_before_books', `The books begin on ${toDisplayDate(begin)}`, { field: 'date', params: { date: toDisplayDate(begin) } })
+  if (date < begin) throw new AppError('simple_before_books', `The books begin on ${toDisplayDate(begin)}`, { field: 'date', params: { date: begin } }) // ISO: mapError writes it in the reader's language
   const latest = addDaysISO(today, SIMPLE_MAX_DAYS_AHEAD)
   if (date > latest) throw new AppError('simple_far_future', `${toDisplayDate(date)} is more than ${SIMPLE_MAX_DAYS_AHEAD} days ahead`, { field: 'date' })
 }

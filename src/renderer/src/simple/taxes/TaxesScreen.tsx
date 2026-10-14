@@ -73,7 +73,7 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
   const t = useT()
   const nav = useNav()
   const f = x.figures
-  const by = t('simple.taxes.gst.byDate', { date: shortDate(x.due.gstr3b, x.today) })
+  const by = t('simple.taxes.gst.byDate', { date: shortDate(x.due.gstr3b, x.today, t.lang) })
   const link = { label: t('simple.taxes.accountant3b'), screen: gstr3bScreen(x.period.from.slice(0, 7)) }
   const dueLink = {
     gstr1: { label: t('simple.why.link.gstr1'), screen: gstr1Screen(x.period.from.slice(0, 7)) },
@@ -149,7 +149,7 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
         {x.due.pmt06.length > 0 && (
           <div className="mt-1 flex flex-wrap items-baseline justify-between gap-x-3">
             <p className="text-small text-muted" data-testid="taxes-pmt06">
-              {t('simple.taxes.due.pmt06', { dates: x.due.pmt06.map((d) => shortDate(d, x.today)).join(', ') })}
+              {t('simple.taxes.due.pmt06', { dates: x.due.pmt06.map((d) => shortDate(d, x.today, t.lang)).join(', ') })}
             </p>
             <WhyLink what={t('simple.taxes.due.title')} sentence={dueWhy(PMT06, x, t)} testId="why-due-pmt06" />
           </div>

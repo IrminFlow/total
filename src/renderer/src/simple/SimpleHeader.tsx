@@ -2,7 +2,7 @@ import { api } from '../lib/client'
 import { useT } from '../lib/i18n'
 import { usePeriodPicker, useScreen, useSession, useTheme, useToasts, useNav } from '../state/stores'
 import { Kbd } from '../components/ui'
-import { toDisplayDate } from '@shared/dates'
+import { toDisplayDate, toPlainDate } from '@shared/dates'
 import { ViewToggle } from './ViewToggle'
 import { AssistantButton } from '../components/ai/AssistantButton'
 import { useHelpPanel } from '../help/store'
@@ -20,6 +20,8 @@ const CHIP = 'shrink-0 whitespace-nowrap rounded-md border border-line bg-panel2
  */
 export function SimpleHeader({ onOpenPalette }: { onOpenPalette: () => void }): React.JSX.Element {
   const t = useT()
+  // WP 10.4 review: in Hindi the period chip names its months in Hindi (01-Apr-26 was English).
+  const periodDate = (d: string): string => (t.lang === 'hi' ? toPlainDate(d, 'hi') : toDisplayDate(d))
   const nav = useNav()
   const screen = useScreen()
   const toast = useToasts()
@@ -59,10 +61,10 @@ export function SimpleHeader({ onOpenPalette }: { onOpenPalette: () => void }): 
         type="button"
         className={`num ${CHIP}`}
         onClick={() => setPeriodOpen(true)}
-        aria-label={t('simple.shell.period', { from: toDisplayDate(from), to: toDisplayDate(to) })}
+        aria-label={t('simple.shell.period', { from: periodDate(from), to: periodDate(to) })}
         data-testid="btn-period"
       >
-        {toDisplayDate(from)} → {toDisplayDate(to)}
+        {periodDate(from)} → {periodDate(to)}
       </button>
       <ViewToggle screen={screen} className={CHIP} />
       <AssistantButton
