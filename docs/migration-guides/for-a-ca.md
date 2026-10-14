@@ -11,12 +11,15 @@ You need Total installed (the GitHub releases page has the macOS DMG).
 - **An encrypted backup** (the client used Settings, Backups, "Export encrypted..."): on the screen
   where you pick a business, choose **Import encrypted backup...** and type the passphrase the client
   gave you. It creates a company in your own copy. Your copy is separate from the client's.
-- **A plain backup file or folder:** the first-run / company screen offers to open a backup. A backup
-  is a copy of the company's database; restore it as a new company, never over the client's live
-  one. Exactly which menu entry your version shows is **unverified** here; the help article
+- **A plain backup** (the automatic and "Back up now" copies in the company's folder): Total has no
+  "open this backup file as a new company" button. Settings, Backups, "Restore..." (owner only,
+  type RESTORE) replaces the books of the **open** company with a backup from that company's own
+  list, keeping a pre-restore copy. So ask the client for an **encrypted export**, which is the
+  route that creates a separate company on your computer. The help article
   ["Backups"](../../src/renderer/src/help/en/backups.md) lists the current steps.
 - Do not copy a backup into `~/Documents/total/companies/` by hand unless you know the app version
-  matches. The database is upgraded on first open and an older Total cannot read it back.
+  matches. The database is upgraded on first open and an older Total cannot read it back (this
+  by-hand route is not a supported feature; it is unverified).
 
 Secrets (the client's AI key, e-invoice credentials) are never in a backup, so you cannot see them and
 nothing can call out on the client's behalf from your copy.
@@ -36,10 +39,14 @@ are the owner; otherwise use the "Accountant view" button on a screen). Then:
 
 ## Checking the audit trail
 
-Total keeps an edit log meant to meet the MCA rule 3(1) requirement. The Audit trail screen lists
+Total keeps an edit log meant to meet the MCA rule 3(1) requirement. The Audit trail (Settings, Audit
+trail, and System, Audit trail) lists
 every change with before and after values, who made it, and a per-row hash check. The log is
 append-only and hash-chained, so a change to an old row breaks the chain, and the screen says so.
-Retention cannot be switched off while the "audit trail required" setting is on (the default).
+Retention cannot be switched off while the "audit trail required" setting is on (the default). The
+chain makes edits to the company file evident; it cannot prevent them, because the file is an ordinary
+SQLite database on the client's computer (the pack's verification summary says the same). Compare the
+chain head hash across exports.
 Whether this satisfies your professional view of the audit trail requirement is your judgement; the
 code and the sources are in `src/main/services/audit.ts` and `src/shared/auditChain.ts`.
 

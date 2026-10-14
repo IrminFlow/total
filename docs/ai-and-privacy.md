@@ -6,15 +6,16 @@ each statement in the code; file paths are relative to the repository root.
 
 **Short version.** Your books are stored on your computer only, in `~/Documents/total/` (or the folder
 named by `TOTAL_DATA_DIR` for scripted runs). Total has no accounts, no cloud copy, no analytics and
-no crash reporting that I could find (no such dependency is in `package.json`). Four things can
-make a network request, and three of them happen only because you turned something on:
+no crash reporting that I could find (no such dependency is in `package.json`). Total is not
+"fully offline": it can make network requests in the cases below. The update check runs by
+default; the AI helper and live filing only after you set them up; a link only when you click it:
 
 | What | When | Where it goes | Needs you to opt in? |
 |---|---|---|---|
-| Update check | About 5 seconds after launch, packaged app only; also the "Check for updates" button | GitHub (release feed), `devjindal.tech/api/latest`, `api.github.com` | No. It runs by default. There is no setting to switch it off that I could find. |
+| Update check | About 5 seconds after launch, once per launch, packaged app only; also Settings, About, "Check for updates" | GitHub's release feed for `IrminFlow/total` (electron-updater); and, if that errors, `devjindal.tech/api/latest`, then `api.github.com` | No. It runs by default and there is no setting to turn it off (nothing in `src/main/updater.ts`, `src/main/index.ts` or the Settings screens reads one). |
 | AI helper | Only after you accept the data notice and add your own key | OpenAI (`https://api.openai.com/v1`) | Yes |
 | Live e-invoice / e-way bill filing | Only when you press a live-filing button after entering credentials | The NIC API address you typed in | Yes |
-| Opening a link | When you click a help link or "Support" | Your browser or mail app | Only on click |
+| Opening a link | When you click a help link, a reminder's "Open in WhatsApp", "Email…" on a statement, or "Support" | Your browser or mail app, not Total | Only on click |
 
 Everything else (bookkeeping, GST figures, reports, printing, the Hindi and Hinglish text, Ask
 Total, backups, imports, exports) works with the network unplugged.
@@ -45,19 +46,27 @@ Total, backups, imports, exports) works with the network unplugged.
 
 Code: `src/main/updater.ts`, started from `src/main/index.ts`. Only the packaged app does this.
 
-1. The app asks electron-updater to check the GitHub releases feed of `IrminFlow/total`
-   (`build.publish` in `package.json`).
-2. If that fails (unsigned macOS builds cannot install silently), a fallback asks
+1. About 5 seconds after launch the app asks electron-updater to check the GitHub releases feed
+   of `IrminFlow/total` (`build.publish` in `package.json`). electron-updater is set to
+   `autoDownload = true` and `autoInstallOnAppQuit = true`: where it works (a signed build), a
+   newer version is **downloaded in the background without asking** and installed when you quit; a
+   dialog says it is ready.
+2. If electron-updater reports an error (the usual case for today's unsigned macOS builds, which
+   cannot be installed silently), a one-time fallback asks
    `https://devjindal.tech/api/latest` (`SITE_URL` in `src/shared/product.ts`) for the newest
    version, and if the site does not answer, `https://api.github.com/repos/IrminFlow/total/releases/latest`.
+   Only if the version is newer does a dialog offer "Download update", which opens the release
+   page or download link in your browser. Whether an unsigned macOS build has already downloaded
+   the update before electron-updater fails is **unverified**.
 3. The comparison with your version happens on your computer. The code sends no body, no company
    data and no identifier of its own: they are plain GET requests. As with any web request, the
    server sees your IP address and the client's standard request headers. Whether electron-updater
    adds your app version to its headers is **unverified** (not read in its source for this page).
-4. An unsigned macOS build only offers a download link; you install it yourself.
+4. In that fallback you install the new version yourself.
 
-There is no off switch I could find. If you need the app to stay silent, block the app in a
-firewall; the app keeps working.
+There is no off switch: no setting, environment variable or flag turns the check off (read in
+`src/main/updater.ts`). A development run (`npm run dev`) does not check. If you need an installed
+app to stay silent, block it in a firewall; the app keeps working.
 
 ## 3. The AI helper (optional, off by default, your own key)
 
@@ -146,9 +155,14 @@ Code: `src/main/mcp/`, started with `npm run cli -- mcp` from a source checkout 
 
 ## 6. Links that open outside the app
 
-Clicking "Support" opens a mail draft (`SUPPORT_EMAIL`, `src/renderer/src/components/SupportLink.tsx`);
-clicking a link in the app opens your default browser (`setWindowOpenHandler` in `src/main/index.ts`).
-Total does not append anything about you to those links.
+Clicking "Support" opens a small dialog where you can copy the address or launch your mail app
+(`SUPPORT_EMAIL`, `src/renderer/src/components/SupportLink.tsx`). A link in the app opens in your
+default browser (`setWindowOpenHandler` in `src/main/index.ts`); help links are limited to the GST
+portal and CBIC. On a statement, "Email…" saves a PDF and opens a mail draft; on a reminder in
+People, "Open in WhatsApp" opens a `wa.me` link in your browser with the reminder text in it
+(`src/renderer/src/simple/people/ReminderPanel.tsx`). Those texts leave the app only when you
+click, and then go to whatever app or site handles the link. Total does not append anything about
+you to them.
 
 ## What to do if your policy is stricter than this
 

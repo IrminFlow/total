@@ -66,13 +66,16 @@ what you typed, and a **Back to simple** button.
   (press `?` or `Cmd+/`). [#100](https://github.com/IrminFlow/total/pull/100)
 - **The AI helper in plain words** (Settings, "AI helper"). Optional. A three-point summary of what
   is sent, what is hidden and where it goes comes first; you paste your own OpenAI key and press
-  "Check it". Spend is shown in rupees when the business has a dollar rate recorded.
+  "Check it". Spend is shown in rupees only when the business has a dollar rate recorded (Forex); otherwise in US dollars.
   [#101](https://github.com/IrminFlow/total/pull/101), [#102](https://github.com/IrminFlow/total/pull/102)
 - **Keyboard, screen readers and small windows**: icon-only sidebar under 1200 px wide; the help,
   Ask Total and AI panels overlay instead of docking under 1600 px.
   [#103](https://github.com/IrminFlow/total/pull/103)
 - **Hindi and Hinglish**: every simple-mode message has a Hindi (Devanagari) and a Hinglish
-  (Latin script) version; bills print in Devanagari; amount in words uses lakh and crore. The
+  (Latin script) version; the help articles are in Hindi (all 16) and Hinglish (the six most used);
+  for a simple-mode company set to Hindi or Hinglish, bills, receipts and statements print their
+  labels in that language (legal titles such as TAX INVOICE and BILL OF SUPPLY stay English);
+  amount in words uses lakh and crore. The
   translations are machine-drafted and **pending native-speaker review**; the catalogue headers
   say so. Accountant screens stay in English. [#105](https://github.com/IrminFlow/total/pull/105)
 
@@ -85,7 +88,9 @@ Read these before filing from the next release.
   Sales ledger has no GST rate. Before, such a document was reported as nil-rated even though Output
   CGST/SGST was in the books. A voucher whose posted tax fits no slab of its date is reported at the
   implied rate with an `off_slab_rate` warning. Item-mode invoices, ledgers that carry a rate,
-  composition and unregistered companies are unchanged (a 28-document parity corpus proves it).
+  composition and unregistered companies are meant to be unchanged: in a 28-document test corpus the 19
+  documents the fix does not touch come out identical to the old code, and the 9 that change were
+  worked out by hand.
   **If you billed through ledger lines with tax on 0.11.0 or earlier and filed from Total's GSTR-1
   or 3B, those sales may have been filed as nil-rated; check the returns for the months concerned.**
   Known limits: several rate-less lines at different true rates in one voucher get one blended
@@ -174,8 +179,9 @@ Simple mode foundation. Existing books open exactly as before, in the accountant
   1.5, 0.25) from 1 Feb 2026. Quarterly GST filers can choose quarterly in Company details.
 - Enter in any picker selects the highlighted match and never creates; creating needs the down arrow
   or the mouse. [#81](https://github.com/IrminFlow/total/pull/81)
-- Tally import no longer drops the opening balance of a ledger whose name already exists; every
-  clash is a warning. [#80](https://github.com/IrminFlow/total/pull/80)
+- Tally import no longer drops the opening balance of a ledger whose name already exists: an empty
+  opening takes Tally's figure (audited), a different one is kept and warned about, and every clash
+  is a warning. [#80](https://github.com/IrminFlow/total/pull/80)
 
 ### For developers
 
@@ -294,7 +300,7 @@ Phases 2 and 3 together: manufacturing, stock, the trade cycle, pricing, tax and
 
 ### Upgrading
 
-Migrations 019 to 025 and 030 run on first open. Manufacture vouchers saved before the new form keep
+Migrations 019 to 031 run on first open (the 0.7.0 release notes list them in two groups: 019 to 025 and 030, then 020, 022, 026 to 029 and 031). Manufacture vouchers saved before the new form keep
 their saved costing and are not listed in the new Manufacture register. Every rate, threshold and
 form is cited in the code; what could not be verified is listed in the app.
 

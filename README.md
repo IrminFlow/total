@@ -19,20 +19,24 @@ Read [docs/features.md](docs/features.md) to see whether it fits you.
 
 ## What "offline" means here
 
-Your books never leave your computer. Total does make a few optional network calls, and the update
-check is on by default. [docs/ai-and-privacy.md](docs/ai-and-privacy.md) lists every one and the code
-that makes it. In short: an update check at launch; an optional AI helper that uses **your own** OpenAI
-key and masks identifiers before anything is sent; optional live e-invoice filing (experimental,
-never run against the real portal); an optional local MCP server. Total prepares GST figures and
+Your books are never uploaded or synced. Total is not completely offline, though: it makes a few
+network calls. The update check is on by default and cannot be switched off. [docs/ai-and-privacy.md](docs/ai-and-privacy.md) lists every one and the code
+that makes it. In short: an update check at launch (it asks GitHub, and the project's site if that fails, for the
+newest version and may download it); an optional AI helper, off until you accept a data notice and
+add **your own** OpenAI key, which sends the figures and text a question needs (identifiers masked)
+to OpenAI; optional live e-invoice filing (experimental, never run against the real portal); and an
+optional MCP server for developers (stdio only, run from a source checkout, no network port). Total prepares GST figures and
 files; you file the returns on gst.gov.in.
 
 ## Install (testers)
 
-Releases are on GitHub: <https://github.com/IrminFlow/total/releases>. Builds are not code-signed yet,
-so macOS may say the app "is damaged". Clear the quarantine flag once per downloaded version:
+Releases are on GitHub: <https://github.com/IrminFlow/total/releases>. The macOS builds are for Apple
+Silicon (`Total-<version>-arm64.dmg`, plus a ZIP). Open the DMG and drag Total to Applications.
+Builds are not code-signed yet, so macOS says the app "is damaged and can't be opened". Right-click,
+Open does **not** get past this for the current build (see the site's Getting started page). Clear the
+quarantine flag once per downloaded version:
 
 ```bash
-mv ~/Downloads/Total.app /Applications/
 xattr -cr /Applications/Total.app
 open /Applications/Total.app
 ```

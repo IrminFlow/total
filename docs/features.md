@@ -27,7 +27,7 @@ Screens: Home (the Gateway), "What you had on day one" (Openings).
 
 ### Sell
 Make a bill for products or just an amount, to a named or cash customer, paid in full, partly, by
-cash, UPI, card, bank transfer, or on credit. A quick bill for walk-in counter sales, a sales list,
+cash, UPI, card, bank transfer, or on credit. A quick bill for walk-in counter sales (shown when you keep stock), a sales list,
 and Return a sale (give money back or keep it as credit). After saving, a card offers Print, PDF,
 Share and Undo (for 24 hours, while nothing depends on it). Screens: Make a bill, Quick bill, Sales
 list, Return a sale.
@@ -35,7 +35,7 @@ list, Return a sale.
 ### Buy
 Record a supplier's bill with its number and date, products or just an amount, paid now or later. The
 same supplier and bill number twice in a year is refused. A business that cannot claim GST books the
-GST as cost. Snap a bill (photo or PDF) to draft the purchase needs the optional AI helper. Screens:
+GST as cost. "Snap a bill" (photo or PDF to a purchase draft) needs the optional AI helper and opens the full app's Capture screen. Screens:
 Record a purchase, Purchase list, Return a purchase.
 
 ### Money

@@ -1,9 +1,12 @@
 # Moving from 0.10 or 0.11 to simple mode
 
-**Short answer: nothing changes unless you ask it to.** A company created before simple mode opens in
-the full accountant view, with the same sidebar and the same figures, after you upgrade. This is a
-rule in the code: a company with no `ui` setting is an accountant-mode company
-(`src/shared/simple/uiMode.ts`), and a gate test on a sample company showed identical trial balance, balance sheet, P&L, stock and Outstandings after the upgrade (the one exception is below).
+**Short answer: the view does not change unless you ask it to.** A company created before simple mode
+opens in the full accountant view with the same sidebar after you upgrade. This is a rule in the code:
+a company with no `ui` setting is an accountant-mode company (`src/shared/simple/uiMode.ts`), and a
+test pins the accountant sidebar to what 0.10 showed (`accountantSidebar.test.tsx`). Figures are a
+separate matter: 0.11.0 also changed some rules for both views (GST follows the registration by date,
+Outstandings are shown as on today, a dated GST rate table, and more), and the build after it
+changes one more; both are listed in [CHANGELOG.md](../../CHANGELOG.md) and the main one is below.
 
 Simple mode was added in 0.11.0. The simple screens for selling, buying, money, stock, people,
 reports and taxes are in the build after 0.11.0 ("Unreleased" in [CHANGELOG.md](../../CHANGELOG.md)).
@@ -17,7 +20,7 @@ reports and taxes are in the build after 0.11.0 ("Unreleased" in [CHANGELOG.md](
 3. **There is no downgrade.** Once a company has been opened in a newer version, do not open it in an
    older one; restore your backup instead. Older versions do not check for the newer database.
 
-## One thing that does change figures
+## The change after 0.11.0 that can change GST figures
 
 If you made sales by typing only an amount and the GST ledgers (accounting mode, no items), and the
 Sales ledger has no GST rate, 0.11.0 and earlier reported those sales as nil-rated in GSTR-1 and
