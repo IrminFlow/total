@@ -161,6 +161,7 @@ export const ERROR_MAP = {
   simple_year_closed: e('errors.intent.yearClosed', 'date'),
   simple_duplicate_bill: e('errors.intent.duplicateBill', 'billNo', ['number'], 'errors.intent.duplicateBillPlain'),
   simple_client_reused: e('errors.intent.clientReused'),
+  simple_items_no_gst: e('errors.intent.itemsNoGst', 'gstOnBill'),
 
   // ---------- IPC boundary (src/main/ipc.ts) ----------
   duplicate_name: e('errors.duplicateName', 'name'),
