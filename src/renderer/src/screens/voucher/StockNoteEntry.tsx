@@ -181,7 +181,7 @@ export function StockNoteEntry({
     setSaving(true)
     try {
       const input = built.payload
-      if (input.number && (await api.vouchers.numberExists(typeId, input.number, voucherId))) {
+      if (input.number && (await api.vouchers.numberExists(typeId, input.number, voucherId, input.date))) {
         const proceed = await confirmDialog({
           title: 'Duplicate number',
           message: `Number ${input.number} is already used by another ${TITLE[kind].toLowerCase()}. Save anyway with the same number?`,

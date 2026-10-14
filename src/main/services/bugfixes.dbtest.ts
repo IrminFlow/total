@@ -3,7 +3,7 @@ import { describe, it, expect } from 'vitest'
 import type { DB } from '../db/connection'
 import { seededDb, postSimpleVoucher } from '../db/testdb'
 import { createLedger, createStockItem, listUnits } from './masters'
-import { saveVoucher } from './vouchers'
+import { nextVoucherNumber, saveVoucher, voucherNumberExists } from './vouchers'
 import type { VoucherInput } from '@shared/schemas'
 import { dayBook, trialBalance, balanceSheet, stockSummary } from './reports'
 import { outstandings } from './analysis'
@@ -219,5 +219,38 @@ describe('#69 — duplicate voucher number soft guard', () => {
       { ledgerId: 1, drCr: 'dr', amount: 3000 }, { ledgerId: 1, drCr: 'cr', amount: 3000 }
     ], { number: 'J-7' }))
     expect(otherKind.duplicateNumber).toBeFalsy()
+  })
+})
+
+describe('duplicate voucher numbers are per financial year (numbering restarts each FY)', () => {
+  const journal = (db: DB, date: string, number: string, amount = 1000): VoucherInput =>
+    voucherInput(db, 'journal', date, [{ ledgerId: 1, drCr: 'dr', amount }, { ledgerId: 1, drCr: 'cr', amount }], { number })
+
+  it('the same number in two FYs is not a duplicate; in one FY it is', () => {
+    const db = seededDb()
+    const vtId = (db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal'").get() as { id: number }).id
+    expect((db.prepare('SELECT restart_fy AS r FROM voucher_types WHERE id = ?').get(vtId) as { r: number }).r).toBe(1)
+    const last = saveVoucher(db, journal(db, '2025-03-10', '1'))
+    const thisYear = saveVoucher(db, journal(db, '2025-04-02', '1'))
+    expect(thisYear.duplicateNumber).toBeFalsy()
+    // Altering last year's No. 1 (when this year has a No. 1 too) is no duplicate.
+    expect(voucherNumberExists(db, vtId, '1', last.id, '2025-03-10')).toBe(false)
+    expect(saveVoucher(db, journal(db, '2025-03-10', '1', 1500), last.id).duplicateNumber).toBeFalsy()
+    // A second No. 1 in the same FY is.
+    expect(voucherNumberExists(db, vtId, '1', undefined, '2025-09-30')).toBe(true)
+    expect(saveVoucher(db, journal(db, '2025-09-30', '1')).duplicateNumber).toBe(true)
+    // No date = every year counts (conservative).
+    expect(voucherNumberExists(db, vtId, '1', last.id)).toBe(true)
+    // nextVoucherNumber is unchanged: per FY.
+    expect(nextVoucherNumber(db, vtId, '2024-12-01')).toBe('2')
+  })
+
+  it('a continuous series (restart_fy off) still clashes across years', () => {
+    const db = seededDb()
+    const vtId = (db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal'").get() as { id: number }).id
+    db.prepare('UPDATE voucher_types SET restart_fy = 0 WHERE id = ?').run(vtId)
+    const last = saveVoucher(db, journal(db, '2025-03-10', '7'))
+    expect(saveVoucher(db, journal(db, '2025-04-02', '7')).duplicateNumber).toBe(true)
+    expect(voucherNumberExists(db, vtId, '7', last.id, '2025-03-10')).toBe(true)
   })
 })

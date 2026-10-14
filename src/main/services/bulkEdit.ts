@@ -119,7 +119,7 @@ function planVoucher(db: DB, req: Extract<BulkRequest, { target: 'voucher' }>, i
   let renumberedFrom: string | null = null
   if (outcome.kind === 'changed' && (req.change.field === 'date' || req.change.field === 'voucherType')) {
     const p = outcome.payload
-    if (p.number !== undefined && voucherNumberExists(db, p.voucherTypeId, p.number, id)) {
+    if (p.number !== undefined && voucherNumberExists(db, p.voucherTypeId, p.number, id, p.date)) {
       if (kindOf(p.voucherTypeId)!.numbering === 'manual') {
         outcome = { kind: 'refused', reason: `Number ${p.number} is already used by another ${name('voucherType', p.voucherTypeId)} voucher` }
       } else {

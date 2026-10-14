@@ -419,7 +419,7 @@ export function AccountingEntry({
     try {
       // Duplicate-number confirm — a manually typed (or race-lost auto) number that's already
       // on the books gets one explicit "save anyway" before we commit to it.
-      if (input.number && (await api.vouchers.numberExists(typeId, input.number, voucherId))) {
+      if (input.number && (await api.vouchers.numberExists(typeId, input.number, voucherId, input.date))) {
         const proceed = await confirmDialog({
           title: 'Duplicate number',
           message: `Voucher number ${input.number} is already used by another voucher of this type. Save anyway with the same number?`,
