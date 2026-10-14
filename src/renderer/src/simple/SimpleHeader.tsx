@@ -5,6 +5,8 @@ import { Kbd } from '../components/ui'
 import { toDisplayDate } from '@shared/dates'
 import { ViewToggle } from './ViewToggle'
 import { AssistantButton } from '../components/ai/AssistantButton'
+import { useHelpPanel } from '../help/store'
+import { helpKeyFor } from '../lib/screens'
 
 const CHIP = 'rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink'
 
@@ -21,6 +23,7 @@ export function SimpleHeader({ onOpenPalette }: { onOpenPalette: () => void }): 
   const { info, from, to, user, setUser, setLocked } = useSession()
   const { theme, toggle } = useTheme()
   const setPeriodOpen = usePeriodPicker((s) => s.setOpen)
+  const helpOpen = useHelpPanel((s) => s.open)
   const name = info?.name ?? ''
   const openBusiness = (): void => nav.go({ name: 'company-info' })
   const lock = async (): Promise<void> => {
@@ -67,6 +70,16 @@ export function SimpleHeader({ onOpenPalette }: { onOpenPalette: () => void }): 
         closeLabel={t('simple.shell.assistantClose')}
         className={CHIP}
       />
+      <button
+        type="button"
+        data-testid="btn-help"
+        className={`flex items-center gap-2 ${CHIP}`}
+        title={t('simple.shell.helpHint')}
+        aria-expanded={helpOpen}
+        onClick={() => useHelpPanel.getState().toggleForScreen(helpKeyFor(screen))}
+      >
+        {t('simple.shell.help')} <Kbd>{t('simple.shell.helpKey')}</Kbd>
+      </button>
       <button type="button" data-testid="btn-theme" className={CHIP} onClick={toggle} aria-label={t('simple.shell.themeHint', { theme })}>
         {t('simple.shell.theme', { theme })}
       </button>

@@ -13,6 +13,7 @@ import type { CompanyCreateInput } from '@shared/schemas'
 import type { CompanyInfo, CompanySummary } from '@shared/domain'
 import type { SimpleSetupInput } from '@shared/simple/setup'
 import { SetupWizard } from '../simple/SetupWizard'
+import { markTourPending } from '../help/tour'
 import { useT } from '../lib/i18n'
 
 export function CompanySelect(): React.JSX.Element {
@@ -68,6 +69,8 @@ export function CompanySelect(): React.JSX.Element {
     const r = await api.setup.create(input)
     await queryClient.invalidateQueries({ queryKey: ['registry'] })
     setWizard(false)
+    // WP 10.3: a company the wizard made in simple mode gets the tour of Home once per user.
+    if ((input.mode ?? 'simple') === 'simple') markTourPending(r.slug)
     toast.push('success', t('simple.setup.created', { name: input.name }))
     await open(r.slug)
     if (opts.tally) nav.go({ name: 'import-tally' })
