@@ -3,7 +3,7 @@
 // --out; perf measures one (--data, or a fresh seed in a temp dir that is removed afterwards).
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from 'fs'
 import { homedir, tmpdir } from 'os'
-import { join, resolve } from 'path'
+import { isAbsolute, join, relative, resolve } from 'path'
 import { createHash } from 'crypto'
 import { backupCompany, closeCompanyDb, openCompanyDb, type DB } from '../db/connection'
 import { checkIntegrity } from '../db/integrity'
@@ -29,11 +29,19 @@ export interface PerfSeedManifest {
   hash: string
 }
 
+/** True when `dir` is `real` or inside it — any separator, and case-blind where the file system
+ *  usually is (macOS, Windows). */
+export function isInside(dir: string, real: string, platform: NodeJS.Platform = process.platform): boolean {
+  const fold = (p: string): string => (platform === 'darwin' || platform === 'win32' ? p.toLowerCase() : p)
+  const rel = relative(fold(resolve(real)), fold(resolve(dir)))
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+}
+
 /** Point the data root at `dir` — refusing the user's real data folder. */
 export function usePerfDataRoot(dir: string): string {
   const root = resolve(dir)
   const real = resolve(join(homedir(), 'Documents', 'total'))
-  if (root === real || root.startsWith(real + '/')) throw new Error(`Refusing to use ${root}: the perf commands never touch ~/Documents/total`)
+  if (isInside(root, real)) throw new Error(`Refusing to use ${root}: the perf commands never touch ~/Documents/total`)
   mkdirSync(root, { recursive: true })
   process.env.TOTAL_DATA_DIR = root
   ensureDataTree()
