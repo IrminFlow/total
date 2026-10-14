@@ -11,6 +11,18 @@ export type DB = Database.Database
 
 export { migrate }
 
+/**
+ * WP 7.3: TOTAL_TEST_DB_SYNCHRONOUS=off|normal (honoured only together with TOTAL_DATA_DIR, i.e. a
+ * scratch data root) sets PRAGMA synchronous for the DB-layer tests. Every commit in WAL mode at
+ * the default FULL is an fsync — FlushFileBuffers on Windows, which on CI runners' disks stalls
+ * seeding-heavy hooks (the demo company is hundreds of commits) past vitest's hook timeout.
+ */
+export function testSynchronous(env: Record<string, string | undefined>): 'OFF' | 'NORMAL' | null {
+  if (!env.TOTAL_DATA_DIR) return null
+  const v = env.TOTAL_TEST_DB_SYNCHRONOUS?.toLowerCase()
+  return v === 'off' ? 'OFF' : v === 'normal' ? 'NORMAL' : null
+}
+
 export function openCompanyDb(slug: string): DB {
   ensureCompanyTree(slug)
   const db = new Database(companyDbPath(slug))
@@ -21,6 +33,10 @@ export function openCompanyDb(slug: string): DB {
   // queries off the disk; ANALYZE below refreshes planner stats after any new migration.
   db.pragma('cache_size = -64000')
   db.pragma('mmap_size = 268435456')
+  // WP 7.3: test runs only (a scratch TOTAL_DATA_DIR is required) may trade crash durability for
+  // speed — see testSynchronous(). Real books always keep SQLite's default (FULL).
+  const sync = testSynchronous(process.env)
+  if (sync) db.pragma(`synchronous = ${sync}`)
   try {
     migrate(db)
     db.exec('ANALYZE')
