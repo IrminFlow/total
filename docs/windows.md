@@ -76,11 +76,12 @@ open). The import now happens at collection (top-level await before the hooks), 
 hook timeout. The job also excludes the workspace and temp folders from Defender's real-time scan
 (every new SQLite file and `-wal`/`-shm` write was scanned) — measured, that alone did not remove
 the stalls (a run with real-time scanning confirmed off still had tradeLegacy's synchronous seed
-hook take 11.2 s against its usual 0.5–2 s). The remaining cause is per-commit fsync
-(FlushFileBuffers) on the runner's disk: `scripts/test-db.mjs` sets `TOTAL_TEST_DB_SYNCHRONOUS=off`
-(honoured only with a scratch `TOTAL_DATA_DIR`, `db/connection.ts` `testSynchronous`), which took
+hook take 11.2 s against its usual 0.5–2 s). The remaining cause is fsync
+(FlushFileBuffers, at every WAL checkpoint) on the runner's disk: `scripts/test-db.mjs` sets `TOTAL_TEST_DB_SYNCHRONOUS=off`
+(honoured only inside a vitest worker — `VITEST` — with a scratch `TOTAL_DATA_DIR`,
+`db/testPragmas.ts`; TOTAL_DATA_DIR alone is no proof, the CLI sets it to the real folder), which took
 the Windows DB suite from 420 s to 373 s and the demo seed from ~0.5 s to ~0.3 s. Real books keep
-SQLite's default (FULL). `hookTimeout` is unchanged (10 s).
+the build default (better-sqlite3's SQLITE_DEFAULT_WAL_SYNCHRONOUS=1: NORMAL in WAL mode). `hookTimeout` is unchanged (10 s).
 
 ## Known differences from macOS
 
