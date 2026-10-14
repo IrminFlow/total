@@ -53,6 +53,12 @@ describe('first-run tour (WP 10.3)', () => {
     expect(screen.getByTestId('tour-text').textContent).toContain('make a bill')
     expect(screen.getByTestId('tour-spotlight')).toBeTruthy()
     expect(document.activeElement).toBe(screen.getByTestId('tour-next'))
+    // Review: a screen reader hears the step and its sentence with the focused Next button's card
+    // (the card is described by them, and the sentence is announced as it changes).
+    const card = screen.getByRole('dialog', { name: 'A quick tour of Home' })
+    const described = card.getAttribute('aria-describedby')!.split(' ').map((id) => document.getElementById(id)?.textContent)
+    expect(described).toEqual(['Step 1 of 4', screen.getByTestId('tour-text').textContent])
+    expect(screen.getByTestId('tour-text').getAttribute('aria-live')).toBe('polite')
     const seen: string[] = []
     for (let i = 0; i < 4; i++) {
       seen.push(screen.getByTestId('tour').getAttribute('data-step')!)

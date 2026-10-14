@@ -75,6 +75,12 @@ function TourStepView({ step, onEnd }: { step: number; onEnd: () => void }): Rea
   const [rect, setRect] = useState<Rect | null>(null)
   const [text, setText] = useState<(typeof TOUR_STEPS)[number]['anchors'][number]['text'] | null>(null)
   const last = step === TOUR_STEPS.length - 1
+  // The card's real height (a long sentence, a larger text size) decides above / below.
+  const [cardH, setCardH] = useState(170)
+  useLayoutEffect(() => {
+    const h = cardRef.current?.offsetHeight
+    if (h && h !== cardH) setCardH(h)
+  })
 
   const next = useCallback((): void => {
     if (last) onEnd()
@@ -136,8 +142,10 @@ function TourStepView({ step, onEnd }: { step: number; onEnd: () => void }): Rea
 
   const vw = typeof window === 'undefined' ? 1024 : window.innerWidth
   const vh = typeof window === 'undefined' ? 768 : window.innerHeight
-  const below = !rect || rect.top + rect.height + 180 < vh
-  const cardTop = rect ? (below ? rect.top + rect.height + PAD + 12 : Math.max(12, rect.top - PAD - 12 - 170)) : vh / 2 - 90
+  const below = !rect || rect.top + rect.height + PAD + 12 + cardH + 12 <= vh
+  const cardTop = rect
+    ? Math.min(Math.max(12, below ? rect.top + rect.height + PAD + 12 : rect.top - PAD - 12 - cardH), Math.max(12, vh - cardH - 12))
+    : vh / 2 - cardH / 2
   const cardLeft = rect ? Math.min(Math.max(12, rect.left + rect.width / 2 - CARD_W / 2), vw - CARD_W - 12) : vw / 2 - CARD_W / 2
 
   // In a portal on <body>: an animated (transformed) screen would otherwise move the fixed layer.
@@ -164,15 +172,16 @@ function TourStepView({ step, onEnd }: { step: number; onEnd: () => void }): Rea
         role="dialog"
         aria-modal="false"
         aria-label={t('simple.tour.label')}
+        aria-describedby="tour-progress tour-text" // i18n-technical: element ids
         tabIndex={-1}
         data-testid="tour-card"
         className="pointer-events-auto absolute rounded-xl border border-line bg-raised p-4 shadow-elev-3 outline-none"
         style={{ top: cardTop, left: cardLeft, width: CARD_W }}
       >
-        <p className="text-caption font-semibold tracking-[0.08em] text-muted uppercase" data-testid="tour-progress">
+        <p id="tour-progress" className="text-caption font-semibold tracking-[0.08em] text-muted uppercase" data-testid="tour-progress">
           {t('simple.tour.step', { step: step + 1, total: TOUR_STEPS.length })}
         </p>
-        <p className="mt-1.5 text-body text-ink" data-testid="tour-text">
+        <p id="tour-text" aria-live="polite" className="mt-1.5 text-body text-ink" data-testid="tour-text">
           {text ? t(text) /* i18n-technical: keyed in help/tour.ts */ : null}
         </p>
         <div className="mt-4 flex items-center justify-between gap-2">
