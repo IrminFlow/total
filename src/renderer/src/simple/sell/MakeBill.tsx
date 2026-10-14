@@ -46,8 +46,8 @@ function readIncl(slug: string | null): boolean {
 }
 
 /** Has the form anything the user typed (worth asking before throwing it away)? */
-const isDirty = (f: SellForm & { lines: FormLine[] }): boolean =>
-  f.customerId != null || f.amount != null || f.note.trim() !== '' || f.lines.some((l) => l.itemId != null)
+const isDirty = (f: SellForm & { lines: FormLine[] }, party?: number): boolean =>
+  (f.customerId != null && f.customerId !== party) || f.amount != null || f.note.trim() !== '' || f.lines.some((l) => l.itemId != null)
 
 /**
  * WP 9.2 — Make a bill (plan §3): who it is for (a customer, or the walk-in "Cash customer"), what
@@ -56,9 +56,10 @@ const isDirty = (f: SellForm & { lines: FormLine[] }): boolean =>
  * editors' own mapping; the total is the editor's calculation, the preview line comes from
  * simple:preview, the save card offers Print / PDF / Share / New / Undo. ⌘↵ saves, ⌘N starts a
  * new bill, Esc asks before discarding. "Accountant view" opens the full sales editor (the saved
- * bill once there is one).
+ * bill once there is one). WP 9.8: `party` starts the bill for that customer (People → Make a
+ * bill), on credit until the user says how it was paid.
  */
-export function MakeBill(): React.JSX.Element {
+export function MakeBill({ party }: { party?: number } = {}): React.JSX.Element {
   const t = useT()
   const nav = useNav()
   const queryClient = useQueryClient()
@@ -77,7 +78,7 @@ export function MakeBill(): React.JSX.Element {
     (): SellForm & { lines: FormLine[] } => ({ ...emptySellForm(workingDate, { mode: startMode, ratesIncludeGst: readIncl(slug) }), lines: startMode === 'items' ? [newLine()] : [] }),
     [workingDate, startMode, slug]
   )
-  const [form, setForm] = useState<SellForm & { lines: FormLine[] }>(blank)
+  const [form, setForm] = useState<SellForm & { lines: FormLine[] }>(() => (party != null ? { ...blank(), customerId: party, paid: CREDIT } : blank()))
   const [savedIds, setSavedIds] = useState<number[] | null>(null)
   const [savedWalkIn, setSavedWalkIn] = useState(false)
   const [preview, setPreview] = useState<SimplePreview | null>(null)
@@ -127,7 +128,7 @@ export function MakeBill(): React.JSX.Element {
     { simple: true, t }
   )
 
-  const dirty = !savedIds && !leaving && isDirty(form)
+  const dirty = !savedIds && !leaving && isDirty(form, party)
   useUnsavedGuard(dirty)
   useEffect(() => {
     if (leaving) nav.back()

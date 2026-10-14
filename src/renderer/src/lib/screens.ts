@@ -171,7 +171,6 @@ export const SCREENS: ScreenDef[] = [
     modes: ['accountant'],
     simpleSection: 'people',
     simpleEntries: [
-      { id: 'customers-suppliers', label: 'simple.entries.customersSuppliers', screen: { name: 'masters', tab: 'ledgers', parties: true } },
       { id: 'product-list', label: 'simple.entries.productList', section: 'stock', screen: { name: 'masters', tab: 'items' }, feature: 'inventory' }
     ],
     keywords: ['ledgers', 'items', 'groups', 'units', 'voucher types', 'currencies', 'godowns', 'stock groups'],
@@ -484,7 +483,6 @@ export const SCREENS: ScreenDef[] = [
     modes: ['accountant'],
     simpleSection: 'people',
     simpleEntries: [
-      { id: 'who-owes', label: 'simple.entries.whoOwes' },
       { id: 'who-owes-me', label: 'simple.reports.whoOwesMe', section: 'reports' }
     ],
     keywords: ['ageing', 'receivables', 'payables', 'bills'],
@@ -498,9 +496,6 @@ export const SCREENS: ScreenDef[] = [
     name: 'receivables',
     modes: ['accountant'],
     simpleSection: 'people',
-    simpleEntries: [
-      { id: 'reminders', label: 'simple.entries.reminders' }
-    ],
     title: 'Credit control',
     keywords: ['receivables', 'reminders', 'dunning', 'interest on overdue', 'credit hold', 'dso', 'collections', 'promised payments', 'follow-up'],
     screen: { name: 'receivables' },
@@ -511,9 +506,6 @@ export const SCREENS: ScreenDef[] = [
     name: 'payables',
     modes: ['accountant'],
     simpleSection: 'people',
-    simpleEntries: [
-      { id: 'bills-to-pay', label: 'simple.people.billsToPay' }
-    ],
     keywords: ['payment planning', 'msme', 'udyam', '43b', 'msme form 1', 'batch payments', 'payment run', 'supplier reconciliation', 'supplier statement'],
     title: 'Payables',
     screen: { name: 'payables' },
@@ -1107,6 +1099,40 @@ export const SCREENS: ScreenDef[] = [
     screen: null, // simple shell only
     navSection: null,
     invalidates: ['simplePurchases', 'simplePurchase']
+  },
+  // WP 9.8: People (simple/people/…) — every customer and supplier with phone, days to pay and
+  // where they stand as on today (the Outstandings allocation), filters, "+ New person"; "Bills to
+  // pay" (`tab: 'bills'`) lists every supplier's open bill with Pay → Money out. A row opens the
+  // person's page (`simple-person`): contact details, open bills, Record money in / out, Make a
+  // bill / Record a purchase, Statement (the WP 4.2 print), Send a reminder (WhatsApp / SMS /
+  // copy, logged like the reminder letter), hold (owner). Its accountant counterparts are
+  // Masters → parties, Outstandings, Credit control and Payables.
+  {
+    name: 'simple-people',
+    modes: ['simple'],
+    simpleView: 'people/PeopleList',
+    simpleSection: 'people',
+    simpleEntries: [
+      { id: 'customers-suppliers', label: 'simple.entries.customersSuppliers', screen: { name: 'simple-people' } },
+      { id: 'who-owes', label: 'simple.entries.whoOwes', screen: { name: 'simple-people', filter: 'owesYou' } },
+      { id: 'reminders', label: 'simple.entries.reminders', screen: { name: 'simple-people', filter: 'late' } },
+      { id: 'bills-to-pay', label: 'simple.people.billsToPay', screen: { name: 'simple-people', tab: 'bills' } }
+    ],
+    title: 'People',
+    keywords: ['customers', 'suppliers', 'parties', 'phone', 'reminder', 'bills to pay'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simplePeople', 'simpleBillsToPay', 'ledgers']
+  },
+  {
+    name: 'simple-person',
+    modes: ['simple'],
+    simpleView: 'people/PersonView',
+    simpleSection: 'people',
+    title: 'Person',
+    screen: null, // opened from the People list
+    navSection: null,
+    invalidates: ['simplePerson', 'ledgers']
   },
   {
     name: 'search',

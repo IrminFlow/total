@@ -5,6 +5,7 @@ import type { TradeDocDraft } from '@shared/tradeCycle/types'
 import { fyOf, todayISO } from '@shared/dates'
 import type { SessionUser } from '../lib/client'
 import type { SimpleSectionId, UiSettings } from '@shared/simple/uiMode'
+import type { PeopleFilter } from '@shared/simple/people'
 import { confirmDialog } from '../lib/dialogs'
 import { hasUnsavedChanges } from '../lib/useUnsavedGuard'
 import { onLayerClose, topLayerId } from '../components/kit/layers'
@@ -77,13 +78,19 @@ export type Screen =
   | { name: 'simple-money'; entryId?: number }
   // WP 9.2: Sell — Make a bill, the sales list (`billId` = that bill's simple view), Quick bill
   // (the Counter screen inside the simple shell).
-  | { name: 'simple-sell' }
+  // WP 9.8: `party` = start the bill for that customer (People → Make a bill).
+  | { name: 'simple-sell'; party?: number }
   | { name: 'simple-sales'; billId?: number }
   | { name: 'simple-quick-bill' }
   // WP 9.6: Money → Bank (simple/bank/BankScreen), opened on a bank account by `bankId`.
   | { name: 'simple-bank'; bankId?: number }
   // WP 9.3: Buy — Record a purchase, the purchase list (`billId` = that bill's simple view).
-  | { name: 'simple-buy' }
+  // WP 9.8: `party` = start the purchase for that supplier (People → Record a purchase).
+  | { name: 'simple-buy'; party?: number }
+  // WP 9.8: People — the list (`tab` 'bills' = Bills to pay; `filter` = who it shows) and one
+  // person's page.
+  | { name: 'simple-people'; tab?: 'people' | 'bills'; filter?: PeopleFilter }
+  | { name: 'simple-person'; id: number }
   | { name: 'simple-purchases'; billId?: number }
   | { name: 'counter-billing' }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
