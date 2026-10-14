@@ -32,3 +32,26 @@ export function windowsDocumentsDir(regStdout: string | null, env: Record<string
   if (expanded && !/%[^%]+%/.test(expanded) && /^([a-z]:[\\/]|\\\\)/i.test(expanded)) return expanded.replace(/[\\/]+$/, '')
   return `${home.replace(/[\\/]+$/, '')}\\Documents`
 }
+
+/**
+ * WP 7.3 review — the registry answer is only trusted when it is readable and exists. `reg.exe`
+ * prints in the console's OEM code page, so a Documents path with a non-ASCII letter (a user
+ * folder "José", OneDrive writing the expanded path) arrives as U+FFFD, and a CLI that believed
+ * it would open a different, empty data folder from the app's. Then the known folder is asked
+ * through PowerShell with UTF-8 output (`[Environment]::GetFolderPath('MyDocuments')`, the same
+ * SHGetKnownFolderPath the app's `app.getPath('documents')` uses); if that fails too,
+ * `<home>\Documents`. `askKnownFolder` runs only when needed (it costs a PowerShell start).
+ */
+export function chooseWindowsDocumentsDir(
+  regStdout: string | null,
+  askKnownFolder: () => string | null,
+  env: Record<string, string | undefined>,
+  home: string,
+  exists: (path: string) => boolean
+): string {
+  const fromReg = windowsDocumentsDir(regStdout, env, home)
+  if (!fromReg.includes('\uFFFD') && exists(fromReg)) return fromReg
+  const known = askKnownFolder()?.trim().replace(/[\\/]+$/, '') ?? ''
+  if (known && !known.includes('\uFFFD') && /^([a-z]:[\\/]|\\\\)/i.test(known) && exists(known)) return known
+  return fromReg.includes('\uFFFD') ? `${home.replace(/[\\/]+$/, '')}\\Documents` : fromReg
+}
