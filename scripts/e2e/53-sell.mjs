@@ -227,8 +227,9 @@ await scenario('53-sell', async (h) => {
     return label?.nextElementSibling?.textContent ?? ''
   })
   assert(editorTotal.replace(/\s/g, '').includes('1,725.00'), `the editor total equals the simple total (${editorTotal})`)
+  // WP 9.10: Back to simple lands on that bill's simple view (the same object).
   await h.click('btn-back-to-simple')
-  await attached(h, '[data-testid="simple-section-sell"]')
+  await attached(h, '[data-testid="simple-sale"][data-bill]')
 
   // ================= 3. a services company, stock off =================
   await h.click('btn-switch-company')

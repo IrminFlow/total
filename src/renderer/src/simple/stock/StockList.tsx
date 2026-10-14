@@ -11,6 +11,8 @@ import { Button, Page } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { NewProductDialog } from '../NewProductDialog'
 import { ProductView } from './ProductView'
+import { useAccountantView } from '../../lib/handoff'
+import { AccountantViewButton } from '../AccountantViewButton'
 
 const LEVEL_TEXT: Record<StockLevel, MessageKey> = {
   ok: 'simple.stock.level.ok',
@@ -52,6 +54,7 @@ export function StockList({ filter, itemId }: { filter?: 'low'; itemId?: number 
 function StockTable({ initialFilter }: { initialFilter?: 'low' }): React.JSX.Element {
   const t = useT()
   const nav = useNav()
+  const openFull = useAccountantView('simple-stock') // i18n-technical: screen name
   const queryClient = useQueryClient()
   const workingDate = useSession((s) => s.workingDate)
   const features = useFeatures()
@@ -92,9 +95,7 @@ function StockTable({ initialFilter }: { initialFilter?: 'low' }): React.JSX.Ele
           <p className="mt-1 text-detail text-muted">{t('simple.stock.subtitle')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="ghost" data-testid="btn-stock-accountant-view" title={t('simple.stock.accountantHint')} onClick={() => nav.go(SUMMARY_SCREEN)}>
-            {t('common.accountantView')}
-          </Button>
+          <AccountantViewButton testId="btn-stock-accountant-view" title={t('simple.stock.accountantHint')} onOpen={(always) => void openFull({ intent: null, always, fallback: SUMMARY_SCREEN })} />
           {features.manufacturing && (
             <Button data-testid="btn-stock-made-goods" onClick={() => nav.go(MADE_SCREEN)}>
               {t('simple.stock.madeGoods')}

@@ -126,6 +126,7 @@ import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
 import { createCompanyFromSetup } from './services/companySetup'
 import * as simplePost from './services/simplePost'
+import * as simpleHandoff from './services/simpleHandoff'
 import * as simpleMoney from './services/simpleMoney'
 import * as simplePeople from './services/simplePeople'
 import * as simpleSell from './services/simpleSell'
@@ -472,6 +473,17 @@ export function registerIpc(): void {
     const { intent, today } = simpleIntentPayload.parse(payload)
     const c = requireCompany()
     return simplePost.previewIntent(c.db, c.info, intent, today ?? todayISO())
+  }, 'viewer')
+  // WP 9.10: "Accountant view" of an unsaved simple form — the editors' own form state for the
+  // current answers (the same mapping, rolled back); "Back to simple" — what a voucher / ledger is.
+  handle('simple:intentForm', (payload) => {
+    const { intent, today } = simpleIntentPayload.parse(payload)
+    const c = requireCompany()
+    return simplePost.intentForm(c.db, c.info, intent, today ?? todayISO())
+  }, 'viewer')
+  handle('simple:handoffTarget', (payload) => {
+    const q = z.object({ voucherId: z.number().int().positive().optional(), ledgerId: z.number().int().positive().optional() }).strict().parse(payload)
+    return simpleHandoff.handoffFacts(requireCompany().db, q)
   }, 'viewer')
   handle('simple:post', (payload) => {
     const { intent, today } = simpleIntentPayload.parse(payload)

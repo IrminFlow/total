@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { StockItem, VoucherType } from '@shared/domain'
-import { ManufactureScreen } from '../screens/Manufacture'
+import { ManufactureForm, ManufactureScreen } from '../screens/Manufacture'
+import { emptyManufactureState } from '@shared/voucherEdit'
 import { DialogHost } from '../components/dialogs'
 import { useSession } from '../state/stores'
 import { hasUnsavedChanges } from '../lib/useUnsavedGuard'
@@ -126,6 +127,28 @@ describe('Manufacture screen', () => {
     expect(hasUnsavedChanges()).toBe(false)
     type('input-manufacture-qty', '1')
     expect(hasUnsavedChanges()).toBe(true)
+  })
+
+  it('WP 9.10: a handed-off form (a simple screen\'s answers, stored nowhere else) counts as unsaved', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const initial = { ...emptyManufactureState('2025-06-10'), finishedItemId: CHAIR, qtyText: '2', saleRatePaise: 100000 }
+    render(
+      <QueryClientProvider client={client}>
+        <ManufactureForm typeId={9} initial={initial} handedOff />
+      </QueryClientProvider>
+    )
+    await screen.findByTestId('manufacture-form')
+    await waitFor(() => expect(hasUnsavedChanges()).toBe(true))
+    cleanup()
+    // The same answers as an AI draft's state are not "changes" (the draft row keeps them).
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <ManufactureForm typeId={9} initial={initial} aiDraftId={5} />
+      </QueryClientProvider>
+    )
+    await screen.findByTestId('manufacture-form')
+    await waitFor(() => expect((screen.getByTestId('input-manufacture-number') as HTMLInputElement).value).toBe('12'))
+    expect(hasUnsavedChanges()).toBe(false)
   })
 
   it('recalculates profit on every keystroke, prefills the average price, and matches both sides', async () => {

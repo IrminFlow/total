@@ -136,7 +136,8 @@ export function ManufactureForm({
   initial,
   initialJobWork = false,
   prefill,
-  aiDraftId
+  aiDraftId,
+  handedOff = false
 }: {
   typeId: number
   voucherId?: number
@@ -149,8 +150,12 @@ export function ManufactureForm({
   prefill?: { itemId: number; qtyMilli: number }
   /** WP 5.3: `initial` is an AI draft's form state (a NEW voucher); saving consumes the draft. */
   aiDraftId?: number
+  /** WP 9.10: `initial` is a simple form's answers (a NEW voucher) — kept like an AI draft's
+   *  (its price, recipe version and rows), nothing to consume. */
+  handedOff?: boolean
 }): React.JSX.Element {
   const isEdit = voucherId != null
+  const prefilled = aiDraftId != null || handedOff
   const { workingDate, setWorkingDate } = useSession()
   const toast = useToasts()
   const nav = useNav()
@@ -186,7 +191,7 @@ export function ManufactureForm({
   const [saleRate, setSaleRate] = useState<number | null>(base.saleRatePaise)
   /** Bumped to remount the sale-rate AmountInput (it owns its text) after a prefill. */
   const [saleRateRev, setSaleRateRev] = useState(0)
-  const saleRateTouched = useRef(isEdit || (aiDraftId != null && initial?.saleRatePaise != null))
+  const saleRateTouched = useRef(isEdit || (prefilled && initial?.saleRatePaise != null))
   const [labour, setLabour] = useState<number | null>(base.labourPaise)
   const [labourPosted, setLabourPosted] = useState(base.labourPosted)
   const [creditId, setCreditId] = useState<number | null>(base.labourCreditLedgerId)
@@ -194,10 +199,10 @@ export function ManufactureForm({
   const [bpRows, setBpRows] = useState<BpRow[]>(() => (base.byProducts ?? []).map((b) => ({ ...b, key: nextLineKey() })))
   const [jobWork, setJobWork] = useState<ManufactureJobWorkState | null>(base.jobWork ?? null)
   /** The BOM version picked by the user; undefined = follow the voucher date. */
-  const [pickedVersion, setPickedVersion] = useState<number | null | undefined>(isEdit || (aiDraftId != null && base.bomVersionId != null) ? (base.bomVersionId ?? null) : undefined)
+  const [pickedVersion, setPickedVersion] = useState<number | null | undefined>(isEdit || (prefilled && base.bomVersionId != null) ? (base.bomVersionId ?? null) : undefined)
   const [exploded, setExploded] = useState(base.bomExploded ?? false)
   /** Rows came from the BOM and haven't been edited: a quantity / version change refills them. */
-  const bomRows = useRef(aiDraftId != null && !isEdit && base.bomVersionId != null)
+  const bomRows = useRef(prefilled && !isEdit && base.bomVersionId != null)
   const [saving, setSaving] = useState(false)
   const { saved, leave } = useLeaveAfterSave()
 
@@ -321,7 +326,12 @@ export function ManufactureForm({
   // "changes" (same as the sibling entry forms); an alteration compares everything.
   // The job-work header (worker, their challan, nature) of a NEW voucher is a setting carried from
   // one receipt to the next, not a change; an alteration compares it too.
-  const initialKey = useMemo(() => manufactureFormKey(isEdit ? base : { ...base, jobWork: null }), [base, isEdit])
+  // WP 9.10: a handed-off form's answers exist nowhere else (no draft row) — they count as changes,
+  // so leaving asks first; compare a NEW handed-off form with the blank form instead of `base`.
+  const initialKey = useMemo(
+    () => manufactureFormKey(isEdit ? base : handedOff ? { ...emptyManufactureState(base.date), jobWork: null } : { ...base, jobWork: null }),
+    [base, isEdit, handedOff]
+  )
   const numberTyped = !isEdit && numberField.touched
   const dirty =
     numberTyped || manufactureFormKey(isEdit ? state : { ...state, number: '', date: base.date, jobWork: null }) !== initialKey

@@ -21,6 +21,7 @@ import { HowPaid } from './HowPaid'
 import { Card, Choices, MoneyFooter, MoneyHeader } from './MoneyParts'
 import { ensureCategoryAccount } from './ensureAccount'
 import { useMoneyFlow } from './useMoneyFlow'
+import { useAccountantView } from '../../lib/handoff'
 
 const WHO_TEXT: Record<MoneyInWho, MessageKey> = {
   customer: 'simple.money.in.who.customer',
@@ -30,7 +31,6 @@ const WHO_TEXT: Record<MoneyInWho, MessageKey> = {
   refund: 'simple.money.in.who.refund'
 }
 const INCOME_KEYS = categoriesFor('income') // i18n-technical
-const RECEIPT = 'receipt' as const // i18n-technical
 const OWNER_CAPITAL = 'owner_capital' as const // i18n-technical: category key
 const F = { date: 'date', party: 'party', amount: 'amount', into: 'into', bills: 'bills' } as const // i18n-technical: form field paths
 const IN_SIDE = 'in' as const // i18n-technical
@@ -118,10 +118,9 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
   }
   const showAdvance = form.who === 'customer' && form.customerId != null && (form.amount ?? 0) > 0 && (open.length === 0 || alloc.advance > 0 || alloc.short || form.advance)
 
-  const accountantView = (): void => {
-    if (flow.savedIds) nav.go({ name: 'voucher-entry', voucherId: flow.savedIds[0]! }) // i18n-technical
-    else nav.go({ name: 'voucher-entry', kindHint: RECEIPT }) // i18n-technical
-  }
+  // WP 9.10: the saved entry, or the full receipt editor with these answers filled in.
+  const openFull = useAccountantView('simple-money-in') // i18n-technical: screen name
+  const accountantView = (always: boolean): void => void openFull({ intent: isDirty(form) ? intent : null, savedId: flow.savedIds?.[0] ?? null, always })
 
   const customerOptions = useMemo(() => (setup?.customers ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.phone ? { sub: c.phone } : {}) })), [setup?.customers])
   const supplierOptions = useMemo(() => (setup?.suppliers ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.phone ? { sub: c.phone } : {}) })), [setup?.suppliers])

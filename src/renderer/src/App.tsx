@@ -30,6 +30,7 @@ import { MadeGoods } from './simple/stock/MadeGoods'
 import { ReportsScreen } from './simple/reports/ReportsScreen'
 import { TaxesScreen } from './simple/taxes/TaxesScreen'
 import { useScreenView } from './lib/mode'
+import { useAlwaysFullRedirect } from './lib/handoff'
 import { DayBook } from './screens/DayBook'
 import { ImportTallyScreen } from './screens/ImportTally'
 import { ImportWizardScreen } from './screens/ImportWizard'
@@ -105,6 +106,8 @@ export default function App(): React.JSX.Element {
   const nav = useNav()
   // WP 8.1: in a simple company, Home is the simple Home (its accountant view is the Gateway).
   const simpleView = useScreenView(screen.name).view === 'simple'
+  // WP 9.10: a simple flow set to "Always open the full app for this" opens its full counterpart.
+  useAlwaysFullRedirect()
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const queryClient = useQueryClient()
@@ -227,6 +230,7 @@ export default function App(): React.JSX.Element {
               kindHint={screen.kindHint}
               draft={screen.draft}
               aiDraftId={screen.aiDraftId}
+              handoff={screen.handoff}
             />
           )}
           {screen.name === 'masters' && (
