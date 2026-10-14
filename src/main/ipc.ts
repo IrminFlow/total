@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
+import { isAllowedHelpUrl } from '@shared/helpLinks'
 import { nextRegistrationFacts } from '@shared/gst/registration'
 import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync, appendFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -2559,6 +2560,13 @@ export function registerIpc(): void {
   // ---------- app info + updates ----------
   handle('app:info', () => ({ version: app.getVersion(), platform: process.platform }))
   handle('app:checkUpdates', () => checkForUpdatesInteractive(), 'viewer')
+  // WP 10.3: a help article's link to the GST portal / CBIC — the allow-list again here, so the
+  // renderer can never open anything else through it.
+  handle('help:openLink', async (p) => {
+    const { url } = z.object({ url: z.string().max(500) }).strict().parse(p)
+    if (!isAllowedHelpUrl(url)) throw new Error('Help links open only the GST portal or CBIC')
+    await shell.openExternal(url)
+  }, 'viewer')
 
   // ---------- agent bridge (CSV/JSON mirrors + inbox, lane A) ----------
   handle('agent:exportMirror', (p) => {
