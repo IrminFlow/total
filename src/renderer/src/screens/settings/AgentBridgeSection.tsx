@@ -9,6 +9,7 @@ import { aiApi } from '../../lib/aiClient'
 import { useNav, useSession, useToasts } from '../../state/stores'
 import { Badge, Button, Panel, SectionTitle, Segmented, Skeleton } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
+import { dataFolder, pathSep } from '../../lib/platform'
 
 /**
  * Agent access: how external agents (Claude Code, Claude Desktop, Codex, …) reach the books.
@@ -315,9 +316,9 @@ export function AgentBridgeSection(): React.JSX.Element {
   const [exporting, setExporting] = useState(false)
   const [lastExport, setLastExport] = useState<{ dir: string; files: string[] } | null>(null)
 
-  // Display path — dataRoot() is ~/Documents/total unless TOTAL_DATA_DIR overrides it
-  // (driver/CI scripts only, never a real install).
-  const companyPath = `~/Documents/total/${slug ?? '<company>'}`
+  // Display path — dataRoot() is ~/Documents/total (Documents\total on Windows) unless
+  // TOTAL_DATA_DIR overrides it (driver/CI scripts only, never a real install).
+  const companyPath = `${dataFolder}${pathSep}${slug ?? '<company>'}`
 
   const toggle = async (): Promise<void> => {
     if (!config) return
@@ -415,7 +416,7 @@ export function AgentBridgeSection(): React.JSX.Element {
           )}
         </Panel>
         <p className="mt-2 text-hint text-muted">
-          <span className="num">AGENTS.md</span> in <span className="num">~/Documents/total</span> documents the MCP server, its tools and
+          <span className="num">AGENTS.md</span> in <span className="num">{dataFolder}</span> documents the MCP server, its tools and
           resources, the folder layout and the <span className="num">total-cli</span> commands — point Claude Code or any other agent at it.
         </p>
       </div>

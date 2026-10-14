@@ -15,6 +15,7 @@ import type { SimpleSetupInput } from '@shared/simple/setup'
 import { SetupWizard } from '../simple/SetupWizard'
 import { markTourPending } from '../help/tour'
 import { useT } from '../lib/i18n'
+import { dataFolder } from '../lib/platform'
 
 export function CompanySelect(): React.JSX.Element {
   const queryClient = useQueryClient()
@@ -111,7 +112,7 @@ export function CompanySelect(): React.JSX.Element {
         <TotalLogo size={88} className="mx-auto mb-3" />
         <h1 className="text-center font-serif text-hero font-semibold tracking-tight">Total</h1>
         <p className="mt-1 mb-8 text-center text-detail text-muted">
-          Your books, on this Mac, nowhere else · ~/Documents/total
+          Your books, on this computer, nowhere else · {dataFolder}
         </p>
 
         <div className="overflow-hidden rounded-xl border border-line bg-panel">

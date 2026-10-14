@@ -5,12 +5,16 @@ import { companyAttachmentsDir, companyBackupAttachmentsDir, companyBackupsDir, 
 import { migrate, schemaVersion } from './migrate'
 import { backupStamp, pruneBackupsIn, snapshotTo } from './backup'
 import { MMAP_SIZE, quickCheckOkAsync } from './checkHost'
+import { testSynchronous } from './testPragmas'
 import { SYSTEM_AUDIT_USER, writeAudit } from '../services/audit'
 import { pruneBackupAttachmentStore, stashSnapshotAttachments, type StashResult } from './attachmentBackup'
 
 export type DB = Database.Database
 
 export { migrate }
+
+// WP 7.3: the test-only synchronous pragma (vitest workers with a scratch data dir only).
+export { testSynchronous }
 
 export function openCompanyDb(slug: string): DB {
   ensureCompanyTree(slug)
@@ -26,6 +30,10 @@ export function openCompanyDb(slug: string): DB {
   // only reserves address space — the pages are the OS file cache, shared, not extra memory.
   db.pragma('cache_size = -64000')
   db.pragma(`mmap_size = ${MMAP_SIZE}`)
+  // WP 7.3: test runs only (a scratch TOTAL_DATA_DIR is required) may trade crash durability for
+  // speed — see testSynchronous(). Real books always keep the build default (NORMAL in WAL mode).
+  const sync = testSynchronous(process.env)
+  if (sync) db.pragma(`synchronous = ${sync}`)
   try {
     const before = schemaVersion(db)
     migrate(db)

@@ -82,12 +82,32 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Renderer tests (jsdom + RTL)
+        run: npm run test:renderer
+
       - name: DB-layer tests (Electron-as-Node)
         run: npm run test:db
 
       - name: Build NSIS installer (no publish — electron-builder creates a DUPLICATE
           release for the tag even when one exists; observed on v0.2.0)
         run: npm run build && npx electron-builder --win --publish never
+
+      # WP 7.3: electron-updater downloads the file latest.yml names, so the uploaded asset must
+      # carry exactly that name (0.11.0 shipped "Total Setup 0.11.0.exe" — GitHub stored it as
+      # Total.Setup.0.11.0.exe while latest.yml asked for Total-Setup-0.11.0.exe).
+      - name: latest.yml names the installer exactly
+        shell: bash
+        run: |
+          exe=$(cd dist && ls *.exe | head -1)
+          case "$exe" in *" "*) echo "installer name has a space: $exe"; exit 1;; esac
+          grep -q "^path: $exe$" dist/latest.yml || { echo "latest.yml does not name $exe"; cat dist/latest.yml; exit 1; }
+
+      - name: Hermetic IPC smoke test against the packaged Total.exe
+        run: npm run smoke
+        env:
+          TOTAL_APP_EXECUTABLE: ${{ github.workspace }}\dist\win-unpacked\Total.exe
+          TOTAL_DATA_DIR: ${{ runner.temp }}\Total packaged data
+          SMOKE_OUT: ${{ runner.temp }}\smoke-packaged
 
       - name: Upload installer to the existing release
         shell: bash

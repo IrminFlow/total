@@ -228,7 +228,7 @@ function EdocsDocuments(): React.JSX.Element {
         const skipNote = r.skipped.length ? ` · ${r.skipped.length} skipped` : ''
         toast.push(
           'success',
-          `${r.count} e-way bill${r.count > 1 ? 's' : ''} written — combined ${r.path.split('/').pop()} + per-bill files in ${r.dir}${skipNote}`
+          `${r.count} e-way bill${r.count > 1 ? 's' : ''} written — combined ${r.path.split(/[\\/]/).pop()} + per-bill files in ${r.dir}${skipNote}`
         )
       } else {
         const why = r.skipped.length

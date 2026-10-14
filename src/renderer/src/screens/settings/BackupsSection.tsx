@@ -8,6 +8,7 @@ import { Button, Field, Modal, Panel, SectionTitle, TextInput } from '../../comp
 import { DataTable, defineColumns } from '../../components/table'
 import { toDisplayDateTime } from '@shared/dates'
 import { AttachmentsSettings } from './AttachmentsSettings'
+import { isWindows } from '../../lib/platform'
 
 function formatSize(bytes: number): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
@@ -217,7 +218,7 @@ function ExportEncryptedModal({ onClose }: { onClose: () => void }): React.JSX.E
     setBusy(true)
     try {
       await api.backups.exportEncrypted(pass1)
-      toast.push('success', 'Encrypted backup saved — revealed in Finder. Keep the passphrase safe; it cannot be recovered.')
+      toast.push('success', `Encrypted backup saved — revealed in ${isWindows ? 'Explorer' : 'Finder'}. Keep the passphrase safe; it cannot be recovered.`)
       onClose()
     } catch (err) {
       setError((err as Error).message)

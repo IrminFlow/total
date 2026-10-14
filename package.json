@@ -95,7 +95,11 @@
     },
     "nsis": {
       "oneClick": true,
-      "deleteAppDataOnUninstall": false
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "${productName}-Setup-${version}.${ext}",
+      "shortcutName": "Total",
+      "uninstallDisplayName": "Total"
     },
     "publish": [
       {

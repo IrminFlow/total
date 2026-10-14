@@ -20,4 +20,4 @@ You can do everything with the mouse, but these keys save time.
 
 - **↓** and **↑** move between rows; **Enter** opens the row.
 
-On Windows, use **Ctrl** where this page says **⌘**.
+On Windows, Total shows these keys with **Ctrl** (the Mac's Command key) and **Alt** (the Mac's Option key) — see [Total on Windows](total://help/windows).

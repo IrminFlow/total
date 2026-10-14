@@ -40,8 +40,12 @@ let sj = 0
 let own = 0
 let jw = 0
 
+// WP 7.3: the ipc module graph is imported at collection, not inside the hook — on Windows CI the
+// import alone (most of the hook's time, measured) ran past the 10 s hookTimeout.
+const ipcModule = await import('./ipc')
+
 beforeAll(async () => {
-  const { registerIpc } = await import('./ipc')
+  const { registerIpc } = ipcModule
   registerIpc()
   const { slug } = await ok<{ slug: string }>('company:create', {
     name: 'IPC Manufacturing Co', stateCode: '27', gstin: null, gstRegistrationType: 'regular', address: 'Pune',

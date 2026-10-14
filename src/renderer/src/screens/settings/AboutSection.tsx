@@ -6,6 +6,7 @@ import { useSession, useToasts, type Toast } from '../../state/stores'
 import { Button, DateInput, Field, Modal, Panel, SectionTitle } from '../../components/ui'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { TotalLogo } from '../../components/TotalLogo'
+import { dataFolder } from '../../lib/platform'
 
 const PLATFORM_LABELS: Record<string, string> = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }
 
@@ -69,7 +70,7 @@ export function AboutSection(): React.JSX.Element {
         </div>
         <AutoCheckRow />
         <p className="mt-6 text-hint text-muted">
-          Your data lives at <span className="num">~/Documents/total</span> — fully offline, no cloud, no accounts.
+          Your data lives at <span className="num">{dataFolder}</span> — fully offline, no cloud, no accounts.
         </p>
         <p className="mt-2 text-caption text-muted">© Irmin Labs — proprietary</p>
       </Panel>

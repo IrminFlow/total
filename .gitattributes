@@ -2,3 +2,5 @@
 *.png binary
 *.jpg binary
 *.icns binary
+# WP 7.3: Windows-encoded importer fixtures (BOM / UTF-16 / CRLF) must stay byte-exact.
+src/shared/fixtures/windows/*crlf* binary

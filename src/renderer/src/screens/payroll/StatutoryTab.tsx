@@ -103,7 +103,7 @@ export function StatutoryTab({ fyStartYear }: { fyStartYear: number }): React.JS
     try {
       if (d.kind === 'tds') return nav.go({ name: 'tds' })
       const r = d.kind === 'pf' ? await api.payroll.ecr(d.runId) : d.kind === 'esi' ? await api.payroll.esiCsv(d.runId) : await statApi.ptReturnCsv(d.runId, d.state!)
-      toast.push('success', `${d.kind === 'pf' ? 'PF ECR' : d.kind === 'esi' ? 'ESI upload CSV' : `PT return (${d.state})`}: ${r.path.split('/').pop()}`)
+      toast.push('success', `${d.kind === 'pf' ? 'PF ECR' : d.kind === 'esi' ? 'ESI upload CSV' : `PT return (${d.state})`}: ${r.path.split(/[\\/]/).pop()}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -121,7 +121,7 @@ export function StatutoryTab({ fyStartYear }: { fyStartYear: number }): React.JS
   const pdf = async (employeeId?: number): Promise<void> => {
     try {
       const r = await statApi.form16Pdf(fyStartYear, employeeId)
-      toast.push('success', `${f16?.formName ?? 'Form 16'} data saved (${r.path.split('/').pop()}) — Part A comes from TRACES`)
+      toast.push('success', `${f16?.formName ?? 'Form 16'} data saved (${r.path.split(/[\\/]/).pop()}) — Part A comes from TRACES`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }

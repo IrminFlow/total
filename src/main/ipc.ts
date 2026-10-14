@@ -4,6 +4,7 @@ import { nextRegistrationFacts } from '@shared/gst/registration'
 import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync, appendFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
+import { decodeTextFile } from '@shared/textFiles'
 import { z } from 'zod'
 import Database from 'better-sqlite3'
 import type { DB } from './db/connection'
@@ -1674,8 +1675,8 @@ export function registerIpc(): void {
       properties: ['openFile']
     })
     if (picked.canceled || !picked.filePaths[0]) return null
-    const jsonText = readFileSync(picked.filePaths[0], 'utf8')
-    return { jsonText, fileName: picked.filePaths[0].split('/').pop() ?? 'gstr2b.json' }
+    const jsonText = decodeTextFile(readFileSync(picked.filePaths[0]))
+    return { jsonText, fileName: basename(picked.filePaths[0]) || 'gstr2b.json' }
   }, 'viewer')
 
   // ---------- analysis ----------
@@ -1975,7 +1976,7 @@ export function registerIpc(): void {
         properties: ['openFile']
       })
       if (picked.canceled || !picked.filePaths[0]) return null
-      csv = readFileSync(picked.filePaths[0], 'utf8')
+      csv = decodeTextFile(readFileSync(picked.filePaths[0]))
     }
     // csvText rides back on the response (not just the parsed result) so the renderer — which
     // never sees the picked file's contents when the dialog path is used — can hand the exact
@@ -2178,7 +2179,7 @@ export function registerIpc(): void {
         properties: ['openFile']
       })
       if (picked.canceled || !picked.filePaths[0]) return null
-      text = readFileSync(picked.filePaths[0], 'utf8')
+      text = decodeTextFile(readFileSync(picked.filePaths[0]))
     }
     return printTemplates.importTemplate(requireCompany().db, text)
   })
@@ -2324,7 +2325,7 @@ export function registerIpc(): void {
       properties: ['openFile']
     })
     if (picked.canceled || !picked.filePaths[0]) return null
-    return { csvText: readFileSync(picked.filePaths[0], 'utf8'), fileName: picked.filePaths[0].split(/[\\/]/).pop()! }
+    return { csvText: decodeTextFile(readFileSync(picked.filePaths[0])), fileName: picked.filePaths[0].split(/[\\/]/).pop()! }
   })
   handle('import:preview', (p) => {
     const { kind, csvText } = z.object({ kind: importKindSchema, csvText: z.string() }).parse(p)
@@ -2346,6 +2347,8 @@ export function registerIpc(): void {
   })
 
   // ---------- Tally import ----------
+  // WP 7.3: user files are read through decodeTextFile — Windows tools write UTF-8 with a BOM and
+  // UTF-16LE (Tally's "Unicode" XML export, Excel "Unicode Text"), which 'utf8' would garble.
   handle('tally:import', async (p) => {
     const { xmlText, filePath, dryRun } = tallyImportSchema.parse(p ?? {})
     const c = requireCompany()
@@ -2353,7 +2356,7 @@ export function registerIpc(): void {
     let resolvedPath = filePath
     if (xml === undefined && filePath !== undefined) {
       if (!dialogIssuedTallyPaths.has(filePath)) throw new Error('File path must come from the file picker')
-      xml = readFileSync(filePath, 'utf8')
+      xml = decodeTextFile(readFileSync(filePath))
     }
     if (xml === undefined) {
       const picked = await dialog.showOpenDialog({
@@ -2364,7 +2367,7 @@ export function registerIpc(): void {
       if (picked.canceled || !picked.filePaths[0]) return null
       resolvedPath = picked.filePaths[0]
       dialogIssuedTallyPaths.add(resolvedPath)
-      xml = readFileSync(resolvedPath, 'utf8')
+      xml = decodeTextFile(readFileSync(resolvedPath))
     }
     // Dry run is parse-only — zero DB writes, so no backup is taken (nothing to roll back to).
     if (dryRun) return { filePath: resolvedPath ?? null, summary: dryRunTallyXml(xml) }
