@@ -140,7 +140,7 @@ export function RecordPurchase(): React.JSX.Element {
   const errors = useFormErrors<BuyField>(
     {
       date: form.date, party: form.supplierId, billNo: form.billNo, items: form.lines, account: form.categoryId, amount: form.amount, gstRate: form.gstRate,
-      gstOnBill: `${form.gstOnBill}|${form.mode}`, payment: `${form.paid}|${form.partAmount}|${form.partHow}`
+      gstOnBill: `${form.gstOnBill}|${form.mode}|${ctx ? productsNeedGst(form, ctx) : false}`, payment: `${form.paid}|${form.partAmount}|${form.partHow}`
     },
     { simple: true, t }
   )
