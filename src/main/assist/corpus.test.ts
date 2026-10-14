@@ -131,7 +131,23 @@ const CORPUS: [string, Expect][] = [
   ['did I receive 5000 from Ramesh?', { kind: 'unknown' }],
   ['tell me a joke', { kind: 'unknown' }],
   ['hello', { kind: 'unknown' }],
-  ['paid rent', { kind: 'unknown' }]
+  ['paid rent', { kind: 'unknown' }],
+  // ---- WP 10.4 review: questions typed in Devanagari (the Hindi suggestion chips included) ----
+  ['कितना उधार है', { kind: 'owed', side: 'receivable', party: undefined }],
+  ['किस पर मेरा पैसा बाकी है?', { kind: 'owed', side: 'receivable', party: undefined }],
+  ['कौन कौन उधार पर है', { kind: 'owed', side: 'receivable', party: undefined }],
+  ['रमेश से कितना लेना है', { kind: 'owed', side: 'receivable', party: 'रमेश' }],
+  ['मुझे कितना देना है', { kind: 'owed', side: 'payable', party: undefined }],
+  ['मोहन को कितना देना है', { kind: 'owed', side: 'payable', party: 'मोहन' }],
+  ['चाय के 500 नकद दिए', { kind: 'entry', entry: { action: 'money_out', how: 'cash', amount: 50000, what: 'chai' } }],
+  ['चाय के लिए 500 दिए', { kind: 'entry', entry: { action: 'money_out', amount: 50000, what: 'chai' } }],
+  ['बिजली का बिल 2000 भरा', { kind: 'entry', entry: { action: 'money_out', amount: 200000, what: 'bijli' } }],
+  ['रमेश से 2000 मिले', { kind: 'entry', entry: { action: 'money_in', amount: 200000, party: 'रमेश' } }],
+  ['बैंक बैलेंस', { kind: 'money', which: 'bank' }],
+  ['गल्ले में कितना नकद है', { kind: 'money', which: 'cash' }],
+  ['बिल कैसे बनाएँ', { kind: 'howto', task: 'bill' }],
+  ['वापसी कैसे करें', { kind: 'howto', task: 'returnSale' }],
+  ['स्टॉक कम है', { kind: 'stock', low: true }]
 ]
 
 describe('Ask Total corpus', () => {
@@ -163,7 +179,9 @@ describe('Ask Total normalising', () => {
     expect(normalise('ramesh').q).toBe('ramesh')
   })
   it('never reads a Devanagari syllable inside a word as a particle', () => {
-    expect(normalise('पैसे').q).toBe('पैसे')
+    // "पैसे" ends in से, "कैसेट" holds से and के: whole words only, never a particle inside one
+    expect(normalise('कैसेट').q).toBe('कैसेट')
+    expect(normalise('पैसे').q).toBe('paisa')
   })
   it('a named month later than today means last year’s', () => {
     expect(periodOf('sales in march', TODAY)).toMatchObject({ from: '2026-03-01', to: '2026-03-31' })

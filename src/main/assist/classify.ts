@@ -66,10 +66,69 @@ const PHRASES: [RegExp, string][] = [
   [dv('लिया'), 'liya'],
   [dv('खरीदा|खरीदे|खरीदी'), 'kharida'],
   [dv('रुपये|रुपए|रुपया'), 'rupees'],
+  // WP 10.4 review: the Hindi words a Devanagari question uses, read as the Hinglish the
+  // matchers below already know ("कितना उधार है", "किस पर मेरा पैसा बाकी है", "चाय के 500 नकद दिए",
+  // "बिल कैसे बनाएँ") — before this they fell through to "unknown".
+  [dv('उधार|उधारी'), 'udhaar'],
+  [dv('बाकी|बाक़ी'), 'baki'],
+  [dv('लेना|लेनी|लेने'), 'lena'],
+  [dv('देना|देनी|देने'), 'dena'],
+  [dv('चुकाना|चुकानी|चुकाने'), 'chukana'],
+  [dv('चुकाया|चुकाए|चुकाये|चुकाई'), 'chukaya'],
+  [dv('भरना|भरनी|भरने'), 'bharna'],
+  [dv('भरा|भरे|भरी'), 'bhara'],
+  [dv('जमा'), 'jama'],
+  [dv('आया|आए|आये|आई'), 'aaya'],
+  [dv('पैसा|पैसे'), 'paisa'],
+  [dv('में|मे|मैं'), 'mein'],
+  [dv('पर|पे'), 'par'],
+  [dv('लिए|लिये'), 'liye'],
+  [dv('किस|किन'), 'kis'],
+  [dv('किसको|किसे'), 'kisko'],
+  [dv('किससे'), 'kisse'],
+  [dv('मेरा'), 'mera'],
+  [dv('मेरे'), 'mere'],
+  [dv('मेरी'), 'meri'],
+  [dv('मुझे|मुझको'), 'mujhe'],
+  [dv('कैसे'), 'kaise'],
+  [dv('क्या'), 'kya'],
+  [dv('कब'), 'kab'],
+  [dv('मतलब'), 'matlab'],
+  [dv('होता|होती|होते'), 'hota'],
+  [dv('कम'), 'kam'],
+  [dv('ख़त्म|खत्म'), 'khatam'],
+  [dv('खोलो|खोलें|खोलिए|खोलिये'), 'kholo'],
+  [dv('दिखाओ|दिखाएँ|दिखाएं|दिखाइए|दिखाइये'), 'dikhao'],
+  [dv('बैलेंस'), 'balance'],
+  [dv('बिल'), 'bill'],
+  [dv('बिलों'), 'bills'],
+  [dv('वापसी|वापस'), 'return'],
+  [dv('बैकअप'), 'backup'],
+  [dv('माल'), 'maal'],
+  [dv('सामान'), 'samaan'],
+  [dv('ग्राहक|ग्राहकों'), 'customers'],
+  [dv('सप्लायर|सप्लायरों'), 'suppliers'],
+  [dv('चाय'), 'chai'],
+  [dv('किराया|किराए|किराये'), 'kiraya'],
+  [dv('बिजली'), 'bijli'],
+  [dv('तनख़्वाह|तनख्वाह|सैलरी|पगार'), 'salary'],
+  [dv('पेट्रोल'), 'petrol'],
+  [dv('डीज़ल|डीजल'), 'diesel'],
+  [dv('भाड़ा'), 'bhada'],
+  [dv('मज़दूरी|मजदूरी'), 'mazdoori'],
+  [dv('मरम्मत'), 'marammat'],
+  [dv('सफ़ाई|सफाई'), 'safai'],
+  [dv('नाश्ता'), 'nashta'],
+  [dv('पानी'), 'pani'],
+  [dv('रिचार्ज'), 'recharge'],
+  [dv('कमीशन'), 'commission'],
   [dv('को'), 'ko'],
   [dv('से'), 'se'],
   [dv('ने'), 'ne'],
-  [dv('का|के|की'), 'ka'],
+  // each on its own: "चाय के लिए" must read "ke liye" (purposeOf), not "ka liye"
+  [dv('का'), 'ka'],
+  [dv('के'), 'ke'],
+  [dv('की'), 'ki'],
   [dv('है|हैं'), 'hai']
 ]
 
@@ -216,7 +275,7 @@ interface NumberHit {
 
 const MONEY_BEFORE = new Set(['rs', 'inr', 'for', 'at', 'worth', 'of', '@', 'amount', 'total', 'paid', 'received', 'got', 'diya', 'mila', 'diye'])
 const MONEY_AFTER = new Set(['rs', 'rupees', 'rupee', 'rupaye', 'rupaiye', 'rupay', 'mein', 'me', 'main', 'ka', 'ke', 'ki', 'only'])
-const NOT_NOUN = new Set([...UNIT_WORDS, ...MONEY_WORDS, 'mein', 'me', 'main', 'ka', 'ke', 'ki', 'ko', 'se', 'ne', 'for', 'to', 'from', 'in', 'on', 'by', 'via', 'at', 'cash', 'upi', 'card', 'bank', 'paid', 'received', 'mila', 'diya', 'diye', 'mile', 'mili', 'today', 'yesterday', 'and', 'the', 'a', 'an', 'ka', 'aur', 'hai', 'kiye', 'kiya', 'liye', 'pe', 'par', 'de', 'di', 'do', 'bheja', 'bheje', 'bheji', 'liya', 'each', 'per', 'apiece', 'only'])
+const NOT_NOUN = new Set([...UNIT_WORDS, ...MONEY_WORDS, 'mein', 'me', 'main', 'ka', 'ke', 'ki', 'ko', 'se', 'ne', 'for', 'to', 'from', 'in', 'on', 'by', 'via', 'at', 'cash', 'upi', 'card', 'bank', 'paid', 'received', 'mila', 'diya', 'diye', 'mile', 'mili', 'today', 'yesterday', 'and', 'the', 'a', 'an', 'ka', 'aur', 'hai', 'kiye', 'kiya', 'liye', 'pe', 'par', 'de', 'di', 'do', 'bheja', 'bheje', 'bheji', 'liya', 'each', 'per', 'apiece', 'only', 'bhara', 'bhare', 'bhari', 'chukaya', 'chukaye', 'aaya', 'aaye', 'aayi'])
 /** Words after a number that make it a time span, not money ("last 30 days", "2 mahine"). */
 const TIME_WORDS = new Set(['day', 'days', 'week', 'weeks', 'month', 'months', 'year', 'years', 'hour', 'hours', 'din', 'hafte', 'mahine', 'mahina', 'saal', 'sal', 'baje'])
 /** Words before a number that make it a year or a span ("in 2025", "since 2024", "last 30"). */
