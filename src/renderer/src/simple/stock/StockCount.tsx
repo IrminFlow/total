@@ -133,7 +133,7 @@ export function StockCount(): React.JSX.Element {
     if (mod && e.key === 'Enter') {
       e.preventDefault()
       e.stopPropagation()
-      if (!saved) void save()
+      if (!saved && canSave) void save() // WP 10.8 review: a viewer's ⌘↵ saves nothing (the note says why)
       return
     }
     if (e.key === 'Escape' && dirty) {

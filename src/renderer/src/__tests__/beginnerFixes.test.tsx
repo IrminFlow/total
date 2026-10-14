@@ -43,6 +43,22 @@ afterEach(() => {
   useSession.setState({ user: null })
 })
 
+describe('WP 10.8 review: the plain Backups screen and a viewer', () => {
+  it('a viewer gets the note, never a Back up now that main refuses', async () => {
+    window.total = { platform: 'test', invoke: vi.fn(async () => ({ ok: true, data: [] })) } as never
+    useSession.setState({ user: { id: 2, name: 'Vee', role: 'viewer' } as never })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <SimpleBackups />
+      </QueryClientProvider>
+    )
+    expect(await screen.findByTestId('viewer-note')).toBeTruthy()
+    expect(screen.queryByTestId('btn-simple-backup-now')).toBeNull()
+    expect(screen.getByTestId('btn-simple-backups-all')).toBeTruthy()
+  })
+})
+
 const bar = (): void => {
   render(
     <main id="main">

@@ -5,6 +5,7 @@ import { api } from '../lib/client'
 import { useT } from '../lib/i18n'
 import { useNav, useToasts } from '../state/stores'
 import { Button, Page } from '../components/ui'
+import { useCanSave, ViewerNote } from './ViewerNote'
 
 const BACKUPS_KEY = ['backups'] as const // i18n-technical: query key
 /** The full Settings → Backups tab (every backup, restore, encrypted copies). */
@@ -23,6 +24,8 @@ const localDay = (ms: number): string => {
  */
 export function SimpleBackups(): React.JSX.Element {
   const t = useT()
+  // WP 10.8 review: Back up now is accountant+ (as the full tab shows it); a viewer gets the note.
+  const canSave = useCanSave()
   const nav = useNav()
   const toast = useToasts()
   const queryClient = useQueryClient()
@@ -53,9 +56,15 @@ export function SimpleBackups(): React.JSX.Element {
           {newest == null ? t('simple.backups.none') : t('simple.backups.last', { date: toPlainDate(localDay(newest), t.lang) })}
         </p>
         {backups && backups.length > 0 && <p className="mt-1 text-detail text-muted">{t('simple.backups.count', { count: backups.length })}</p>}
-        <Button className="mt-4" variant="primary" disabled={busy} data-testid="btn-simple-backup-now" onClick={() => void run()}>
-          {t('simple.nav.backupNow')}
-        </Button>
+        {canSave ? (
+          <Button className="mt-4" variant="primary" disabled={busy} data-testid="btn-simple-backup-now" onClick={() => void run()}>
+            {t('simple.nav.backupNow')}
+          </Button>
+        ) : (
+          <div className="mt-4">
+            <ViewerNote />
+          </div>
+        )}
         {saved && (
           <p className="mt-3 text-detail text-ink" role="status" data-testid="simple-backups-saved">
             {t('simple.backups.saved')} <span className="break-all font-mono text-small">{saved}</span>

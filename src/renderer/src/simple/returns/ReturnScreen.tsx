@@ -26,6 +26,7 @@ import { RefundHow } from './RefundHow'
 import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
+import { useCanSave } from '../ViewerNote'
 
 const F = { date: 'date', items: 'items', amount: 'amount', gstRate: 'gstRate', refund: 'refund' } as const satisfies Record<ReturnField, ReturnField> // i18n-technical: form field paths
 const INVALIDATE = ['simpleReturnBills', 'simpleReturnBill', 'simpleSales', 'simpleSale', 'simplePurchases', 'simplePurchase', 'stockItems', 'dashboard'] // i18n-technical: query keys
@@ -45,6 +46,7 @@ const isDirty = (f: ReturnForm): boolean => f.amount != null || f.reason.trim() 
  */
 export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; billId?: number }): React.JSX.Element {
   const t = useT()
+  const canSave = useCanSave()
   const nav = useNav()
   const queryClient = useQueryClient()
   const { info, workingDate } = useSession()
@@ -184,7 +186,7 @@ export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; 
     if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
       e.preventDefault()
       e.stopPropagation()
-      if (!savedIds && bill) void save()
+      if (!savedIds && bill && canSave) void save() // WP 10.8 review: a viewer's ⌘↵ saves nothing (the note says why)
     }
   }
   useEffect(() => {
