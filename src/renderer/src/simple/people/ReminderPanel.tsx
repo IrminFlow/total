@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { LANGUAGES, type Language, type MessageKey } from '@shared/i18n'
 import { toPlainDate } from '@shared/dates'
-import { reminderMessage, reminderSms, whatsappLink, type PersonReminder, type PersonView, type ReminderVia } from '@shared/simple/people'
+import { reminderMessage, reminderSms, whatsappLink, whatsappNumber, type PersonReminder, type PersonView, type ReminderVia } from '@shared/simple/people'
 import type { ReminderBucket } from '@shared/receivables/config'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
@@ -107,7 +107,7 @@ export function ReminderPanel({ person, reminder, startLang, onSent }: { person:
           {t('simple.people.reminder.sms')}
         </Button>
       </div>
-      {!number && <p className="mt-2 text-detail text-muted" data-testid="reminder-no-phone">{t('simple.people.reminder.noPhone')}</p>}
+      {!whatsappNumber(number) && <p className="mt-2 text-detail text-muted" data-testid="reminder-no-phone">{t('simple.people.reminder.noPhone')}</p>}
       {note && (
         <p className="mt-2 text-detail text-ink" role="status" data-testid="reminder-note">
           {note}

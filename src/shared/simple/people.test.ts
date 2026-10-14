@@ -87,6 +87,13 @@ describe('WhatsApp link', () => {
     expect(whatsappNumber('098765-43210')).toBe('919876543210')
     expect(whatsappNumber('+91 98765 43210')).toBe('919876543210')
     expect(whatsappNumber('+44 20 7946 0958')).toBe('442079460958')
+    expect(whatsappNumber('0091 98765 43210')).toBe('919876543210')
+    expect(whatsappNumber('+91 098765 43210')).toBe('919876543210')
+    expect(whatsappNumber('91 98765 43210')).toBe('919876543210')
+    // Not a number WhatsApp can open a chat with: no chat, WhatsApp asks whom.
+    expect(whatsappNumber('123456')).toBeNull()
+    expect(whatsappNumber('98765 4321')).toBeNull()
+    expect(whatsappNumber('+0 1234 5678')).toBeNull()
     expect(whatsappNumber('')).toBeNull()
     expect(whatsappNumber('call me')).toBeNull()
   })

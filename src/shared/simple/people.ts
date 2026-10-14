@@ -282,14 +282,24 @@ export function reminderSms(f: ReminderMessageFacts, lang: Language = 'en'): str
   return `${p.hello} ${p.body} ${p.thanks} ${p.sign}`
 }
 
-/** The number WhatsApp wants (country code, digits only): a 10-digit Indian mobile gets 91, a
- *  leading 0 is dropped; null when there is no usable number. */
+/** The number WhatsApp wants (country code, digits only). Written with `+` or `00` it is taken as
+ *  international as typed (a stray trunk 0 after +91 dropped); otherwise it is an Indian number:
+ *  a 10-digit number gets 91, a leading 0 is dropped, 91 + 10 digits stays. Anything else (a
+ *  6-digit landline without its code, a 9-digit number…) is null — WhatsApp then asks whom to
+ *  send it to rather than opening a chat with a wrong number. */
 export function whatsappNumber(phone: string | null | undefined): string | null {
   if (!phone || !isPhoneNumber(phone)) return null
-  let d = phone.replace(/\D/g, '')
-  if (d.length === 11 && d.startsWith('0')) d = d.slice(1)
-  if (d.length === 10) d = `91${d}`
-  return d
+  const typed = phone.trim()
+  let d = typed.replace(/\D/g, '')
+  if (typed.startsWith('+') || d.startsWith('00')) {
+    d = d.replace(/^00/, '')
+    if (/^910\d{10}$/.test(d)) d = `91${d.slice(3)}`
+    return d.length >= 8 && d.length <= 15 && !d.startsWith('0') ? d : null
+  }
+  if (/^0\d{10}$/.test(d)) d = d.slice(1)
+  if (/^\d{10}$/.test(d)) return `91${d}`
+  if (/^91\d{10}$/.test(d)) return d
+  return null
 }
 
 /** `https://wa.me/<number>?text=…` — opened in the OS browser (the app sends nothing itself).
