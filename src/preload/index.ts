@@ -26,6 +26,14 @@ const api = {
     return () => {
       ipcRenderer.removeListener('total:ai:event', wrapped)
     }
+  },
+  /** Update notices (available / downloading / ready, or null), pushed by main. Returns an unsubscribe. */
+  onUpdateEvent: (listener: (notice: unknown) => void): (() => void) => {
+    const wrapped = (_e: unknown, notice: unknown): void => listener(notice)
+    ipcRenderer.on('total:updates:event', wrapped)
+    return () => {
+      ipcRenderer.removeListener('total:updates:event', wrapped)
+    }
   }
 }
 

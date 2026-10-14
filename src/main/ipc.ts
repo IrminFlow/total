@@ -18,7 +18,8 @@ import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
 import { companyAttachmentsDir, companyBackupAttachmentsDir, companyBackupsDir, companyDbPath, companyDir, companyExportsDir, dataRoot, ensureCompanyTree, slugify } from './paths'
 import { log, revealLogs } from './log'
-import { checkForUpdatesInteractive } from './updater'
+import { checkForUpdatesInteractive, setAutoCheck, updateAction, updatesView } from './updater'
+import { UPDATE_ACTIONS } from '@shared/updates'
 import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
@@ -2586,6 +2587,17 @@ export function registerIpc(): void {
   // ---------- app info + updates ----------
   handle('app:info', () => ({ version: app.getVersion(), platform: process.platform }))
   handle('app:checkUpdates', () => checkForUpdatesInteractive(), 'viewer')
+  // Update consent: app-level (the setting and the notice belong to the whole app, not a company),
+  // so changing it or answering a notice is owner-only wherever the open company has users.
+  handle('app:updates:get', () => updatesView(), 'viewer')
+  handle('app:updates:set', (p) => {
+    const { autoCheck } = z.object({ autoCheck: z.boolean() }).strict().parse(p)
+    return setAutoCheck(autoCheck, sessionUser?.name ?? null)
+  }, 'owner')
+  handle('app:updates:act', (p) => {
+    const { action } = z.object({ action: z.enum(UPDATE_ACTIONS) }).strict().parse(p)
+    return updateAction(action, sessionUser?.name ?? null)
+  }, 'owner')
   // WP 10.3: a help article's link to the GST portal / CBIC — the allow-list again here, so the
   // renderer can never open anything else through it.
   handle('help:openLink', async (p) => {
