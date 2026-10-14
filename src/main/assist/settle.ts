@@ -6,12 +6,27 @@ import { ASK_TOTAL_ORIGIN } from '@shared/assist'
 import { writeAudit } from '../services/audit'
 import { getDraft, setDraftStatus } from '../ai/store'
 
-/** simple:post with `aiDraftId`: the flow saved what an Ask Total draft opened — consume it (in the
- *  post's transaction). Only an OPEN ask-total draft of the same intent kind is consumed; anything
- *  else is left alone (the entry is the user's own either way). */
+/** WP 10.6: the simple flow a chat (AI panel) draft of each voucher kind opens in — the panel's
+ *  `draftOffer` (shared/simple/aiPlain.ts) uses the same pairs. */
+export const CHAT_DRAFT_INTENT: Readonly<Record<string, string>> = { sales: 'sale', purchase: 'purchase', payment: 'money_out', receipt: 'money_in' }
+
+/** A chat draft the simple flow may consume: an open AI-panel draft of that flow's kind, made in
+ *  the accounting / invoice editor's form, and not a capture or statement-line draft (those settle
+ *  through voucher:save, which attaches the file / reconciles the line). */
+function chatDraftFits(d: AiDraftDto, intentKind: string): boolean {
+  const form = d.payload.form ?? 'accounting'
+  return d.source === 'chat' && (form === 'accounting' || form === 'invoice') && !d.payload.captureItemId && !d.payload.bankLine && CHAT_DRAFT_INTENT[d.payload.voucherKind] === intentKind
+}
+
+/** simple:post with `aiDraftId`: the flow saved what an Ask Total draft — or (WP 10.6) a draft the
+ *  AI panel offered as "Save this as a bill?" — opened: consume it (in the post's transaction).
+ *  Only an OPEN ask-total draft of the same intent kind, or an open chat draft whose voucher kind
+ *  maps to it, is consumed; anything else is left alone (the entry is the user's own either way). */
 export function settleAskDraft(db: DB, draftId: number, intentKind: string, voucherIds: readonly number[]): AiDraftDto | null {
   const d = getDraft(db, draftId)
-  if (!d || d.source !== 'assistant' || d.origin !== ASK_TOTAL_ORIGIN || d.status !== 'open' || d.payload.simple?.kind !== intentKind) return null
+  if (!d || d.status !== 'open') return null
+  const askTotal = d.source === 'assistant' && d.origin === ASK_TOTAL_ORIGIN && d.payload.simple?.kind === intentKind
+  if (!askTotal && !chatDraftFits(d, intentKind)) return null
   const voucherId = voucherIds[0] ?? null
   setDraftStatus(db, draftId, 'consumed', voucherId)
   const after = getDraft(db, draftId)!
