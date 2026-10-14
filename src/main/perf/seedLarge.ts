@@ -16,7 +16,8 @@
 //   against 1–3 of the customer's oldest bills (a tenth on account), payments to suppliers
 //   against their bills, expense payments, contras, journals, stock journals, credit / debit
 //   notes returning one unit of a recent invoice line (`return` links, against the bill while
-//   it is open), and ~0.3 % of the expense payments moved to the bin.
+//   it is open), ~0.3 % of the expense payments moved to the bin, and the bank reconciled
+//   (bank dates through banking.setBankDate) up to ten days back, one line in fifty left open.
 //
 // Memory: only the open bills per party and a ring of recent invoice lines are held — vouchers
 // are never kept, so a 500k run stays small.
@@ -30,6 +31,7 @@ import { seedCompany } from '../db/seed'
 import { createLedger, createStockItem } from '../services/masters'
 import { replaceOpeningBills } from '../services/openingBills'
 import { deleteVoucher, saveVoucher } from '../services/vouchers'
+import { setBankDate } from '../services/banking'
 
 function withCheck(first14: string): string {
   return first14 + gstinCheckChar(first14)
@@ -68,6 +70,8 @@ export interface LargeSeedSummary {
   items: number
   byKind: Record<string, number>
   binned: number
+  /** Bank lines given a bank date. */
+  reconciled: number
   ms: number
 }
 
@@ -246,7 +250,23 @@ export function* seedLargeSteps(db: DB, opts: LargeSeedOptions): Generator<numbe
     const v = saveVoucher(db, { ...HEADER, ...input, voucherTypeId: types.get(kind)!.id, number: input.number ?? numberFor(kind, input.date) } as VoucherInput)
     byKind[kind] = (byKind[kind] ?? 0) + 1
     saved++
+    for (const l of v.lines) if (l.ledgerId === L.hdfc || l.ledgerId === L.icici) bankLines.push({ id: l.id, date: v.date })
     return v
+  }
+  // Bank lines waiting for the statement: reconciled (banking.setBankDate, audited) once ten days
+  // old, cleared 0–3 days after the entry — except one in fifty, left unreconciled for good.
+  const bankLines: { id: number; date: string }[] = []
+  let reconciled = 0
+  const reconcileUpTo = (today: string): void => {
+    const cutoff = new Date(Date.parse(today) - 10 * DAY_MS).toISOString().slice(0, 10)
+    let k = 0
+    for (; k < bankLines.length && bankLines[k]!.date <= cutoff; k++) {
+      const l = bankLines[k]!
+      if (rnd() < 0.02) continue
+      setBankDate(db, l.id, new Date(Date.parse(l.date) + int(0, 3) * DAY_MS).toISOString().slice(0, 10))
+      reconciled++
+    }
+    bankLines.splice(0, k)
   }
   const taxLines = (side: 'dr' | 'cr', isInter: boolean, tax: number, purchase: boolean): Lines => {
     if (tax <= 0) return []
@@ -413,7 +433,12 @@ export function* seedLargeSteps(db: DB, opts: LargeSeedOptions): Generator<numbe
   while (saved < N) {
     const end = Math.min(N, saved + batch)
     db.transaction(() => {
-      while (saved < end) one(saved, new Date(FIRST_DAY + Math.floor((saved * DAYS) / N) * DAY_MS).toISOString().slice(0, 10))
+      let date = ''
+      while (saved < end) {
+        date = new Date(FIRST_DAY + Math.floor((saved * DAYS) / N) * DAY_MS).toISOString().slice(0, 10)
+        one(saved, date)
+      }
+      reconcileUpTo(date)
     })()
     opts.onProgress?.(saved, N)
     yield saved
@@ -422,7 +447,7 @@ export function* seedLargeSteps(db: DB, opts: LargeSeedOptions): Generator<numbe
     for (const id of binnable) deleteVoucher(db, id)
   })()
   db.exec('ANALYZE')
-  return { vouchers: saved, parties: nParties, items: nItems, byKind, binned: binnable.length, ms: Math.round(performance.now() - t0) }
+  return { vouchers: saved, parties: nParties, items: nItems, byKind, binned: binnable.length, reconciled, ms: Math.round(performance.now() - t0) }
 }
 
 /** Counts and totals that identify a seeded company's books — the determinism check. Leaves out
@@ -443,6 +468,7 @@ export function booksFingerprint(db: DB): Record<string, number | string> {
     billRefs: one('SELECT COUNT(*) FROM bill_refs'),
     billRefAmount: one('SELECT COALESCE(SUM(amount), 0) FROM bill_refs'),
     lineLinks: one('SELECT COUNT(*) FROM line_links'),
+    bankDated: one("SELECT COUNT(*) || ':' || COALESCE(SUM(julianday(bank_date) * 2), 0) FROM voucher_lines WHERE bank_date IS NOT NULL"),
     openingBills: one('SELECT COUNT(*) FROM opening_bills'),
     ledgers: one('SELECT COUNT(*) FROM ledgers'),
     stockItems: one('SELECT COUNT(*) FROM stock_items'),

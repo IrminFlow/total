@@ -22,7 +22,7 @@ import {
   cmdPost, cmdTrialBalance, openCompany
 } from './commands'
 import { AGENTS_MD, ensureAgentDocs, voucherSchemaJsonText } from './docs'
-import { perfReportText, perfRun, perfSeed } from '../perf/cli'
+import { perfProfile, perfReportText, perfRun, perfSeed } from '../perf/cli'
 import { overBudget } from '../perf/bench'
 
 const USAGE = `total-cli — headless access to Total's books (same validation as the app)
@@ -57,7 +57,7 @@ Commands:
                                            company (n vouchers, 2,000 parties, 500 items, 3 FYs)
                                            into the data root <dir> (never ~/Documents/total).
   perf [--vouchers <n>] [--data <dir>] [--only id,id] [--repeat <n>] [--check] [--scale <f>]
-       [--json <file>] [--keep]
+       [--json <file>] [--keep] [--profile <id> --data <dir>]
                                            Time every budgeted operation (docs/perf-budgets.md)
                                            on a perf-seed data root, or a fresh seed in a temp
                                            dir (default 100000 vouchers). --check exits 1 when
@@ -211,6 +211,10 @@ async function main(): Promise<void> {
       return
     }
     case 'perf': {
+      if (args.flags.has('profile')) {
+        process.stdout.write((await perfProfile({ data: required(args, 'data'), caseId: args.flags.get('profile')! })) + '\n')
+        return
+      }
       const scale = Number(args.flags.get('scale') ?? process.env.TOTAL_PERF_SCALE ?? 1)
       const report = await perfRun({
         vouchers: Number(args.flags.get('vouchers') ?? 100_000),

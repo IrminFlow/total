@@ -20,6 +20,10 @@ import { fyOf } from '@shared/dates'
 /** Signed closing balance (opening + movement ≤ asOn) per ledger — one grouped scan of
  *  voucher_lines (same shape as masters.ledgerBalances) instead of a correlated subquery
  *  per ledger row. */
+// WP 7.1: the per-ledger aggregates below read vouchers first (CROSS JOIN pins the order): the
+// date range comes off idx_vouchers_books_date and each voucher's lines off idx_lines_voucher_cover,
+// both covering — left to itself the planner walked every line by ledger and looked each voucher
+// up. Same rows, same sums.
 export function closingBalances(db: DB, asOn: string): Map<number, number> {
   const rows = db
     .prepare(
@@ -27,7 +31,7 @@ export function closingBalances(db: DB, asOn: string): Map<number, number> {
        FROM ledgers l
        LEFT JOIN (
          SELECT vl.ledger_id, SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END) AS movement
-         FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+         FROM vouchers v CROSS JOIN voucher_lines vl ON vl.voucher_id = v.id
          WHERE v.date <= ? AND ${IN_BOOKS}
          GROUP BY vl.ledger_id
        ) m ON m.ledger_id = l.id`
@@ -616,7 +620,7 @@ function yearBasisBalances(db: DB, asOn: string): { rows: YearBasisRow[]; priorP
                 SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END) AS crTotal,
                 SUM(CASE WHEN vl.dr_cr = 'dr' AND v.date >= ? THEN vl.amount ELSE 0 END) AS drFy,
                 SUM(CASE WHEN vl.dr_cr = 'cr' AND v.date >= ? THEN vl.amount ELSE 0 END) AS crFy
-         FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+         FROM vouchers v CROSS JOIN voucher_lines vl ON vl.voucher_id = v.id
          WHERE v.date <= ? AND ${IN_BOOKS}
          GROUP BY vl.ledger_id
        ) m ON m.ledger_id = l.id`
@@ -730,7 +734,7 @@ export function pnlLedgerAmounts(
                          THEN CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END ELSE 0 END) AS moved,
                 SUM(CASE WHEN ${NOT_YEAR_END_CLOSE} THEN 0
                          ELSE CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE -vl.amount END END) AS closed
-         FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+         FROM vouchers v CROSS JOIN voucher_lines vl ON vl.voucher_id = v.id
          WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}
          GROUP BY vl.ledger_id
        ) m ON m.ledger_id = l.id

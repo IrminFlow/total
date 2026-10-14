@@ -47,12 +47,15 @@ export function perfSeed(opts: { vouchers: number; out: string; seed?: number; l
   const db = openCompanyDb(PERF_SLUG)
   const seed = opts.seed ?? PERF_DEFAULT_SEED
   const t0 = Date.now()
+  let logged = 0
   let summary: LargeSeedSummary
   try {
     summary = seedLarge(db, {
       vouchers: opts.vouchers, seed,
       onProgress: (done, total) => {
-        if (done % 20_000 === 0 || done === total) opts.log?.(`seeded ${done}/${total} (${Math.round((Date.now() - t0) / 1000)} s)`)
+        if (done - logged < 20_000 && done < total) return
+        logged = done
+        opts.log?.(`seeded ${done}/${total} (${Math.round((Date.now() - t0) / 1000)} s)`)
       }
     })
     db.pragma('wal_checkpoint(TRUNCATE)')
@@ -129,4 +132,30 @@ export function perfReportText(r: PerfRunReport, scale: number): string {
     '',
     over.length ? `${over.length} over budget by more than 50 %: ${over.map((o) => o.id).join(', ')}` : 'Every operation within 150 % of its budget.'
   ].join('\n')
+}
+
+/** One case, run with every statement timed: the top statements and their query plans. */
+export async function perfProfile(opts: { data: string; caseId: string; top?: number }): Promise<string> {
+  const { instrument, explain } = await import('./profile')
+  usePerfDataRoot(opts.data)
+  const db: DB = openCompanyDb(PERF_SLUG)
+  try {
+    const ctx = perfContext(db, readCompanyInfo(db), PERF_TODAY)
+    const c = PERF_CASES.find((x) => x.id === opts.caseId)
+    if (!c) throw new Error(`Unknown case ${opts.caseId}: ${PERF_CASES.map((x) => x.id).join(', ')}`)
+    await c.run(ctx)
+    const probe = instrument(db)
+    const t0 = performance.now()
+    await c.run(ctx)
+    const total = performance.now() - t0
+    probe.restore()
+    const top = probe.stats().slice(0, opts.top ?? 12)
+    const sqlMs = probe.stats().reduce((s, x) => s + x.ms, 0)
+    return [
+      `${c.label}: ${total.toFixed(0)} ms (${sqlMs.toFixed(0)} ms in SQL, ${probe.stats().length} statements)`,
+      ...top.map((s) => `\n${s.ms.toFixed(1)} ms  ×${s.calls}  ${s.sql.replace(/\s+/g, ' ').slice(0, 400)}\n    at ${s.stack ?? '?'}\n${explain(db, s.sql)}`)
+    ].join('\n')
+  } finally {
+    closeCompanyDb(db)
+  }
 }

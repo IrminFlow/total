@@ -320,17 +320,29 @@ export function checkStock(db: DB, stockItemIds: number[], date: string): Negati
        FROM stock_items si JOIN units u ON u.id = si.unit_id WHERE si.id IN (${placeholders})`
     )
     .all(...stockItemIds) as { id: number; name: string; openingQtyMilli: number; unitSymbol: string }[]
-  const movementsStmt = db.prepare(
-    `SELECT il.qty_milli AS qtyMilli, il.direction, il.is_absolute AS isAbsolute
-     FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-     WHERE il.stock_item_id = ? AND v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK}
-     ORDER BY v.date, v.id, il.line_order, il.id`
-  )
+  // WP 7.1: one query for every item (was one per item — 500 round trips for the Exceptions /
+  // close-checklist scan); each item's movements still walk in the same order.
+  // A save checks a few items (their lines by item); a scan of many walks the stock lines in date
+  // order once (vouchers first, the covering indexes) and splits them by item — same per-item order.
+  const many = stockItemIds.length > 20
+  const moves = db
+    .prepare(
+      `SELECT il.stock_item_id AS itemId, il.qty_milli AS qtyMilli, il.direction, il.is_absolute AS isAbsolute
+       FROM ${many ? 'vouchers v CROSS JOIN inventory_lines il ON il.voucher_id = v.id' : 'inventory_lines il JOIN vouchers v ON v.id = il.voucher_id'}
+       WHERE il.stock_item_id IN (${placeholders}) AND v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK}
+       ORDER BY ${many ? '' : 'il.stock_item_id, '}v.date, v.id, il.line_order, il.id`
+    )
+    .all(...stockItemIds, date) as { itemId: number; qtyMilli: number; direction: 'in' | 'out'; isAbsolute: number }[]
+  const byItem = new Map<number, typeof moves>()
+  for (const m of moves) {
+    const list = byItem.get(m.itemId)
+    if (list) list.push(m)
+    else byItem.set(m.itemId, [m])
+  }
   const warnings: NegativeStockWarning[] = []
   for (const item of items) {
     let qty = item.openingQtyMilli
-    const moves = movementsStmt.all(item.id, date) as { qtyMilli: number; direction: 'in' | 'out'; isAbsolute: number }[]
-    for (const m of moves) {
+    for (const m of byItem.get(item.id) ?? []) {
       if (m.isAbsolute) qty = m.qtyMilli
       else qty += m.direction === 'in' ? m.qtyMilli : -m.qtyMilli
     }

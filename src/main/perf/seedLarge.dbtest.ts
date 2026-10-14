@@ -11,7 +11,7 @@ import { fingerprintHash } from './cli'
 const N = 3_000
 /** The fingerprint hash of seedLarge({ vouchers: 3000 }) — update only for a deliberate change
  *  to the generator (or to what the services store for the same input). */
-const PINNED = '5150bdde90518c7df199f7d903b1b4ba0b84f78fa76cd100e256c9f0fae5ac4b'
+const PINNED = '5a1fb2bbe4e765ab2f42b567c27e3f45a79bb02eaf58b139ac51fa7285b493d3'
 
 describe('seedLarge (WP 7.1)', () => {
   const a = freshDb()
