@@ -128,8 +128,10 @@ import { createCompanyFromSetup } from './services/companySetup'
 import * as simplePost from './services/simplePost'
 import * as simpleMoney from './services/simpleMoney'
 import * as simpleSell from './services/simpleSell'
+import * as simpleBank from './services/simpleBank'
 import * as simpleBuy from './services/simpleBuy'
 import { simpleIntentSchema } from '@shared/simple/intents'
+import { bankAcceptSchema } from '@shared/simple/bank'
 import { simpleSetupSchema } from '@shared/simple/setup'
 import { simpleOpeningsSchema } from '@shared/simple/openings'
 import * as openingsSvc from './services/openings'
@@ -501,6 +503,26 @@ export function registerIpc(): void {
     const { id, today } = z.object({ id: z.number().int().positive(), today: isoDate.optional() }).strict().parse(payload)
     return simpleSell.saleView(requireCompany().db, id, homeAsOn(today, todayISO()))
   }, 'viewer')
+
+  // WP 9.6: the simple Bank screen (services/simpleBank.ts). Reads: the bank accounts and every
+  // account's class; one bank's statement lines with the matcher's / categoriser's suggestion
+  // (no model — the screen asks bankImport:categorise for that, only when AI is ready) and the
+  // BRS sentence's facts. The write: each accepted line in its own transaction — confirming the
+  // matcher's proposal, or a WP 9.1 intent through simple:post's service whose line is then
+  // reconciled by bankImport.reconcileSavedDraft. The statement itself comes in through the
+  // existing bankImport:pickFile / preview / commit channels.
+  handle('simple:bank:setup', () => simpleBank.bankSetup(requireCompany().db), 'viewer')
+  handle('simple:bank:lines', (payload) => {
+    const { bankLedgerId, today } = z.object({ bankLedgerId: z.number().int().positive(), today: isoDate.optional() }).strict().parse(payload)
+    return simpleBank.bankView(requireCompany().db, bankLedgerId, homeAsOn(today, todayISO()))
+  }, 'viewer')
+  handle('simple:bank:accept', (payload) => {
+    const { bankLedgerId, items, today } = bankAcceptSchema.extend({ today: isoDate.optional() }).strict().parse(payload)
+    const c = requireCompany()
+    const out = simpleBank.acceptLines(c.db, c.info, bankLedgerId, items, today ?? todayISO())
+    if (out.done.length && configSvc.getAgentBridgeEnabled(c.db)) agentBridge.scheduleMirrorRefresh(c.db, c.slug)
+    return out
+  })
 
   // WP 8.3: `mode` 'simple' = the wizard's "Try with sample data" (D2); omitted = accountant, as before.
   handle('company:createDemo', (payload) =>

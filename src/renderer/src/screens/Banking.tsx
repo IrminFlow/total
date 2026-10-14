@@ -120,14 +120,16 @@ const BRS_COLUMNS = defineColumns<BrsItem>([
 
 const BANKING_DEFAULTS = { hideCleared: false, tolerance: '0', window: '5', autoSelect: '0.75', suggest: '0.4' }
 
-export function BankingScreen({ tab: initialTab }: { tab?: BankTab } = {}): React.JSX.Element {
+/** `ledgerId` / `asOn` (both optional — absent = as before): the account and BRS date to open
+ *  with, e.g. from the simple Bank screen's "N entries differ: see them" (WP 9.6). */
+export function BankingScreen({ tab: initialTab, ledgerId: initialLedgerId, asOn }: { tab?: BankTab; ledgerId?: number; asOn?: string } = {}): React.JSX.Element {
   const nav = useNav()
   const { from, to } = useSession()
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: ledgers } = useQuery({ queryKey: ['bankLedgers'], queryFn: api.bank.ledgers })
   const [tab, setTab] = useState<BankTab>(initialTab ?? 'recon')
-  const [ledgerId, setLedgerId] = useState<number | null>(null)
+  const [ledgerId, setLedgerId] = useState<number | null>(initialLedgerId ?? null)
   // WP 5.2: the assistant's screen context names the bank ledger being reconciled.
   useAiScreenContext('banking', { ledgerId, tab })
   const [chequeSetupOpen, setChequeSetupOpen] = useState(false)
@@ -307,7 +309,7 @@ export function BankingScreen({ tab: initialTab }: { tab?: BankTab } = {}): Reac
       {tab === 'cheques' && ledgerId != null && <ChequesTab key={ledgerId} bankLedgerId={ledgerId} bankName={bankName} />}
       {tab === 'pdc' && <PdcTab />}
       {tab === 'bulk' && ledgerId != null && <BulkTab key={ledgerId} bankLedgerId={ledgerId} bankName={bankName} />}
-      {tab === 'brs' && ledgerId != null && <BrsSection ledgerId={ledgerId} defaultAsOn={to} />}
+      {tab === 'brs' && ledgerId != null && <BrsSection ledgerId={ledgerId} defaultAsOn={asOn ?? to} />}
 
       {chequeSetupOpen && ledgerId != null && <ChequeLayoutModal bankLedgerId={ledgerId} bankLedgerName={bankName} onClose={() => setChequeSetupOpen(false)} />}
       {dateEdit && (

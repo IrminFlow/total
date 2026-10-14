@@ -82,8 +82,21 @@ export interface MoveForm {
 
 const base = (date: string): MoneyFormBase => ({ date, amount: null, how: 'cash', accountId: null, reference: '', note: '' })
 
-export const emptyMoneyInForm = (date: string, init: { customerId?: number | null; amount?: number | null; bill?: string | null } = {}): MoneyInForm => ({
+/** Opened from a bank statement line (WP 9.6): that bank account, its reference and description. */
+interface FromBank {
+  bankId?: number | null
+  reference?: string | null
+  note?: string | null
+}
+const fromBank = (date: string, init: FromBank): MoneyFormBase => ({
   ...base(date),
+  ...(init.bankId != null ? { how: 'bank' as const, accountId: init.bankId } : {}),
+  ...(init.reference ? { reference: init.reference } : {}),
+  ...(init.note ? { note: init.note } : {})
+})
+
+export const emptyMoneyInForm = (date: string, init: { customerId?: number | null; amount?: number | null; bill?: string | null } & FromBank = {}): MoneyInForm => ({
+  ...fromBank(date, init),
   who: 'customer',
   customerId: init.customerId ?? null,
   sourceId: null,
@@ -93,8 +106,8 @@ export const emptyMoneyInForm = (date: string, init: { customerId?: number | nul
   advance: false
 })
 
-export const emptyMoneyOutForm = (date: string, init: { supplierId?: number | null; amount?: number | null; bill?: string | null } = {}): MoneyOutForm => ({
-  ...base(date),
+export const emptyMoneyOutForm = (date: string, init: { supplierId?: number | null; amount?: number | null; bill?: string | null } & FromBank = {}): MoneyOutForm => ({
+  ...fromBank(date, init),
   who: 'supplier',
   supplierId: init.supplierId ?? null,
   payeeId: null,

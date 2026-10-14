@@ -71,8 +71,8 @@ export type Screen =
   | { name: 'simple-openings'; from?: 'home' }
   // WP 9.4: Money — Money in / out (optionally for a party, an amount and a bill: what "Record a
   // payment" on a bill passes), Move money, the money list (`entryId` = one entry's simple view).
-  | { name: 'simple-money-in'; party?: number; amount?: number; bill?: string; billId?: number }
-  | { name: 'simple-money-out'; party?: number; amount?: number; bill?: string; billId?: number }
+  | { name: 'simple-money-in'; party?: number; amount?: number; bill?: string; billId?: number; date?: string; bankId?: number; reference?: string; note?: string }
+  | { name: 'simple-money-out'; party?: number; amount?: number; bill?: string; billId?: number; date?: string; bankId?: number; reference?: string; note?: string }
   | { name: 'simple-move-money' }
   | { name: 'simple-money'; entryId?: number }
   // WP 9.2: Sell — Make a bill, the sales list (`billId` = that bill's simple view), Quick bill
@@ -80,6 +80,8 @@ export type Screen =
   | { name: 'simple-sell' }
   | { name: 'simple-sales'; billId?: number }
   | { name: 'simple-quick-bill' }
+  // WP 9.6: Money → Bank (simple/bank/BankScreen), opened on a bank account by `bankId`.
+  | { name: 'simple-bank'; bankId?: number }
   // WP 9.3: Buy — Record a purchase, the purchase list (`billId` = that bill's simple view).
   | { name: 'simple-buy' }
   | { name: 'simple-purchases'; billId?: number }
@@ -135,7 +137,8 @@ export type Screen =
   | { name: 'consolidated' }
   // WP 6.5: group consolidation (statements, inter-company, eliminations, group definition).
   | { name: 'consolidation'; tab?: 'statements' | 'intercompany' | 'eliminations' | 'groups'; groupId?: number }
-  | { name: 'banking'; tab?: 'recon' | 'import' | 'rules' | 'cheques' | 'pdc' | 'bulk' | 'brs' }
+  // `ledgerId` / `asOn`: the account (and BRS date) to open with (WP 9.6's "see them").
+  | { name: 'banking'; tab?: 'recon' | 'import' | 'rules' | 'cheques' | 'pdc' | 'bulk' | 'brs'; ledgerId?: number; asOn?: string }
   // WP 5.4: document capture (bill photos / PDFs → purchase drafts).
   | { name: 'capture' }
   | { name: 'payroll' }
