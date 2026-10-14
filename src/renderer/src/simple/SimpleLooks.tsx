@@ -5,6 +5,7 @@ import { Page } from '../components/ui'
 import { Segmented } from '../components/kit/Segmented'
 import { LANGUAGES } from '@shared/i18n'
 import { ModeSetting } from './ModeSetting'
+import { UpdatesSetting } from './UpdatesSetting'
 
 const THEMES: readonly ThemePref[] = ['light', 'dark', 'system'] // i18n-technical
 const DENSITIES: readonly Density[] = ['comfortable', 'compact'] // i18n-technical
@@ -68,6 +69,7 @@ export function SimpleLooks(): React.JSX.Element {
             testId="btn-language"
           />
         </Row>
+        <UpdatesSetting />
       </div>
       <p className="mt-2 text-hint text-muted">{t('simple.looks.note')}</p>
     </Page>
