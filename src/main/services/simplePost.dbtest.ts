@@ -625,9 +625,9 @@ describe('simple date guards and plain-error fields', () => {
 })
 
 describe('the simple_posts migration', () => {
-  it('comes right before WP 7.2 security (backup_runs, the last migration; number by position)', () => {
-    const security = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE backup_runs'))
-    expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE simple_posts'))).toBe(security - 1)
+  it('comes right before WP 7.1 performance indexes (the last migration; number by position)', () => {
+    const idx = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE simple_posts'))
+    expect(MIGRATIONS[idx + 1]).toContain('idx_lines_voucher_cover')
   })
 })
 

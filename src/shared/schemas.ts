@@ -1,5 +1,6 @@
 import { isPhoneNumber } from './simple/accountKinds'
 import { z } from 'zod'
+import { isWindowsReservedName } from './fileNames'
 import { GST_STATES } from './gst/states'
 import { validateGstin } from './gst/validate'
 import { isUqc } from './gst/uqc'
@@ -1000,7 +1001,12 @@ export type BankRuleInput = z.infer<typeof bankRuleInputSchema>
 
 /** Filenames are slugified client-side before hitting the wire — this just double-checks it
  *  server-side too, since the string is joined straight into an exports/<file> path. */
-const exportFilename = z.string().trim().regex(/^[a-z0-9-_]+$/, 'Filename must be lowercase letters, digits, - or _')
+// WP 7.3: `con`, `nul`, `aux`, `com1` … are Windows device names (with any extension) — suffixed.
+const exportFilename = z
+  .string()
+  .trim()
+  .regex(/^[a-z0-9-_]+$/, 'Filename must be lowercase letters, digits, - or _')
+  .transform((s) => (isWindowsReservedName(s) ? `${s}-export` : s))
 
 export const reportColumnSchema = z.object({
   label: z.string().trim().min(1).max(60),

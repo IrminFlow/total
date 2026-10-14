@@ -49,8 +49,10 @@ release until the version is bumped.
 Back up before you open an existing company in a newer build. Database updates run on first open and
 there is no downgrade; restore the backup instead. Details: [CHANGELOG.md](CHANGELOG.md).
 
-Windows: see docs/windows.md (WP 7.3, not yet written). CI builds a Windows installer, but it is not
-documented or supported here yet.
+**Windows**: run `Total-Setup-<version>.exe` from the release (installs for you only, no
+administrator password). It is not code-signed yet, so Windows may show "Windows protected your PC":
+choose **More info → Run anyway**. Your books live in `Documents\total`. What is verified on Windows
+and what differs: [docs/windows.md](docs/windows.md).
 
 ## Build from source
 

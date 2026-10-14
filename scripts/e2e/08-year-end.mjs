@@ -52,15 +52,43 @@ await scenario('08-year-end', async (h) => {
   await h.goto('year-end')
   await h.shot('01-year-end-preview')
 
-  const closed = await h.invoke('yearend:close', { fyStartYear })
-  assert(closed && typeof closed === 'object', 'yearend:close posted')
+  // Close through the wizard (the year-end screen opens on the last completed FY).
+  const page = h.page
+  await page.getByRole('button', { name: 'Next: review journal' }).click()
+  await page.getByRole('button', { name: 'Next: confirm' }).click()
+  await h.fill('input-year-end-confirm', 'CLOSE')
+  await h.click('btn-year-end-post')
+  await page.waitForSelector('[data-testid="btn-year-end-open-entry"]', { timeout: 20000 })
+  const fyFrom = `${fyStartYear}-04-01`
+  assertEq((await h.invoke('company:lock:get')).date, `${fyStartYear + 1}-03-31`, 'the close locks the books up to its own date')
+  assert((await h.invoke('yearend:preview', { fyStartYear })).alreadyClosed, 'the year is closed')
 
   // Books still tie across the FY boundary.
   const fyEnd = `${fyStartYear + 1}-03-31`
   const tb = await h.invoke('report:trialBalance', { asOn: fyEnd })
   assertEq(tb.totalDebit, tb.totalCredit, 'TB ties after year-end close')
 
+  await h.shot('02-year-end-after-close')
+
+  // The closing entry is read-only; its banner's Move to Bin reopens the year. The bin refuses an
+  // entry inside the lock, so the button moves the close's own lock back to the day before the FY.
+  await h.click('btn-year-end-open-entry')
+  await h.waitScreen('voucher-entry')
+  await page.waitForSelector('[data-testid="year-end-close-banner"]')
+  assert(await page.locator('[data-testid="voucher-entry-mode"]').evaluate((el) => !!el.closest('fieldset')?.disabled), 'the closing entry stays read-only')
+  await h.click('btn-year-end-close-bin')
+  const dialog = page.getByRole('dialog')
+  await dialog.waitFor()
+  assert((await dialog.textContent()).includes('lock moves back'), 'the confirm says the lock moves')
+  await dialog.getByRole('button', { name: 'Move to Bin' }).click()
+  await page.waitForSelector('[data-testid="year-end-close-banner"]', { state: 'detached', timeout: 15000 })
+  const lockAfter = (await h.invoke('company:lock:get')).date
+  const dayBefore = new Date(Date.UTC(fyStartYear, 3, 0)).toISOString().slice(0, 10)
+  assertEq(lockAfter, dayBefore, `lock moved back to the day before ${fyFrom}`)
+  assert(!(await h.invoke('yearend:preview', { fyStartYear })).alreadyClosed, 'binning the closing entry reopens the year')
+  const tbAfter = await h.invoke('report:trialBalance', { asOn: fyEnd })
+  assertEq(tbAfter.totalDebit, tbAfter.totalCredit, 'TB ties after the year reopens')
   await h.goto('gateway')
   await h.goto('year-end')
-  await h.shot('02-year-end-after-close')
+  await h.shot('03-year-end-reopened')
 })

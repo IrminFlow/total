@@ -9,7 +9,12 @@ export default defineConfig({
     build: {
       rollupOptions: {
         // WP 5.4: the PDF text-layer reader runs in a worker thread (out/main/pdfWorker.js).
-        input: { index: resolve(__dirname, 'src/main/index.ts'), pdfWorker: resolve(__dirname, 'src/main/ai/capture/pdfWorker.ts') }
+        // WP 7.1: whole-file SQLite checks (quick_check / integrity_check) too (out/main/checkWorker.js).
+        input: {
+          index: resolve(__dirname, 'src/main/index.ts'),
+          pdfWorker: resolve(__dirname, 'src/main/ai/capture/pdfWorker.ts'),
+          checkWorker: resolve(__dirname, 'src/main/db/checkWorker.ts')
+        }
       }
     },
     resolve: {

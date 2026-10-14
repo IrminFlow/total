@@ -119,7 +119,7 @@ function planVoucher(db: DB, req: Extract<BulkRequest, { target: 'voucher' }>, i
   let renumberedFrom: string | null = null
   if (outcome.kind === 'changed' && (req.change.field === 'date' || req.change.field === 'voucherType')) {
     const p = outcome.payload
-    if (p.number !== undefined && voucherNumberExists(db, p.voucherTypeId, p.number, id)) {
+    if (p.number !== undefined && voucherNumberExists(db, p.voucherTypeId, p.number, id, p.date)) {
       if (kindOf(p.voucherTypeId)!.numbering === 'manual') {
         outcome = { kind: 'refused', reason: `Number ${p.number} is already used by another ${name('voucherType', p.voucherTypeId)} voucher` }
       } else {
@@ -358,7 +358,7 @@ export function undoBulk(db: DB, batchId: number): BulkUndoResult {
         // The number the voucher had may have been issued to another voucher since (a type or date
         // change vacated it) — re-saving would duplicate it.
         const b = JSON.parse(r.beforeJson!) as VoucherPayload
-        if (b.number && voucherNumberExists(db, b.voucherTypeId, b.number, r.id)) {
+        if (b.number && voucherNumberExists(db, b.voucherTypeId, b.number, r.id, b.date)) {
           reason = `Its old number ${b.number} (${name('voucherType', b.voucherTypeId)}) has been used by another voucher since — left as it is`
         }
       }

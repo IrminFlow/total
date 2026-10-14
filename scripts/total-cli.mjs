@@ -5,11 +5,11 @@
 // in WAL mode with a busy_timeout and takes no exclusive locks.
 //
 // Usage: npm run cli -- <command> [options]     (try: npm run cli -- help)
-// Data root: TOTAL_DATA_DIR if set, else ~/Documents/total (matches the app).
+// Data root: TOTAL_DATA_DIR if set, else the app's default (src/main/cli/dataRoot.ts: ~/Documents/total;
+// on Windows the Documents known folder, which OneDrive backup may have moved).
 import { createRequire } from 'module'
 import { spawnSync } from 'child_process'
 import { mkdirSync, renameSync } from 'fs'
-import { homedir } from 'os'
 import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
 
@@ -51,11 +51,7 @@ renameSync(tmpOutfile, outfile)
 
 const result = spawnSync(electronBinaryPath, [outfile, ...process.argv.slice(2)], {
   stdio: 'inherit',
-  env: {
-    ...process.env,
-    ELECTRON_RUN_AS_NODE: '1',
-    TOTAL_DATA_DIR: process.env.TOTAL_DATA_DIR ?? join(homedir(), 'Documents', 'total')
-  }
+  env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }
 })
 
 process.exit(result.status ?? 1)

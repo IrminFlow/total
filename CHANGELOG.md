@@ -140,6 +140,13 @@ Read these before filing from the next release.
   [#105](https://github.com/IrminFlow/total/pull/105)
 - Docs and tests: [#84](https://github.com/IrminFlow/total/pull/84) (CLAUDE.md tidy after Phase 8),
   e2e fixes [#95](https://github.com/IrminFlow/total/pull/95), [#97](https://github.com/IrminFlow/total/pull/97).
+- **Windows parity (WP 7.3)**: the Windows CI job runs every suite, the smoke against `out/` and the
+  packaged `Total.exe`, e2e 01 03 46 48 and the NSIS build. Fixes: Windows auto-update (the
+  installer is now `Total-Setup-<version>.exe`, the name `latest.yml` asks for — 0.11.0's asset was
+  stored as `Total.Setup.0.11.0.exe`); Tally XML in UTF-16 ("Unicode") and files with a BOM / CRLF;
+  company and export names that are Windows device names (CON, NUL …); file locks on rename;
+  Ctrl / Alt shortcut labels; the CLI's data folder under OneDrive. See
+  [docs/windows.md](docs/windows.md).
 - Open at the time of writing and **not** included: WP 7.1 performance
   ([#104](https://github.com/IrminFlow/total/pull/104)).
 

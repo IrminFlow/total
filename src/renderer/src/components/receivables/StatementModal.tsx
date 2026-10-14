@@ -29,8 +29,8 @@ export function StatementModal({ ledgerId, name, onClose }: { ledgerId: number; 
       const r = await receivablesApi.statementPdf(ledgerId, from, to)
       if (email) {
         window.open(r.mailto)
-        toast.push('success', `Statement saved — attach ${r.path.split('/').pop()} to the email draft`)
-      } else toast.push('success', `Statement saved — exports/statements/${r.path.split('/').pop()}`)
+        toast.push('success', `Statement saved — attach ${r.path.split(/[\\/]/).pop()} to the email draft`)
+      } else toast.push('success', `Statement saved — exports/statements/${r.path.split(/[\\/]/).pop()}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {

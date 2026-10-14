@@ -248,13 +248,25 @@ export function nextVoucherNumber(db: DB, voucherTypeId: number, date: string, e
 /** True when another live voucher of this type already carries `number` — the renderer's
  *  pre-save confirm for a manually typed number (the post-save duplicateNumber flag on
  *  SavedVoucher stays as the belt-and-braces warning for races). Binned vouchers don't
- *  count: restoring one back into a clash is already the restore flow's problem. */
-export function voucherNumberExists(db: DB, voucherTypeId: number, number: string, excludeId?: number): boolean {
+ *  count: restoring one back into a clash is already the restore flow's problem.
+ *  The scope is the series' own: a type that restarts each FY (`restartFy`, the default) only
+ *  clashes within the FY containing `date` — last year's No. 1 and this year's No. 1 are not
+ *  duplicates — while a continuous series clashes across years. Without a `date` every year
+ *  counts (the conservative answer). */
+export function voucherNumberExists(db: DB, voucherTypeId: number, number: string, excludeId?: number, date?: string): boolean {
+  return numberClash(db, voucherTypeId, number, excludeId ?? -1, date)
+}
+
+/** The shared duplicate-number query (pre-save check and the post-save flag). */
+function numberClash(db: DB, voucherTypeId: number, number: string, excludeId: number, date: string | undefined): boolean {
+  const restartFy = !!(db.prepare('SELECT restart_fy AS r FROM voucher_types WHERE id = ?').get(voucherTypeId) as { r: number } | undefined)?.r
+  const fy = restartFy && date ? fyOf(date) : null
   const row = db
     .prepare(
-      `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id IS NOT ? AND ${NOT_DELETED} LIMIT 1`
+      `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id IS NOT ? AND ${NOT_DELETED}
+       ${fy ? 'AND v.date BETWEEN ? AND ?' : ''} LIMIT 1`
     )
-    .get(voucherTypeId, number, excludeId ?? -1)
+    .get(voucherTypeId, number, excludeId, ...(fy ? [fy.from, fy.to] : []))
   return !!row
 }
 
@@ -320,17 +332,29 @@ export function checkStock(db: DB, stockItemIds: number[], date: string): Negati
        FROM stock_items si JOIN units u ON u.id = si.unit_id WHERE si.id IN (${placeholders})`
     )
     .all(...stockItemIds) as { id: number; name: string; openingQtyMilli: number; unitSymbol: string }[]
-  const movementsStmt = db.prepare(
-    `SELECT il.qty_milli AS qtyMilli, il.direction, il.is_absolute AS isAbsolute
-     FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-     WHERE il.stock_item_id = ? AND v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK}
-     ORDER BY v.date, v.id, il.line_order, il.id`
-  )
+  // WP 7.1: one query for every item (was one per item — 500 round trips for the Exceptions /
+  // close-checklist scan); each item's movements still walk in the same order.
+  // A save checks a few items (their lines by item); a scan of many walks the stock lines in date
+  // order once (vouchers first, the covering indexes) and splits them by item — same per-item order.
+  const many = stockItemIds.length > 20
+  const moves = db
+    .prepare(
+      `SELECT il.stock_item_id AS itemId, il.qty_milli AS qtyMilli, il.direction, il.is_absolute AS isAbsolute
+       FROM ${many ? 'vouchers v CROSS JOIN inventory_lines il ON il.voucher_id = v.id' : 'inventory_lines il JOIN vouchers v ON v.id = il.voucher_id'}
+       WHERE il.stock_item_id IN (${placeholders}) AND v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK}
+       ORDER BY ${many ? '' : 'il.stock_item_id, '}v.date, v.id, il.line_order, il.id`
+    )
+    .all(...stockItemIds, date) as { itemId: number; qtyMilli: number; direction: 'in' | 'out'; isAbsolute: number }[]
+  const byItem = new Map<number, typeof moves>()
+  for (const m of moves) {
+    const list = byItem.get(m.itemId)
+    if (list) list.push(m)
+    else byItem.set(m.itemId, [m])
+  }
   const warnings: NegativeStockWarning[] = []
   for (const item of items) {
     let qty = item.openingQtyMilli
-    const moves = movementsStmt.all(item.id, date) as { qtyMilli: number; direction: 'in' | 'out'; isAbsolute: number }[]
-    for (const m of moves) {
+    for (const m of byItem.get(item.id) ?? []) {
       if (m.isAbsolute) qty = m.qtyMilli
       else qty += m.direction === 'in' ? m.qtyMilli : -m.qtyMilli
     }
@@ -868,11 +892,8 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
       voucherId, number: after.number, ledgerId: input.partyLedgerId, party: hold.name, holdReason: hold.reason, overrideReason: holdOverride
     })
   }
-  const duplicate = db
-    .prepare(
-      `SELECT 1 FROM vouchers v WHERE v.voucher_type_id = ? AND v.number = ? AND v.id <> ? AND ${NOT_DELETED} LIMIT 1`
-    )
-    .get(vt.id, number, voucherId)
+  // Per the series' FY scope (numbering restarts each FY unless the type says otherwise).
+  const duplicate = numberClash(db, vt.id, number, voucherId, after.date)
   return duplicate ? { ...after, warnings, duplicateNumber: true } : { ...after, warnings }
 }
 
@@ -1128,28 +1149,34 @@ export function listBin(db: DB): BinRow[] {
 }
 
 export function listVouchers(db: DB, from: string, to: string, voucherTypeId?: number): VoucherListRow[] {
+  return voucherListRows(db, from, to, voucherTypeId)
+}
+
+/** The last `n` vouchers of listVouchers(from, to), newest first (the Gateway's recent entries) —
+ *  the same rows as `listVouchers(...).slice(-n).reverse()`, without listing the whole period. */
+export function latestVouchers(db: DB, from: string, to: string, n: number): VoucherListRow[] {
+  return voucherListRows(db, from, to, undefined, n)
+}
+
+// WP 7.1: each row's first line and debit total are looked up per voucher (correlated, off the
+// voucher's own lines) instead of grouping every line in the books first.
+function voucherListRows(db: DB, from: string, to: string, voucherTypeId?: number, lastN?: number): VoucherListRow[] {
   const rows = db
     .prepare(
       `SELECT v.id, v.date, vt.name AS voucherType, vt.kind, v.number, v.narration,
               COALESCE(pl.name, fl.name, '') AS account,
               COALESCE(pl.id, fl.id) AS accountLedgerId,
-              COALESCE(t.total, 0) AS amount,
+              COALESCE((SELECT SUM(amount) FROM voucher_lines WHERE voucher_id = v.id AND dr_cr = 'dr'), 0) AS amount,
               v.is_optional AS isOptional, v.post_dated AS postDated, v.is_year_end_close AS isYearEndClose
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
-       LEFT JOIN (
-         SELECT voucher_id, MIN(id) AS first_line FROM voucher_lines GROUP BY voucher_id
-       ) f ON f.voucher_id = v.id
-       LEFT JOIN voucher_lines fvl ON fvl.id = f.first_line
+       LEFT JOIN voucher_lines fvl ON fvl.id = (SELECT MIN(id) FROM voucher_lines WHERE voucher_id = v.id)
        LEFT JOIN ledgers fl ON fl.id = fvl.ledger_id
-       LEFT JOIN (
-         SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id
-       ) t ON t.voucher_id = v.id
        WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED} ${voucherTypeId ? 'AND v.voucher_type_id = ?' : ''}
-       ORDER BY v.date, v.id`
+       ORDER BY ${lastN ? 'v.date DESC, v.id DESC LIMIT ?' : 'v.date, v.id'}`
     )
-    .all(...(voucherTypeId ? [from, to, voucherTypeId] : [from, to])) as (Omit<VoucherListRow, 'isOptional' | 'postDated' | 'isYearEndClose'> & {
+    .all(...(voucherTypeId ? [from, to, voucherTypeId] : [from, to]), ...(lastN ? [lastN] : [])) as (Omit<VoucherListRow, 'isOptional' | 'postDated' | 'isYearEndClose'> & {
       isOptional: number
       postDated: number
       isYearEndClose: number

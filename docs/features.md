@@ -6,8 +6,9 @@ books: **simple mode** (plain words, a short sidebar) and the **accountant view*
 accounting terms). Any simple screen has an **Accountant view** button; see
 [moving to simple mode](migration-guides/from-0.10-to-simple-mode.md).
 
-Windows: see docs/windows.md (WP 7.3, not yet written). CI builds a Windows installer, but this
-repository does not yet document or support it as a release target (unverified end to end).
+Windows: the same app (NSIS installer, per-user). Every test suite, the IPC smoke (against the
+build and the packaged exe) and an e2e subset run on Windows in CI; what is verified and what
+differs (keys, the data folder, SmartScreen) is in [windows.md](windows.md).
 
 Some sections below describe screens that are merged but not yet in a tagged release; the
 [changelog](../CHANGELOG.md) says which. Tax rules and rates are cited in the code, and anything not

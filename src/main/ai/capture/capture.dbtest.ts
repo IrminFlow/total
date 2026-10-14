@@ -39,7 +39,7 @@ import { addCaptureFile, getItem, listItems, patchItem, recoverQueue } from './s
 import { CaptureRunner, redraft, type CaptureEnv } from './runner'
 import { acceptCategories, categoriseStatement } from './bankCategorise'
 import { residualAsker } from './bankCategoriseAi'
-import { newScanState, scanCaptureInbox } from './watcher'
+import { INBOX_LOCKED_MAX_MS, newScanState, scanCaptureInbox } from './watcher'
 import { estimateCapture } from './estimate'
 import { createMemory } from '../memory'
 
@@ -354,6 +354,34 @@ describe('the capture inbox folder', () => {
     await scanCaptureInbox(db, dir, newScanState(), { requireStable: false })
     const kept = readdirSync(join(inbox, 'failed')).filter((f) => /-notes\.txt$/.test(f))
     expect(kept).toHaveLength(2)
+  })
+
+  it('WP 7.3 review: a file another program holds open (Windows EBUSY) waits, is never failed, and is looked at again once it changes', async () => {
+    const inbox = captureInboxDir(dir)
+    mkdirSync(inbox, { recursive: true })
+    drop(inbox, 'bill.pdf', pdf(FIXTURE_BILL_LINES))
+    const busy = (): Buffer => {
+      throw Object.assign(new Error('EBUSY: resource busy or locked'), { code: 'EBUSY' })
+    }
+    const state = newScanState()
+    const t0 = Date.now()
+    // Locked for 30 s of scans: still waiting (the old 5-scan limit gave up after ~6 s).
+    for (const dt of [0, 1200, 2400, 3600, 4800, 6000, 30000]) {
+      const r = await scanCaptureInbox(db, dir, state, { requireStable: false, now: t0 + dt, readFile: busy })
+      expect(r).toEqual({ outcomes: [], waiting: 1 })
+    }
+    // Past the window: left in place, quietly — not failed/, not waiting.
+    const late = await scanCaptureInbox(db, dir, state, { requireStable: false, now: t0 + INBOX_LOCKED_MAX_MS, readFile: busy })
+    expect(late).toEqual({ outcomes: [], waiting: 0 })
+    expect(existsSync(join(inbox, 'failed')) ? readdirSync(join(inbox, 'failed')) : []).toEqual([])
+    expect(existsSync(join(inbox, 'bill.pdf'))).toBe(true)
+    // Unchanged → still skipped, even when it can be read now.
+    expect(await scanCaptureInbox(db, dir, state, { requireStable: false })).toEqual({ outcomes: [], waiting: 0 })
+    // The file changes (the other program finished with it) → taken.
+    const newer = new Date(Date.now() - 2000)
+    utimesSync(join(inbox, 'bill.pdf'), newer, newer)
+    const { outcomes } = await scanCaptureInbox(db, dir, state, { requireStable: false })
+    expect(outcomes.map((o) => [o.file, o.ok])).toEqual([['bill.pdf', true]])
   })
 })
 

@@ -117,10 +117,11 @@ describe('help articles (WP 10.3)', () => {
 })
 
 describe('help in Hindi and Hinglish (WP 10.4)', () => {
-  const HINGLISH_SIX = ['getting-started', 'make-a-bill', 'record-a-purchase', 'money-in-out', 'bank-statement', 'gst']
+  // The six most used + WP 7.3's Windows article.
+  const HINGLISH_SIX = ['getting-started', 'make-a-bill', 'record-a-purchase', 'money-in-out', 'bank-statement', 'gst', 'windows']
   const linkTargets = (raw: string): string[] => [...raw.matchAll(/\]\(([^)\s]+)\)/g)].map((m) => m[1]!).sort()
 
-  it('every article is in Hindi; the six most used are in Hinglish; the rest fall back to English', () => {
+  it('every article is in Hindi; the six most used (and Windows) are in Hinglish; the rest fall back to English', () => {
     expect([...HELP.ids.hi].sort()).toEqual([...HELP_ARTICLE_IDS].sort())
     expect([...HELP.ids.hinglish].sort()).toEqual([...HINGLISH_SIX].sort())
     for (const id of HELP_ARTICLE_IDS) {

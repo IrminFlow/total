@@ -20,4 +20,4 @@
 
 - **↓** और **↑** से एक लाइन से दूसरी लाइन पर जाएँ; **Enter** से लाइन खोलें।
 
-Windows पर, जहाँ इस पेज पर **⌘** लिखा है वहाँ **Ctrl** दबाएँ।
+Windows पर Total ये कुंजियाँ **Ctrl** (Mac की Command कुंजी) और **Alt** (Mac की Option कुंजी) के साथ दिखाता है — देखें [Windows पर Total](total://help/windows)।

@@ -3,7 +3,8 @@
 // the type policy: an allowed extension AND matching magic bytes, at most CAPTURE_MAX_BYTES.
 // Electron-free (the folder is passed in) so dbtests drive it directly.
 import { createHash } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
+import { renameReplacing } from '../../fsRetry'
 import { join } from 'path'
 import { CAPTURE_MAX_BYTES, CAPTURE_TYPES } from '@shared/capture/types'
 
@@ -61,7 +62,7 @@ export function putCaptureFile(dir: string, bytes: Uint8Array): { sha256: string
   const tmp = `${abs}.tmp-${process.pid}-${Date.now()}`
   try {
     writeFileSync(tmp, bytes, { mode: 0o600 })
-    renameSync(tmp, abs)
+    renameReplacing(tmp, abs)
   } finally {
     rmSync(tmp, { force: true })
   }

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { isWindowsReservedName } from '../fileNames'
 
 /** IPC shape of a typed sheet (writer.ts XlsxSheet) — export:xlsx and the books export. */
 const cell = z.union([z.string().max(32767), z.number().finite(), z.null()]).optional()
@@ -27,6 +28,11 @@ export const xlsxSheetSchema = z.object({
 })
 
 export const exportXlsxSchema = z.object({
-  filename: z.string().trim().regex(/^[a-z0-9-_]+$/, 'Filename must be lowercase letters, digits, - or _'),
+  // WP 7.3: a Windows device name (`con`, `nul` …) is suffixed, as for the CSV / PDF exports.
+  filename: z
+    .string()
+    .trim()
+    .regex(/^[a-z0-9-_]+$/, 'Filename must be lowercase letters, digits, - or _')
+    .transform((s) => (isWindowsReservedName(s) ? `${s}-export` : s)),
   sheets: z.array(xlsxSheetSchema).min(1).max(50)
 })

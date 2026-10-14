@@ -27,7 +27,7 @@ if (files.length === 0) {
   console.error(`no scenarios match ${JSON.stringify(filters)} in ${e2eDir}`)
   process.exit(2)
 }
-if (!fs.existsSync(path.join(root, 'out', 'main', 'index.js'))) {
+if (!process.env.TOTAL_APP_EXECUTABLE && !fs.existsSync(path.join(root, 'out', 'main', 'index.js'))) {
   console.error('out/ is missing — run `npm run build` first')
   process.exit(2)
 }
@@ -55,7 +55,7 @@ function runOne(file) {
     }, 5 * 60 * 1000)
     child.on('close', (code) => {
       clearTimeout(timer)
-      const lines = tail.trim().split('\n').reverse()
+      const lines = tail.trim().split(/\r?\n/).reverse()
       const jsonLine = lines.find((l) => {
         try {
           const o = JSON.parse(l)

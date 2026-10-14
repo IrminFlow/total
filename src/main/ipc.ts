@@ -4,6 +4,7 @@ import { nextRegistrationFacts } from '@shared/gst/registration'
 import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync, appendFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
+import { decodeTextFile } from '@shared/textFiles'
 import { z } from 'zod'
 import { forgetFolderKey, isEncryptedFile, keyForPath, keyOfHandle, openDb, plainCopy, rekeyFile, removeDbFiles, rememberFolderKey } from './db/encryption'
 import { DEFAULT_SCRYPT, newDataKey, unwrapKeyAsync, wrapKeyAsync, WrongPassphraseError, type ScryptParams } from './db/keyEnvelope'
@@ -21,8 +22,9 @@ import type { DB } from './db/connection'
 import { backupCompany, closeCompanyDb, openCompanyDb, stashBackupAttachments } from './db/connection'
 import * as attachments from './services/attachments'
 import { embedAttachments, restoreAttachmentFiles, restoreAttachmentFilesAt, type RestoreFilesResult, type StashResult } from './db/attachmentBackup'
-import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheck, type BackupInfo } from './db/backup'
-import { checkIntegrity } from './db/integrity'
+import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheckAsync, type BackupInfo } from './db/backup'
+import { checkIntegrity, checkIntegrityAsync } from './db/integrity'
+import { stopChecks } from './db/checkHost'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
@@ -402,9 +404,14 @@ export function ipcStructuredError(err: unknown): Partial<StructuredError> {
   return {}
 }
 
+/** WP 7.1: TOTAL_IPC_TRACE=1 (scratch data dir only) prints each handler's duration to stdout —
+ *  scripts/perf-launch.mjs reads it to say where opening a big company goes. Channel names only. */
+const TRACE_IPC = process.env.TOTAL_IPC_TRACE === '1' && !!process.env.TOTAL_DATA_DIR
+
 function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): void {
   CHANNEL_ROLES.set(channel, minRole)
   ipcMain.handle(`total:${channel}`, async (_event, payload: unknown) => {
+    const t0 = TRACE_IPC ? performance.now() : 0
     try {
       // Role gating is a no-op until a company is open AND that company has at least one user
       // (usersExist is cached on `current` — see OpenCompany — to avoid a COUNT query per call).
@@ -427,8 +434,11 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
           throw new AppError('not_permitted', 'You do not have permission to do that')
         }
       }
-      return { ok: true, data: await fn(payload) }
+      const data = await fn(payload)
+      if (TRACE_IPC) console.log(`[ipc] ${channel} ${(performance.now() - t0).toFixed(0)} ms`)
+      return { ok: true, data }
     } catch (err) {
+      if (TRACE_IPC) console.log(`[ipc] ${channel} failed ${(performance.now() - t0).toFixed(0)} ms`)
       const message = err instanceof z.ZodError
         ? err.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
         : err instanceof Error
@@ -751,7 +761,7 @@ export function registerIpc(): void {
     createDemoCompany(z.object({ mode: z.enum(UI_MODES).optional() }).optional().parse(payload)?.mode)
   )
 
-  handle('company:delete', (payload) => {
+  handle('company:delete', async (payload) => {
     const { slug, confirmName, pin } = z
       .object({
         slug: z.string().min(1),
@@ -772,6 +782,8 @@ export function registerIpc(): void {
     log('warn', 'company-deleted', { slug, user: sessionUser?.name ?? null })
     if (current?.slug === slug) closeCurrentCompany()
     forgetFolderKey(companyDir(slug))
+    // WP 7.1 review: a background check (the weekly integrity_check) may still hold the file open.
+    await stopChecks(companyDbPath(slug))
     rmSync(companyDir(slug), { recursive: true, force: true })
     removeCompany(slug)
     // Secrets live outside the company folder; drop them so a future company reusing this slug
@@ -823,29 +835,39 @@ export function registerIpc(): void {
    *  on-open housekeeping — company:open, and the passphrase on / off flows that reopen the file. */
   async function openCompanyNow(slug: string, opts: { keepKey?: boolean } = {}): Promise<{ slug: string; info: CompanyInfo; integrity: ReturnType<typeof checkIntegrity>; locked: boolean; ui: ReturnType<typeof configSvc.getUi>; encrypted: boolean }> {
     closeCurrentCompany({ keepKey: opts.keepKey ?? true })
+    const t0 = performance.now()
+    const mark = (step: string): void => {
+      if (TRACE_IPC) console.log(`[ipc] company:open/${step} ${(performance.now() - t0).toFixed(0)} ms`)
+    }
     const db = openCompanyDb(slug)
+    mark('db')
     const info = readCompanyInfo(db)
     current = { slug, db, info, usersExist: users.usersExist(db), encrypted: keyOfHandle(db) !== null }
     idleClock.setMinutes(getAutoLockMinutes(db))
     // Online backup needs an open handle, so this runs after open (not before, as it used to).
     // A backup failure here must never fail — or desync — the open itself.
-    try {
-      const dest = await backupCompany(db, slug, 'open')
-      // WP 7.2: the automatic restore check (at most daily), after this reply.
-      scheduleBackupCheck(db, dest, 'open')
-    } catch (err) {
-      log('warn', 'backup-on-open-failed', { slug, error: err instanceof Error ? err.message : String(err) })
-    }
-    const integrity = checkIntegrity(db)
+    // WP 7.1: the backup and the integrity check run together — their whole-file quick_checks in
+    // worker threads (db/checkHost.ts) — and both finish before the reply, as before.
+    const backupDone = backupCompany(db, slug, 'open').then(
+      (dest) => {
+        mark('backup')
+        // WP 7.2: the automatic restore check (at most daily), after this reply.
+        scheduleBackupCheck(db, dest, 'open')
+      },
+      (err: unknown) => log('warn', 'backup-on-open-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    )
+    const integrityDone = checkIntegrityAsync(db, companyDbPath(slug)).finally(() => mark('integrity'))
+    await backupDone
+    const integrity = await integrityDone
     if (!integrity.ok) {
       log('warn', 'integrity', { slug, quickCheck: integrity.quickCheck, unbalanced: integrity.unbalancedVoucherIds })
     }
     // [lane-Q] scheduled weekly FULL integrity check (task Q3 #99) — the check above is the cheap
     // quick_check; this one is `PRAGMA integrity_check`, throttled to once per 7 days via meta.
-    const weekly = runWeeklyIntegrityCheck(db)
-    if (weekly.ran && !weekly.ok) {
-      log('warn', 'integrity-weekly-failed', { slug, detail: weekly.detail })
-    }
+    // WP 7.1: it only ever logs, so it runs in a worker thread and the open does not wait for it.
+    void runWeeklyIntegrityCheckAsync(db, companyDbPath(slug)).then((weekly) => {
+      if (weekly?.ran && !weekly.ok) log('warn', 'integrity-weekly-failed', { slug, detail: weekly.detail })
+    })
     // Housekeeping below runs as 'system' in the audit trail — nobody asked for it.
     try {
       const purged = runAsAuditUser(SYSTEM_AUDIT_USER, () => vouchers.purgeOldDeleted(db, 30))
@@ -855,6 +877,7 @@ export function registerIpc(): void {
       // never block opening the company.
       log('warn', 'bin-purge-failed', { slug, error: err instanceof Error ? err.message : String(err) })
     }
+    mark('purge')
     // WP 6.4: attachments of purged records (and stored files nothing references) go too.
     try {
       const swept = runAsAuditUser(SYSTEM_AUDIT_USER, () => attachments.sweepAttachments(db, companyAttachmentsDir(slug)))
@@ -862,10 +885,12 @@ export function registerIpc(): void {
     } catch (err) {
       log('warn', 'attachments-sweep-failed', { slug, error: err instanceof Error ? err.message : String(err) })
     }
+    mark('sweep')
     // Post-dated vouchers whose date has arrived flip into the books (audited per voucher).
     // PDCs dated inside a locked period are refused, not silently posted — they stay in the
     // PDC register until the lock is lifted (v0.3 review F3).
     const { matured, blockedByLock } = runAsAuditUser(SYSTEM_AUDIT_USER, () => vouchers.maturePostDated(db, todayISO()))
+    mark('mature')
     if (matured.length > 0) log('info', 'pdc-mature', { count: matured.length, ids: matured })
     if (blockedByLock.length > 0) {
       log('warn', 'pdc-mature-blocked-by-lock', { count: blockedByLock.length, ids: blockedByLock })
@@ -882,6 +907,7 @@ export function registerIpc(): void {
         log('warn', 'audit-prune-failed', { slug, error: err instanceof Error ? err.message : String(err) })
       }
     }
+    mark('prune')
     touchLastOpened(slug)
     // Agent bridge (feature flag, default OFF): watch <company>/inbox/ for dropped files.
     if (configSvc.getAgentBridgeEnabled(db)) agentBridge.syncInboxWatcher({ slug, db })
@@ -894,6 +920,7 @@ export function registerIpc(): void {
     // WP 6.2: scheduled report packs that came due while the app was closed run once, deferred
     // past this reply and only while the company is unlocked (a company with users waits for the
     // sign-in — auth:login starts the pass then).
+    mark('capture')
     void runDuePacksInBackground({ slug, db, info }, { allowed: packsAllowed, current: getUnlockedCompany })
     return { slug, info, integrity, locked: current.usersExist, ui: configSvc.getUi(db), encrypted: current.encrypted }
   }
@@ -996,6 +1023,8 @@ export function registerIpc(): void {
     // and atomically swaps it into place. Throws — leaving the live DB completely untouched —
     // if the backup fails validation. `current`/`c.db` are still fully intact at that point,
     // since we haven't closed anything yet.
+    // WP 7.1 review: no background check may hold the live file open while it is swapped.
+    await stopChecks(dbPath)
     // WP 7.2: a business locked with a passphrase keeps its lock — a plaintext backup (one made
     // before the lock, if converting it failed) is restored through an encrypted copy of itself.
     const liveKey = keyOfHandle(c.db)
@@ -1568,14 +1597,16 @@ export function registerIpc(): void {
     return { number: vouchers.nextVoucherNumber(requireCompany().db, voucherTypeId, date, excludeId) }
   })
   handle('voucher:numberExists', (p) => {
-    const { voucherTypeId, number, excludeId } = z
+    const { voucherTypeId, number, excludeId, date } = z
       .object({
         voucherTypeId: z.number().int().positive(),
         number: z.string().trim().min(1).max(40),
-        excludeId: z.number().int().positive().optional()
+        excludeId: z.number().int().positive().optional(),
+        // The voucher's date: a series that restarts each FY only clashes within that FY.
+        date: isoDate.optional()
       })
       .parse(p)
-    return vouchers.voucherNumberExists(requireCompany().db, voucherTypeId, number, excludeId)
+    return vouchers.voucherNumberExists(requireCompany().db, voucherTypeId, number, excludeId, date)
   })
   handle('voucher:duplicates', (p) => {
     const { data, excludeId } = z.object({ data: voucherInputSchema, excludeId: z.number().int().positive().optional() }).parse(p)
@@ -1810,8 +1841,8 @@ export function registerIpc(): void {
       properties: ['openFile']
     })
     if (picked.canceled || !picked.filePaths[0]) return null
-    const jsonText = readFileSync(picked.filePaths[0], 'utf8')
-    return { jsonText, fileName: picked.filePaths[0].split('/').pop() ?? 'gstr2b.json' }
+    const jsonText = decodeTextFile(readFileSync(picked.filePaths[0]))
+    return { jsonText, fileName: basename(picked.filePaths[0]) || 'gstr2b.json' }
   }, 'viewer')
 
   // ---------- analysis ----------
@@ -2111,7 +2142,7 @@ export function registerIpc(): void {
         properties: ['openFile']
       })
       if (picked.canceled || !picked.filePaths[0]) return null
-      csv = readFileSync(picked.filePaths[0], 'utf8')
+      csv = decodeTextFile(readFileSync(picked.filePaths[0]))
     }
     // csvText rides back on the response (not just the parsed result) so the renderer — which
     // never sees the picked file's contents when the dialog path is used — can hand the exact
@@ -2314,7 +2345,7 @@ export function registerIpc(): void {
         properties: ['openFile']
       })
       if (picked.canceled || !picked.filePaths[0]) return null
-      text = readFileSync(picked.filePaths[0], 'utf8')
+      text = decodeTextFile(readFileSync(picked.filePaths[0]))
     }
     return printTemplates.importTemplate(requireCompany().db, text)
   })
@@ -2460,7 +2491,7 @@ export function registerIpc(): void {
       properties: ['openFile']
     })
     if (picked.canceled || !picked.filePaths[0]) return null
-    return { csvText: readFileSync(picked.filePaths[0], 'utf8'), fileName: picked.filePaths[0].split(/[\\/]/).pop()! }
+    return { csvText: decodeTextFile(readFileSync(picked.filePaths[0])), fileName: picked.filePaths[0].split(/[\\/]/).pop()! }
   })
   handle('import:preview', (p) => {
     const { kind, csvText } = z.object({ kind: importKindSchema, csvText: z.string() }).parse(p)
@@ -2482,6 +2513,8 @@ export function registerIpc(): void {
   })
 
   // ---------- Tally import ----------
+  // WP 7.3: user files are read through decodeTextFile — Windows tools write UTF-8 with a BOM and
+  // UTF-16LE (Tally's "Unicode" XML export, Excel "Unicode Text"), which 'utf8' would garble.
   handle('tally:import', async (p) => {
     const { xmlText, filePath, dryRun } = tallyImportSchema.parse(p ?? {})
     const c = requireCompany()
@@ -2489,7 +2522,7 @@ export function registerIpc(): void {
     let resolvedPath = filePath
     if (xml === undefined && filePath !== undefined) {
       if (!dialogIssuedTallyPaths.has(filePath)) throw new Error('File path must come from the file picker')
-      xml = readFileSync(filePath, 'utf8')
+      xml = decodeTextFile(readFileSync(filePath))
     }
     if (xml === undefined) {
       const picked = await dialog.showOpenDialog({
@@ -2500,7 +2533,7 @@ export function registerIpc(): void {
       if (picked.canceled || !picked.filePaths[0]) return null
       resolvedPath = picked.filePaths[0]
       dialogIssuedTallyPaths.add(resolvedPath)
-      xml = readFileSync(resolvedPath, 'utf8')
+      xml = decodeTextFile(readFileSync(resolvedPath))
     }
     // Dry run is parse-only — zero DB writes, so no backup is taken (nothing to roll back to).
     if (dryRun) return { filePath: resolvedPath ?? null, summary: dryRunTallyXml(xml) }

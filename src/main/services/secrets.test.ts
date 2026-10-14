@@ -4,8 +4,18 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import {
   APP_SCOPE, SecretsUnavailableError, companyScope, createSecretStore, insecureTestCipher, insecureTestCipherAllowed,
-  type SecretCipher
+  secretsUnavailableMessage, type SecretCipher
 } from './secrets'
+
+describe('secretsUnavailableMessage (WP 7.3)', () => {
+  it('names the store the user has: Windows account protection, the macOS Keychain, else the system keychain', () => {
+    expect(secretsUnavailableMessage('win32')).toMatch(/Windows could not protect it for your account/)
+    expect(secretsUnavailableMessage('win32')).not.toMatch(/keychain/i)
+    expect(secretsUnavailableMessage('darwin')).toMatch(/macOS Keychain/)
+    expect(secretsUnavailableMessage('linux')).toMatch(/system keychain/)
+    for (const p of ['win32', 'darwin', 'linux'] as const) expect(secretsUnavailableMessage(p)).toMatch(/^Secure storage is not available.*never stored unencrypted/)
+  })
+})
 
 let dir: string
 let file: string

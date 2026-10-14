@@ -55,8 +55,12 @@ const TODAY = todayISO()
 const sumTb = (rows: TrialBalanceRow[], ids: number[]): number => rows.filter((r) => ids.includes(r.ledgerId)).reduce((s, r) => s + r.debit - r.credit, 0)
 const nodes = (n: { amount: number }[]): number => n.reduce((s, x) => s + x.amount, 0)
 
+// WP 7.3: the ipc module graph is imported at collection, not inside the hook — on Windows CI the
+// import alone (most of the hook's time, measured) ran past the 10 s hookTimeout.
+const ipcModule = await import('./ipc')
+
 beforeAll(async () => {
-  const ipc = await import('./ipc')
+  const ipc = ipcModule
   ipc.registerIpc()
 })
 

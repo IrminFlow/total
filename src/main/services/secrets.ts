@@ -15,7 +15,8 @@
  *
  * Pure Node (fs/path only): no Electron, no DB — unit-tested in secrets.test.ts.
  */
-import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeSync } from 'fs'
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, rmSync, writeSync } from 'fs'
+import { renameReplacing } from '../fsRetry'
 import { dirname } from 'path'
 import { randomBytes } from 'crypto'
 
@@ -32,13 +33,23 @@ export interface SecretCipher {
   decrypt(cipher: Buffer): string
 }
 
+/** WP 7.3: what "secure storage" is called where the user is — the macOS Keychain, Windows' data
+ *  protection (DPAPI, tied to the Windows account: it fails after an administrator resets the
+ *  password or for a profile copied from another machine), libsecret on Linux. */
+export function secretsUnavailableMessage(platform: NodeJS.Platform = process.platform): string {
+  const lead = 'so Total will not save this secret. It is never stored unencrypted.'
+  if (platform === 'win32') {
+    return `Secure storage is not available on this computer (Windows could not protect it for your account), ${lead} Sign in to Windows with your own account (not a temporary profile) and try again.`
+  }
+  if (platform === 'darwin') {
+    return `Secure storage is not available on this computer (the macOS Keychain could not be used), ${lead} Unlock the login keychain and try again.`
+  }
+  return `Secure storage is not available on this computer (the system keychain could not be used), ${lead} Unlock or set up the system keychain and try again.`
+}
+
 export class SecretsUnavailableError extends Error {
   constructor() {
-    super(
-      'Secure storage is not available on this computer (the system keychain could not be used), ' +
-        'so Total will not save this secret. It is never stored unencrypted. Unlock or set up the ' +
-        'system keychain and try again.'
-    )
+    super(secretsUnavailableMessage())
     this.name = 'SecretsUnavailableError'
   }
 }
@@ -95,7 +106,7 @@ export function createSecretStore(opts: { filePath: () => string; cipher: Secret
       closeSync(fd)
     }
     try {
-      renameSync(tmp, file)
+      renameReplacing(tmp, file) // WP 7.3: Windows EPERM while a scanner holds secrets.json
     } catch (err) {
       rmSync(tmp, { force: true })
       throw err

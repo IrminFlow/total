@@ -167,6 +167,10 @@ beforeEach(() => {
 
 // ---------------------------------------------------------------- stock and GST reverse
 
+// WP 7.3: the ipc module graph is imported at collection, not inside the hook — on Windows CI the
+// import alone (most of the hook's time, measured) ran past the 10 s hookTimeout.
+const ipcModule = await import('../ipc')
+
 describe('stock and GST reverse exactly (= the accountant-entered note in a twin company)', () => {
   it('a sale return of products with a UPI refund: closing stock, GSTR-1, GSTR-3B and every row equal the hand-entered credit note + payment', () => {
     // The bill: 4 Widget @ ₹500 (18%) + 10 Rice @ ₹100 (5%) to Ramesh, paid in cash.
@@ -546,7 +550,7 @@ describe('roles: a viewer reads the bills but cannot save a return', () => {
     return res.data as T
   }
   beforeAll(async () => {
-    ipc = await import('../ipc')
+    ipc = ipcModule
     ipc.registerIpc()
   })
 

@@ -270,7 +270,7 @@ export function Gstr1Screen({ initialMonth }: { initialMonth?: string } = {}): R
     if (!month) return
     try {
       const r = await api.gst.exportGstr1(month.from, month.to, month.period)
-      toast.push('success', `GSTR-1 JSON ready to upload — ${r.jsonPath.split('/').pop()}`)
+      toast.push('success', `GSTR-1 JSON ready to upload — ${r.jsonPath.split(/[\\/]/).pop()}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -531,7 +531,7 @@ export function Gstr3bScreen({ initialMonth }: { initialMonth?: string } = {}): 
     if (!month) return
     try {
       const r = await api.gst.exportGstr3b(month.from, month.to, month.period)
-      toast.push('success', `GSTR-3B JSON saved — ${r.jsonPath.split('/').pop()}`)
+      toast.push('success', `GSTR-3B JSON saved — ${r.jsonPath.split(/[\\/]/).pop()}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
