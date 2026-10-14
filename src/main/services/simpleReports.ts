@@ -14,7 +14,7 @@ import type { CompanyInfo } from '@shared/domain'
 import { AppError } from '@shared/errors'
 import { addDaysISO, buildForecast, SCENARIO_PRESETS, type ForecastSource } from '@shared/cashForecast'
 import {
-  CASH_HORIZON_DAYS, doingLines, last12Months, monthBars, monthTotals, owedRows, previousSpan, reportSpan, topParts,
+  CASH_HORIZON_DAYS, doingLines, withoutRoundOff, last12Months, monthBars, monthTotals, owedRows, previousSpan, reportSpan, topParts,
   type BusinessDoing, type CashFlowSource, type CashItem, type DoingCash, type DoingOwed, type DoingQuery, type SimpleByMonth, type SimpleCash, type SimpleOwed
 } from '@shared/simple/reports'
 import { closingBalances, descendantIdSet, profitAndLoss } from './reports'
@@ -88,7 +88,7 @@ export function businessDoing(db: DB, q: DoingQuery, today: string): BusinessDoi
       previous,
       lines,
       previousLines,
-      topExpenses: topParts(pnl.indirectExpenses),
+      topExpenses: topParts(withoutRoundOff(pnl.indirectExpenses)),
       topSales: topParts(pnl.tradingIncomes, 3),
       asOn,
       cash,

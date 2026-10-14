@@ -20,7 +20,7 @@ import { formatPaise, formatQtyMilli } from '@shared/money'
 import { toMonthLabel, toPlainDate } from '@shared/dates'
 import { owedSummary } from '@shared/simple/home'
 import { cashWhy, collectedWhy, money, onPurchasesWhy, payablesWhy, receivablesWhy, taxesPeriodLabel, toPayWhy } from '@shared/simple/explain'
-import { doingLines } from '@shared/simple/reports'
+import { doingLines, withoutRoundOff } from '@shared/simple/reports'
 import { GLOSSARY, explain, glossaryEntry, plain, type GlossaryEntry } from '@shared/simple/glossary'
 import { needsReorder } from '@shared/simple/stock'
 import { outstandingsWithAdvances } from '../services/analysis'
@@ -218,6 +218,11 @@ function figureAnswer(db: DB, company: CompanyInfo, intent: Extract<AssistIntent
       sentences.push(t('assist.figure.profitParts', { sales: money(d.sales), cost: money(d.costOfGoods), expenses: money(d.expenses) }))
       figures.push(fig(d.sales, src, pnlScreen), fig(d.costOfGoods, src, pnlScreen), fig(d.expenses, src, pnlScreen))
     }
+    // Gate polish: the bills' round-off is its own line, never a (negative) running cost.
+    if (d.rounding !== 0) {
+      sentences.push(t('simple.reports.why.rounding', { amount: money(d.rounding) }))
+      figures.push(fig(d.rounding, src, pnlScreen))
+    }
     if (pnl.closingStock > 0) {
       sentences.push(t('simple.explain.profitStock', { stock: money(pnl.closingStock) }))
       figures.push(fig(pnl.closingStock, src, pnlScreen))
@@ -239,7 +244,7 @@ function figureAnswer(db: DB, company: CompanyInfo, intent: Extract<AssistIntent
     const v = d.expenses
     sentences.push(t('assist.figure.expenses', { amount: money(v), period: when }))
     figures.push(fig(v, src, pnlScreen))
-    const top = leaves(pnl.indirectExpenses, 3)
+    const top = leaves(withoutRoundOff(pnl.indirectExpenses), 3)
     if (top.length > 0) {
       sentences.push(t('assist.figure.expensesTop', { list: top.map((n) => `${n.name} ${money(n.amount)}`).join(', ') }))
       for (const n of top) figures.push(fig(n.amount, n.kind === 'ledger' ? { kind: 'ledger', ledgerId: n.id, label: n.name } : src, n.kind === 'ledger' ? target('ledger-statement', { ledgerId: n.id }) : pnlScreen))

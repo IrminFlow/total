@@ -30,9 +30,9 @@ const info: CompanyInfo = { name: 'Mehta Traders', stateCode: '27', gstin: '27AA
 const replies = new Map<string, unknown>()
 
 const lines = (o: Partial<DoingLines>): DoingLines => {
-  const l = { sales: 0, openingStock: 0, purchases: 0, closingStock: 0, otherIncome: 0, expenses: 0, ...o }
+  const l = { sales: 0, openingStock: 0, purchases: 0, closingStock: 0, otherIncome: 0, expenses: 0, rounding: 0, ...o }
   const costOfGoods = l.openingStock + l.purchases - l.closingStock
-  return { ...l, costOfGoods, profitOnGoods: l.sales - costOfGoods, profit: l.sales - costOfGoods + l.otherIncome - l.expenses }
+  return { ...l, costOfGoods, profitOnGoods: l.sales - costOfGoods, profit: l.sales - costOfGoods + l.otherIncome + l.rounding - l.expenses }
 }
 const YEAR = lines({ sales: 2_00_000_00, purchases: 1_60_000_00, closingStock: 30_000_00, expenses: 25_000_00 })
 const MONTH = lines({ sales: 40_000_00, purchases: 20_000_00, openingStock: 25_000_00, closingStock: 30_000_00, expenses: 5_000_00 })

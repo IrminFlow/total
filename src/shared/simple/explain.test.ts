@@ -14,7 +14,7 @@ const t = translator('en')
 const hi = translator('hi')
 const TODAY = '2026-10-13'
 
-const zeroLines = { sales: 0, openingStock: 0, purchases: 0, closingStock: 0, costOfGoods: 0, profitOnGoods: 0, otherIncome: 0, expenses: 0, profit: 0 }
+const zeroLines = { sales: 0, openingStock: 0, purchases: 0, closingStock: 0, costOfGoods: 0, profitOnGoods: 0, otherIncome: 0, expenses: 0, rounding: 0, profit: 0 }
 /** A HomeProfit with only the net profits and stock set (the WP 8.6 sentences read nothing else). */
 function homeProfit(month: number, year: number, closingStock = 0): HomeProfit {
   return {

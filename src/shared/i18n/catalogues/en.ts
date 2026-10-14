@@ -1135,6 +1135,7 @@ export const en = {
   'simple.reports.why.costNoStock': 'What you bought to sell, with direct costs such as freight, came to {cost}.',
   'simple.reports.why.profitOnGoods': 'Sales {sales} minus what the goods cost {cost} leaves {amount} on the goods sold.',
   'simple.reports.why.otherIncome': 'Money earned other than by selling, such as interest or commission: {amount}.',
+  'simple.reports.why.rounding': 'The few paise added or taken off so each bill’s total is a whole rupee: {amount} in all. It is not a running cost.',
   'simple.reports.why.expenses': 'Running costs such as rent, salaries and electricity: {amount}. The biggest: {list}.',
   'simple.reports.why.expensesNone': 'No running costs recorded from {from} to {to}.',
   'simple.reports.why.profit':

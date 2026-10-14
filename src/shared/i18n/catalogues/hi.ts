@@ -1073,6 +1073,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.reports.why.costNoStock': 'बेचने के लिए जो खरीदा, भाड़े जैसे सीधे खर्च के साथ, वह {cost} हुआ।',
   'simple.reports.why.profitOnGoods': 'बिक्री {sales} में से माल की लागत {cost} घटाकर बेचे गए माल पर {amount} बचता है।',
   'simple.reports.why.otherIncome': 'बिक्री के अलावा कमाया पैसा, जैसे ब्याज या कमीशन: {amount}।',
+  'simple.reports.why.rounding': 'हर बिल का कुल पूरे रुपये में करने के लिए जोड़े या घटाए गए कुछ पैसे: कुल {amount}। यह रोज़ का खर्च नहीं है।',
   'simple.reports.why.expenses': 'किराया, तनख्वाह और बिजली जैसे चलाने के खर्च: {amount}। सबसे बड़े: {list}।',
   'simple.reports.why.expensesNone': '{from} से {to} तक चलाने का कोई खर्च दर्ज नहीं।',
   'simple.reports.why.profit': '{from} से {to} तक {result, select, profit {आपको {amount} का मुनाफ़ा हुआ} loss {आपको {amount} का घाटा हुआ} other {न मुनाफ़ा हुआ न घाटा}} — वही आँकड़ा जो पूरी मुनाफ़ा-घाटा रिपोर्ट दिखाती है।',

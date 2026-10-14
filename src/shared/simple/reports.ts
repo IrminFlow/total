@@ -114,7 +114,7 @@ export function previousSpan(kind: ReportPeriodKind, span: ReportSpan): ReportSp
 
 /** The one column, in paise. Signs as they read: sales, purchases, expenses positive; profit
  *  positive / negative (loss). Identity (asserted by doingLines' callers' tests):
- *  sales − costOfGoods + otherIncome − expenses = profit, costOfGoods = openingStock + purchases −
+ *  sales − costOfGoods + otherIncome + rounding − expenses = profit, costOfGoods = openingStock + purchases −
  *  closingStock, profitOnGoods = sales − costOfGoods. */
 export interface DoingLines {
   sales: number
@@ -125,6 +125,10 @@ export interface DoingLines {
   profitOnGoods: number
   otherIncome: number
   expenses: number
+  /** Gate polish: the bills' rupee round-off (the Round Off account wherever it sits under the
+   *  running costs / other income), signed as it moves profit — its own "Rounding" line, never a
+   *  negative running cost. Not in `otherIncome` / `expenses`. */
+  rounding: number
   profit: number
 }
 
@@ -137,12 +141,44 @@ export interface DoingPart {
 
 const sum = (nodes: readonly StatementNode[]): number => nodes.reduce((s, n) => s + n.amount, 0)
 
+/** The account the editors post a bill's rupee round-off to ("Round Off", category round_off) —
+ *  by name, as the Assistants' round-off check reads it (services/assistants.ts). */
+export function isRoundOffName(name: string): boolean {
+  return ['round off', 'rounding off', 'rounded off', 'round offs', 'rounding'].includes(name.trim().toLowerCase().replace(/-/g, ' ').replace(/\s+/g, ' '))
+}
+
+/** The round-off ledgers' amount among a statement side's leaves. */
+function roundOffIn(nodes: readonly StatementNode[]): number {
+  let total = 0
+  const walk = (n: StatementNode): void => {
+    if (n.children.length === 0) {
+      if (n.kind === 'ledger' && isRoundOffName(n.name)) total += n.amount
+      return
+    }
+    n.children.forEach(walk)
+  }
+  nodes.forEach(walk)
+  return total
+}
+
+/** A statement side without its round-off ledgers (for "where the money went"). */
+export function withoutRoundOff(nodes: readonly StatementNode[]): StatementNode[] {
+  const strip = (n: StatementNode): StatementNode | null => {
+    if (n.children.length === 0) return n.kind === 'ledger' && isRoundOffName(n.name) ? null : n
+    const children = n.children.map(strip).filter((c): c is StatementNode => c != null)
+    return { ...n, children, amount: n.amount - roundOffIn([n]) }
+  }
+  return nodes.map(strip).filter((n): n is StatementNode => n != null)
+}
+
 /** The P&L's own totals, re-arranged into the column. Profit is the P&L's net profit — taken, not
  *  recomputed. */
 export function doingLines(pnl: Pick<ProfitAndLoss, 'openingStock' | 'closingStock' | 'tradingIncomes' | 'tradingExpenses' | 'indirectIncomes' | 'indirectExpenses' | 'grossProfit' | 'netProfit'>): DoingLines {
   const sales = sum(pnl.tradingIncomes)
   const purchases = sum(pnl.tradingExpenses)
   const costOfGoods = pnl.openingStock + purchases - pnl.closingStock
+  const roundingIncome = roundOffIn(pnl.indirectIncomes)
+  const roundingExpense = roundOffIn(pnl.indirectExpenses)
   return {
     sales,
     openingStock: pnl.openingStock,
@@ -150,8 +186,9 @@ export function doingLines(pnl: Pick<ProfitAndLoss, 'openingStock' | 'closingSto
     closingStock: pnl.closingStock,
     costOfGoods,
     profitOnGoods: pnl.grossProfit,
-    otherIncome: sum(pnl.indirectIncomes),
-    expenses: sum(pnl.indirectExpenses),
+    otherIncome: sum(pnl.indirectIncomes) - roundingIncome,
+    expenses: sum(pnl.indirectExpenses) - roundingExpense,
+    rounding: roundingIncome - roundingExpense,
     profit: pnl.netProfit
   }
 }

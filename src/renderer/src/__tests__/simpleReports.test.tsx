@@ -15,7 +15,7 @@ import { ReportsScreen } from '../simple/reports/ReportsScreen'
 
 const invoke = vi.fn()
 const info: CompanyInfo = { name: 'Mehta Traders', stateCode: '27', gstin: '27AAACT1234A1Z5', gstRegistrationType: 'regular', address: '', booksFrom: 2026, email: null, phone: null, pan: null, tan: null }
-const lines = { sales: 1_05_000_00, openingStock: 20_000_00, purchases: 62_000_00, closingStock: 30_000_00, costOfGoods: 52_000_00, profitOnGoods: 53_000_00, otherIncome: 1_000_00, expenses: 30_000_00, profit: 24_000_00 }
+const lines = { sales: 1_05_000_00, openingStock: 20_000_00, purchases: 62_000_00, closingStock: 30_000_00, costOfGoods: 52_000_00, profitOnGoods: 53_000_00, otherIncome: 1_000_00, expenses: 30_000_00, rounding: 0, profit: 24_000_00 }
 const DOING: BusinessDoing = {
   kind: 'this-month', span: { from: '2026-10-01', to: '2026-10-13' }, previous: { from: '2026-09-01', to: '2026-09-13' },
   lines, previousLines: { ...lines, profit: 20_000_00 }, topExpenses: [{ name: 'Salary', amount: 18_000_00, ledgerId: 42 }, { name: 'Rent', amount: 12_000_00, ledgerId: 41 }], topSales: [],
@@ -77,6 +77,23 @@ describe('How is my business doing (WP 9.9)', () => {
     expect(row.textContent).toContain('Loss')
     expect(row.textContent).toContain('₹1,150.00')
     expect(row.textContent).not.toMatch(/[-−–]\s*₹1,150/)
+  })
+
+  it('gate polish: the bills\' round-off is a "Rounding" line, never a negative running cost', async () => {
+    doingReply = () => ({ ok: true, data: { ...DOING, lines: { ...lines, rounding: -50, profit: 24_000_00 - 50 } } })
+    renderUi(<ReportsScreen />)
+    const row = await screen.findByTestId('doing-line-rounding')
+    expect(row.getAttribute('data-paise')).toBe('-50')
+    expect(row.textContent).toContain('Rounding')
+    expect(row.textContent).toContain('₹0.50')
+    expect(row.textContent).not.toMatch(/[-−–]\s*₹0\.50/)
+    expect(screen.getByTestId('doing-line-expenses').getAttribute('data-paise')).toBe(String(30_000_00))
+    // No round-off in the period: no line.
+    cleanup()
+    doingReply = () => ({ ok: true, data: DOING })
+    renderUi(<ReportsScreen />)
+    await screen.findByTestId('doing-line-sales')
+    expect(screen.queryByTestId('doing-line-rounding')).toBeNull()
   })
 
   it('one column from the P&L totals, a "Why?" per line, the change, cash and dues', async () => {

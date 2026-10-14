@@ -117,6 +117,8 @@ export function homeProfitWhy(profit: HomeProfit, t: Translate): string {
       result: resultOf(y.netProfit),
       amount: money(Math.abs(y.netProfit))
     }),
+    // Gate polish: the bills' round-off, said apart from the running costs.
+    l.rounding ? t('simple.reports.why.rounding', { amount: money(l.rounding) }) : null,
     stock > 0
       ? t('simple.why.home.stockUp', { amount: money(stock) })
       : stock < 0

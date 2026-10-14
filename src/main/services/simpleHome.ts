@@ -22,7 +22,7 @@ import {
   type HomeAttention, type HomeCash, type HomeGst, type HomeGstCredit, type HomeMoneyDay, type HomeProfitPeriod, type SimpleHomeData
 } from '@shared/simple/home'
 import { GST_FILED_META_KEY, gstPeriodEnd, gstStartsOn, normalizeGstFiled, type GstFiledMeta } from '@shared/simple/taxes'
-import { doingLines, previousSpan, topParts } from '@shared/simple/reports'
+import { doingLines, previousSpan, topParts, withoutRoundOff } from '@shared/simple/reports'
 import type { ProfitAndLoss } from '@shared/reports'
 import { descendantIdSet, profitAndLoss } from './reports'
 import { outstandingsWithAdvances } from './analysis'
@@ -122,7 +122,7 @@ function compute(db: DB, company: CompanyInfo, opts: { today: string; backups: D
   }
   const pnl = (from: string, to: string): HomeProfitPeriod => {
     const p = pnlOf(from, to)
-    const top = topParts(p.pnl.indirectExpenses, 1)[0] ?? null
+    const top = topParts(withoutRoundOff(p.pnl.indirectExpenses), 1)[0] ?? null
     return { from, to, netProfit: p.pnl.netProfit, openingStock: p.openingStock, closingStock: p.closingStock, lines: doingLines(p.pnl), topExpense: top }
   }
   const profit = {

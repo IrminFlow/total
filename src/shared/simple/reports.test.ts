@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import { translator } from '../i18n'
 import { bannedWordsIn } from './bannedWords'
-import { doingLines, last12Months, monthBars, monthTotals, owedRows, previousSpan, reportSpan, topParts, type BusinessDoing, type SimpleCash } from './reports'
+import { doingLines, isRoundOffName, last12Months, monthBars, monthTotals, owedRows, previousSpan, reportSpan, topParts, withoutRoundOff, type BusinessDoing, type SimpleCash } from './reports'
 import { byMonthWhy, cashNext30Why, costWhy, doingCashWhy, doingOwedWhy, doingProfitWhy, expensesWhy, owedListWhy, profitOnGoodsWhy, salesWhy } from './explain'
 import type { ProfitAndLoss, StatementNode } from '../reports'
 
@@ -55,10 +55,32 @@ describe('the one column', () => {
     const l = doingLines(pnl)
     expect(l).toEqual({
       sales: 1_05_000_00, openingStock: 20_000_00, purchases: 62_000_00, closingStock: 30_000_00, costOfGoods: 52_000_00,
-      profitOnGoods: 53_000_00, otherIncome: 1_000_00, expenses: 30_000_00, profit: 24_000_00
+      profitOnGoods: 53_000_00, otherIncome: 1_000_00, expenses: 30_000_00, rounding: 0, profit: 24_000_00
     })
     expect(l.sales - l.costOfGoods).toBe(l.profitOnGoods)
     expect(l.profitOnGoods + l.otherIncome - l.expenses).toBe(l.profit)
+  })
+
+  it('gate polish: the bills\' round-off is its own line, not a negative running cost', () => {
+    // Hand-worked: the same books, plus Round Off −₹0.50 under Indirect Expenses (a bill rounded
+    // UP by 50 paise) and ₹0.20 under Indirect Incomes elsewhere → rounding +₹0.70; expenses stay
+    // ₹30,000, other income ₹1,000, profit 24,000.70 (the P&L's).
+    const withRound = {
+      ...pnl,
+      indirectIncomes: [node(31, 'Interest received', 1_000_00), node(32, 'Round-off', 20)],
+      indirectExpenses: [node(4, 'Indirect Expenses', 30_000_00 - 50, [node(41, 'Rent', 12_000_00), node(42, 'Salary', 18_000_00), node(43, 'Round Off', -50)])],
+      netProfit: 24_000_70
+    }
+    const l = doingLines(withRound)
+    expect(l.expenses).toBe(30_000_00)
+    expect(l.otherIncome).toBe(1_000_00)
+    expect(l.rounding).toBe(70)
+    expect(l.profit).toBe(24_000_70)
+    expect(l.sales - l.costOfGoods + l.otherIncome + l.rounding - l.expenses).toBe(l.profit)
+    expect(topParts(withoutRoundOff(withRound.indirectExpenses)).map((p) => p.name)).toEqual(['Salary', 'Rent'])
+    expect(withoutRoundOff(withRound.indirectExpenses)[0]!.amount).toBe(30_000_00)
+    expect(isRoundOffName('Round Off') && isRoundOffName('round-off') && isRoundOffName('Rounding')).toBe(true)
+    expect(isRoundOffName('Rounding charges')).toBe(false)
   })
 
   it('top parts are the biggest leaves', () => {

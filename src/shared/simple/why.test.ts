@@ -30,10 +30,10 @@ function figuresFrom(text: string, allowed: number[], required: number[] = allow
 }
 
 const lines = (o: Partial<DoingLines>): DoingLines => {
-  const l = { sales: 0, openingStock: 0, purchases: 0, closingStock: 0, otherIncome: 0, expenses: 0, ...o }
+  const l = { sales: 0, openingStock: 0, purchases: 0, closingStock: 0, otherIncome: 0, expenses: 0, rounding: 0, ...o }
   const costOfGoods = l.openingStock + l.purchases - l.closingStock
   const profitOnGoods = l.sales - costOfGoods
-  return { ...l, costOfGoods, profitOnGoods, profit: profitOnGoods + l.otherIncome - l.expenses }
+  return { ...l, costOfGoods, profitOnGoods, profit: profitOnGoods + l.otherIncome + l.rounding - l.expenses }
 }
 
 // Home: the year sold ₹2,00,000, bought ₹1,60,000 with ₹30,000 still on the shelf (cost ₹1,30,000),

@@ -1068,6 +1068,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.reports.why.costNoStock': 'Bechne ke liye jo khareeda, bhaade jaise seedhe kharche ke saath, woh {cost} hua.',
   'simple.reports.why.profitOnGoods': 'Sale {sales} mein se maal ki laagat {cost} ghata kar beche gaye maal par {amount} bachta hai.',
   'simple.reports.why.otherIncome': 'Sale ke alawa kamaya paisa, jaise byaaj ya commission: {amount}.',
+  'simple.reports.why.rounding': 'Har bill ka total poore rupaye mein karne ke liye jode ya ghataaye gaye kuch paise: kul {amount}. Yeh roz ka kharcha nahi hai.',
   'simple.reports.why.expenses': 'Kiraya, salary aur bijli jaise chalane ke kharche: {amount}. Sabse bade: {list}.',
   'simple.reports.why.expensesNone': '{from} se {to} tak chalane ka koi kharcha darj nahi.',
   'simple.reports.why.profit': '{from} se {to} tak {result, select, profit {aapko {amount} ka profit hua} loss {aapko {amount} ka loss hua} other {na profit hua na loss}} — wahi figure jo poori profit-loss report dikhati hai.',

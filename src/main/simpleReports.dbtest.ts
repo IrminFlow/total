@@ -13,7 +13,7 @@ import { join } from 'path'
 import Database from 'better-sqlite3-multiple-ciphers'
 import { fyOf, todayISO } from '@shared/dates'
 import type { OutstandingParty, ProfitAndLoss, TrialBalanceRow } from '@shared/reports'
-import { previousSpan, reportSpan, type BusinessDoing, type ReportPeriodKind, type SimpleByMonth, type SimpleCash, type SimpleOwed } from '@shared/simple/reports'
+import { previousSpan, reportSpan, withoutRoundOff, type BusinessDoing, type ReportPeriodKind, type SimpleByMonth, type SimpleCash, type SimpleOwed } from '@shared/simple/reports'
 import type { CompanyInfo } from '@shared/domain'
 import { seededDb, TEST_INFO } from './db/testdb'
 import { createLedger } from './services/masters'
@@ -90,10 +90,12 @@ describe('simple:reports on Demo Traders (WP 9.9)', () => {
       expect(d.lines.purchases).toBe(nodes(pl.tradingExpenses))
       expect(d.lines.openingStock).toBe(pl.openingStock)
       expect(d.lines.closingStock).toBe(pl.closingStock)
-      expect(d.lines.expenses).toBe(nodes(pl.indirectExpenses))
-      expect(d.lines.otherIncome).toBe(nodes(pl.indirectIncomes))
+      // Gate polish: the Round Off account is its own line (rounding), out of both sides.
+      expect(d.lines.expenses).toBe(nodes(withoutRoundOff(pl.indirectExpenses)))
+      expect(d.lines.otherIncome).toBe(nodes(withoutRoundOff(pl.indirectIncomes)))
+      expect(d.lines.otherIncome + d.lines.rounding - d.lines.expenses).toBe(nodes(pl.indirectIncomes) - nodes(pl.indirectExpenses))
       expect(d.lines.profitOnGoods).toBe(pl.grossProfit)
-      expect(d.lines.sales - d.lines.costOfGoods + d.lines.otherIncome - d.lines.expenses).toBe(d.lines.profit)
+      expect(d.lines.sales - d.lines.costOfGoods + d.lines.otherIncome + d.lines.rounding - d.lines.expenses).toBe(d.lines.profit)
       if (d.lines.profit !== 0) nonZero++
 
       const asOn = span.to < TODAY ? span.to : TODAY
@@ -135,7 +137,7 @@ describe('simple:reports on Demo Traders (WP 9.9)', () => {
     const plPrev = await ok<ProfitAndLoss>('report:profitLoss', { from: month.previous.from, to: month.previous.to })
     expect(month.previousLines.profit).toBe(plPrev.netProfit)
     expect(month.previousLines.sales).toBe(nodes(plPrev.tradingIncomes))
-    expect(month.previousLines.expenses).toBe(nodes(plPrev.indirectExpenses))
+    expect(month.previousLines.expenses).toBe(nodes(withoutRoundOff(plPrev.indirectExpenses)))
 
     // Who owes whom = Outstandings as on today.
     for (const side of ['receivable', 'payable'] as const) {
@@ -214,5 +216,38 @@ describe('profit after a year-end closing journal (WP 9.9)', () => {
     const may = businessDoing(db, { period: 'last-month' }, '2026-06-03')
     expect(may.lines.profit).toBe(7_000_00)
     expect(may.cash.total).toBe(50_000_00 - 12_000_00 + 9_000_00 - 2_000_00)
+  })
+})
+
+describe('gate polish: a bill\'s round-off in "How is my business doing"', () => {
+  it('is its own Rounding line — never a negative running cost — and profit is still the P&L\'s', () => {
+    const db = seededDb()
+    const group = (name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
+    const ledger = (name: string, g: string): number =>
+      createLedger(db, { name, groupId: group(g), openingBalance: 0, gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null }).id
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const sales = ledger('Counter sales', 'Sales Accounts')
+    const roundOff = (db.prepare("SELECT id FROM ledgers WHERE lower(name) = 'round off'").get() as { id: number } | undefined)?.id ?? ledger('Round Off', 'Indirect Expenses')
+    const vt = (db.prepare("SELECT id FROM voucher_types WHERE kind = 'receipt'").get() as { id: number }).id
+    // Hand-worked: a ₹999.50 sale rounded up to ₹1,000 — cash Dr 1,000, sales Cr 999.50, Round Off
+    // Cr 0.50. Sales ₹999.50, running costs ₹0 (not −₹0.50), rounding +₹0.50, profit ₹1,000.
+    saveVoucher(db, {
+      voucherTypeId: vt, date: '2026-05-10', partyLedgerId: null, narration: null, reference: null, instrumentNo: null, instrumentDate: null,
+      transporterId: null, vehicleNo: null, transportDistanceKm: null, currencyCode: null, exchangeRate: null,
+      lines: [
+        { ledgerId: cash, drCr: 'dr', amount: 1_000_00, costAllocations: [] },
+        { ledgerId: sales, drCr: 'cr', amount: 999_50, costAllocations: [] },
+        { ledgerId: roundOff, drCr: 'cr', amount: 50, costAllocations: [] }
+      ],
+      inventory: [], billRefs: [], tds: null
+    })
+    const d = businessDoing(db, { period: 'custom', from: '2026-05-01', to: '2026-05-31' }, '2026-10-14')
+    expect(d.lines.sales).toBe(999_50)
+    expect(d.lines.expenses).toBe(0)
+    expect(d.lines.otherIncome).toBe(0)
+    expect(d.lines.rounding).toBe(50)
+    expect(d.lines.profit).toBe(1_000_00)
+    expect(d.lines.profit).toBe(profitAndLoss(db, '2026-05-01', '2026-05-31').netProfit)
+    expect(d.topExpenses).toEqual([])
   })
 })

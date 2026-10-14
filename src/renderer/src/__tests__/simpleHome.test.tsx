@@ -16,7 +16,7 @@ import type { HomeAttention, HomeOwed, SimpleHomeData } from '@shared/simple/hom
 const t = translator('en')
 const invoke = vi.fn()
 
-const LINES0 = { sales: 0, openingStock: 0, purchases: 0, closingStock: 0, costOfGoods: 0, profitOnGoods: 0, otherIncome: 0, expenses: 0, profit: 0 }
+const LINES0 = { sales: 0, openingStock: 0, purchases: 0, closingStock: 0, costOfGoods: 0, profitOnGoods: 0, otherIncome: 0, expenses: 0, rounding: 0, profit: 0 }
 const owed = (o: Partial<HomeOwed>): HomeOwed => ({ total: 0, parties: 0, overdue: 0, overdueBills: 0, oldest: null, nextDue: null, advances: 0, advanceParties: 0, ...o })
 
 function home(over: Partial<SimpleHomeData> = {}): SimpleHomeData {
