@@ -4,6 +4,7 @@ import type { SimplePreview } from '@shared/simple/intents'
 import { useT } from '../../lib/i18n'
 import { Button } from '../../components/ui'
 import { AccountantViewButton } from '../AccountantViewButton'
+import { SaveBar } from '../SaveBar'
 
 /** WP 9.4 — a Money screen's heading: its title, one plain line, and "Accountant view". */
 export function MoneyHeader({ title, sub, onAccountant }: { title: string; sub: string; onAccountant: (always: boolean) => void }): React.JSX.Element {
@@ -93,18 +94,16 @@ export function MoneyFooter({
   const t = useT()
   return (
     <>
-      <section className="rounded-lg border border-line bg-panel2 p-panel" aria-live="polite" aria-label={t('simple.money.preview')} data-testid="money-preview-box">
-        <h2 className="mb-1 text-caption font-semibold tracking-[0.08em] text-muted uppercase">{t('simple.money.preview')}</h2>
-        <div className="min-h-5 text-body text-ink" data-testid="money-preview">
-          {preview ? preview.sentences.map((s, i) => <p key={i}>{s}</p>) : ready && previewing ? <p className="text-muted">{t('simple.money.checking')}</p> : null}
-        </div>
-        {preview?.tds?.map((h, i) => (
-          <p key={i} role="status" className="mt-2 rounded-md border border-amber/60 bg-amberbar/10 px-3 py-2 text-detail text-ink" data-testid="money-tds-hint">
-            {t('simple.money.tds', { name: h.partyName, section: h.sectionCode })}
-            {h.tdsPaise != null && ` ${t('simple.money.tdsAmount', { amount: formatPaise(h.tdsPaise, { symbol: true }) })}`}
-          </p>
-        ))}
-      </section>
+      {!!preview?.tds?.length && (
+        <section className="flex flex-col gap-2" aria-label={t('simple.money.preview')} data-testid="money-preview-box">
+          {preview.tds.map((h, i) => (
+            <p key={i} role="status" className="rounded-md border border-amber/60 bg-amberbar/10 px-3 py-2 text-detail text-ink" data-testid="money-tds-hint">
+              {t('simple.money.tds', { name: h.partyName, section: h.sectionCode })}
+              {h.tdsPaise != null && ` ${t('simple.money.tdsAmount', { amount: formatPaise(h.tdsPaise, { symbol: true }) })}`}
+            </p>
+          ))}
+        </section>
+      )}
       {general && (
         <div role="alert" className="rounded-md border border-danger/50 bg-danger-soft px-3 py-2 text-detail text-danger" data-testid="money-error">
           <p>{general.text}</p>
@@ -114,17 +113,18 @@ export function MoneyFooter({
           </details>
         </div>
       )}
-      <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-canvas/95 px-1 py-3 backdrop-blur">
-        <p className="text-small text-muted">{t('simple.money.shortcuts')}</p>
-        <div className="flex gap-2">
-          <Button data-testid="btn-money-start-again" disabled={saving || !dirty} onClick={onStartAgain}>
-            {t('simple.money.startAgain')}
-          </Button>
-          <Button variant="primary" data-testid="btn-money-save" disabled={saving || !canSave} onClick={onSave}>
-            {t('simple.money.save')}
-          </Button>
-        </div>
-      </div>
+      <SaveBar
+        preview={preview ? preview.sentences.map((s, i) => <p key={i}>{s}</p>) : ready && previewing ? <p className="text-muted">{t('simple.money.checking')}</p> : null}
+        previewTestId="money-preview"
+        shortcuts={t('simple.money.shortcuts')}
+      >
+        <Button data-testid="btn-money-start-again" disabled={saving || !dirty} onClick={onStartAgain}>
+          {t('simple.money.startAgain')}
+        </Button>
+        <Button variant="primary" data-testid="btn-money-save" disabled={saving || !canSave} onClick={onSave}>
+          {t('simple.money.save')}
+        </Button>
+      </SaveBar>
     </>
   )
 }

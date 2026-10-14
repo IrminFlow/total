@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { mapError, type CaughtError } from '@shared/errors'
 import { saveCardSentences } from '@shared/simple/saveCard'
@@ -96,9 +96,15 @@ export function SaveCard({
       setNote(t('simple.saveCard.shareHint'))
     })
 
+  // WP 10.5: the form that had the keyboard is gone (⌘↵ saved it, or Undo replaced the card):
+  // the card takes the focus, so Tab reaches New / Undo next — unless the user is already elsewhere.
+  const takeFocus = useCallback((el: HTMLElement | null) => {
+    if (el && (document.activeElement == null || document.activeElement === document.body)) el.focus({ preventScroll: true })
+  }, [])
+
   if (undone) {
     return (
-      <section data-testid="save-card" data-state="undone" aria-live="polite" className="mb-4 rounded-lg border border-line bg-panel2 px-4 py-3">
+      <section ref={takeFocus} tabIndex={-1} data-testid="save-card" data-state="undone" aria-live="polite" className="mb-4 rounded-lg border border-line bg-panel2 px-4 py-3 outline-none">
         <p className="text-body text-ink" data-testid="save-card-undone">{t('simple.saveCard.undone')}</p>
         <p className="mt-0.5 text-detail text-muted">{t('simple.saveCard.undoneHint')}</p>
         <div className="mt-3 flex gap-2">
@@ -124,11 +130,13 @@ export function SaveCard({
   const edited = editNote != null
   return (
     <section
+      ref={takeFocus}
+      tabIndex={-1}
       data-testid="save-card"
       data-state="saved"
       aria-label={t('simple.saveCard.label')}
       aria-live="polite"
-      className="mb-4 rounded-lg border border-success/50 bg-success-soft px-4 py-3"
+      className="mb-4 rounded-lg border border-success/50 bg-success-soft px-4 py-3 outline-none"
     >
       <p className="text-body text-ink" data-testid="save-card-text">
         {sentences.length ? sentences.join(' ') : t('common.saved')}

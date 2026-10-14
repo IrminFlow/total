@@ -33,6 +33,9 @@
      bright signature amber stays as --t-amber-bar (fills, the selection bar). */
   --t-amber: #8a5d00;
   --t-amber-bar: #f5b82e;
+  /* WP 10.5: the keyboard selection bar (kbar rows). The full app keeps the signature amber; the
+     simple shell darkens it to clear 3:1 as a UI indicator (block below). */
+  --t-select-bar: var(--t-amber-bar);
   --t-amber-soft: rgba(245, 184, 46, 0.18);
   --t-on-amber: #2b2000;
   --t-dr: #157a53;
@@ -265,7 +268,7 @@ body {
   bottom: 2px;
   width: 3px;
   border-radius: 2px;
-  background: var(--t-amber-bar);
+  background: var(--t-select-bar);
 }
 /* On table rows a ::before would become a phantom first cell — use an inset bar instead. */
 tr.kbar-row::before,
@@ -273,7 +276,7 @@ tr.kbar-row[data-active='true']::before {
   content: none;
 }
 tr.kbar-row[data-active='true'] td:first-child {
-  box-shadow: inset 3px 0 0 0 var(--t-amber-bar);
+  box-shadow: inset 3px 0 0 0 var(--t-select-bar);
 }
 
 /* ---------- ledger tables: hand-rules + double-rule totals ---------- */
@@ -558,6 +561,50 @@ textarea {
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* ---------- WP 10.5: the simple shell (html[data-shell='simple'], set by Shell.tsx) ----------
+   Token-only changes, scoped to simple screens so the full app paints exactly as before
+   (checked by __tests__/tokens.test.ts):
+   - the selection bar clears 3:1 against every surface and the amber row tint (#f5b82e was
+     1.8:1 on white);
+   - disabled controls keep a readable ≥ 3:1 grey label instead of a 40 % fade of the whole
+     button (1.6:1), and a filled button loses its fill so "can't press this yet" is clear. */
+[data-shell='simple'] {
+  --t-select-bar: #a87000;
+  --t-disabled: #7c8295;
+}
+[data-shell='simple'][data-theme='dark'] {
+  --t-select-bar: #f0b429;
+  --t-disabled: #767e96;
+}
+[data-shell='simple'] button:disabled {
+  opacity: 1;
+  color: var(--t-disabled);
+}
+[data-shell='simple'] button.bg-amberbar\/90:disabled,
+[data-shell='simple'] button.bg-danger-soft:disabled {
+  background-color: var(--t-panel2);
+  border-color: var(--t-line-strong);
+}
+/* The screen is the containing block of its own absolutely-placed bits (screen-reader-only
+   text): without it they stretched the WINDOW, which then scrolled when a panel scrolled an
+   article into view. (Keyboard focus is kept clear of the sticky Save bar by SaveBar.tsx — not
+   scroll-padding, which made a mouse-down near the bottom scroll and lose the click.) */
+[data-shell='simple'] #main {
+  position: relative;
+}
+/* A toast never covers the Save bar's buttons: while a simple screen shows one, the stack sits
+   above it. */
+[data-shell='simple']:has([data-testid='save-bar']) [data-toasts] {
+  bottom: 5.5rem;
+}
+/* Under 1200 px the header's key hints give their room to the buttons (each button still
+   names its key in its title / accessible name). Same breakpoint as lib/simpleLayout.ts. */
+@media (max-width: 1199.98px) {
+  [data-testid='simple-header'] kbd {
+    display: none;
+  }
 }
 
 /* Reduced motion: the OS setting, or Settings → Appearance forcing it (data-motion="reduce"). */

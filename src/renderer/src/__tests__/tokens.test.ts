@@ -69,6 +69,39 @@ describe.each([
   })
 })
 
+// WP 10.5: the simple shell's token tweaks (html[data-shell='simple']) — UI chrome ≥ 3:1.
+const simpleLight = { ...light, ...block("[data-shell='simple']") }
+const simpleDark = { ...dark, ...block("[data-shell='simple']"), ...block("[data-shell='simple'][data-theme='dark']") }
+
+describe.each([
+  ['light', simpleLight],
+  ['dark', simpleDark]
+] as const)('simple shell, %s theme', (_name, vars) => {
+  it.each(SURFACES)('the selection bar on %s ≥ 3, and on the amber row tint over it ≥ 3', (bg) => {
+    expect(contrastRatio(color(vars, '--t-select-bar'), color(vars, bg))).toBeGreaterThanOrEqual(3)
+    const row = blend(color(vars, '--t-amber-soft'), color(vars, bg))
+    expect(contrastRatio(color(vars, '--t-select-bar'), row)).toBeGreaterThanOrEqual(3)
+  })
+  it.each(SURFACES)('a disabled label on %s ≥ 3', (bg) => {
+    expect(contrastRatio(color(vars, '--t-disabled'), color(vars, bg))).toBeGreaterThanOrEqual(3)
+  })
+  it('placeholder text is the muted token (≥ 4.5 on every surface — checked above)', () => {
+    expect(readFileSync(resolve(__dirname, '../components/kit/Field.tsx'), 'utf8')).toContain('placeholder:text-muted')
+  })
+})
+
+describe('the full app keeps its colours (WP 10.5 tweaks are simple-only)', () => {
+  it('the selection bar is still the signature amber outside the simple shell', () => {
+    expect(light['--t-select-bar']).toBe('var(--t-amber-bar)')
+    expect(dark['--t-select-bar']).toBe('var(--t-amber-bar)')
+    expect(light['--t-disabled']).toBeUndefined()
+  })
+  it('reduced motion collapses every animation and transition (tour, spotlight, drawers)', () => {
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?animation-duration: 0\.01ms !important[\s\S]*?transition-duration: 0\.01ms !important/)
+    expect(css).toMatch(/\[data-motion='reduce'\] \*/)
+  })
+})
+
 describe('contrast helpers', () => {
   it('parses hex and rgba and computes the WCAG ratio', () => {
     expect(contrastRatio(parseColor('#000')!, parseColor('#ffffff')!)).toBeCloseTo(21, 5)

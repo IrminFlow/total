@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useId, type ReactNode } from 'react'
 import { useT } from '../lib/i18n'
 import type { MessageKey } from '@shared/i18n'
 import { DateInput, Field, Select, TextInput } from '../components/ui'
@@ -39,13 +39,19 @@ export function ChoiceCard({
 }
 
 function Choices({ label, error, children, cols = 2 }: { label: string; error?: string; children: ReactNode; cols?: 1 | 2 | 3 }): React.JSX.Element {
+  const errorId = useId()
   return (
     <div>
-      <div role="radiogroup" aria-label={label} className={`grid gap-2 ${cols === 1 ? 'grid-cols-1' : cols === 3 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 md:grid-cols-2'}`}>
+      <div
+        role="radiogroup"
+        aria-label={label}
+        aria-describedby={error ? errorId : undefined}
+        className={`grid gap-2 ${cols === 1 ? 'grid-cols-1' : cols === 3 ? 'grid-cols-1 md:grid-cols-3' : 'grid-cols-1 md:grid-cols-2'}`}
+      >
         {children}
       </div>
       {error && (
-        <p role="alert" className="mt-1.5 text-small text-danger" data-testid="setup-choice-error">
+        <p id={errorId} role="alert" className="mt-1.5 text-small text-danger" data-testid="setup-choice-error">
           {error}
         </p>
       )}
