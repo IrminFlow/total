@@ -80,7 +80,11 @@ const amountLineSchema = z
     /** The income / expense category; omitted = the intent's account, else the default. */
     accountId: id.optional(),
     /** GST % (regular registration only); omitted = the account's rate, else 0. */
-    gstRate: z.number().min(0).max(100).optional()
+    gstRate: z.number().min(0).max(100).optional(),
+    /** WP 9.4: the bill's printed total WITH GST (an expense bill paid on Money out). Given, the
+     *  bill is that total — what GST + the value leave over (under a rupee) is its round off —
+     *  instead of the rupee-rounded total; omitted = rounded to the rupee, as before. */
+    billTotal: amountIn.optional()
   })
   .strict()
 
@@ -143,6 +147,9 @@ export const moneyInIntentSchema = z
     advance: z.boolean().optional(),
     /** Anything else: owner's money, a loan taken, other income — that account. */
     sourceId: id.optional(),
+    /** WP 9.4: a refund from a supplier — set against what they owe you back (their named
+     *  credits, oldest first), the rest on account. */
+    supplierId: id.optional(),
     number: z.string().trim().min(1).max(40).optional()
   })
   .strict()
@@ -210,7 +217,7 @@ export const SIMPLE_INTENT_KINDS: readonly SimpleIntentKind[] = ['sale', 'purcha
 // ---------------------------------------------------------------- normalised intents
 
 export interface NItemLine { itemId: number; qtyMilli: number; rate: number | null; discount: number | null }
-export interface NAmountLine { amount: number; accountId: number | null; gstRate: number | null }
+export interface NAmountLine { amount: number; accountId: number | null; gstRate: number | null; billTotal?: number | null }
 export interface NPayment { how: PaidHow; amount: number | null; accountId: number | null; reference: string | null }
 export interface NMoneyAccount { how: MoneyHow; accountId: number | null; reference: string | null }
 export interface NBill { name: string; amount: number | null }
@@ -220,7 +227,7 @@ interface NBase { clientId: string; date: string; narration: string; number: str
 export type NormalIntent =
   | (NBase & { kind: 'sale'; customerId: number | null; items: NItemLine[] | null; amount: NAmountLine | null; accountId: number | null; payment: NPayment | null; dueDate: string | null })
   | (NBase & { kind: 'purchase'; supplierId: number; billNo: string | null; items: NItemLine[] | null; amount: NAmountLine | null; accountId: number | null; gstOnBill: boolean; payment: NPayment | null; dueDate: string | null })
-  | (NBase & { kind: 'money_in'; amount: number; into: NMoneyAccount; customerId: number | null; bills: NBill[] | null; advance: boolean; sourceId: number | null })
+  | (NBase & { kind: 'money_in'; amount: number; into: NMoneyAccount; customerId: number | null; bills: NBill[] | null; advance: boolean; sourceId: number | null; supplierId: number | null })
   | (NBase & { kind: 'money_out'; amount: number; from: NMoneyAccount; supplierId: number | null; bills: NBill[] | null; advance: boolean; payeeId: number | null; drawings: boolean })
   | (NBase & { kind: 'move_money'; amount: number; fromId: number; toId: number; reference: string | null })
   | (NBase & { kind: 'return_sale' | 'return_purchase'; billId: number; items: { lineUid: string; qtyMilli: number }[] | null; amount: { amount: number; gstRate: number | null } | null; refund: NMoneyAccount | null })
@@ -273,8 +280,10 @@ function nPayment(p: z.infer<typeof paymentSchema> | undefined): NPayment | null
   }
 }
 const nMoney = (p: z.infer<typeof moneyAccountSchema>): NMoneyAccount => ({ how: p.how, accountId: p.accountId ?? null, reference: optText(p.reference) })
+/** Omitted = oldest first; an EMPTY list (WP 9.4: the user unticked every bill) = none of them —
+ *  the whole amount is the advance (with the flag), else refused as short. */
 const nBills = (b: z.infer<typeof billSettleSchema>[] | undefined): NBill[] | null =>
-  b && b.length ? b.map((x, i) => ({ name: x.name.trim(), amount: x.amount != null ? readAmount(x.amount, `bills.${i}.amount`) : null })) : null
+  b ? b.map((x, i) => ({ name: x.name.trim(), amount: x.amount != null ? readAmount(x.amount, `bills.${i}.amount`) : null })) : null
 function nItems(items: z.infer<typeof itemLineSchema>[] | undefined): NItemLine[] | null {
   if (!items) return null
   return items.map((l, i) => ({
@@ -285,7 +294,7 @@ function nItems(items: z.infer<typeof itemLineSchema>[] | undefined): NItemLine[
   }))
 }
 const nAmount = (a: z.infer<typeof amountLineSchema> | undefined): NAmountLine | null =>
-  a ? { amount: readAmount(a.amount, 'amount'), accountId: a.accountId ?? null, gstRate: a.gstRate ?? null } : null
+  a ? { amount: readAmount(a.amount, 'amount'), accountId: a.accountId ?? null, gstRate: a.gstRate ?? null, ...(a.billTotal != null ? { billTotal: readAmount(a.billTotal, 'amount') } : {}) } : null
 
 /** Zod-parse and read every amount / quantity / date (against the working date). */
 export function normaliseIntent(raw: unknown, today: string): NormalIntent {
@@ -300,9 +309,14 @@ export function normaliseIntent(raw: unknown, today: string): NormalIntent {
         ? { ...b, kind: 'sale', customerId: i.customerId ?? null, ...common }
         : { ...b, kind: 'purchase', supplierId: i.supplierId, billNo: optText(i.billNo), gstOnBill: i.gstOnBill ?? true, ...common }
     }
-    case 'money_in':
-      if ((i.customerId == null) === (i.sourceId == null)) fail('simple_no_party', 'Say who paid — a customer, or where else the money came from', 'party')
-      return { ...b, kind: 'money_in', amount: readAmount(i.amount, 'amount'), into: nMoney(i.into), customerId: i.customerId ?? null, bills: nBills(i.bills), advance: !!i.advance, sourceId: i.sourceId ?? null }
+    case 'money_in': {
+      const n = (i.customerId != null ? 1 : 0) + (i.sourceId != null ? 1 : 0) + (i.supplierId != null ? 1 : 0)
+      if (n !== 1) fail('simple_no_party', 'Say who paid — a customer, or where else the money came from', 'party')
+      return {
+        ...b, kind: 'money_in', amount: readAmount(i.amount, 'amount'), into: nMoney(i.into), customerId: i.customerId ?? null, bills: nBills(i.bills), advance: !!i.advance,
+        sourceId: i.sourceId ?? null, supplierId: i.supplierId ?? null
+      }
+    }
     case 'money_out': {
       const n = (i.supplierId != null ? 1 : 0) + (i.payeeId != null ? 1 : 0) + (i.drawings ? 1 : 0)
       if (n !== 1) fail('simple_no_party', 'Say who was paid — a supplier, an expense, or the owner', 'party')
@@ -394,6 +408,9 @@ export interface IntentContext {
   /** The party's open bills, oldest first (the Outstandings allocation). */
   openBills: ReadonlyMap<number, readonly IntentOpenBill[]>
   original: IntentOriginal | null
+  /** WP 9.4: per party, its named credits still open, oldest first (advances paid, debit notes'
+   *  own bills — partyAllocationWithCredits); a supplier's refund is set against them. */
+  openCredits?: ReadonlyMap<number, readonly { name: string; amount: number }[]>
   /** Per party: names of its bills and credits still open (a new bill must not reuse one —
    *  a settlement by name applies to the OLDEST open bill of that name). */
   takenNames: ReadonlyMap<number, ReadonlySet<string>>
@@ -534,11 +551,16 @@ function ledgerLines(
   party: IntentLedger,
   accountId: number,
   taxable: number,
-  rate: number
+  rate: number,
+  printedTotal: number | null = null
 ): { rows: AccountingRowState[]; total: number; gst: GstBreakup } {
   const supply = supplyTypeFor(ctx.invoice.companyStateCode, party.stateCode ?? ctx.invoice.companyStateCode)
   const gst = addBreakups([computeGst(taxable, rate, supply)])
-  const total = roundToRupee(gst.total)
+  // A printed total (WP 9.4) is the bill as the supplier wrote it; the rest is round off (< ₹1).
+  if (printedTotal != null && Math.abs(printedTotal - gst.total) >= 100) {
+    fail('simple_bill_total', `The bill total ${formatPaise(printedTotal, { symbol: true })} does not fit its value and GST (${formatPaise(gst.total, { symbol: true })})`, 'amount', { amount: formatPaise(gst.total, { symbol: true }) })
+  }
+  const total = printedTotal ?? roundToRupee(gst.total)
   const roundDiff = total - gst.total
   const partyDr = kind === 'sales' || kind === 'debit_note'
   const partySide = partyDr ? 'dr' : 'cr'
@@ -674,7 +696,7 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
       taxable = foldGstIntoAmount(taxable, a.gstRate ?? account.gstRate ?? null)
       rate = 0
     }
-    const lines = ledgerLines(ctx, kind as 'sales' | 'purchase', party, account.id, taxable, rate)
+    const lines = ledgerLines(ctx, kind as 'sales' | 'purchase', party, account.id, taxable, rate, a.billTotal ?? null)
     total = lines.total
     facts.tax = lines.gst.total - lines.gst.taxable
     bill = accountingEntry(ctx, 'bill', kind, type, {
@@ -765,6 +787,26 @@ export function allocateToBills(
   return { refs: [], settled, advance: extra }
 }
 
+/** A refund received against a supplier's named credits, oldest first. The Outstandings engine
+ *  lets a positive event's 'against' ref use a named credit and opens a bill named after the entry
+ *  for any excess — so the excess rides on the last credit's ref (refs add up to the entry). No
+ *  named credit: no refs (on account — the engine nets it off unnamed credit, FIFO). */
+export function refundRefs(credits: readonly { name: string; amount: number }[], amount: number): VoucherBillRef[] {
+  const refs: VoucherBillRef[] = []
+  let left = amount
+  for (const c of credits) {
+    if (left <= 0) break
+    if (c.amount <= 0) continue
+    const take = Math.min(c.amount, left)
+    const same = refs.find((r) => r.name === c.name)
+    if (same) same.amount += take
+    else refs.push({ kind: 'against', name: c.name, amount: take, dueDate: null })
+    left -= take
+  }
+  if (left > 0 && refs.length) refs[refs.length - 1]!.amount += left
+  return refs
+}
+
 const NOT_SOURCE: readonly IntentLedgerClass[] = ['cash', 'bank', 'debtor', 'creditor', 'tax']
 const OTHER_SIDE: IntentLedgerClass[] = ['income', 'expense', 'other']
 
@@ -775,10 +817,19 @@ function mapMoney(n: Extract<NormalIntent, { kind: 'money_in' | 'money_out' }>, 
   const money = into ? n.into : n.from
   const acct = moneyAccount(ctx, money.how, money.accountId, into ? 'into' : 'from')
   const facts: IntentFacts = { ...emptyFacts(n.kind), total: n.amount, paid: n.amount, how: money.how, moneyAccount: acct.name }
+  const refundFrom = into ? (n as Extract<NormalIntent, { kind: 'money_in' }>).supplierId : null
   const partyId = into ? n.customerId : n.supplierId
   let other: IntentLedger
   let billRefs: VoucherBillRef[] = []
-  if (partyId != null) {
+  if (refundFrom != null) {
+    // WP 9.4: a refund from a supplier settles what they owe you back — their named credits
+    // (an advance paid, a debit note's own bill) oldest first, else it stays on account.
+    other = ledgerOf(ctx, refundFrom, ['creditor'], 'simple_no_party', 'party', 'supplier')
+    billRefs = refundRefs(ctx.openCredits?.get(other.id) ?? [], n.amount)
+    facts.settled = billRefs.map((r) => ({ name: r.name, amount: r.amount }))
+    facts.partyName = other.name
+    facts.side = 'supplier'
+  } else if (partyId != null) {
     other = ledgerOf(ctx, partyId, [into ? 'debtor' : 'creditor'], 'simple_no_party', 'party', into ? 'customer' : 'supplier')
     const alloc = allocateToBills(ctx.openBills.get(other.id) ?? [], n.amount, n.bills, n.advance, uniqueName(number, ctx.takenNames.get(other.id), n.date))
     billRefs = alloc.refs
@@ -1023,6 +1074,9 @@ export interface SimplePreview {
   entries: PreviewEntry[]
   /** Non-blocking notes from the save (negative stock, credit limit), every entry's merged. */
   warnings: SaveVoucherWarnings
+  /** WP 9.4: TDS is on and the existing eligibility rules say this payment / bill should carry
+   *  TDS (the deduction itself is made in the accountant view). Absent = nothing to say. */
+  tds?: { partyName: string; sectionCode: string; tdsPaise: number | null }[]
 }
 
 export interface SimplePostResult {

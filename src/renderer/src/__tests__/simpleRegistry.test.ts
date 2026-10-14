@@ -10,7 +10,7 @@ import { SIMPLE_SECTION_IDS } from '@shared/simple/uiMode'
 import { ACCOUNTANT_NAV, SCREENS, SIMPLE_ENTRIES, SIMPLE_ENTRY_ORDER, SIMPLE_SECTIONS, screenView, simpleEntriesOf, simpleSectionOf } from '../lib/screens'
 
 // Screens that exist only in the simple shell (no 0.10 counterpart).
-const SIMPLE_ONLY: string[] = ['simple-section', 'simple-looks', 'simple-features', 'simple-openings', 'simple-sell', 'simple-sales', 'simple-quick-bill', 'simple-buy', 'simple-purchases']
+const SIMPLE_ONLY: string[] = ['simple-section', 'simple-looks', 'simple-features', 'simple-openings', 'simple-sell', 'simple-sales', 'simple-quick-bill', 'simple-buy', 'simple-purchases', 'simple-money-in', 'simple-money-out', 'simple-move-money', 'simple-money']
 
 describe('screen registry modes (WP 8.1)', () => {
   it('every screen declares its modes; every 0.10 screen is an accountant screen', () => {
@@ -29,9 +29,9 @@ describe('screen registry modes (WP 8.1)', () => {
 
   it('every simple-mode screen is drawn by a component under src/renderer/src/simple/ (so the i18n lints cover it)', () => {
     const simple = SCREENS.filter((d) => d.modes.includes('simple'))
-    expect(simple.map((d) => d.name).sort()).toEqual(['gateway', 'simple-buy', 'simple-features', 'simple-looks', 'simple-openings', 'simple-purchases', 'simple-quick-bill', 'simple-sales', 'simple-section', 'simple-sell'])
+    expect(simple.map((d) => d.name).sort()).toEqual(['gateway', 'simple-buy', 'simple-features', 'simple-looks', 'simple-money', 'simple-money-in', 'simple-money-out', 'simple-move-money', 'simple-openings', 'simple-purchases', 'simple-quick-bill', 'simple-sales', 'simple-section', 'simple-sell'])
     for (const d of simple) {
-      // A component under simple/ — Phase 9's flows live in a folder per section (simple/sell/…, simple/buy/…).
+      // A component under simple/ — Phase 9's flows live in a folder per section (simple/sell/…, simple/buy/…, simple/money/…).
       expect(d.simpleView, d.name).toMatch(/^([a-z]+\/)?[A-Z]\w+$/)
       expect(existsSync(resolve(__dirname, '../simple', `${d.simpleView}.tsx`)), d.name).toBe(true)
     }
@@ -95,5 +95,20 @@ describe('screen registry modes (WP 8.1)', () => {
     expect(screenView('simple', 'simple-section', false)).toBe('simple')
     expect(simpleSectionOf({ name: 'simple-section', section: 'buy' })).toBe('buy')
     expect(simpleSectionOf({ name: 'daybook' })).toBe('money')
+  })
+})
+
+describe('Money (WP 9.4)', () => {
+  it('Money in / out / move and the list are the simple flows, in order; Record a payment targets are stable', async () => {
+    expect(simpleEntriesOf('money').map((e) => e.id).slice(0, 4)).toEqual(['money-in', 'money-out', 'move-money', 'money-list'])
+    const target = (id: string): unknown => SIMPLE_ENTRIES.find((e) => e.id === id)?.screen
+    expect(target('money-in')).toEqual({ name: 'simple-money-in' })
+    expect(target('money-out')).toEqual({ name: 'simple-money-out' })
+    expect(target('move-money')).toEqual({ name: 'simple-move-money' })
+    expect(target('money-list')).toEqual({ name: 'simple-money' })
+    const { moneyInScreen, moneyOutScreen } = await import('../simple/money/moneyLinks')
+    expect(moneyInScreen({ party: 10, amount: 50_000, bill: 'S-1' })).toEqual({ name: 'simple-money-in', party: 10, amount: 50_000, bill: 'S-1' })
+    expect(moneyOutScreen({ party: null, amount: 0 })).toEqual({ name: 'simple-money-out' })
+    expect(simpleSectionOf({ name: 'simple-money-in', party: 1 })).toBe('money')
   })
 })

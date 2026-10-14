@@ -328,8 +328,8 @@ describe('Record a purchase (WP 9.3)', () => {
     expect(bannedWordsIn(visibleText())).toEqual([])
   })
 
-  it('Record a payment opens Money out — the payment editor pre-filled while Money out is still the full app', () => {
-    const s = recordSupplierPaymentScreen({ partyId: 10, due: 68_000 }, 30)
-    expect(s).toMatchObject({ name: 'voucher-entry', kindHint: 'payment', draft: { partyLedgerId: 10, lines: [{ ledgerId: 10, drCr: 'dr', amount: 68_000 }, { ledgerId: 30, drCr: 'cr', amount: 68_000 }] } })
+  it('Record a payment opens the simple Money out (WP 9.4) for the supplier, what is due and that bill', () => {
+    expect(recordSupplierPaymentScreen({ partyId: 10, due: 68_000, billNo: 'BS-7', number: '4', voucherId: 44 }, 30)).toEqual({ name: 'simple-money-out', party: 10, amount: 68_000, bill: 'BS-7', billId: 44 })
+    expect(recordSupplierPaymentScreen({ partyId: 10, due: 0 }, 30)).toEqual({ name: 'simple-money-out', party: 10 })
   })
 })

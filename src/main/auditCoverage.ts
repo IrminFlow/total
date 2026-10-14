@@ -42,6 +42,11 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // WP 9.1: an intent saved through saveVoucher (the vouchers log themselves; the intent as one
   // event); the walk-in customer / tax ledgers the editor would create on first use log as ledgers.
   'simple:post': a('simple_intent', 'voucher', 'ledger'),
+  // WP 9.4: the simple Money screens' reads (choices / defaults, a party's open bills, the money list, one entry).
+  'simple:money:setup': QUERY,
+  'simple:money:bills': QUERY,
+  'simple:money:list': QUERY,
+  'simple:money:entry': QUERY,
   // WP 9.2: the simple Sell screens' reads (customers / accounts / defaults, the sales list, one bill).
   'simple:sell:setup': QUERY,
   'simple:sales': QUERY,

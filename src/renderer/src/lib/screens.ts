@@ -118,10 +118,7 @@ export const SCREENS: ScreenDef[] = [
     simpleSection: 'sell',
     simpleEntries: [
       { id: 'sale-returns', label: 'simple.entries.saleReturns', screen: { name: 'voucher-entry', kindHint: 'credit_note' } },
-      { id: 'purchase-returns', label: 'simple.entries.purchaseReturns', section: 'buy', screen: { name: 'voucher-entry', kindHint: 'debit_note' } },
-      { id: 'money-in', label: 'simple.home.moneyIn', section: 'money', screen: { name: 'voucher-entry', kindHint: 'receipt' } },
-      { id: 'money-out', label: 'simple.home.moneyOut', section: 'money', screen: { name: 'voucher-entry', kindHint: 'payment' } },
-      { id: 'move-money', label: 'simple.entries.moveMoney', section: 'money', screen: { name: 'voucher-entry', kindHint: 'contra' } }
+      { id: 'purchase-returns', label: 'simple.entries.purchaseReturns', section: 'buy', screen: { name: 'voucher-entry', kindHint: 'debit_note' } }
     ],
     title: 'Voucher entry',
     screen: { name: 'voucher-entry' },
@@ -977,6 +974,59 @@ export const SCREENS: ScreenDef[] = [
     navSection: null,
     invalidates: ['openings', 'ledgers', 'stockItems', 'dashboard']
   },
+  // WP 9.4: Money → Money in / Money out / Move money (simple/money/…: plain questions → a
+  // money_in / money_out (or, an expense with a GST bill, a purchase paid now) / move_money intent
+  // → simple:post). Their accountant counterparts are the receipt / payment / contra editors
+  // ("Accountant view" opens them — the saved entry once there is one). Money in / out take
+  // `party` / `amount` / `bill` (moneyLinks.ts — what "Record a payment" on a bill passes).
+  {
+    name: 'simple-money-in',
+    modes: ['simple'],
+    simpleView: 'money/MoneyIn',
+    simpleSection: 'money',
+    simpleEntries: [{ id: 'money-in', label: 'simple.home.moneyIn', screen: { name: 'simple-money-in' } }],
+    title: 'Money in',
+    keywords: ['receipt', 'received', 'payment received', 'collection'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simpleMoneySetup', 'simpleMoneyBills', 'ledgers']
+  },
+  {
+    name: 'simple-money-out',
+    modes: ['simple'],
+    simpleView: 'money/MoneyOut',
+    simpleSection: 'money',
+    simpleEntries: [{ id: 'money-out', label: 'simple.home.moneyOut', screen: { name: 'simple-money-out' } }],
+    title: 'Money out',
+    keywords: ['payment', 'paid', 'expense', 'drawings'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simpleMoneySetup', 'simpleMoneyBills', 'ledgers']
+  },
+  {
+    name: 'simple-move-money',
+    modes: ['simple'],
+    simpleView: 'money/MoveMoney',
+    simpleSection: 'money',
+    simpleEntries: [{ id: 'move-money', label: 'simple.entries.moveMoney', screen: { name: 'simple-move-money' } }],
+    title: 'Move money',
+    keywords: ['transfer', 'deposit', 'withdraw', 'cash to bank'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simpleMoneySetup', 'ledgers']
+  },
+  // WP 9.4: Money → the money list (simple/money/MoneyList), each entry's simple view (`entryId`).
+  {
+    name: 'simple-money',
+    modes: ['simple'],
+    simpleView: 'money/MoneyList',
+    simpleSection: 'money',
+    simpleEntries: [{ id: 'money-list', label: 'simple.entries.moneyList', screen: { name: 'simple-money' } }],
+    title: 'Money in and out',
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simpleMoneyList', 'simpleMoneyEntry']
+  },
   // WP 9.2: Sell → Make a bill — the first simple flow (simple/sell/MakeBill: plain questions → a
   // `sale` intent → simple:post). Its accountant counterpart is the sales invoice editor
   // ("Accountant view" in the form opens it — the saved bill once there is one).
@@ -1091,7 +1141,7 @@ export const SIMPLE_ENTRY_ORDER: readonly string[] = [
   // Buy
   'record-purchase', 'purchase-list', 'purchase-returns', 'snap-bill', 'supplier-orders',
   // Money
-  'money-in', 'money-out', 'move-money', 'bank', 'all-entries', 'salaries',
+  'money-in', 'money-out', 'move-money', 'money-list', 'bank', 'all-entries', 'salaries',
   // Stock
   'products', 'product-list', 'low-stock', 'stock-history', 'made-goods',
   // People

@@ -166,7 +166,8 @@ await scenario('52-home', async (h) => {
   }
 
   // ---------- a task button opens its flow (WP 9.2: + Sale = Make a bill; WP 9.3: + Purchase =
-  // Record a purchase; Money in is still the editor in the full app) ----------
+  // Record a purchase; WP 9.4: + Money in = the simple Money in, whose Accountant view is the
+  // receipt editor in the full app) ----------
   await h.click('simple-task-sale')
   await h.waitScreen('simple-sell')
   await attached(h, '[data-testid="simple-nav"]')
@@ -178,6 +179,8 @@ await scenario('52-home', async (h) => {
   await h.click('simple-nav-home')
   await attached(h, '[data-testid="simple-home"]')
   await h.click('simple-task-money-in')
+  await h.waitScreen('simple-money-in')
+  await h.click('btn-money-accountant-view')
   await h.waitScreen('voucher-entry')
   await attached(h, '[data-testid="btn-back-to-simple"]')
   await backHome(h)

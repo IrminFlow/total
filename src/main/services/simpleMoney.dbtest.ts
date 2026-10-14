@@ -1,0 +1,504 @@
+// WP 9.4 — Money in / out / move through the forms' own path (shared/simple/money.ts →
+// simple:post). The plan's requirement: the flow's allocations EQUAL the Outstandings allocation —
+// what the form showed ticked (billAllocation over simple:money:bills) is what the books then
+// say for every bill (partyAllocation before − after), for oldest first exact, short with the
+// advance answer, on account, a supplier payment and a supplier's refund. Plus: an expense with a
+// GST bill is ONE purchase + payment equal to the accountant-entered pair, and its GST counts in
+// GSTR-3B exactly as theirs; owner in / drawings / a loan taken / a move between accounts equal
+// the hand-entered entries; the money list and an entry's view; the setup defaults (memory); the
+// TDS hint uses the existing eligibility; lock / closed year / viewer refusals leave no trace.
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { mkdtempSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { seededDb, TEST_INFO } from '../db/testdb'
+import { readCompanyInfo, writeCompanyInfo } from '../db/seed'
+import type { DB } from '../db/connection'
+import type { CompanyInfo, Group, Voucher, VoucherKind } from '@shared/domain'
+import { gstRegistrationOf } from '@shared/gst/registration'
+import { stockItemInputSchema, type VoucherInputParsed } from '@shared/schemas'
+import {
+  buildAccountingPayload, buildInvoicePayload, derivePartyId, planVoucherEdit, taxLedgerIdsFrom, taxSideOf, voucherTaxLedgers,
+  type AccountingFormState, type EditPlan
+} from '@shared/voucherEdit'
+import {
+  billAllocation, emptyMoneyInForm, emptyMoneyOutForm, emptyMoveForm, moneyInErrors, moneyInIntentFrom, moneyOutErrors, moneyOutIntentFrom,
+  moveIntentFrom, type MoneyInForm, type MoneyOutForm
+} from '@shared/simple/money'
+import { createLedger, createStockItem, listGroups, listLedgers, listStockItems } from './masters'
+import { getVoucher, nextVoucherNumber, saveVoucher, setLockDate } from './vouchers'
+import { partyAllocation } from './analysis'
+import { postClose } from './yearEnd'
+import { setFeatures, getFeatures } from './config'
+import { gstr3b } from './gst'
+import { previewIntent, postIntent } from './simplePost'
+import { moneyBills, moneyEntry, moneyList, moneySetup } from './simpleMoney'
+import { createMemory } from '../ai/memory'
+
+const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<{ ok: boolean; data?: unknown; error?: string; code?: string }>>()
+vi.mock('electron', () => ({
+  app: { getVersion: () => '0.12.0-test', getPath: () => tmpdir(), isPackaged: false, on: () => {} },
+  ipcMain: { handle: (ch: string, fn: (e: unknown, p: unknown) => Promise<{ ok: boolean }>) => handlers.set(ch.replace(/^total:/, ''), fn) },
+  dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }) },
+  shell: { openPath: async () => '', showItemInFolder: () => {} },
+  Notification: class {},
+  BrowserWindow: class {},
+  safeStorage: { isEncryptionAvailable: () => false }
+}))
+vi.mock('../updater', () => ({ checkForUpdatesInteractive: async () => null }))
+process.env.TOTAL_DATA_DIR = mkdtempSync(join(tmpdir(), 'total-simple-money-'))
+process.env.TOTAL_SUPPRESS_SYNC_WARNING = '1'
+
+const INFO: CompanyInfo = { ...TEST_INFO, name: 'Simple Money Co', gstin: '27AAPFU0939F1ZV', stateCode: '27', gstRegistrationType: 'regular' }
+const TODAY = '2025-08-14'
+
+let db: DB
+let seq = 0
+const groupId = (d: DB, name: string): number => (d.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
+const L = (name: string, d: DB = db): number => (d.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number }).id
+const typeId = (d: DB, kind: VoucherKind): number => (d.prepare('SELECT id FROM voucher_types WHERE kind = ? ORDER BY id').get(kind) as { id: number }).id
+const count = (sql: string, d: DB = db): number => (d.prepare(sql).get() as { n: number }).n
+
+function ledger(d: DB, name: string, group: string, extra: Record<string, unknown> = {}): number {
+  return createLedger(d, {
+    name, groupId: groupId(d, group), openingBalance: 0, gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null,
+    tdsSectionId: null, pan: null, creditDays: null, exportType: null, ...extra
+  }).id
+}
+
+function company(info: CompanyInfo = INFO): DB {
+  const d = seededDb()
+  writeCompanyInfo(d, info)
+  ledger(d, 'Sales', 'Sales Accounts')
+  ledger(d, 'Purchases', 'Purchase Accounts')
+  ledger(d, 'CGST', 'Duties & Taxes', { taxType: 'cgst' })
+  ledger(d, 'SGST', 'Duties & Taxes', { taxType: 'sgst' })
+  ledger(d, 'IGST', 'Duties & Taxes', { taxType: 'igst' })
+  ledger(d, 'Round Off', 'Indirect Expenses')
+  ledger(d, 'HDFC Bank', 'Bank Accounts')
+  ledger(d, 'SBI', 'Bank Accounts')
+  ledger(d, 'Rent', 'Indirect Expenses', { simpleCategory: 'rent' })
+  ledger(d, 'Other income', 'Indirect Incomes')
+  ledger(d, "Owner's money", 'Capital Account', { simpleCategory: 'owner_capital' })
+  ledger(d, "Owner's drawings", 'Capital Account', { simpleCategory: 'owner_drawings' })
+  ledger(d, 'Bank loan', 'Loans (Liability)')
+  ledger(d, 'Ramesh', 'Sundry Debtors', { stateCode: '27', creditDays: 15 })
+  ledger(d, 'Bharat Steel', 'Sundry Creditors', { stateCode: '27', gstin: '27AABCG3456H1ZN' })
+  ledger(d, 'Delhi Traders', 'Sundry Creditors', { stateCode: '07' })
+  const unit = d.prepare("SELECT id FROM units WHERE symbol = 'Nos'").get() as { id: number }
+  createStockItem(d, stockItemInputSchema.parse({ name: 'Widget', unitId: unit.id, gstRate: 18, hsn: '8471', openingQtyMilli: 100_000, openingValue: 1_000_000 }))
+  return d
+}
+
+const post = (intent: object, d: DB = db, info: CompanyInfo = INFO) => postIntent(d, info, { clientId: `money-${++seq}-x`, ...intent }, TODAY)
+
+// ---------------------------------------------------------------- editor helpers (as simplePost.dbtest.ts)
+
+function isPartyOrTds(d: DB): (id: number) => boolean {
+  const ledgers = listLedgers(d)
+  const groups = new Map(listGroups(d).map((g) => [g.id, g]))
+  return (id) => {
+    const l = ledgers.find((x) => x.id === id)
+    if (!l) return false
+    for (let g: Group | undefined = groups.get(l.groupId); g; g = g.parentId ? groups.get(g.parentId) : undefined) {
+      if (g.name === 'Sundry Debtors' || g.name === 'Sundry Creditors') return true
+    }
+    return l.tdsSectionId != null
+  }
+}
+function invoiceCtx(d: DB) {
+  const ledgers = listLedgers(d)
+  const items = listStockItems(d)
+  return {
+    companyStateCode: INFO.stateCode, ...gstRegistrationOf(readCompanyInfo(d)),
+    items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
+    ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
+  }
+}
+const kindOf = (d: DB, v: Voucher): VoucherKind => (d.prepare('SELECT kind FROM voucher_types WHERE id = ?').get(v.voucherTypeId) as { kind: VoucherKind }).kind
+
+function editorResave(d: DB, id: number): { plan: EditPlan; payload: VoucherInputParsed } {
+  const v = getVoucher(d, id)!
+  const kind = kindOf(d, v)
+  const ledgers = listLedgers(d)
+  const items = listStockItems(d)
+  const plan = planVoucherEdit(v, kind, {
+    invoice: invoiceCtx(d), taxLedgers: taxLedgerIdsFrom(ledgers), taxLedgerList: ledgers, manufacture: null, itemName: (i) => items.find((x) => x.id === i)?.name ?? ''
+  })
+  const r =
+    plan.mode === 'invoice'
+      ? buildInvoicePayload(plan.state, { ...invoiceCtx(d), kind }, v.voucherTypeId, voucherTaxLedgers(v, ledgers, taxSideOf(kind)))
+      : plan.mode === 'accounting'
+        ? buildAccountingPayload(plan.state, { kind, voucherTypeId: v.voucherTypeId, derivedPartyId: derivePartyId(plan.state.rows, isPartyOrTds(d), null) })
+        : null
+  if (!r || !r.ok) throw new Error(`cannot rebuild ${plan.mode}`)
+  return { plan, payload: r.payload }
+}
+
+function rows(d: DB, id: number): unknown {
+  return {
+    voucher: d.prepare('SELECT voucher_type_id, date, number, party_ledger_id, narration, reference, instrument_no, post_dated, is_optional FROM vouchers WHERE id = ?').get(id),
+    lines: d.prepare('SELECT ledger_id, dr_cr, amount, line_order FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order').all(id),
+    billRefs: d.prepare('SELECT party_ledger_id, kind, name, amount, due_date FROM bill_refs WHERE voucher_id = ? ORDER BY id').all(id)
+  }
+}
+
+/** Opens in the accounting editor and re-saves unchanged. */
+function roundTrips(id: number): void {
+  const before = rows(db, id)
+  const { plan, payload } = editorResave(db, id)
+  expect(plan.mode).toBe('accounting')
+  saveVoucher(db, payload, id)
+  expect(rows(db, id)).toEqual(before)
+}
+
+const blank = (date: string, rowsIn: AccountingFormState['rows'], billRefs: AccountingFormState['billRefs'], extra: Partial<AccountingFormState> = {}): AccountingFormState => ({
+  date, number: '', rows: rowsIn, narration: '', instrumentNo: '', billRefs, advanceReceipt: false, optional: false, tds: null, tcs: null, original: null, ...extra
+})
+const r = (drCr: 'dr' | 'cr', ledgerId: number, amount: number) => ({ drCr, ledgerId, amount, costAllocations: [] })
+
+/** The same entries typed into the accounting editor of an identical company. */
+function handEntered(entries: { kind: VoucherKind; state: AccountingFormState }[], twin: DB = company()): { twin: DB; ids: number[] } {
+  const ids = entries.map((e) => {
+    const built = buildAccountingPayload(e.state, { kind: e.kind, voucherTypeId: typeId(twin, e.kind), derivedPartyId: derivePartyId(e.state.rows, isPartyOrTds(twin), null) })
+    if (!built.ok) throw new Error(built.error)
+    return saveVoucher(twin, built.payload).id
+  })
+  return { twin, ids }
+}
+
+function trace(d: DB = db): unknown {
+  return {
+    vouchers: count('SELECT COUNT(*) AS n FROM vouchers', d),
+    lines: count('SELECT COUNT(*) AS n FROM voucher_lines', d),
+    ledgers: count('SELECT COUNT(*) AS n FROM ledgers', d),
+    posts: count('SELECT COUNT(*) AS n FROM simple_posts', d),
+    audit: d.prepare('SELECT COUNT(*) AS n, MAX(id) AS last FROM audit_log').get(),
+    seq: d.prepare('SELECT name, seq FROM sqlite_sequence ORDER BY name').all(),
+    next: nextVoucherNumber(d, typeId(d, 'receipt'), TODAY)
+  }
+}
+
+// ---------------------------------------------------------------- the forms' path
+
+/** The renderer's path for Money in: the form's answers (+ simple:money:setup / :bills) → the
+ *  shared checks → moneyInIntentFrom → simple:post. Returns what the form showed ticked too. */
+function moneyIn(f: Partial<MoneyInForm>) {
+  const setup = moneySetup(db)
+  const form: MoneyInForm = { ...emptyMoneyInForm(TODAY), ...f }
+  const open = form.who === 'customer' && form.customerId != null ? moneyBills(db, form.customerId, form.date) : []
+  expect(moneyInErrors(form, open, setup.defaultsIn, { ownerId: setup.ownerId })).toEqual({})
+  const shown = billAllocation(open, form.amount, form.ticks, form.advance)
+  const out = post(moneyInIntentFrom(form, open, setup.defaultsIn, { ownerId: setup.ownerId }))
+  return { out, shown, open }
+}
+function moneyOut(f: Partial<MoneyOutForm>, info: CompanyInfo = INFO) {
+  const setup = moneySetup(db)
+  const form: MoneyOutForm = { ...emptyMoneyOutForm(TODAY), ...f }
+  const open = form.who === 'supplier' && form.supplierId != null ? moneyBills(db, form.supplierId, form.date) : []
+  const ctx = { facts: gstRegistrationOf(info), companyStateCode: info.stateCode, supplierState: (id: number) => setup.suppliers.find((s) => s.id === id)?.stateCode ?? null, drawingsId: setup.drawingsId }
+  expect(moneyOutErrors(form, open, setup.defaultsOut, ctx)).toEqual({})
+  const shown = billAllocation(open, form.amount, form.ticks, form.advance)
+  const out = post(moneyOutIntentFrom(form, open, setup.defaultsOut, ctx), db, info)
+  return { out, shown, open }
+}
+
+/** Pending per bill (by name) and the credit held — the Outstandings allocation. */
+const allocation = (party: string): { bills: Record<string, number>; credit: number } => {
+  const a = partyAllocation(db, L(party), TODAY)
+  return { bills: Object.fromEntries(a.bills.map((b) => [b.number, b.pending])), credit: a.unappliedCredit }
+}
+/** What the form showed it would take off each bill = what the books took off it. */
+function expectAllocationsEqual(before: { bills: Record<string, number>; credit: number }, after: { bills: Record<string, number>; credit: number }, shown: { settled: { name: string; amount: number }[]; advance: number }): void {
+  const taken = Object.fromEntries(Object.entries(before.bills).map(([n, p]) => [n, p - (after.bills[n] ?? 0)]).filter(([, v]) => (v as number) > 0))
+  expect(taken).toEqual(Object.fromEntries(shown.settled.map((s) => [s.name, s.amount])))
+  expect(after.credit - before.credit).toBe(shown.advance)
+}
+
+/** Two sales bills to Ramesh on credit: ₹1,000 (1 Aug) and ₹600 (10 Aug), as ledger lines (no GST). */
+function twoBills(): [string, string] {
+  const a = post({ kind: 'sale', customerId: L('Ramesh'), date: '2025-08-01', amount: { amount: 100_000, gstRate: 0 }, payment: { how: 'credit' } })
+  const b = post({ kind: 'sale', customerId: L('Ramesh'), date: '2025-08-10', amount: { amount: 60_000, gstRate: 0 }, payment: { how: 'credit' } })
+  return [getVoucher(db, a.voucherIds[0]!)!.number, getVoucher(db, b.voucherIds[0]!)!.number]
+}
+
+beforeEach(() => {
+  db = company()
+})
+
+describe('Money in: the form’s ticks equal the Outstandings allocation', () => {
+  it('oldest first, exact: one and a half bills by UPI (into the UPI account), no advance', () => {
+    const [b1, b2] = twoBills()
+    expect(moneyBills(db, L('Ramesh'), TODAY).map((b) => [b.name, b.pending])).toEqual([[b1, 100_000], [b2, 60_000]])
+    const before = allocation('Ramesh')
+    const { out, shown } = moneyIn({ customerId: L('Ramesh'), amount: 130_000, how: 'upi' })
+    expect(shown).toEqual({ settled: [{ name: b1, amount: 100_000 }, { name: b2, amount: 30_000 }], advance: 0, short: false })
+    expectAllocationsEqual(before, allocation('Ramesh'), shown)
+    expect(out.facts.settled).toEqual(shown.settled)
+    const v = getVoucher(db, out.voucherIds[0]!)!
+    expect(v.billRefs.map((x) => [x.kind, x.name, x.amount])).toEqual([['against', b1, 100_000], ['against', b2, 30_000]])
+    expect(v.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[L('HDFC Bank'), 'dr', 130_000], [L('Ramesh'), 'cr', 130_000]])
+    roundTrips(v.id)
+    expect(out.sentences).toEqual([`₹1,300.00 from Ramesh into HDFC Bank.`, `Pays bill ${b1}: ₹1,000.00.`, `Pays bill ${b2}: ₹300.00.`, 'Ramesh still owes ₹300.00.'])
+  })
+
+  it('ticked short of the amount with “for a bill you haven’t made yet”: those bills + a named advance', () => {
+    const [b1, b2] = twoBills()
+    const before = allocation('Ramesh')
+    const { out, shown } = moneyIn({ customerId: L('Ramesh'), amount: 100_000, ticks: [b2], advance: true })
+    expect(shown).toEqual({ settled: [{ name: b2, amount: 60_000 }], advance: 40_000, short: false })
+    const after = allocation('Ramesh')
+    expectAllocationsEqual(before, after, shown)
+    expect(after.bills[b1]).toBe(100_000)
+    const v = getVoucher(db, out.voucherIds[0]!)!
+    // The advance is named after the entry (with the FY when sale #1 still holds that name).
+    expect(v.billRefs.map((x) => [x.kind, x.name, x.amount])).toEqual([['against', b2, 60_000], ['new', v.number === b1 ? `${v.number}/25-26` : v.number, 40_000]])
+    roundTrips(v.id)
+    // Without the answer the form refuses under the bills (and so would simple:post).
+    const setup = moneySetup(db)
+    const f = { ...emptyMoneyInForm(TODAY), customerId: L('Ramesh'), amount: 100_000, ticks: [b1] }
+    expect(moneyInErrors({ ...f, amount: 200_000 }, moneyBills(db, L('Ramesh'), TODAY), setup.defaultsIn, { ownerId: setup.ownerId })).toEqual({ bills: 'simple.money.err.ticksShort' })
+  })
+
+  it('on account: more than every bill, no advance answer — no bill named, the engine settles oldest first and holds the rest', () => {
+    const [b1, b2] = twoBills()
+    const before = allocation('Ramesh')
+    const { out, shown } = moneyIn({ customerId: L('Ramesh'), amount: 200_000 })
+    expect(shown).toEqual({ settled: [{ name: b1, amount: 100_000 }, { name: b2, amount: 60_000 }], advance: 40_000, short: false })
+    expectAllocationsEqual(before, allocation('Ramesh'), shown)
+    expect(getVoucher(db, out.voucherIds[0]!)!.billRefs).toEqual([])
+    expect(out.facts.balance).toBe(-40_000)
+  })
+
+  it('the owner put money in, a loan taken, other income: Cr that account, equal to the hand-entered receipts', () => {
+    const owner = moneyIn({ who: 'owner', amount: 500_000, how: 'bank' }).out
+    const loan = moneyIn({ who: 'loan', sourceId: L('Bank loan'), amount: 1_000_000, how: 'bank', accountId: L('SBI') }).out
+    const income = moneyIn({ who: 'income', sourceId: L('Other income'), amount: 2_500, how: 'cash', note: 'Scrap sold' }).out
+    for (const o of [owner, loan, income]) roundTrips(o.voucherIds[0]!)
+    const { twin, ids } = handEntered([
+      { kind: 'receipt', state: blank(TODAY, [r('dr', L('HDFC Bank'), 500_000), r('cr', L("Owner's money"), 500_000)], []) },
+      { kind: 'receipt', state: blank(TODAY, [r('dr', L('SBI'), 1_000_000), r('cr', L('Bank loan'), 1_000_000)], []) },
+      { kind: 'receipt', state: blank(TODAY, [r('dr', L('Cash'), 2_500), r('cr', L('Other income'), 2_500)], [], { narration: 'Scrap sold' }) }
+    ])
+    expect(ids.map((id) => rows(twin, id))).toEqual([owner, loan, income].map((o) => rows(db, o.voucherIds[0]!)))
+  })
+
+  it('a refund from a supplier: against what they owe back (their advance), the allocation agrees', () => {
+    const adv = moneyOut({ supplierId: L('Bharat Steel'), amount: 50_000, advance: true }).out
+    expect(allocation('Bharat Steel')).toEqual({ bills: {}, credit: 50_000 })
+    const { out } = moneyIn({ who: 'refund', supplierId: L('Bharat Steel'), amount: 50_000, how: 'bank' })
+    const v = getVoucher(db, out.voucherIds[0]!)!
+    expect(v.billRefs.map((x) => [x.kind, x.name, x.amount])).toEqual([['against', getVoucher(db, adv.voucherIds[0]!)!.number, 50_000]])
+    expect(allocation('Bharat Steel')).toEqual({ bills: {}, credit: 0 })
+    expect(out.facts).toMatchObject({ side: 'supplier', balance: 0 })
+    roundTrips(v.id)
+  })
+})
+
+describe('Money out', () => {
+  it('a supplier: their bills oldest first, the allocation agrees; equal to the hand-entered payment', () => {
+    const p1 = post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: 'BS-1', date: '2025-08-02', amount: { amount: 100_000, accountId: L('Purchases'), gstRate: 18 }, payment: { how: 'credit' } })
+    post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: 'BS-2', date: '2025-08-05', amount: { amount: 50_000, accountId: L('Purchases'), gstRate: 18 }, payment: { how: 'credit' } })
+    expect(p1.facts.total).toBe(118_000)
+    const before = allocation('Bharat Steel')
+    const { out, shown } = moneyOut({ supplierId: L('Bharat Steel'), amount: 150_000, how: 'bank' })
+    expect(shown.settled).toEqual([{ name: 'BS-1', amount: 118_000 }, { name: 'BS-2', amount: 32_000 }])
+    expectAllocationsEqual(before, allocation('Bharat Steel'), shown)
+    const v = getVoucher(db, out.voucherIds[0]!)!
+    roundTrips(v.id)
+    const { twin, ids } = handEntered([
+      { kind: 'payment', state: blank(TODAY, [r('dr', L('Bharat Steel'), 150_000), r('cr', L('HDFC Bank'), 150_000)], [{ kind: 'against', name: 'BS-1', amount: 118_000, dueDate: null }, { kind: 'against', name: 'BS-2', amount: 32_000, dueDate: null }]) }
+    ])
+    expect({ ...(rows(twin, ids[0]!) as object), voucher: null }).toEqual({ ...(rows(db, v.id) as object), voucher: null })
+  })
+
+  it('an expense with a GST bill: ONE purchase + its payment, equal to the accountant’s pair — and GSTR-3B counts its GST the same', () => {
+    const before = trace()
+    const { out } = moneyOut({ who: 'expense', payeeId: L('Rent'), amount: 118_000, gstBill: true, billSupplierId: L('Bharat Steel'), billNo: 'RENT-AUG', gstRate: 18, how: 'bank' })
+    expect(out.entries.map((e) => [e.role, e.kind])).toEqual([['bill', 'purchase'], ['payment', 'payment']])
+    expect(out.facts).toMatchObject({ kind: 'purchase', total: 118_000, tax: 18_000, paid: 118_000, balance: 0 })
+    expect((trace() as { vouchers: number }).vouchers - (before as { vouchers: number }).vouchers).toBe(2)
+    const [bill, pay] = out.voucherIds as [number, number]
+    roundTrips(bill)
+    roundTrips(pay)
+    const { twin, ids } = handEntered([
+      {
+        kind: 'purchase',
+        state: blank(TODAY, [r('cr', L('Bharat Steel'), 118_000), r('dr', L('Rent'), 100_000), r('dr', L('CGST'), 9_000), r('dr', L('SGST'), 9_000)], [{ kind: 'new', name: 'RENT-AUG', amount: 118_000, dueDate: TODAY }], { reference: 'RENT-AUG' })
+      },
+      { kind: 'payment', state: blank(TODAY, [r('dr', L('Bharat Steel'), 118_000), r('cr', L('HDFC Bank'), 118_000)], [{ kind: 'against', name: 'RENT-AUG', amount: 118_000, dueDate: null }]) }
+    ])
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, bill))
+    expect(rows(twin, ids[1]!)).toEqual(rows(db, pay))
+    // GST on purchases (input tax) in GSTR-3B: the simple pair = the accountant's pair.
+    const mine = gstr3b(db, INFO, '2025-08-01', '2025-08-31', '082025')
+    const theirs = gstr3b(twin, INFO, '2025-08-01', '2025-08-31', '082025')
+    expect(JSON.stringify(mine)).toBe(JSON.stringify(theirs))
+    expect(JSON.stringify(mine)).toContain('9000')
+  })
+
+  it('review: a GST bill of ₹1,000.50 paid in cash — the bill and the cash paid are ₹1,000.50 (never rounded), on the INPUT tax accounts, = the accountant’s pair', () => {
+    const io = (d: DB): void => {
+      for (const [n, t] of [['Input CGST', 'cgst'], ['Input SGST', 'sgst'], ['Output CGST', 'cgst'], ['Output SGST', 'sgst']] as const) ledger(d, n, 'Duties & Taxes', { taxType: t })
+    }
+    io(db)
+    const { out } = moneyOut({ who: 'expense', payeeId: L('Rent'), amount: 100_050, gstBill: true, billSupplierId: L('Bharat Steel'), billNo: 'RENT-SEP', gstRate: 18, how: 'cash' })
+    const [bill, pay] = out.voucherIds as [number, number]
+    expect(out.facts).toMatchObject({ total: 100_050, paid: 100_050, balance: 0 })
+    const lines = (id: number) => getVoucher(db, id)!.lines.map((l) => [l.ledgerId, l.drCr, l.amount])
+    // ₹847.88 + 9 % + 9 % = ₹1,000.50 exactly: no round off; the input side's accounts.
+    expect(lines(bill)).toEqual([[L('Bharat Steel'), 'cr', 100_050], [L('Rent'), 'dr', 84_788], [L('Input CGST'), 'dr', 7_631], [L('Input SGST'), 'dr', 7_631]])
+    expect(lines(pay)).toEqual([[L('Bharat Steel'), 'dr', 100_050], [L('Cash'), 'cr', 100_050]])
+    roundTrips(bill)
+    roundTrips(pay)
+    const twin = company()
+    io(twin)
+    const { ids } = handEntered([
+      {
+        kind: 'purchase',
+        state: blank(TODAY, [r('cr', L('Bharat Steel', twin), 100_050), r('dr', L('Rent', twin), 84_788), r('dr', L('Input CGST', twin), 7_631), r('dr', L('Input SGST', twin), 7_631)], [{ kind: 'new', name: 'RENT-SEP', amount: 100_050, dueDate: TODAY }], { reference: 'RENT-SEP' })
+      },
+      { kind: 'payment', state: blank(TODAY, [r('dr', L('Bharat Steel', twin), 100_050), r('cr', L('Cash', twin), 100_050)], [{ kind: 'against', name: 'RENT-SEP', amount: 100_050, dueDate: null }]) }
+    ], twin)
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, bill))
+    expect(rows(twin, ids[1]!)).toEqual(rows(db, pay))
+    expect(JSON.stringify(gstr3b(db, INFO, '2025-08-01', '2025-08-31', '082025'))).toBe(JSON.stringify(gstr3b(twin, INFO, '2025-08-01', '2025-08-31', '082025')))
+    // A total solveTaxable can't reach to the paisa keeps the typed total: the paisa is the round off.
+    const odd = moneyOut({ who: 'expense', payeeId: L('Rent'), amount: 100_003, gstBill: true, billSupplierId: L('Bharat Steel'), billNo: 'RENT-OCT', gstRate: 18, how: 'cash' }).out
+    expect(odd.facts).toMatchObject({ total: 100_003, paid: 100_003 })
+    expect(getVoucher(db, odd.voucherIds[1]!)!.lines.map((l) => l.amount)).toEqual([100_003, 100_003])
+    roundTrips(odd.voucherIds[0]!)
+  })
+
+  it('an inter-state supplier’s GST bill books IGST', () => {
+    const { out } = moneyOut({ who: 'expense', payeeId: L('Rent'), amount: 59_000, gstBill: true, billSupplierId: L('Delhi Traders'), billNo: 'DT-7', gstRate: 18 })
+    const v = getVoucher(db, out.voucherIds[0]!)!
+    expect(v.lines.find((l) => l.ledgerId === L('IGST'))?.amount).toBe(9_000)
+  })
+
+  it('no GST bill (or not registered): a payment to the expense; the owner took money: drawings', () => {
+    const rent = moneyOut({ who: 'expense', payeeId: L('Rent'), amount: 25_000, gstBill: false }).out
+    const mine = moneyOut({ who: 'owner', amount: 10_000 }).out
+    for (const o of [rent, mine]) roundTrips(o.voucherIds[0]!)
+    const { twin, ids } = handEntered([
+      { kind: 'payment', state: blank(TODAY, [r('dr', L('Rent'), 25_000), r('cr', L('Cash'), 25_000)], []) },
+      { kind: 'payment', state: blank(TODAY, [r('dr', L("Owner's drawings"), 10_000), r('cr', L('Cash'), 10_000)], []) }
+    ])
+    expect(ids.map((id) => rows(twin, id))).toEqual([rent, mine].map((o) => rows(db, o.voucherIds[0]!)))
+    // An unregistered company is never asked — the same answers are a plain payment.
+    const info: CompanyInfo = { ...INFO, gstin: null, gstRegistrationType: 'unregistered' }
+    writeCompanyInfo(db, info)
+    const plain = moneyOut({ who: 'expense', payeeId: L('Rent'), amount: 11_800, gstBill: true, billSupplierId: L('Bharat Steel'), billNo: 'X', gstRate: 18 }, info).out
+    expect(plain.entries.map((e) => e.kind)).toEqual(['payment'])
+  })
+
+  it('TDS on: the existing eligibility rules fire on the rehearsed payment (a hint only — nothing deducted)', () => {
+    const sec = (db.prepare("SELECT id FROM tds_sections WHERE code = '194C'").get() as { id: number }).id
+    const contractor = ledger(db, 'Contractor Co', 'Sundry Creditors', { tdsSectionId: sec, pan: 'ABCCE1234F' })
+    const intent = { clientId: 'tds-000001', kind: 'money_out', supplierId: contractor, amount: 3_500_000, from: { how: 'bank' } }
+    expect(getFeatures(db).tds).toBe(true)
+    const p = previewIntent(db, INFO, intent, TODAY)
+    expect(p.tds).toEqual([{ partyName: 'Contractor Co', sectionCode: '194C', tdsPaise: 70_000 }])
+    expect(p.entries[0]!.lines.map((l) => l.amount)).toEqual([3_500_000, 3_500_000])
+    setFeatures(db, { ...getFeatures(db), tds: false })
+    expect(previewIntent(db, INFO, intent, TODAY).tds).toBeUndefined()
+    // Under the threshold: nothing to say.
+    setFeatures(db, { ...getFeatures(db), tds: true })
+    expect(previewIntent(db, INFO, { ...intent, amount: 1_000_000 }, TODAY).tds).toBeUndefined()
+  })
+})
+
+describe('Move money, the list, the setup', () => {
+  it('a move between accounts is a contra (Dr to, Cr from), equal to the hand-entered one', () => {
+    const out = post(moveIntentFrom({ ...emptyMoveForm(TODAY), fromId: L('Cash'), toId: L('HDFC Bank'), amount: 300_000, note: 'Deposit' }))
+    expect(out.entries.map((e) => e.kind)).toEqual(['contra'])
+    roundTrips(out.voucherIds[0]!)
+    const { twin, ids } = handEntered([{ kind: 'contra', state: blank(TODAY, [r('dr', L('HDFC Bank'), 300_000), r('cr', L('Cash'), 300_000)], [], { narration: 'Deposit' }) }])
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, out.voucherIds[0]!))
+  })
+
+  it('the money list: receipts, payments and moves in the books, newest first, with who / how / what', () => {
+    const [b1] = twoBills()
+    const mi = moneyIn({ customerId: L('Ramesh'), amount: 100_000, how: 'upi' }).out
+    const mo = moneyOut({ who: 'owner', amount: 5_000 }).out
+    const mv = post(moveIntentFrom({ ...emptyMoveForm(TODAY), fromId: L('Cash'), toId: L('SBI'), amount: 1_000 }))
+    const list = moneyList(db, '2025-04-01', TODAY)
+    expect(list.map((x) => [x.voucherId, x.direction, x.who, x.account, x.amount, x.chips])).toEqual([
+      [mv.voucherIds[0], 'move', 'SBI', 'Cash', 1_000, []],
+      [mo.voucherIds[0], 'out', "Owner's drawings", 'Cash', 5_000, ['owner']],
+      [mi.voucherIds[0], 'in', 'Ramesh', 'HDFC Bank', 100_000, ['bills']]
+    ])
+    expect(moneyEntry(db, mi.voucherIds[0]!)).toMatchObject({ kind: 'receipt', bills: [{ name: b1, amount: 100_000, advance: false }], billCount: 1 })
+    // A binned entry leaves the list and its view.
+    db.prepare("UPDATE vouchers SET deleted_at = '2025-08-14T00:00:00Z' WHERE id = ?").run(mo.voucherIds[0])
+    expect(moneyList(db, '2025-04-01', TODAY).map((x) => x.voucherId)).not.toContain(mo.voucherIds[0])
+    expect(moneyEntry(db, mo.voucherIds[0]!)).toBeNull()
+    // A sales bill is not a money entry.
+    expect(moneyEntry(db, getVoucher(db, mi.voucherIds[0]!)!.id - 1)).toBeNull()
+  })
+
+  it('the setup: parties, accounts, defaults (WP 5.6 memory per side), owner / drawings / loans', () => {
+    const s = moneySetup(db)
+    expect(s.customers.map((c) => c.name)).toEqual(['Ramesh'])
+    expect(s.suppliers.map((c) => c.name)).toEqual(['Bharat Steel', 'Delhi Traders'])
+    expect(s).toMatchObject({ ownerId: L("Owner's money"), drawingsId: L("Owner's drawings"), loans: [{ id: L('Bank loan'), name: 'Bank loan' }], tds: true, payroll: true, memoryIn: null })
+    expect(s.defaultsIn).toEqual({ cash: L('Cash'), upi: L('HDFC Bank'), card: L('HDFC Bank'), bank: L('HDFC Bank') })
+    const m = createMemory(db, { kind: 'preference', text: 'Customers pay into SBI', data: { purpose: 'receipt', ledgerId: L('SBI') } }, { source: 'user', status: 'active', createdBy: null })
+    const s2 = moneySetup(db)
+    expect(s2).toMatchObject({ memoryIn: m.id, memoryOut: null })
+    expect(s2.defaultsIn.upi).toBe(L('SBI'))
+    expect(s2.defaultsOut.upi).toBe(L('HDFC Bank'))
+  })
+})
+
+describe('review: the owner’s account when none carries the category', () => {
+  it('is the first ledger DIRECTLY under Capital Account — never one under Reserves & Surplus (as the openings choose)', () => {
+    db.prepare("UPDATE ledgers SET simple_category = NULL WHERE simple_category IN ('owner_capital', 'owner_drawings')").run()
+    ledger(db, 'A General Reserve', 'Reserves & Surplus')
+    expect(moneySetup(db)).toMatchObject({ ownerId: L("Owner's money"), drawingsId: L("Owner's drawings") })
+    const { out } = moneyIn({ who: 'owner', amount: 10_000 })
+    expect(getVoucher(db, out.voucherIds[0]!)!.lines.find((l) => l.drCr === 'cr')?.ledgerId).toBe(L("Owner's money"))
+  })
+})
+
+describe('refusals leave no trace', () => {
+  it('a locked date → date; a closed year → date', () => {
+    twoBills()
+    setLockDate(db, '2025-08-31')
+    const before = trace()
+    const setup = moneySetup(db)
+    const f = { ...emptyMoneyInForm(TODAY), customerId: L('Ramesh'), amount: 10_000 }
+    expect(() => post(moneyInIntentFrom(f, moneyBills(db, L('Ramesh'), TODAY), setup.defaultsIn, { ownerId: setup.ownerId }))).toThrow(expect.objectContaining({ code: 'books_locked', field: 'date' }))
+    expect(() => post(moveIntentFrom({ ...emptyMoveForm(TODAY), fromId: L('Cash'), toId: L('SBI'), amount: 1 }))).toThrow(expect.objectContaining({ code: 'books_locked', field: 'date' }))
+    expect(trace()).toEqual(before)
+    setLockDate(db, null)
+    postClose(db, INFO, 2025)
+    setLockDate(db, null)
+    const closed = trace()
+    expect(() => post({ kind: 'money_out', payeeId: L('Rent'), amount: 100, from: { how: 'cash' }, date: '2025-09-01' })).toThrow(expect.objectContaining({ code: 'simple_year_closed', field: 'date' }))
+    expect(trace()).toEqual(closed)
+  })
+
+  it('a viewer reads the Money screens but can’t save (simple:post refused, nothing written)', async () => {
+    const ipc = await import('../ipc')
+    ipc.registerIpc()
+    const call = async (ch: string, p?: unknown) => handlers.get(ch)!({}, p)
+    const ok = async <T,>(ch: string, p?: unknown): Promise<T> => {
+      const res = await call(ch, p)
+      if (!res.ok) throw new Error(`${ch}: ${res.error}`)
+      return res.data as T
+    }
+    const { slug } = await ok<{ slug: string }>('company:create', { name: 'Viewer Money Co', stateCode: '27', gstin: null, gstRegistrationType: 'unregistered', address: '', booksFrom: 2025, email: null, phone: null, pan: null, tan: null })
+    await ok('company:open', { slug })
+    await ok('users:save', { data: { name: 'Olive', role: 'owner', pin: '1111' } })
+    const viewer = await ok<{ id: number }>('users:save', { data: { name: 'Vik', role: 'viewer', pin: '2222' } })
+    await ok('auth:logout')
+    await ok('auth:login', { userId: viewer.id, pin: '2222' })
+    const setup = await ok<{ moneyAccounts: { id: number; kind: string }[] }>('simple:money:setup')
+    const cash = setup.moneyAccounts.find((a) => a.kind === 'cash')!.id
+    const before = await ok<unknown[]>('simple:money:list', { from: '2025-04-01', to: '2026-03-31' })
+    const res = await call('simple:post', { intent: { clientId: 'viewer-0001', kind: 'move_money', amount: 100, fromId: cash, toId: cash + 999 }, today: TODAY })
+    expect(res).toMatchObject({ ok: false, code: 'not_permitted' })
+    expect(await ok<unknown[]>('simple:money:list', { from: '2025-04-01', to: '2026-03-31' })).toEqual(before)
+  })
+})

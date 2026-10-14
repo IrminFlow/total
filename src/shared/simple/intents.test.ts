@@ -384,3 +384,46 @@ describe('plain words', () => {
     for (const k of keys) expect(bannedWordsIn((en as Record<string, string>)[k]!), k).toEqual([])
   })
 })
+
+describe('WP 9.4 additions: a supplier refund, unticking every bill', () => {
+  const bills = new Map([[L.ramesh, [{ name: 'S-1', date: '2025-07-01', pending: 100_000, voucherId: 1 }, { name: 'S-2', date: '2025-07-10', pending: 60_000, voucherId: 2 }]]])
+
+  it('money in from a supplier (a refund): Cr the supplier, against their named credits oldest first, the excess on the last', () => {
+    const credits = new Map([[L.supplier, [{ name: 'DN-1', amount: 30_000 }, { name: 'ADV-1', amount: 20_000 }]]])
+    const m = map({ kind: 'money_in', supplierId: L.supplier, amount: 60_000, into: { how: 'bank' } }, ctx({ openCredits: credits }))
+    balanced(m)
+    const e = m.entries[0]!
+    expect(e.kind).toBe('receipt')
+    expect(e.payload.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[L.bank, 'dr', 60_000], [L.supplier, 'cr', 60_000]])
+    expect(e.payload.billRefs).toEqual([{ kind: 'against', name: 'DN-1', amount: 30_000, dueDate: null }, { kind: 'against', name: 'ADV-1', amount: 30_000, dueDate: null }])
+    expect(m.facts).toMatchObject({ side: 'supplier', partyName: 'Bharat Steel', settled: [{ name: 'DN-1', amount: 30_000 }, { name: 'ADV-1', amount: 30_000 }] })
+    // No named credit: on account (no refs) — the engine nets it off unnamed credit.
+    const plain = map({ kind: 'money_in', supplierId: L.supplier, amount: 5_000, into: { how: 'cash' } })
+    expect(plain.entries[0]!.payload.billRefs ?? []).toEqual([])
+    // A customer can't be the supplier; exactly one "who".
+    expect(codeOf(() => map({ kind: 'money_in', supplierId: L.ramesh, amount: 100, into: { how: 'cash' } })).code).toBe('simple_no_party')
+    expect(codeOf(() => map({ kind: 'money_in', supplierId: L.supplier, customerId: L.ramesh, amount: 100, into: { how: 'cash' } })).code).toBe('simple_no_party')
+  })
+
+  it('review: a purchase amount line with a printed bill total — the bill is that total, the paise left over its round off', () => {
+    const m = map({ kind: 'purchase', supplierId: L.supplier, billNo: 'RENT-9', amount: { amount: 84_788, accountId: L.purchases, gstRate: 18, billTotal: 100_050 }, payment: { how: 'cash' } })
+    balanced(m)
+    const [bill, pay] = m.entries as [(typeof m.entries)[number], (typeof m.entries)[number]]
+    expect(bill.payload.lines.find((l) => l.ledgerId === L.supplier)).toMatchObject({ drCr: 'cr', amount: 100_050 })
+    expect(pay.payload.lines.map((l) => l.amount)).toEqual([100_050, 100_050])
+    expect(m.facts).toMatchObject({ total: 100_050, paid: 100_050, due: 0 })
+    // Omitted: rounded to the rupee as before.
+    expect(map({ kind: 'purchase', supplierId: L.supplier, billNo: 'RENT-10', amount: { amount: 84_788, accountId: L.purchases, gstRate: 18 }, payment: { how: 'cash' } }).facts.total).toBe(100_100)
+    // A total that doesn't fit its value + GST (a rupee or more off) is refused under the amount.
+    expect(codeOf(() => map({ kind: 'purchase', supplierId: L.supplier, billNo: 'RENT-11', amount: { amount: 84_788, accountId: L.purchases, gstRate: 18, billTotal: 120_000 }, payment: { how: 'cash' } }))).toEqual({ code: 'simple_bill_total', field: 'amount' })
+  })
+
+  it('bills: [] (every bill unticked) is none of them — the advance flag takes it all, without it the entry is short', () => {
+    const adv = map({ kind: 'money_in', customerId: L.ramesh, amount: 50_000, into: { how: 'cash' }, bills: [], advance: true }, ctx({ openBills: bills }))
+    expect(adv.entries[0]!.payload.billRefs).toEqual([{ kind: 'new', name: 'R-5', amount: 50_000, dueDate: null }])
+    expect(adv.facts).toMatchObject({ settled: [], advance: 50_000 })
+    expect(codeOf(() => map({ kind: 'money_in', customerId: L.ramesh, amount: 50_000, into: { how: 'cash' }, bills: [] }, ctx({ openBills: bills })))).toEqual({ code: 'simple_bills_short', field: 'bills' })
+    // Omitted is still oldest first.
+    expect(map({ kind: 'money_in', customerId: L.ramesh, amount: 50_000, into: { how: 'cash' } }, ctx({ openBills: bills })).facts.settled).toEqual([{ name: 'S-1', amount: 50_000 }])
+  })
+})
