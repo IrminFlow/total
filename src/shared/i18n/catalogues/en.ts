@@ -111,6 +111,7 @@ export const en = {
   'common.table.nothingToShow': 'Nothing to show',
   'common.table.noRowsMatch': 'No rows match',
   'common.table.noneMatch': 'None of the {count, plural, one {# row matches} other {# rows match}} your filters',
+  'common.table.quickNoMatch': 'Nothing matches “{query}” with the current filters',
   'common.table.clearFilters': 'Clear filters',
   'common.table.clearAll': 'Clear all',
   'common.table.activeFilters': 'Active filters',
