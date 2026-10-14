@@ -121,7 +121,7 @@ describe('simple Bank (WP 9.6)', () => {
       failed: [{ lineId: 2, error: { message: 'Books are locked up to 2026-10-05', code: 'books_locked', field: 'date', params: { date: '5 Oct 2026' } } }]
     })
     renderUi()
-    await waitFor(() => expect(screen.getByTestId('btn-bank-accept-all').textContent).toBe('Accept 2 suggestions'))
+    await waitFor(() => expect(screen.getByTestId('btn-bank-accept-all').textContent).toBe('Save all 2 answered lines'))
     fireEvent.click(screen.getByTestId('btn-bank-accept-all'))
     await waitFor(() => expect(calls('simple:bank:accept')).toHaveLength(1))
     const sent = calls('simple:bank:accept')[0]!
@@ -148,7 +148,7 @@ describe('simple Bank (WP 9.6)', () => {
     // "Skip for now" saves nothing and offers no Save.
     fireEvent.click(within(lineCard(3)).getByTestId('bank-choice-skip'))
     expect(within(lineCard(3)).queryByTestId('btn-bank-line-save')).toBeNull()
-    expect(screen.getByTestId('btn-bank-accept-all').textContent).toBe('Accept 2 suggestions')
+    expect(screen.getByTestId('btn-bank-accept-all').textContent).toBe('Save all 2 answered lines')
     // Moved to another account: the account is picked, and a refusal sits under that picker.
     fireEvent.click(within(lineCard(3)).getByTestId('bank-choice-transfer'))
     fireEvent.change(within(lineCard(3)).getByTestId('select-bank-transfer-3'), { target: { value: '30' } })

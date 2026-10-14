@@ -261,9 +261,14 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
               data-open={view?.sentence.open ?? 0}
             >
               {sentence.tone === 'differ' ? (
-                <button type="button" className="text-left text-body font-medium text-ink hover:underline" data-testid="btn-bank-see-them" title={t('simple.bank.differHint', { date: toPlainDate(view!.sentence.asOn!) })} onClick={seeThem}>
-                  {sentenceText}
-                </button>
+                <>
+                  <button type="button" className="text-left text-body font-medium text-blue hover:underline" data-testid="btn-bank-see-them" onClick={seeThem}>
+                    {sentenceText}
+                  </button>
+                  <p className="mt-1 text-small text-muted" data-testid="bank-differ-hint">
+                    {t('simple.bank.differHint', { count: view!.sentence.differ, date: toPlainDate(view!.sentence.asOn!) })}
+                  </p>
+                </>
               ) : (
                 <p className="text-body font-medium text-ink">{sentenceText}</p>
               )}
@@ -274,6 +279,7 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
             <StatementDrop
               key={bankLedgerId}
               bankLedgerId={bankLedgerId}
+              compact={lines.length > 0}
               onAdded={(count, file) => {
                 setNote(t('simple.bank.added', { count, file }))
                 void refresh()

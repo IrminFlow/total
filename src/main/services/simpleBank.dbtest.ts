@@ -24,7 +24,8 @@ const HEADER = 'Date,Narration,Chq/Ref No,Withdrawal,Deposit,Balance'
 
 let db: DB
 let seq = 0
-let ids: Record<string, number>
+type Ids = Record<'bank' | 'cash' | 'sales' | 'charges' | 'office' | 'owner' | 'drawings' | 'ramesh' | 'kumar' | 'bharat', number>
+let ids: Ids
 const groupId = (name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
 const count = (sql: string, ...args: unknown[]): number => (db.prepare(sql).get(...args) as { n: number }).n
 
@@ -36,11 +37,11 @@ function ledger(name: string, group: string, extra: Record<string, unknown> = {}
 }
 
 const post = (intent: Record<string, unknown>) => postIntent(db, INFO, { clientId: `seed-${++seq}-xxxxxx`, ...intent }, TODAY)
-const statement = (rows: string[], fileName = 'hdfc.csv') => commitStatement(db, ids.bank!, { fileName, text: [HEADER, ...rows].join('\n') })
-const view = (): Promise<BankView> => bankView(db, ids.bank!, TODAY)
+const statement = (rows: string[], fileName = 'hdfc.csv') => commitStatement(db, ids.bank, { fileName, text: [HEADER, ...rows].join('\n') })
+const view = (): Promise<BankView> => bankView(db, ids.bank, TODAY)
 const lineOf = (v: BankView, text: string) => v.lines.find((l) => l.description.includes(text))!
 const accept = (items: Omit<BankAcceptItem, 'clientId'>[], clientIds?: string[]) =>
-  acceptLines(db, INFO, ids.bank!, items.map((it, i) => ({ ...it, clientId: clientIds?.[i] ?? `bank-${it.lineId}-${++seq}-x` })) as BankAcceptItem[], TODAY)
+  acceptLines(db, INFO, ids.bank, items.map((it, i) => ({ ...it, clientId: clientIds?.[i] ?? `bank-${it.lineId}-${++seq}-x` })) as BankAcceptItem[], TODAY)
 
 beforeEach(() => {
   db = seededDb()

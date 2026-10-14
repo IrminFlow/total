@@ -19,7 +19,16 @@ const ACCEPT = STATEMENT_EXTENSIONS.map((e) => `.${e}`).join(',') // i18n-techni
  * lines" commits them. The formats are explained in plain words; a file the parsers can't read
  * without a column mapping is sent to the full app's import, once, never guessed.
  */
-export function StatementDrop({ bankLedgerId, onAdded }: { bankLedgerId: number; onAdded: (inserted: number, fileName: string) => void }): React.JSX.Element {
+export function StatementDrop({
+  bankLedgerId,
+  onAdded,
+  compact = false
+}: {
+  bankLedgerId: number
+  onAdded: (inserted: number, fileName: string) => void
+  /** Lines are already listed: a one-row drop zone, so they stay in view. */
+  compact?: boolean
+}): React.JSX.Element {
   const t = useT()
   const nav = useNav()
   const [source, setSource] = useState<StatementSource | null>(null)
@@ -87,10 +96,10 @@ export function StatementDrop({ bankLedgerId, onAdded }: { bankLedgerId: number;
 
   return (
     <section className="rounded-lg border border-line bg-panel p-panel shadow-elev-1" aria-label={t('simple.bank.import')} data-testid="bank-statement">
-      <h2 className="mb-3 text-subtitle font-semibold text-ink">{t('simple.bank.import')}</h2>
+      <h2 className="mb-3 text-subtitle font-semibold text-ink">{compact ? t('simple.bank.importAnother') : t('simple.bank.import')}</h2>
       {!preview && (
         <div
-          className={`flex flex-col items-center gap-2 rounded-md border-2 border-dashed px-4 py-6 text-center ${over ? 'border-amber bg-amberbar/10' : 'border-line bg-panel2'}`}
+          className={`flex items-center gap-2 rounded-md border-2 border-dashed text-center ${compact ? 'flex-row flex-wrap justify-center gap-3 px-4 py-2' : 'flex-col px-4 py-6'} ${over ? 'border-amber bg-amberbar/10' : 'border-line bg-panel2'}`}
           data-testid="bank-drop"
           onDragOver={(e) => {
             e.preventDefault()

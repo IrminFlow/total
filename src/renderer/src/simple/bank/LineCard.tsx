@@ -224,7 +224,7 @@ export function LineCard({
           ))}
         {(choice?.kind === 'owner' || choice?.kind === 'charges') && (
           <p className="text-small text-muted" data-testid="bank-line-goes-to">
-            {choice.accountId ? accountName(choice.accountId) : t('simple.bank.willAdd', { name: addName(choice.kind) })}
+            {choice.accountId ? t('simple.bank.goesTo', { name: accountName(choice.accountId) ?? addName(choice.kind) }) : t('simple.bank.willAdd', { name: addName(choice.kind) })}
           </p>
         )}
         {choice?.kind === 'skip' && <p className="text-small text-muted">{t('simple.bank.skipped')}</p>}
