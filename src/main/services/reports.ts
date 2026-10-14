@@ -9,7 +9,7 @@ import { listGroups } from './masters'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { buildChartOfAccounts, type ChartGroupNode, type ChartLedgerInput } from '@shared/chartOfAccounts'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
-import { listVouchers, IN_BOOKS, MOVES_STOCK, NOT_DELETED, NOT_YEAR_END_CLOSE } from './vouchers'
+import { latestVouchers, IN_BOOKS, MOVES_STOCK, NOT_DELETED, NOT_YEAR_END_CLOSE } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
 import { balanceBasis, periodIncludesStoredPnl, resetsEachYear } from '@shared/yearOpening'
 import { booksFromYear } from './booksStart'
@@ -776,8 +776,11 @@ export function profitAndLoss(
   const indirectIncomes = buildTrees(groups, ledgers, isNature('income', false), amountOf, -1)
   const indirectExpenses = buildTrees(groups, ledgers, isNature('expense', false), amountOf, 1)
 
-  const openingStock = stocks?.openingStock ?? stockValue(db, dayBefore(from))
-  const closingStock = stocks?.closingStock ?? stockValue(db, to)
+  // WP 7.1: both figures from ONE valuation pass (stockValuesAt — each equals stockValue) unless
+  // the caller shares its own.
+  const both = stocks?.openingStock === undefined && stocks?.closingStock === undefined ? stockAnalysis.stockValuesAt(db, [dayBefore(from), to]) : null
+  const openingStock = stocks?.openingStock ?? both?.get(dayBefore(from)) ?? stockValue(db, dayBefore(from))
+  const closingStock = stocks?.closingStock ?? both?.get(to) ?? stockValue(db, to)
 
   const grossProfit =
     sumNodes(tradingIncomes) + closingStock - sumNodes(tradingExpenses) - openingStock
@@ -1099,9 +1102,7 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
     .all(today, monthStart, today) as { kind: 'sales' | 'purchase'; todayTotal: number; monthTotal: number }[]
   const kindTotals = new Map(kindRows.map((r) => [r.kind, r]))
 
-  const recent = listVouchers(db, fyFrom, today)
-    .slice(-8)
-    .reverse()
+  const recent = latestVouchers(db, fyFrom, today, 8)
     .map((v) => ({
       voucherId: v.id, date: v.date, voucherType: v.voucherType, kind: v.kind, number: v.number,
       account: v.account, accountLedgerId: v.accountLedgerId ?? null, narration: v.narration, debit: v.amount, credit: v.amount,

@@ -10,8 +10,8 @@ import type { DB } from './db/connection'
 import { backupCompany, closeCompanyDb, openCompanyDb, stashBackupAttachments } from './db/connection'
 import * as attachments from './services/attachments'
 import { embedAttachments, restoreAttachmentFiles, restoreAttachmentFilesAt, type RestoreFilesResult, type StashResult } from './db/attachmentBackup'
-import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheck, type BackupInfo } from './db/backup'
-import { checkIntegrity } from './db/integrity'
+import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheckAsync, type BackupInfo } from './db/backup'
+import { checkIntegrity, checkIntegrityAsync } from './db/integrity'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
@@ -321,9 +321,14 @@ export function ipcStructuredError(err: unknown): Partial<StructuredError> {
   return {}
 }
 
+/** WP 7.1: TOTAL_IPC_TRACE=1 (scratch data dir only) prints each handler's duration to stdout —
+ *  scripts/perf-launch.mjs reads it to say where opening a big company goes. Channel names only. */
+const TRACE_IPC = process.env.TOTAL_IPC_TRACE === '1' && !!process.env.TOTAL_DATA_DIR
+
 function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): void {
   CHANNEL_ROLES.set(channel, minRole)
   ipcMain.handle(`total:${channel}`, async (_event, payload: unknown) => {
+    const t0 = TRACE_IPC ? performance.now() : 0
     try {
       // Role gating is a no-op until a company is open AND that company has at least one user
       // (usersExist is cached on `current` — see OpenCompany — to avoid a COUNT query per call).
@@ -339,8 +344,11 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
           throw new AppError('not_permitted', 'You do not have permission to do that')
         }
       }
-      return { ok: true, data: await fn(payload) }
+      const data = await fn(payload)
+      if (TRACE_IPC) console.log(`[ipc] ${channel} ${(performance.now() - t0).toFixed(0)} ms`)
+      return { ok: true, data }
     } catch (err) {
+      if (TRACE_IPC) console.log(`[ipc] ${channel} failed ${(performance.now() - t0).toFixed(0)} ms`)
       const message = err instanceof z.ZodError
         ? err.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
         : err instanceof Error
@@ -692,26 +700,34 @@ export function registerIpc(): void {
     const { slug } = z.object({ slug: z.string().min(1) }).parse(payload)
     if (!existsSync(companyDbPath(slug))) throw new Error('Company database not found')
     closeCurrentCompany()
+    const t0 = performance.now()
+    const mark = (step: string): void => {
+      if (TRACE_IPC) console.log(`[ipc] company:open/${step} ${(performance.now() - t0).toFixed(0)} ms`)
+    }
     const db = openCompanyDb(slug)
+    mark('db')
     const info = readCompanyInfo(db)
     current = { slug, db, info, usersExist: users.usersExist(db) }
     // Online backup needs an open handle, so this runs after open (not before, as it used to).
     // A backup failure here must never fail — or desync — the open itself.
-    try {
-      await backupCompany(db, slug, 'open')
-    } catch (err) {
-      log('warn', 'backup-on-open-failed', { slug, error: err instanceof Error ? err.message : String(err) })
-    }
-    const integrity = checkIntegrity(db)
+    // WP 7.1: the backup and the integrity check run together — their whole-file quick_checks in
+    // worker threads (db/checkHost.ts) — and both finish before the reply, as before.
+    const backupDone = backupCompany(db, slug, 'open').then(
+      () => mark('backup'),
+      (err: unknown) => log('warn', 'backup-on-open-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    )
+    const integrityDone = checkIntegrityAsync(db, companyDbPath(slug)).finally(() => mark('integrity'))
+    await backupDone
+    const integrity = await integrityDone
     if (!integrity.ok) {
       log('warn', 'integrity', { slug, quickCheck: integrity.quickCheck, unbalanced: integrity.unbalancedVoucherIds })
     }
     // [lane-Q] scheduled weekly FULL integrity check (task Q3 #99) — the check above is the cheap
     // quick_check; this one is `PRAGMA integrity_check`, throttled to once per 7 days via meta.
-    const weekly = runWeeklyIntegrityCheck(db)
-    if (weekly.ran && !weekly.ok) {
-      log('warn', 'integrity-weekly-failed', { slug, detail: weekly.detail })
-    }
+    // WP 7.1: it only ever logs, so it runs in a worker thread and the open does not wait for it.
+    void runWeeklyIntegrityCheckAsync(db, companyDbPath(slug)).then((weekly) => {
+      if (weekly?.ran && !weekly.ok) log('warn', 'integrity-weekly-failed', { slug, detail: weekly.detail })
+    })
     // Housekeeping below runs as 'system' in the audit trail — nobody asked for it.
     try {
       const purged = runAsAuditUser(SYSTEM_AUDIT_USER, () => vouchers.purgeOldDeleted(db, 30))
@@ -721,6 +737,7 @@ export function registerIpc(): void {
       // never block opening the company.
       log('warn', 'bin-purge-failed', { slug, error: err instanceof Error ? err.message : String(err) })
     }
+    mark('purge')
     // WP 6.4: attachments of purged records (and stored files nothing references) go too.
     try {
       const swept = runAsAuditUser(SYSTEM_AUDIT_USER, () => attachments.sweepAttachments(db, companyAttachmentsDir(slug)))
@@ -728,10 +745,12 @@ export function registerIpc(): void {
     } catch (err) {
       log('warn', 'attachments-sweep-failed', { slug, error: err instanceof Error ? err.message : String(err) })
     }
+    mark('sweep')
     // Post-dated vouchers whose date has arrived flip into the books (audited per voucher).
     // PDCs dated inside a locked period are refused, not silently posted — they stay in the
     // PDC register until the lock is lifted (v0.3 review F3).
     const { matured, blockedByLock } = runAsAuditUser(SYSTEM_AUDIT_USER, () => vouchers.maturePostDated(db, todayISO()))
+    mark('mature')
     if (matured.length > 0) log('info', 'pdc-mature', { count: matured.length, ids: matured })
     if (blockedByLock.length > 0) {
       log('warn', 'pdc-mature-blocked-by-lock', { count: blockedByLock.length, ids: blockedByLock })
@@ -748,6 +767,7 @@ export function registerIpc(): void {
         log('warn', 'audit-prune-failed', { slug, error: err instanceof Error ? err.message : String(err) })
       }
     }
+    mark('prune')
     touchLastOpened(slug)
     // Agent bridge (feature flag, default OFF): watch <company>/inbox/ for dropped files.
     if (configSvc.getAgentBridgeEnabled(db)) agentBridge.syncInboxWatcher({ slug, db })
@@ -760,6 +780,7 @@ export function registerIpc(): void {
     // WP 6.2: scheduled report packs that came due while the app was closed run once, deferred
     // past this reply and only while the company is unlocked (a company with users waits for the
     // sign-in — auth:login starts the pass then).
+    mark('capture')
     void runDuePacksInBackground({ slug, db, info }, { allowed: packsAllowed, current: getUnlockedCompany })
     return { slug, info, integrity, locked: current.usersExist, ui: configSvc.getUi(db) }
   })

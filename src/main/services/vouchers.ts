@@ -1140,28 +1140,34 @@ export function listBin(db: DB): BinRow[] {
 }
 
 export function listVouchers(db: DB, from: string, to: string, voucherTypeId?: number): VoucherListRow[] {
+  return voucherListRows(db, from, to, voucherTypeId)
+}
+
+/** The last `n` vouchers of listVouchers(from, to), newest first (the Gateway's recent entries) —
+ *  the same rows as `listVouchers(...).slice(-n).reverse()`, without listing the whole period. */
+export function latestVouchers(db: DB, from: string, to: string, n: number): VoucherListRow[] {
+  return voucherListRows(db, from, to, undefined, n)
+}
+
+// WP 7.1: each row's first line and debit total are looked up per voucher (correlated, off the
+// voucher's own lines) instead of grouping every line in the books first.
+function voucherListRows(db: DB, from: string, to: string, voucherTypeId?: number, lastN?: number): VoucherListRow[] {
   const rows = db
     .prepare(
       `SELECT v.id, v.date, vt.name AS voucherType, vt.kind, v.number, v.narration,
               COALESCE(pl.name, fl.name, '') AS account,
               COALESCE(pl.id, fl.id) AS accountLedgerId,
-              COALESCE(t.total, 0) AS amount,
+              COALESCE((SELECT SUM(amount) FROM voucher_lines WHERE voucher_id = v.id AND dr_cr = 'dr'), 0) AS amount,
               v.is_optional AS isOptional, v.post_dated AS postDated, v.is_year_end_close AS isYearEndClose
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers pl ON pl.id = v.party_ledger_id
-       LEFT JOIN (
-         SELECT voucher_id, MIN(id) AS first_line FROM voucher_lines GROUP BY voucher_id
-       ) f ON f.voucher_id = v.id
-       LEFT JOIN voucher_lines fvl ON fvl.id = f.first_line
+       LEFT JOIN voucher_lines fvl ON fvl.id = (SELECT MIN(id) FROM voucher_lines WHERE voucher_id = v.id)
        LEFT JOIN ledgers fl ON fl.id = fvl.ledger_id
-       LEFT JOIN (
-         SELECT voucher_id, SUM(amount) AS total FROM voucher_lines WHERE dr_cr = 'dr' GROUP BY voucher_id
-       ) t ON t.voucher_id = v.id
        WHERE v.date BETWEEN ? AND ? AND ${NOT_DELETED} ${voucherTypeId ? 'AND v.voucher_type_id = ?' : ''}
-       ORDER BY v.date, v.id`
+       ORDER BY ${lastN ? 'v.date DESC, v.id DESC LIMIT ?' : 'v.date, v.id'}`
     )
-    .all(...(voucherTypeId ? [from, to, voucherTypeId] : [from, to])) as (Omit<VoucherListRow, 'isOptional' | 'postDated' | 'isYearEndClose'> & {
+    .all(...(voucherTypeId ? [from, to, voucherTypeId] : [from, to]), ...(lastN ? [lastN] : [])) as (Omit<VoucherListRow, 'isOptional' | 'postDated' | 'isYearEndClose'> & {
       isOptional: number
       postDated: number
       isYearEndClose: number

@@ -15,6 +15,7 @@ import { outstandings, outstandingsWithAdvances } from '../services/analysis'
 import { stockSummary } from '../services/stockAnalysis'
 import { gstr1, gstr3b } from '../services/gst'
 import { simpleHome, simpleHomeAttention } from '../services/simpleHome'
+import { dashboardSeries } from '../services/dashboard'
 import { businessDoing } from '../services/simpleReports'
 import { simpleTaxes } from '../services/simpleTaxes'
 import { peopleList } from '../services/simplePeople'
@@ -86,6 +87,8 @@ export const PERF_CASES: PerfCase[] = [
   { id: 'stock', label: 'Stock summary (valuation pass)', group: 'report', budget: REPORT, run: (c) => stockSummary(c.db, c.today) },
   { id: 'gstr1', label: 'GSTR-1 (this month)', group: 'report', budget: REPORT, run: (c) => gstr1(c.db, c.info, c.month.from, c.month.to, c.month.period) },
   { id: 'gstr3b', label: 'GSTR-3B (this month)', group: 'report', budget: REPORT, run: (c) => gstr3b(c.db, c.info, c.month.from, c.month.to, c.month.period) },
+  { id: 'gateway', label: 'Gateway (report:dashboardSeries)', group: 'report', budget: REPORT, run: (c) => dashboardSeries(c.db, c.info, { today: c.today, from: c.fy.from, to: c.fy.to, backups: [] }) },
+  { id: 'gatewayRecent', label: 'Gateway (report:dashboard)', group: 'report', budget: REPORT, run: (c) => reports.dashboard(c.db, c.today, c.fy.from) },
   { id: 'home', label: 'simple:home', group: 'report', budget: { k100: 500, k500: 1500 }, run: (c) => simpleHome(c.db, c.info, { today: c.today, backups: [] }) },
   { id: 'homeAttention', label: 'simple:homeAttention', group: 'report', budget: REPORT, run: (c) => simpleHomeAttention(c.db, c.info, c.today) },
   { id: 'doing', label: 'Reports: how the business is doing (this year)', group: 'report', budget: REPORT, run: (c) => businessDoing(c.db, { period: 'this-year' }, c.today) },

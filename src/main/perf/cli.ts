@@ -5,10 +5,14 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync
 import { homedir, tmpdir } from 'os'
 import { join, resolve } from 'path'
 import { createHash } from 'crypto'
-import { closeCompanyDb, openCompanyDb, type DB } from '../db/connection'
+import { backupCompany, closeCompanyDb, openCompanyDb, type DB } from '../db/connection'
+import { checkIntegrity } from '../db/integrity'
+import { quickCheckOk, runWeeklyIntegrityCheck, snapshotTo } from '../db/backup'
+import { maturePostDated, purgeOldDeleted } from '../services/vouchers'
+import { sweepAttachments } from '../services/attachments'
 import { readCompanyInfo } from '../db/seed'
 import { upsertCompany } from '../registry'
-import { companyDbPath, ensureDataTree } from '../paths'
+import { companyAttachmentsDir, companyDbPath, ensureDataTree } from '../paths'
 import { MIGRATIONS } from '../db/migrations'
 import { PERF_COMPANY, PERF_DEFAULT_SEED, PERF_TODAY, booksFingerprint, seedLarge, type LargeSeedSummary } from './seedLarge'
 import { PERF_CASES, formatTable, overBudget, perfContext, runPerf, type PerfResult } from './bench'
@@ -158,4 +162,33 @@ export async function perfProfile(opts: { data: string; caseId: string; top?: nu
   } finally {
     closeCompanyDb(db)
   }
+}
+
+/** The company:open sequence (ipc.ts), step by step and timed — where opening a big company goes. */
+export async function perfOpenSteps(opts: { data: string }): Promise<{ step: string; ms: number }[]> {
+  usePerfDataRoot(opts.data)
+  const out: { step: string; ms: number }[] = []
+  const time = async <T,>(step: string, fn: () => T | Promise<T>): Promise<T> => {
+    const t0 = performance.now()
+    const r = await fn()
+    out.push({ step, ms: performance.now() - t0 })
+    return r
+  }
+  const db = await time('openCompanyDb (migrate + ANALYZE)', () => openCompanyDb(PERF_SLUG))
+  try {
+    const probe = join(mkdtempSync(join(tmpdir(), 'total-perf-snap-')), 'snap.db')
+    await time('  of which: online snapshot (db.backup)', () => snapshotTo(db, probe))
+    await time('  of which: quick_check of the snapshot', () => quickCheckOk(probe))
+    rmSync(probe, { force: true })
+    await time('backupCompany open (snapshot + quick_check + stash + prune + audit)', () => backupCompany(db, PERF_SLUG, 'open'))
+    await time('  of which: quick_check of the live DB', () => db.pragma('quick_check', { simple: true }))
+    await time('checkIntegrity (quick_check + balance)', () => checkIntegrity(db))
+    await time('runWeeklyIntegrityCheck (first run of the week)', () => runWeeklyIntegrityCheck(db, new Date(Date.now() + 8 * 86_400_000)))
+    await time('purgeOldDeleted', () => purgeOldDeleted(db, 30))
+    await time('sweepAttachments', () => sweepAttachments(db, companyAttachmentsDir(PERF_SLUG)))
+    await time('maturePostDated', () => maturePostDated(db, PERF_TODAY))
+  } finally {
+    closeCompanyDb(db)
+  }
+  return out
 }
