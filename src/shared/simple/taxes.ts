@@ -185,6 +185,10 @@ export type SimpleTaxes =
       /** The periods the picker offers (newest first), the default one included. */
       periods: GstPeriod[]
       figures: GstFigures
+      /** WP 10.8: while the screen shows an earlier period (the return due next), the running
+       *  period so far — so "how much GST do I owe" also answers for the bills just made. Absent
+       *  when the running period is the one shown or holds no GST. */
+      running?: { period: GstPeriod; collected: number; onPurchases: number }
       due: GstDue
       missing: MissingBillsItem[]
       supplierBills: SupplierBillsMonth[]

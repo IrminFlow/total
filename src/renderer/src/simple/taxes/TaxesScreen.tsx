@@ -111,6 +111,14 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
           {t('simple.taxes.gst.soFarNote', { date: toPlainDate(x.period.to, t.lang) })}
         </p>
       )}
+      {x.running && (
+        <p className="mb-3 text-detail text-ink" data-testid="taxes-running">
+          {t('simple.taxes.runningSoFar', { period: taxesPeriodLabel(x.running.period, t), collected: money(x.running.collected), purchases: money(x.running.onPurchases) })}{' '}
+          <button type="button" className="text-blue hover:underline" data-testid="btn-taxes-running" onClick={() => nav.replace(taxesScreen(x.running!.period.period))}>
+            {t('simple.taxes.runningOpen')}
+          </button>
+        </p>
+      )}
       <ul className="grid grid-cols-1 gap-3 md:grid-cols-3" data-testid="taxes-figures">
         <FigureTile
           id="gst-collected"

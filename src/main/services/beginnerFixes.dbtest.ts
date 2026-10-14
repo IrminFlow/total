@@ -54,5 +54,16 @@ describe('WP 10.8: GST periods start with the books', () => {
     if (x.kind !== 'regular') throw new Error('regular expected')
     expect(x.period).toMatchObject({ period: '2026-09', soFar: false })
     expect(x.periods.map((p) => p.period)).toContain('2026-04')
+    expect(x.running).toBeUndefined()
+    // A GST sale today: September stays the default (its return is due next) and the running
+    // month is said beside it, from the same GSTR-3B figures.
+    postIntent(db, company, { clientId: 'running-sale-00001', kind: 'sale', date: TODAY, amount: { amount: 1_000_00, gstRate: 18 }, payment: { how: 'cash' } }, TODAY)
+    const y = simpleTaxes(db, company, {}, TODAY)
+    if (y.kind !== 'regular') throw new Error('regular expected')
+    expect(y.period.period).toBe('2026-09')
+    expect(y.running).toMatchObject({ period: { period: '2026-10', soFar: true }, collected: 180_00, onPurchases: 0 })
+    const oct = simpleTaxes(db, company, { period: '2026-10' }, TODAY)
+    expect(oct.kind === 'regular' && oct.figures.collected).toBe(180_00)
+    expect(oct.kind === 'regular' && oct.running).toBeUndefined()
   })
 })

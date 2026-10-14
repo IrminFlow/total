@@ -147,7 +147,13 @@ await scenario('60-ask-total', async (h) => {
   await m.step('gst')
   await j.open('taxes', 'gst-summary')
   await j.attached('[data-testid="taxes-figures"]')
-  if ((await page.inputValue('[data-testid="taxes-period"]')) !== month) await page.selectOption('[data-testid="taxes-period"]', month)
+  await h.waitIdle()
+  if ((await page.inputValue('[data-testid="taxes-period"]')) !== month) {
+    // The return due next is an earlier month: the running month so far is said beside it, and
+    // one click shows it (WP 10.8).
+    await j.attached('[data-testid="taxes-running"]')
+    await h.click('btn-taxes-running')
+  }
   await page.waitForFunction((mo) => document.querySelector('[data-testid="taxes-period"]')?.value === mo, month)
   const x = await h.invoke('simple:taxes', { period: month })
   const g3b = await h.invoke('gst:gstr3b', { from: x.period.from, to: x.period.to, period: `${month.slice(5, 7)}${month.slice(0, 4)}` })

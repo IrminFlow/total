@@ -125,6 +125,14 @@ export function simpleTaxes(db: DB, company: CompanyInfo, q: { period?: string }
       return { month: m, imported, matched: r.matched, categories: r.summary.filter((s) => s.count > 0).map((s) => ({ category: s.category, count: s.count, tax: s.tax })) }
     })
 
+    // WP 10.8 (the beginner study): the running period's GST so far, while an earlier one is shown.
+    const runningPeriod = gstPeriodFor(today.slice(0, 7), filing, today)!
+    let running: { period: GstPeriod; collected: number; onPurchases: number } | undefined
+    if (runningPeriod.period !== period.period) {
+      const r = gst3bFigures(db, company, runningPeriod.from, runningPeriod.to, runningPeriod.period)
+      if (r.outwardTax !== 0 || r.itc !== 0) running = { period: runningPeriod, collected: r.outwardTax, onPurchases: r.itc }
+    }
+
     const filedAll = readGstFiled(db)
     const filed: GstFiledPeriod = filedAll[period.period] ?? {}
     const due3b = gstr3bDueDate(period.period, filing, company.stateCode)
@@ -134,6 +142,7 @@ export function simpleTaxes(db: DB, company: CompanyInfo, q: { period?: string }
       filing,
       period,
       periods: choices,
+      ...(running ? { running } : {}),
       figures: {
         collected: f.outwardTax,
         reverseCharge: f.rcmTax,

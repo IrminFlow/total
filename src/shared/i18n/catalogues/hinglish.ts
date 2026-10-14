@@ -1119,6 +1119,8 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.taxes.gst.toPayLabel': 'Cash mein bharna hai',
   'simple.taxes.gst.byDate': '{date} tak',
   'simple.taxes.gst.soFarNote': 'Yeh period abhi chal raha hai — figures ab tak ke hain, {date} tak.',
+  'simple.taxes.runningSoFar': '{period}: ab tak aapne {collected} GST liya hai aur purchase par {purchases} diya hai — yeh agle return mein jaayega.',
+  'simple.taxes.runningOpen': 'Dekhein',
   'simple.taxes.gst.rcmLine': 'saath mein reverse charge ke {amount}',
   'simple.taxes.why.collected': '{from} se {to} tak apni sale par aapne jo GST collect kiya: {amount}. Yeh sarkar ka paisa hai jo bharne tak aapke paas rehta hai.',
   'simple.taxes.why.onPurchases': '{from} se {to} tak apni purchase par aapne jo GST diya: {amount}. Yeh aapke dene wale GST mein se ghatta hai — {credit}.',
