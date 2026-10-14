@@ -199,6 +199,11 @@ describe('an amount and a name only', () => {
     expect(classify('Ramesh Traders 1,250', TODAY)).toEqual({ kind: 'direction', amount: 1_250_00, party: 'Ramesh Traders' })
     expect(classify('₹300 Sita', TODAY)).toMatchObject({ kind: 'direction', amount: 300_00 })
     expect(classify('5000', TODAY).kind).not.toBe('direction')
+    // WP 10.8 review: a period, a document, a list word with a number is not a person and an amount.
+    for (const q of ['march 2026', 'Sep 2025', 'year 2025', 'fy 2025', 'gst 18', 'invoice 123', 'bill 45', 'top 10', 'last 30', 'page 2', 'cash 5000', 'bank 5000', 'hello 123', 'mahine 2026', 'diwali 2026']) {
+      expect(classify(q, TODAY).kind, q).not.toBe('direction')
+    }
+    expect(classify('Ramesh ji 5000', TODAY)).toMatchObject({ kind: 'direction', party: 'Ramesh ji' })
   })
   for (const lang of LANGUAGES) {
     it(`${lang}: the two chips are money in / money out`, () => {
