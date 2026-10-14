@@ -25,6 +25,7 @@ import { ReturnLines } from './ReturnLines'
 import { RefundHow } from './RefundHow'
 import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
+import { SaveBar } from '../SaveBar'
 
 const F = { date: 'date', items: 'items', amount: 'amount', gstRate: 'gstRate', refund: 'refund' } as const satisfies Record<ReturnField, ReturnField> // i18n-technical: form field paths
 const INVALIDATE = ['simpleReturnBills', 'simpleReturnBill', 'simpleSales', 'simpleSale', 'simplePurchases', 'simplePurchase', 'stockItems', 'dashboard'] // i18n-technical: query keys
@@ -378,9 +379,6 @@ export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; 
                     {money(totals?.total ?? 0)}
                   </span>
                 </div>
-                <p className="mt-2 min-h-5 text-body text-ink" data-testid="return-preview">
-                  {preview ? returnPreviewLines(preview.facts, t, { walkIn }).join(' ') : ready && !previewProblem ? t('simple.sell.preview.checking') : ''}
-                </p>
                 {previewProblem && (
                   <p role="status" className="mt-1 text-detail text-warning" data-testid="return-preview-problem">
                     {t('simple.returns.previewProblem', { reason: previewProblem })}
@@ -398,17 +396,17 @@ export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; 
                 </div>
               )}
 
-              <div className="sticky bottom-0 z-10 -mx-1 flex flex-wrap items-center justify-between gap-3 border-t border-line bg-canvas/95 px-1 py-3 backdrop-blur">
-                <p className="text-small text-muted">
-                  <span className="num mr-3 text-body font-semibold text-ink" data-testid="return-total-bar">
-                    {money(totals?.total ?? 0)}
-                  </span>
-                  {t('simple.returns.shortcuts')}
-                </p>
+              <SaveBar
+                total={money(totals?.total ?? 0)}
+                totalTestId="return-total-bar"
+                preview={preview ? returnPreviewLines(preview.facts, t, { walkIn }).join(' ') : ready && !previewProblem ? t('simple.sell.preview.checking') : ''}
+                previewTestId="return-preview"
+                shortcuts={t('simple.returns.shortcuts')}
+              >
                 <Button variant="primary" data-testid="btn-return-save" disabled={saving || !setup || asks.blocked} onClick={() => void save()}>
                   {t('simple.returns.save')}
                 </Button>
-              </div>
+              </SaveBar>
             </>
           )}
         </div>
