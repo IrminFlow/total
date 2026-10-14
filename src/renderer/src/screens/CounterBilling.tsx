@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { gstRegistrationOf } from '@shared/gst/registration'
+import { chargesGstOn, gstRegistrationOf } from '@shared/gst/registration'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { computeInvoice, emptyInvoiceState, type InvoiceContext } from '@shared/voucherEdit'
 import { supplyTypeFor } from '@shared/gst/calc'
@@ -163,6 +163,10 @@ export function CounterBillingScreen({ title }: { title?: string } = {}): React.
     }),
     [info, items, ledgers]
   )
+  // WP 10.8 (the 9.2 review): in the simple shell (Quick bill, `title` given) a business that
+  // doesn't charge GST on the bill's date sees no GST column and no "taxable" — the full app's
+  // Counter is unchanged.
+  const hideGst = title != null && !chargesGstOn(ctx, date)
   const computed = useMemo(
     () =>
       computeInvoice(
@@ -579,7 +583,7 @@ export function CounterBillingScreen({ title }: { title?: string } = {}): React.
                     {FIELD_LABEL[f]}
                   </th>
                 ))}
-                <th className="r w-20">GST</th>
+                {!hideGst && <th className="r w-20">GST</th>}
                 <th className="r w-32">Amount</th>
               </tr>
             </thead>
@@ -653,7 +657,7 @@ export function CounterBillingScreen({ title }: { title?: string } = {}): React.
                     {cell('qty', <>{l.qtyText} <span className="text-caption text-muted">{unitOf(l.itemId)}</span></>)}
                     {cell('rate', l.rate != null ? formatPaise(l.rate) : <span className="text-muted">…</span>)}
                     {cell('disc', l.discount ? formatPaise(l.discount) : <span className="text-muted">–</span>)}
-                    <td className="r num text-muted">{it?.gstRate != null ? `${it.gstRate}%` : '—'}</td>
+                    {!hideGst && <td className="r num text-muted">{it?.gstRate != null ? `${it.gstRate}%` : '—'}</td>}
                     <td className="r" data-testid="counter-line-amount">
                       <Money paise={amount} className="text-body" />
                     </td>
@@ -683,7 +687,7 @@ export function CounterBillingScreen({ title }: { title?: string } = {}): React.
         <div className="flex flex-col gap-section">
           <Panel className="p-panel" data-testid="counter-totals">
             <div className="num flex flex-col gap-1 text-detail">
-              <SumRow label={`${lines.length} line${lines.length === 1 ? '' : 's'} · taxable`} paise={computed.gst.taxable} />
+              <SumRow label={hideGst ? `${lines.length} line${lines.length === 1 ? '' : 's'}` : `${lines.length} line${lines.length === 1 ? '' : 's'} · taxable`} paise={computed.gst.taxable} />
               {computed.gst.cgst > 0 && <SumRow label="CGST" paise={computed.gst.cgst} />}
               {computed.gst.sgst > 0 && <SumRow label="SGST" paise={computed.gst.sgst} />}
               {computed.gst.igst > 0 && <SumRow label="IGST" paise={computed.gst.igst} />}
