@@ -661,7 +661,24 @@ export function classify(text: string, today: string): AssistIntent {
     const target = (open[1] ?? open[2] ?? '').replace(/^(?:the|my|a)\s+/, '').trim()
     if (target) return { kind: 'open', target }
   }
+  const direction = directionOf(text)
+  if (direction) return direction
   return { kind: 'unknown' }
+}
+
+/** WP 10.8: "5000 Ramesh" / "Ramesh 5000" / "₹5,000 Ramesh Traders" — an amount and a name and
+ *  nothing else: the answer asks which way the money went (never guesses). */
+const AMOUNT_NAME = /^(?:rs\.?|inr|₹)?\s*(\d[\d,]*(?:\.\d{1,2})?)\s*(?:rs\.?|rupees?|rupaye)?\s+([a-z][a-z.&' -]{1,40})$/i
+const NAME_AMOUNT = /^([a-z][a-z.&' -]{1,40}?)\s+(?:rs\.?|inr|₹)?\s*(\d[\d,]*(?:\.\d{1,2})?)\s*(?:rs\.?|rupees?|rupaye)?$/i
+function directionOf(raw: string): AssistIntent | null {
+  const s = raw.trim().replace(/\s+/g, ' ')
+  const a = AMOUNT_NAME.exec(s)
+  const b = a ? null : NAME_AMOUNT.exec(s)
+  const amountText = a?.[1] ?? b?.[2]
+  const party = (a?.[2] ?? b?.[1])?.trim()
+  if (!amountText || !party || party.split(' ').length > 4) return null
+  const paise = parseAmountText(amountText)
+  return paise != null && paise > 0 ? { kind: 'direction', amount: paise, party } : null
 }
 
 const partyOpt = (party: string | undefined): { party?: string } => (party ? { party } : {})
