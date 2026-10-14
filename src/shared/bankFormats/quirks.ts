@@ -5,6 +5,7 @@
  * trailing minus, and the duplicate-detection hash. Pure — no I/O.
  */
 import type { DateFormat, TextEncodingName } from './types'
+import { decodeUtf16be, decodeWindows1252, looksUtf16, utf8Shape } from '../textEncoding'
 
 const MONTHS: Record<string, number> = {
   jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, sept: 9, oct: 10, nov: 11, dec: 12
@@ -148,31 +149,20 @@ export function importHashes(lines: { date: string; deposit: number; withdrawal:
   })
 }
 
-const CP1252_HIGH: Record<number, number> = {
-  0x80: 0x20ac, 0x82: 0x201a, 0x83: 0x0192, 0x84: 0x201e, 0x85: 0x2026, 0x86: 0x2020, 0x87: 0x2021, 0x88: 0x02c6,
-  0x89: 0x2030, 0x8a: 0x0160, 0x8b: 0x2039, 0x8c: 0x0152, 0x8e: 0x017d, 0x91: 0x2018, 0x92: 0x2019, 0x93: 0x201c,
-  0x94: 0x201d, 0x95: 0x2022, 0x96: 0x2013, 0x97: 0x2014, 0x98: 0x02dc, 0x99: 0x2122, 0x9a: 0x0161, 0x9b: 0x203a,
-  0x9c: 0x0153, 0x9e: 0x017e, 0x9f: 0x0178
-}
-
-/** Decode file bytes. A BOM wins over the requested encoding (UTF-8 / UTF-16LE / UTF-16BE). */
+/** Decode file bytes. A BOM wins over the requested encoding (UTF-8 / UTF-16LE / UTF-16BE).
+ *  WP 7.3 review: 'utf-8' (the default every detected profile carries) also reads a BOM-less
+ *  UTF-16 file (NUL pattern) and a file that is not UTF-8 at all — not one well-formed multi-byte
+ *  sequence, i.e. the "ANSI" code page a Windows tool wrote — as Windows-1252 instead of turning
+ *  every byte from 0x80 up into U+FFFD. Valid UTF-8 reads exactly as before. */
 export function decodeBytes(bytes: Uint8Array, encoding: TextEncodingName = 'utf-8'): string {
   if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) return new TextDecoder('utf-8').decode(bytes.subarray(3))
   if (bytes[0] === 0xff && bytes[1] === 0xfe) return new TextDecoder('utf-16le').decode(bytes.subarray(2))
-  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
-    const swapped = new Uint8Array(bytes.length - 2)
-    for (let i = 2; i + 1 < bytes.length; i += 2) {
-      swapped[i - 2] = bytes[i + 1]!
-      swapped[i - 1] = bytes[i]!
-    }
-    return new TextDecoder('utf-16le').decode(swapped)
-  }
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) return decodeUtf16be(bytes.subarray(2))
   if (encoding === 'utf-16le') return new TextDecoder('utf-16le').decode(bytes)
-  if (encoding === 'windows-1252') {
-    let s = ''
-    for (const b of bytes) s += String.fromCharCode(CP1252_HIGH[b] ?? b)
-    return s
-  }
+  if (encoding === 'windows-1252') return decodeWindows1252(bytes)
+  if (looksUtf16(bytes, 'le')) return new TextDecoder('utf-16le').decode(bytes)
+  if (looksUtf16(bytes, 'be')) return decodeUtf16be(bytes)
+  if (utf8Shape(bytes) === 'legacy') return decodeWindows1252(bytes)
   return new TextDecoder('utf-8').decode(bytes)
 }
 

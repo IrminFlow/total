@@ -8,25 +8,46 @@
  * \r?\n, and `normaliseNewlines` is there for those that want LF only, e.g. XML per XML 1.0 §2.11).
  */
 import { decodeBytes } from './bankFormats/quirks'
+import { SINGLE_BYTE_WESTERN, decodeUtf16be, decodeWindows1252, looksUtf16, utf8Shape, xmlDeclaredEncoding } from './textEncoding'
+
+/** A file whose bytes have no one right reading — refused with this message, never guessed. */
+export class TextEncodingError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'TextEncodingError'
+  }
+}
 
 /**
  * Decode a text file's bytes: a BOM decides (UTF-8 / UTF-16LE / UTF-16BE); without one, a file
  * with NUL bytes among its first 64 is UTF-16 (LE when the NUL comes second — a
  * BOM-less "Unicode" export); anything else is UTF-8. A leading U+FEFF left by a
  * double-encoded BOM is dropped too.
+ *
+ * WP 7.3 review — a file that is NOT UTF-8 (Tally's non-Unicode export and other "ANSI" files are
+ * written in the Windows code page, 1252 on English / Indian-English Windows): an XML declaration
+ * naming Windows-1252 / ISO-8859-1 / ASCII is honoured for bytes that are not valid UTF-8, and bytes
+ * with not one well-formed UTF-8 multi-byte sequence are read as Windows-1252 — instead of every accented letter becoming U+FFFD
+ * in a ledger name. Well-formed UTF-8 next to invalid bytes (a damaged file) and any other declared
+ * encoding are refused with a `TextEncodingError` that says how to re-export.
  */
 export function decodeTextFile(bytes: Uint8Array): string {
   let text: string
   if (hasBom(bytes)) text = decodeBytes(bytes)
   else if (looksUtf16(bytes, 'le')) text = new TextDecoder('utf-16le').decode(bytes)
-  else if (looksUtf16(bytes, 'be')) {
-    const swapped = new Uint8Array(bytes.length - (bytes.length % 2))
-    for (let i = 0; i + 1 < bytes.length; i += 2) {
-      swapped[i] = bytes[i + 1]!
-      swapped[i + 1] = bytes[i]!
+  else if (looksUtf16(bytes, 'be')) text = decodeUtf16be(bytes)
+  else {
+    const declared = xmlDeclaredEncoding(bytes)
+    const shape = utf8Shape(bytes)
+    if (shape === 'valid') text = new TextDecoder('utf-8').decode(bytes)
+    else if (declared && SINGLE_BYTE_WESTERN.has(declared)) text = decodeWindows1252(bytes)
+    else if (declared && declared !== 'utf-8' && declared !== 'utf8') {
+      throw new TextEncodingError(`This file is in the ${declared} encoding, which Total can't read — export it again as UTF-8 or Unicode (UTF-16)`)
+    } else if (shape === 'legacy') text = decodeWindows1252(bytes)
+    else {
+      throw new TextEncodingError('This file mixes text encodings (part UTF-8, part not), so some names would come out wrong — export it again as UTF-8 or Unicode (UTF-16)')
     }
-    text = new TextDecoder('utf-16le').decode(swapped)
-  } else text = new TextDecoder('utf-8').decode(bytes)
+  }
   return text.replace(/^\uFEFF/, '')
 }
 
@@ -37,16 +58,4 @@ export function normaliseNewlines(text: string): string {
 
 function hasBom(b: Uint8Array): boolean {
   return (b[0] === 0xef && b[1] === 0xbb && b[2] === 0xbf) || (b[0] === 0xff && b[1] === 0xfe) || (b[0] === 0xfe && b[1] === 0xff)
-}
-
-/** Text files never hold NUL bytes, UTF-16 text is full of them (every ASCII character has one):
- *  a NUL in the first 64 bytes means UTF-16, the side the NULs fall on gives the byte order. */
-function looksUtf16(b: Uint8Array, order: 'le' | 'be'): boolean {
-  const n = Math.min(64, b.length - (b.length % 2))
-  if (n < 2) return false
-  let even = 0
-  let odd = 0
-  for (let i = 0; i < n; i++) if (b[i] === 0) i % 2 === 0 ? even++ : odd++
-  if (even + odd === 0) return false
-  return order === 'le' ? odd > even : even > odd
 }

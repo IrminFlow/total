@@ -21,6 +21,21 @@ writeFileSync(join(here, 'tally-export.utf8-bom-crlf.xml'), utf8Bom(crlf(tally))
 // Without a BOM (some tools strip it) — still UTF-16LE, detected from the NUL pattern.
 writeFileSync(join(here, 'tally-export.utf16le-nobom-crlf.xml'), Buffer.from(crlf(tally.replace('encoding="UTF-8"', 'encoding="UTF-16"')), 'utf16le'))
 
+// WP 7.3 review — Tally's non-Unicode ("ANSI") export on English / Indian-English Windows:
+// Windows-1252, CRLF, a Latin ledger name with accents and an em dash (0x97 in 1252). With and
+// without an encoding declaration (both must read as the UTF-8 original, never U+FFFD).
+const CP1252 = { 0x20ac: 0x80, 0x2014: 0x97, 0x2013: 0x96, 0x2018: 0x91, 0x2019: 0x92 }
+const cp1252 = (s) => Buffer.from([...s].map((ch) => {
+  const c = ch.codePointAt(0)
+  if (c < 0x80 || (c >= 0xa0 && c <= 0xff)) return c
+  if (CP1252[c] == null) throw new Error(`not in Windows-1252: ${ch}`)
+  return CP1252[c]
+}))
+const latin = tally.replaceAll('शर्मा ट्रेडर्स', 'Café Müller — Señor’s')
+writeFileSync(join(here, 'tally-export.latin.lf.xml'), latin)
+writeFileSync(join(here, 'tally-export.cp1252-decl-crlf.xml'), cp1252(crlf(latin.replace('encoding="UTF-8"', 'encoding="windows-1252"'))))
+writeFileSync(join(here, 'tally-export.cp1252-nodecl-crlf.xml'), cp1252(crlf(latin.replace('<?xml version="1.0" encoding="UTF-8"?>\n', ''))))
+
 // Bank statements as Excel / Notepad on Windows save them: "CSV UTF-8" = BOM + CRLF.
 for (const [src, out] of [
   ['hdfc-style.csv', 'bank-hdfc-style.bom-crlf.csv'],
