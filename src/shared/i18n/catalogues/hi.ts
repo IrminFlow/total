@@ -895,7 +895,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.people.reminder.opened': 'संदेश के साथ WhatsApp खुल रहा है — आज भेजे गए रिमाइंडर के रूप में दर्ज।',
   'simple.people.reminder.noPhone': 'ऐसा कोई मोबाइल नंबर सेव नहीं है जिसे WhatsApp इस्तेमाल कर सके (भारत के बाहर के नंबर के लिए देश के कोड के साथ), इसलिए WhatsApp पूछेगा कि किसे भेजना है।',
   'simple.people.reminder.noCopy': 'Total इसे कॉपी नहीं कर सका। टेक्स्ट चुनकर खुद कॉपी करें।',
-  'simple.people.reminder.nothingLate': 'अभी किसी की तारीख नहीं निकली, इसलिए याद दिलाने को कुछ नहीं है।',
+  'simple.people.reminder.nothingLate': 'अभी कुछ भी लेट नहीं है, इसलिए याद दिलाने का संदेश नहीं है। उन्हें बाकी रकम दिखाने के लिए स्टेटमेंट भेजें।',
   'simple.people.lang.en': 'अंग्रेज़ी',
   'simple.people.lang.hi': 'हिंदी',
   'simple.people.lang.hinglish': 'हिंग्लिश',

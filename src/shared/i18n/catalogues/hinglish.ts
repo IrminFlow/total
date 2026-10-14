@@ -890,7 +890,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.people.reminder.opened': 'Message ke saath WhatsApp khul raha hai — aaj bheje gaye reminder ke roop mein darj.',
   'simple.people.reminder.noPhone': 'Aisa koi mobile number save nahi hai jise WhatsApp use kar sake (India ke bahar ke number ke liye country code ke saath), isliye WhatsApp poochhega ki kise bhejna hai.',
   'simple.people.reminder.noCopy': 'Total ise copy nahi kar saka. Text select karke khud copy karein.',
-  'simple.people.reminder.nothingLate': 'Abhi kisi ki date nahi nikli, isliye yaad dilane ko kuch nahi hai.',
+  'simple.people.reminder.nothingLate': 'Abhi kuch bhi late nahi hai, isliye reminder bhejne ko kuch nahi hai. Unhein baaki rakam dikhane ke liye Statement bhejein.',
   'simple.people.lang.en': 'English',
   'simple.people.lang.hi': 'Hindi',
   'simple.people.lang.hinglish': 'Hinglish',

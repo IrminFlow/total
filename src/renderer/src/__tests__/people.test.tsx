@@ -171,6 +171,14 @@ describe('a person’s page', () => {
     expect(bannedWordsIn(visibleText())).toEqual([])
   })
 
+  it('WP 10.8: a customer who owes but has nothing late is told why there is no reminder', async () => {
+    const notLate: PersonData = { ...RAMESH, bills: [RAMESH.bills[1]!], reminder: null }
+    invoke.mockImplementation(async (channel: string) => (channel === 'simple:people:person' ? { ok: true, data: notLate } : { ok: true, data: [] }))
+    renderUi(<PersonView id={10} />)
+    expect((await screen.findByTestId('person-nothing-late')).textContent).toBe('Nothing is late yet, so there is no reminder to send. To show them what they owe, use Statement.')
+    expect(screen.queryByTestId('btn-person-remind')).toBeNull()
+  })
+
   it('a supplier: Money out and Record a purchase; no reminder or hold', async () => {
     renderUi(<PersonView id={20} />)
     await waitFor(() => expect(screen.getByTestId('person-balance').textContent).toBe('You owe ₹800.00'))

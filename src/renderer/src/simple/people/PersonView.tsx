@@ -213,6 +213,13 @@ function Person({ p }: { p: PersonData }): React.JSX.Element {
             </Button>
           )}
         </div>
+        {/* WP 10.8: a customer who owes money but has nothing late sees why there is no reminder
+            (the beginner study: every udhaar customer's page simply had no Remind button). */}
+        {canEdit && customer && !p.reminder && p.bills.length > 0 && (
+          <p className="mt-3 text-detail text-muted" data-testid="person-nothing-late">
+            {t('simple.people.reminder.nothingLate')}
+          </p>
+        )}
         {statement && (
           <p className="mt-3 text-detail text-ink" data-testid="person-statement-saved">
             {t('simple.people.statementSaved')}{' '}

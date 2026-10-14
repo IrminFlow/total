@@ -947,7 +947,7 @@ export const en = {
   'simple.people.reminder.opened': 'WhatsApp is opening with the message — noted as a reminder sent today.',
   'simple.people.reminder.noPhone': 'No mobile number WhatsApp can use is saved (with the country code for a number outside India), so WhatsApp will ask whom to send it to.',
   'simple.people.reminder.noCopy': 'Total couldn’t copy it. Select the text and copy it yourself.',
-  'simple.people.reminder.nothingLate': 'Nothing is late yet, so there is nothing to remind them of.',
+  'simple.people.reminder.nothingLate': 'Nothing is late yet, so there is no reminder to send. To show them what they owe, use Statement.',
   'simple.people.lang.en': 'English',
   'simple.people.lang.hi': 'हिंदी',
   'simple.people.lang.hinglish': 'Hinglish',
