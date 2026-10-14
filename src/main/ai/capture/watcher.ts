@@ -19,6 +19,11 @@ import { checkCaptureFile, insertCaptureFile } from './store'
 
 export const CAPTURE_INBOX_USER = 'capture-inbox'
 export const INBOX_MAX_ATTEMPTS = 5
+/** WP 7.3 review: how long a file another program holds open (Windows EBUSY / EPERM / EACCES on
+ *  read — a scanner app still writing, an antivirus scan, a sync client) is waited for. Five scans
+ *  (~6 s) gave up on a scanner that keeps a multi-page PDF open for half a minute, and a given-up
+ *  file then sat in the inbox, ignored, until the app restarted. */
+export const INBOX_LOCKED_MAX_MS = 5 * 60 * 1000
 
 export interface InboxScanOutcome {
   file: string
@@ -27,13 +32,17 @@ export interface InboxScanOutcome {
   movedTo: string
 }
 
-/** Per-company scan memory: last seen size+mtime per file, failed move attempts, given-up files. */
+/** Per-company scan memory: last seen size+mtime per file, failed move attempts, given-up files,
+ *  and (WP 7.3 review) since when a file has been held open by another program — and, for a file
+ *  given up on that way, its size+mtime then: once it changes the file is looked at again. */
 export interface InboxScanState {
   seen: Map<string, string>
   attempts: Map<string, number>
   gaveUp: Set<string>
+  lockedSince: Map<string, number>
+  lockedGaveUp: Map<string, string>
 }
-export const newScanState = (): InboxScanState => ({ seen: new Map(), attempts: new Map(), gaveUp: new Set() })
+export const newScanState = (): InboxScanState => ({ seen: new Map(), attempts: new Map(), gaveUp: new Set(), lockedSince: new Map(), lockedGaveUp: new Map() })
 
 const stamp = (): string => new Date().toISOString().replace(/[:.]/g, '-')
 const skip = (name: string): boolean => name.startsWith('.') || /\.(crdownload|part|tmp|download)$/i.test(name) || /\.reason\.txt$/i.test(name)
@@ -44,7 +53,7 @@ export async function scanCaptureInbox(
   db: DB,
   companyDir: string,
   state: InboxScanState = newScanState(),
-  opts: { now?: number; minAgeMs?: number; requireStable?: boolean } = {}
+  opts: { now?: number; minAgeMs?: number; requireStable?: boolean; readFile?: (path: string) => Buffer } = {}
 ): Promise<{ outcomes: InboxScanOutcome[]; waiting: number }> {
   const inbox = captureInboxDir(companyDir)
   if (!existsSync(inbox)) return { outcomes: [], waiting: 0 }
@@ -54,6 +63,7 @@ export async function scanCaptureInbox(
   let waiting = 0
   const processed = join(inbox, 'processed')
   const failedDir = join(inbox, 'failed')
+  const read = opts.readFile ?? ((p: string) => readFileSync(p))
   for (const name of readdirSync(inbox).sort()) {
     if (skip(name) || state.gaveUp.has(name)) continue
     const full = join(inbox, name)
@@ -65,6 +75,12 @@ export async function scanCaptureInbox(
     }
     if (st.isSymbolicLink() || !st.isFile()) continue
     const sig = `${st.size}:${st.mtimeMs}`
+    const lockedAt = state.lockedGaveUp.get(name)
+    if (lockedAt !== undefined) {
+      if (lockedAt === sig) continue
+      state.lockedGaveUp.delete(name) // the file changed since we gave up on it: look again
+      state.lockedSince.delete(name)
+    }
     const stable = state.seen.get(name) === sig
     state.seen.set(name, sig)
     if (now - st.mtimeMs < minAge || (opts.requireStable !== false && !stable)) {
@@ -102,17 +118,20 @@ export async function scanCaptureInbox(
     }
     let bytes: Buffer
     try {
-      bytes = readFileSync(full)
+      bytes = read(full)
+      state.lockedSince.delete(name)
     } catch (err) {
       // WP 7.3: on Windows a file another program still holds open (a scanner app, Explorer's
       // copy, an antivirus scan) cannot be read — EBUSY / EPERM / EACCES. That is "not yet", not
-      // a bad bill: look again shortly, and give up quietly after INBOX_MAX_ATTEMPTS.
+      // a bad bill: look again shortly for up to INBOX_LOCKED_MAX_MS, then leave it in place
+      // (logged once) until it changes — never moved to failed/, never an endless rescan.
       const code = (err as NodeJS.ErrnoException).code
       if (code === 'EBUSY' || code === 'EPERM' || code === 'EACCES') {
-        const n = (state.attempts.get(name) ?? 0) + 1
-        state.attempts.set(name, n)
-        if (n >= INBOX_MAX_ATTEMPTS) {
-          state.gaveUp.add(name)
+        const since = state.lockedSince.get(name) ?? now
+        state.lockedSince.set(name, since)
+        if (now - since >= INBOX_LOCKED_MAX_MS) {
+          state.lockedSince.delete(name)
+          state.lockedGaveUp.set(name, sig)
           log('warn', 'capture-inbox-read-gave-up', { file: name, error: (err as Error).message })
         } else waiting++
         continue
