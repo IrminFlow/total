@@ -647,6 +647,7 @@ export const en = {
   'simple.stock.what.used': 'Used to make goods',
   'simple.stock.what.sent': 'Sent out',
   'simple.stock.what.received': 'Received',
+  'simple.stock.what.adjusted': 'Changed by hand',
   'simple.stock.what.other': 'Moved',
   'simple.stock.count.subtitle': 'Type what is actually on the shelf. Leave a product blank to keep it as it is.',
   'simple.stock.count.accountantHint': 'Open the full stock count form',

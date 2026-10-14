@@ -24,7 +24,7 @@ import { stockItemInputSchema } from '@shared/schemas'
 import { buildPhysicalPayload, emptyPhysicalState, manufactureRepresentation, physicalRepresentation } from '@shared/voucherEdit'
 import type { ManufactureInput } from '@shared/manufacture'
 import { countIntentFrom, emptyMakeForm, makeIntentFrom, type MakeForm } from '@shared/simple/stock'
-import { createLedger, createStockItem } from './masters'
+import { createGodown, createLedger, createStockItem } from './masters'
 import { getVoucher, saveVoucher, setLockDate } from './vouchers'
 import { stockSummary } from './stockAnalysis'
 import { setBom } from './bom'
@@ -283,6 +283,27 @@ describe('the product view, Change price, Home', () => {
     const bread = stockProduct(db, I('Bread'), TODAY)!
     expect(bread.recipe!.lines.map((l) => [l.name, l.qtyMilliPerUnit])).toEqual([['Flour', 500], ['Box', 1000]])
     expect(bread.history.rows.map((r) => r.what)).toEqual(['made'])
+  })
+
+  it('history: a stock journal that is not a manufacture is never "used to make goods" (a write-off reads "Changed by hand", a transfer "Moved")', () => {
+    const blank = { partyLedgerId: null, narration: null, reference: null, instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null, transportDistanceKm: null, posOverride: null, currencyCode: null, exchangeRate: null }
+    const main = createGodown(db, { name: 'Shop' }).id
+    const back = createGodown(db, { name: 'Back room' }).id
+    // 1 kg of flour written off by hand in the full app's stock journal.
+    saveVoucher(db, { ...blank, voucherTypeId: typeId(db, 'stock_journal'), date: DAY, lines: [], inventory: [
+      { stockItemId: I('Flour'), godownId: main, batchId: null, qtyMilli: 1000, ratePaise: 0, amount: 4000, direction: 'out' }
+    ] } as Parameters<typeof saveVoucher>[1])
+    // 2 kg moved from the shop to the back room.
+    saveVoucher(db, { ...blank, voucherTypeId: typeId(db, 'stock_journal'), date: DAY, lines: [], inventory: [
+      { stockItemId: I('Flour'), godownId: main, batchId: null, qtyMilli: 2000, ratePaise: 0, amount: 8000, direction: 'out' },
+      { stockItemId: I('Flour'), godownId: back, batchId: null, qtyMilli: 2000, ratePaise: 0, amount: 8000, direction: 'in' }
+    ] } as Parameters<typeof saveVoucher>[1])
+    post(makeIntentFrom({ ...emptyMakeForm(DAY), itemId: I('Bread'), qtyText: '2', price: 5000 }))
+    const flour = stockProduct(db, I('Flour'), TODAY)!
+    expect(flour.history.rows.map((r) => [r.what, r.inMilli, r.outMilli])).toEqual([
+      ['adjusted', 0, 1000], ['other', 0, 2000], ['other', 2000, 0], ['used', 0, 1000]
+    ])
+    expect(stockProduct(db, I('Bread'), TODAY)!.history.rows.map((r) => r.what)).toEqual(['made'])
   })
 
   it('Change price: a new row from the date on the default level; earlier bills keep the old price', () => {

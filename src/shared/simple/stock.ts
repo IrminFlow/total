@@ -83,7 +83,7 @@ export interface StockList {
   lowCount: number
 }
 
-export type StockHistoryWhat = 'opening' | 'bought' | 'sold' | 'returnedIn' | 'returnedOut' | 'counted' | 'made' | 'used' | 'sent' | 'received' | 'other'
+export type StockHistoryWhat = 'opening' | 'bought' | 'sold' | 'returnedIn' | 'returnedOut' | 'counted' | 'made' | 'used' | 'sent' | 'received' | 'adjusted' | 'other'
 
 export interface StockHistoryRow {
   voucherId: number
@@ -123,8 +123,16 @@ export interface StockProductView {
   history: { from: string; openingMilli: number; rows: StockHistoryRow[] }
 }
 
-/** The register's voucher kind + direction, in plain words. */
-export function historyWhat(kind: string, direction: 'in' | 'out', absolute: boolean): StockHistoryWhat {
+/** The register's voucher kind + direction, in plain words. A stock journal is "made" / "used"
+ *  only when it is a manufacture (it has its `manufacture_details` row); any other stock journal
+ *  is a move between places (the same product in AND out of the entry — "Moved") or a change made
+ *  by hand in the full app (a write-off, a correction — "Adjusted"), never "used to make goods". */
+export function historyWhat(
+  kind: string,
+  direction: 'in' | 'out',
+  absolute: boolean,
+  journal: { manufacture: boolean; bothWays: boolean } = { manufacture: true, bothWays: false }
+): StockHistoryWhat {
   if (absolute) return 'counted'
   switch (kind) {
     case 'sales':
@@ -138,6 +146,7 @@ export function historyWhat(kind: string, direction: 'in' | 'out', absolute: boo
     case 'physical_stock':
       return 'counted'
     case 'stock_journal':
+      if (!journal.manufacture) return journal.bothWays ? 'other' : 'adjusted'
       return direction === 'in' ? 'made' : 'used'
     case 'delivery_note':
       return direction === 'out' ? 'sent' : 'returnedIn'

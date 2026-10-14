@@ -96,6 +96,21 @@ export function stockProduct(db: DB, itemId: number, asOn: string): StockProduct
     if (!s || !f) return null
     const fy = fyOf(asOn)
     const reg = stockMovements(db, itemId, fy.from, asOn)
+    // Which stock journals are manufactures (made / used) and which move this product both ways
+    // (a transfer between places) — any other stock journal is an adjustment, not "made".
+    const ids = [...new Set(reg.rows.filter((r) => r.kind === 'stock_journal').map((r) => r.voucherId))]
+    const made = new Set(
+      ids.length
+        ? (db.prepare(`SELECT voucher_id AS id FROM manufacture_details WHERE voucher_id IN (${ids.map(() => '?').join(',')})`).all(...ids) as { id: number }[]).map((r) => r.id)
+        : []
+    )
+    const ways = new Map<number, Set<'in' | 'out'>>()
+    for (const r of reg.rows) {
+      if (r.kind !== 'stock_journal') continue
+      const w = ways.get(r.voucherId) ?? new Set<'in' | 'out'>()
+      w.add(r.inwardQtyMilli > 0 ? 'in' : 'out')
+      ways.set(r.voucherId, w)
+    }
     return {
       itemId,
       name: s.name,
@@ -116,7 +131,7 @@ export function stockProduct(db: DB, itemId: number, asOn: string): StockProduct
         rows: reg.rows.map((r) => ({
           voucherId: r.voucherId,
           date: r.date,
-          what: historyWhat(r.kind, r.inwardQtyMilli > 0 ? 'in' : 'out', r.isAbsolute),
+          what: historyWhat(r.kind, r.inwardQtyMilli > 0 ? 'in' : 'out', r.isAbsolute, { manufacture: made.has(r.voucherId), bothWays: (ways.get(r.voucherId)?.size ?? 0) === 2 }),
           party: r.partyLedgerId != null ? r.particulars : null,
           inMilli: r.inwardQtyMilli,
           outMilli: r.outwardQtyMilli,

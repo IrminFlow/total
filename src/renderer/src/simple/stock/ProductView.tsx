@@ -24,6 +24,7 @@ const WHAT_TEXT: Record<StockHistoryWhat, MessageKey> = {
   used: 'simple.stock.what.used',
   sent: 'simple.stock.what.sent',
   received: 'simple.stock.what.received',
+  adjusted: 'simple.stock.what.adjusted',
   other: 'simple.stock.what.other'
 }
 
