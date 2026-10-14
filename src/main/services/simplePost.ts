@@ -29,7 +29,7 @@ import {
 } from '@shared/simple/intents'
 import { pickTaxLedger, taxLedgerIdsFrom, taxSideOf, voucherCarriesGst, voucherTaxLedgers, type TaxLedgerIds, type TaxSide } from '@shared/voucherEdit'
 import { companyT } from '../i18n'
-import { createLedger, listLedgers, listStockItems, listVoucherTypes } from './masters'
+import { createLedger, findOrCreateLedger, listLedgers, listStockItems, listVoucherTypes } from './masters'
 import { getLockDate, getVoucher, lockedError, nextVoucherNumber, NOT_DELETED, saveVoucher } from './vouchers'
 import { counterAccounts, ensureWalkIn } from './counter'
 import { pricingLoader, rememberSalePrices } from './pricing'
@@ -41,6 +41,11 @@ import { ledgerClassifier } from '../ai/ledgerClass'
 import { rehearse } from '../ai/drafting/rehearse'
 import { getFeatures } from './config'
 import { tdsEligible } from './tdsWorkbench'
+import { stockSummary } from './stockAnalysis'
+import { listBomVersions } from './bom'
+import { costPreview, saveManufacture, suggestedSaleRate } from './manufacture'
+import { recipeRows } from '@shared/simple/stock'
+import { LABOUR_CREDIT_GROUP, LABOUR_CREDIT_LEDGER, LABOUR_EXPENSE_GROUP, LABOUR_EXPENSE_LEDGER } from '@shared/manufacture'
 
 // ---------------------------------------------------------------- context
 
@@ -51,7 +56,36 @@ const KINDS_FOR: Record<NormalIntent['kind'], VoucherKind[]> = {
   money_out: ['payment'],
   move_money: ['contra'],
   return_sale: ['credit_note', 'payment'],
-  return_purchase: ['debit_note', 'receipt']
+  return_purchase: ['debit_note', 'receipt'],
+  stock_count: ['physical_stock'],
+  make_goods: ['stock_journal']
+}
+
+/** WP 9.7: the stock and recipe facts the stock intents map from — the same services the
+ *  accountant screens read (Stock summary's valuation pass, the Manufacture screen's cost
+ *  preview, its sale-rate prefill and its labour accounts). */
+function loadStockContext(db: DB, n: NormalIntent): Pick<IntentContext, 'stock' | 'make'> {
+  if (n.kind !== 'stock_count' && n.kind !== 'make_goods') return {}
+  const stock = new Map(stockSummary(db, n.date).map((r) => [r.stockItemId, { name: r.name, unit: r.unitSymbol, qtyMilli: r.closingQtyMilli, value: r.closingValue }]))
+  if (n.kind === 'stock_count') return { stock }
+  const versions = listBomVersions(db)
+  const recipe = recipeRows(n.itemId, n.qtyMilli, versions, n.date)
+  const preview = recipe ? costPreview(db, { date: n.date, finishedItemId: n.itemId, lines: recipe.rows.map((r) => ({ itemId: r.componentId, qtyMilli: r.qtyMilli })) }) : null
+  // Labour recorded here (wages still to pay) posts on the editor's own accounts, found or
+  // created exactly as saveManufacture does (rolled back with a rehearsal).
+  const postLabour = n.labour > 0 && !n.labourRecorded
+  return {
+    stock,
+    make: {
+      versions,
+      suggestedPrice: suggestedSaleRate(db, n.itemId, n.date).ratePaise,
+      priced: preview ? { lines: preview.lines.map((l) => ({ itemId: l.itemId, qtyMilli: l.qtyMilli, costPaise: l.costPaise, onHandQtyMilli: l.onHandQtyMilli })), totalPaise: preview.totalPaise } : { lines: [], totalPaise: 0 },
+      labour: {
+        expenseId: postLabour ? findOrCreateLedger(db, LABOUR_EXPENSE_LEDGER, LABOUR_EXPENSE_GROUP) : null,
+        creditId: postLabour ? findOrCreateLedger(db, LABOUR_CREDIT_LEDGER, LABOUR_CREDIT_GROUP) : null
+      }
+    }
+  }
 }
 
 function byCategory(db: DB, ...keys: string[]): number | null {
@@ -223,7 +257,8 @@ export function loadIntentContext(db: DB, company: CompanyInfo, n: NormalIntent)
     openBills: bills,
     openCredits,
     original,
-    takenNames
+    takenNames,
+    ...loadStockContext(db, n)
   }
 }
 
@@ -255,6 +290,9 @@ function intentField(n: NormalIntent, role: MappedEntry['role'], field: string |
   const trade = n.kind === 'sale' || n.kind === 'purchase'
   const isReturn = n.kind === 'return_sale' || n.kind === 'return_purchase'
   if (head === 'date') return 'date'
+  // WP 9.7: a count's products are its `counts`; a batch made is refused on how many were made.
+  if (n.kind === 'stock_count') return head === 'number' ? 'number' : 'counts'
+  if (n.kind === 'make_goods') return head === 'number' ? 'number' : 'qty'
   if (role === 'payment' || role === 'refund') {
     if (head === 'party') return isReturn ? 'bill' : 'party'
     return role
@@ -283,7 +321,8 @@ export function remapSaveError(err: unknown, n: NormalIntent, entry: MappedEntry
   if (!isAppError(err)) {
     if (!(err instanceof Error) || err instanceof NeedTaxLedgers) throw err
     const onItems = (entry.payload.inventory ?? []).length > 0
-    throw new AppError('simple_save_refused', err.message, { ...(onItems ? { field: 'items' } : {}), params: { part: entry.role } })
+    const field = n.kind === 'stock_count' ? 'counts' : n.kind === 'make_goods' ? 'qty' : onItems ? 'items' : null
+    throw new AppError('simple_save_refused', err.message, { ...(field ? { field } : {}), params: { part: entry.role } })
   }
   const templ = (code: string, line?: number): string | undefined => {
     const f = isErrorCode(code) ? (ERROR_MAP[code] as { field?: string }).field : undefined
@@ -390,10 +429,13 @@ function execute(db: DB, company: CompanyInfo, n: NormalIntent, today: string): 
   guardDate(db, company, n.date, today)
   if (n.kind === 'purchase' && n.billNo) guardDuplicateBill(db, n.supplierId, n.billNo, n.date)
   const mapped = mapWithLedgers(db, company, n)
+  const valueBefore = n.kind === 'stock_count' ? new Map(stockSummary(db, n.date).map((r) => [r.stockItemId, r.closingValue])) : null
   const warnings: SaveVoucherWarnings[] = []
   const saved = mapped.entries.map((entry) => {
     try {
-      const r = saveVoucher(db, entry.payload)
+      // WP 9.7: a batch made saves the way the Manufacture screen saves it (saveManufacture →
+      // saveVoucher, with its manufacture_details row); every other entry through saveVoucher.
+      const r = entry.form === 'manufacture' ? saveManufacture(db, entry.input) : saveVoucher(db, entry.payload)
       warnings.push(r.warnings)
       return { entry, id: r.id, number: r.number }
     } catch (err) {
@@ -408,6 +450,13 @@ function execute(db: DB, company: CompanyInfo, n: NormalIntent, today: string): 
     const a = partyAllocation(db, partyId, n.date)
     facts.balance = a.bills.reduce((t, b) => t + b.pending, 0) - a.unappliedCredit
     facts.due = Math.max(0, facts.balance)
+  }
+  // WP 9.7: what the count did to the stock's value — the valuation engine's figure from the
+  // books as saved (the pass after the count vs the position the count was mapped from).
+  if (n.kind === 'stock_count' && facts.count) {
+    const after = new Map(stockSummary(db, n.date).map((r) => [r.stockItemId, r.closingValue]))
+    const before = valueBefore ?? new Map<number, number>()
+    facts.count = { lines: facts.count.lines.map((l) => ({ ...l, valueChange: (after.get(l.itemId) ?? 0) - (before.get(l.itemId) ?? 0) })) }
   }
   return { saved, facts, warnings: mergeWarnings(warnings) }
 }

@@ -32,6 +32,7 @@ import { dashGst, dashSetup, tdsApplies, tdsPayableLedgers, userBackupsOf, type 
 import { anomalies, closeChecklist, getStatement } from './assistants'
 import { extractPurchaseDocs } from './gst'
 import { getRecon2bTolerances } from './gstIms'
+import { lowStockCount } from './simpleStock'
 
 /** The as-on date: what was asked for, never after the server's today. */
 export function homeAsOn(asked: string | undefined, serverToday: string): string {
@@ -213,6 +214,11 @@ export function simpleHomeAttention(db: DB, company: CompanyInfo, today: string)
     const count = (db.prepare(`SELECT COUNT(*) AS n FROM vouchers v WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS}`).get(fy.from, today) as { n: number }).n
     const anomaliesSkipped = count > ANOMALY_HOME_CAP
     const found = anomaliesSkipped ? [] : anomalies(db, fy.from, today).rows
-    return { period, items: attentionItems(checks, found), anomaliesSkipped }
+    const items = attentionItems(checks, found)
+    // WP 9.7: products running low or out (the Stock list's own rule, as on today) — one row
+    // that opens the list filtered to them.
+    const low = getFeatures(db).inventory ? lowStockCount(db, today) : 0
+    if (low > 0) items.push({ source: 'stock', key: 'low_stock', count: low, amount: null, level: 'medium' })
+    return { period, items, anomaliesSkipped }
   })()
 }

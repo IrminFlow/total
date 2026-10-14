@@ -19,7 +19,7 @@ export const DEFAULT_SELLING_LEVEL = 'Selling price'
  *  IS — never made the default, so pricing keeps behaving exactly as the user set it up (the
  *  resolver finds it only through a party that points at it); otherwise a new default level
  *  "Selling price" (or "Selling price (2)", … when that name is taken) is created. */
-function sellingLevel(db: DB): { id: number } {
+export function sellingLevel(db: DB): { id: number } {
   const byName = (n: string): { id: number } | undefined =>
     db.prepare('SELECT id FROM price_levels WHERE name = ? COLLATE NOCASE').get(n) as { id: number } | undefined
   const existing = byName(DEFAULT_SELLING_LEVEL)

@@ -10,7 +10,7 @@ import { SIMPLE_SECTION_IDS } from '@shared/simple/uiMode'
 import { ACCOUNTANT_NAV, SCREENS, SIMPLE_ENTRIES, SIMPLE_ENTRY_ORDER, SIMPLE_SECTIONS, screenView, simpleEntriesOf, simpleSectionOf } from '../lib/screens'
 
 // Screens that exist only in the simple shell (no 0.10 counterpart).
-const SIMPLE_ONLY: string[] = ['simple-section', 'simple-looks', 'simple-features', 'simple-openings', 'simple-sell', 'simple-sales', 'simple-quick-bill', 'simple-buy', 'simple-purchases', 'simple-money-in', 'simple-money-out', 'simple-move-money', 'simple-money', 'simple-bank']
+const SIMPLE_ONLY: string[] = ['simple-section', 'simple-looks', 'simple-features', 'simple-openings', 'simple-sell', 'simple-sales', 'simple-quick-bill', 'simple-buy', 'simple-purchases', 'simple-money-in', 'simple-money-out', 'simple-move-money', 'simple-money', 'simple-bank', 'simple-stock', 'simple-stock-count', 'simple-made-goods']
 
 describe('screen registry modes (WP 8.1)', () => {
   it('every screen declares its modes; every 0.10 screen is an accountant screen', () => {
@@ -29,7 +29,7 @@ describe('screen registry modes (WP 8.1)', () => {
 
   it('every simple-mode screen is drawn by a component under src/renderer/src/simple/ (so the i18n lints cover it)', () => {
     const simple = SCREENS.filter((d) => d.modes.includes('simple'))
-    expect(simple.map((d) => d.name).sort()).toEqual(['gateway', 'simple-bank', 'simple-buy', 'simple-features', 'simple-looks', 'simple-money', 'simple-money-in', 'simple-money-out', 'simple-move-money', 'simple-openings', 'simple-purchases', 'simple-quick-bill', 'simple-sales', 'simple-section', 'simple-sell'])
+    expect(simple.map((d) => d.name).sort()).toEqual(['gateway', 'simple-bank', 'simple-buy', 'simple-features', 'simple-looks', 'simple-made-goods', 'simple-money', 'simple-money-in', 'simple-money-out', 'simple-move-money', 'simple-openings', 'simple-purchases', 'simple-quick-bill', 'simple-sales', 'simple-section', 'simple-sell', 'simple-stock', 'simple-stock-count'])
     for (const d of simple) {
       // A component under simple/ — Phase 9's flows live in a folder per section (simple/sell/…, simple/buy/…, simple/money/…).
       expect(d.simpleView, d.name).toMatch(/^([a-z]+\/)?[A-Z]\w+$/)
@@ -47,6 +47,16 @@ describe('screen registry modes (WP 8.1)', () => {
     expect(tab('record-purchase')).toEqual({ name: 'simple-buy' })
     expect(simpleEntriesOf('buy').map((e) => e.id).slice(0, 2)).toEqual(['record-purchase', 'purchase-list'])
     expect(tab('by-month')).toEqual({ name: 'registers', tab: 'sales' })
+  })
+
+  it('Stock is the simple flows (WP 9.7): products, running low, count, made goods — then the full app', () => {
+    const tab = (id: string): unknown => SIMPLE_ENTRIES.find((e) => e.id === id)?.screen
+    expect(simpleEntriesOf('stock').map((e) => e.id)).toEqual(['products', 'low-stock', 'stock-count', 'made-goods', 'product-list', 'expiry-labels'])
+    expect(tab('products')).toEqual({ name: 'simple-stock' })
+    expect(tab('low-stock')).toEqual({ name: 'simple-stock', filter: 'low' })
+    expect(tab('stock-count')).toEqual({ name: 'simple-stock-count' })
+    expect(tab('made-goods')).toEqual({ name: 'simple-made-goods' })
+    expect(SIMPLE_ENTRIES.find((e) => e.id === 'made-goods')?.features).toContain('manufacturing')
   })
 
   it('the simple Settings list: business details, day one … how Total looks, then Advanced (the full Settings)', () => {

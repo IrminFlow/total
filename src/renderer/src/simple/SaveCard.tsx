@@ -19,7 +19,9 @@ export function SaveCard({
   onNew,
   onEdit,
   onUndone,
-  skipParties = false
+  skipParties = false,
+  sentences: given,
+  printable = true
 }: {
   voucherIds: number[]
   onNew: () => void
@@ -28,6 +30,11 @@ export function SaveCard({
   /** WP 9.2: leave out where the party stands — a walk-in sale's "cash customer" is the counter's
    *  account, not a customer anyone follows up. */
   skipParties?: boolean
+  /** WP 9.7: what was saved, in the intent's own words (simple:post's sentences) — a stock count
+   *  or a batch made has no bill amount or party for the card's usual sentences. */
+  sentences?: string[]
+  /** WP 9.7: false hides Print / PDF / Share (a stock entry is not a document anyone is sent). */
+  printable?: boolean
 }): React.JSX.Element {
   const t = useT()
   const queryClient = useQueryClient()
@@ -42,7 +49,7 @@ export function SaveCard({
     enabled: !undone
   })
   const primary = voucherIds[0]!
-  const sentences = data ? saveCardSentences(skipParties ? { ...data, parties: [] } : data, t) : []
+  const sentences = given ?? (data ? saveCardSentences(skipParties ? { ...data, parties: [] } : data, t) : [])
 
   const fail = (err: unknown): void => {
     // Refused because it changed since (or went to the bin): re-read, so the card says so.
@@ -132,15 +139,19 @@ export function SaveCard({
         </p>
       )}
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button data-testid="btn-save-card-print" disabled={busy} onClick={() => void run(async () => void (await api.invoice.pdf(primary)))}>
-          {t('common.print')}
-        </Button>
-        <Button data-testid="btn-save-card-pdf" disabled={busy} onClick={() => void pdf()}>
-          {t('common.pdf')}
-        </Button>
-        <Button data-testid="btn-save-card-share" disabled={busy} onClick={() => void share()}>
-          {t('common.share')}
-        </Button>
+        {printable && (
+          <>
+            <Button data-testid="btn-save-card-print" disabled={busy} onClick={() => void run(async () => void (await api.invoice.pdf(primary)))}>
+              {t('common.print')}
+            </Button>
+            <Button data-testid="btn-save-card-pdf" disabled={busy} onClick={() => void pdf()}>
+              {t('common.pdf')}
+            </Button>
+            <Button data-testid="btn-save-card-share" disabled={busy} onClick={() => void share()}>
+              {t('common.share')}
+            </Button>
+          </>
+        )}
         <Button variant="primary" data-testid="btn-save-card-new" onClick={onNew}>
           {t('simple.saveCard.new')}
         </Button>

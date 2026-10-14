@@ -85,6 +85,11 @@ export type Screen =
   // WP 9.3: Buy — Record a purchase, the purchase list (`billId` = that bill's simple view).
   | { name: 'simple-buy' }
   | { name: 'simple-purchases'; billId?: number }
+  // WP 9.7: Stock — the product list (`filter: 'low'` = only what is running low; `itemId` = that
+  // product's simple view), Count your stock, Made goods (`itemId` = that product picked).
+  | { name: 'simple-stock'; filter?: 'low'; itemId?: number }
+  | { name: 'simple-stock-count' }
+  | { name: 'simple-made-goods'; itemId?: number }
   | { name: 'counter-billing' }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).
