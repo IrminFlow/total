@@ -26,6 +26,10 @@ async function wizard(h) {
   await h.click('setup-finish')
   await h.waitScreen('gateway', 30000)
   await attached(h, '[data-testid="simple-home"]', 20000)
+  // WP 10.3: the first-run tour of Home shows after the wizard — skip it (e2e 48 walks it).
+  await attached(h, '[data-testid="tour"]')
+  await h.click('tour-skip')
+  await h.page.waitForSelector('[data-testid="tour"]', { state: 'detached', timeout: 5000 })
   await h.waitIdle()
 }
 
