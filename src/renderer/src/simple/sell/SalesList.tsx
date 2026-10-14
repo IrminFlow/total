@@ -3,25 +3,28 @@ import { useQuery } from '@tanstack/react-query'
 import type { MessageKey } from '@shared/i18n'
 import { formatPaise, formatQtyMilli } from '@shared/money'
 import { toPlainDate } from '@shared/dates'
-import { saleStatus, type SaleRow, type SaleStatus } from '@shared/simple/sell'
+import { offBillByReturns, saleStatus, type SaleRow, type SaleStatus } from '@shared/simple/sell'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession } from '../../state/stores'
 import { Button, Page } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { recordPaymentScreen } from './recordPayment'
+import { returnScreen, useReturnable } from '../returns/returnable'
 
 const STATUS_TEXT: Record<SaleStatus, MessageKey> = {
   paid: 'simple.sales.status.paid',
   part: 'simple.sales.status.part',
   due: 'simple.sales.status.due',
-  overdue: 'simple.sales.status.overdue'
+  overdue: 'simple.sales.status.overdue',
+  returned: 'simple.sales.status.returned'
 }
 const STATUS_CLS: Record<SaleStatus, string> = {
   paid: 'border-success/50 bg-success-soft text-ink',
   part: 'border-amber/60 bg-amberbar/10 text-ink',
   due: 'border-line bg-panel2 text-ink',
-  overdue: 'border-danger/50 bg-danger-soft text-danger'
+  overdue: 'border-danger/50 bg-danger-soft text-danger',
+  returned: 'border-line bg-panel2 text-muted'
 }
 
 function StatusChip({ status }: { status: SaleStatus }): React.JSX.Element {
@@ -34,7 +37,18 @@ function StatusChip({ status }: { status: SaleStatus }): React.JSX.Element {
   )
 }
 
+/** WP 9.5: a bill with returns against it — "Returned ₹118.00". */
+function ReturnedChip({ amount }: { amount: number }): React.JSX.Element {
+  const t = useT()
+  return (
+    <span className="inline-block rounded-full border border-line bg-panel2 px-2 py-0.5 text-caption text-muted" data-testid="sale-returned" data-paise={amount}>
+      {t('simple.returns.chip', { amount: formatPaise(amount, { symbol: true }) })}
+    </span>
+  )
+}
+
 const SELL_SCREEN = { name: 'simple-sell' } as const // i18n-technical
+const SALE_SIDE = 'sale' as const // i18n-technical
 const editScreen = (voucherId: number): { name: 'voucher-entry'; voucherId: number } => ({ name: 'voucher-entry', voucherId }) // i18n-technical
 
 /**
@@ -68,8 +82,13 @@ function SalesTable(): React.JSX.Element {
         { id: 'due', header: t('simple.sales.col.due'), kind: 'money', value: (r) => r.due, aggregate: 'sum', explainable: false }, // i18n-technical
         {
           id: 'status', header: t('simple.sales.col.status'), kind: 'text', groupable: false, filterable: false, // i18n-technical
-          value: (r) => t(STATUS_TEXT[saleStatus(r.total, r.due, r.overdueDays)]), // i18n-technical: typed key table
-          cell: (r) => <StatusChip status={saleStatus(r.total, r.due, r.overdueDays)} />
+          value: (r) => t(STATUS_TEXT[saleStatus(r.total, r.due, r.overdueDays, r.paid)]), // i18n-technical: typed key table
+          cell: (r) => (
+            <span className="flex flex-wrap items-center gap-1">
+              <StatusChip status={saleStatus(r.total, r.due, r.overdueDays, r.paid)} />
+              {r.returned > 0 && <ReturnedChip amount={r.returned} />}
+            </span>
+          )
         }
       ]),
     [t]
@@ -124,6 +143,7 @@ function BillView({ billId }: { billId: number }): React.JSX.Element {
   const nav = useNav()
   const workingDate = useSession((s) => s.workingDate)
   const { data: bill, isLoading } = useQuery({ queryKey: ['simpleSale', billId, workingDate], queryFn: () => api.simple.sale(billId, workingDate) }) // i18n-technical
+  const returnable = useReturnable(SALE_SIDE, billId)
   const { data: setup } = useQuery({ queryKey: ['simpleSellSetup'], queryFn: api.simple.sellSetup }) // i18n-technical
   const money = (p: number): string => formatPaise(p, { symbol: true })
   if (isLoading) return <Page data-testid="simple-sale">{null}</Page>
@@ -137,7 +157,9 @@ function BillView({ billId }: { billId: number }): React.JSX.Element {
       </Page>
     )
   }
-  const status = saleStatus(bill.total, bill.due, bill.overdueDays)
+  const status = saleStatus(bill.total, bill.due, bill.overdueDays, bill.paid)
+  // WP 9.5: what returns took off the bill (total = paid + due + this) — said, never read as paid.
+  const offByReturns = offBillByReturns(bill)
   return (
     <Page data-testid="simple-sale" data-bill={bill.voucherId}>
       <button type="button" className="mb-3 text-detail text-blue hover:underline" data-testid="btn-bill-back" onClick={() => nav.back()}>
@@ -151,7 +173,10 @@ function BillView({ billId }: { billId: number }): React.JSX.Element {
               {t('simple.bill.to', { name: bill.walkIn ? t('simple.sales.cashCustomer') : bill.partyName })} · {t('simple.bill.on', { date: toPlainDate(bill.date) })}
             </p>
           </div>
-          <StatusChip status={status} />
+          <span className="flex flex-wrap items-center gap-1">
+            <StatusChip status={status} />
+            {bill.returned > 0 && <ReturnedChip amount={bill.returned} />}
+          </span>
         </div>
 
         <h2 className="mt-5 mb-2 text-subtitle font-semibold text-ink">{t('simple.bill.items')}</h2>
@@ -196,12 +221,15 @@ function BillView({ billId }: { billId: number }): React.JSX.Element {
           </dd>
         </dl>
         <p className="mt-3 text-body text-ink" data-testid="simple-sale-due">
-          {bill.due <= 0
+          {bill.due <= 0 && offByReturns > 0
+            ? [bill.paid > 0 ? t('simple.bill.paidSoFar', { amount: money(bill.paid) }) : '', t('simple.bill.offByReturns', { amount: money(offByReturns) }), t('simple.bill.nothingMore')].filter(Boolean).join(' ')
+            : bill.due <= 0
             ? t('simple.bill.paidAll')
             : bill.dueDate
               ? t('simple.bill.dueBy', { amount: money(bill.due), date: toPlainDate(bill.dueDate) })
               : t('simple.bill.due', { amount: money(bill.due) })}
           {bill.due > 0 && bill.paid > 0 && ` ${t('simple.bill.paidSoFar', { amount: money(bill.paid) })}`}
+          {bill.due > 0 && offByReturns > 0 && ` ${t('simple.bill.offByReturns', { amount: money(offByReturns) })}`}
         </p>
 
         <div className="mt-5 flex flex-wrap gap-2">
@@ -211,6 +239,11 @@ function BillView({ billId }: { billId: number }): React.JSX.Element {
           {bill.due > 0 && !bill.walkIn && (
             <Button variant="primary" data-testid="btn-bill-record-payment" onClick={() => nav.go(recordPaymentScreen(bill, setup?.defaults.cash ?? null))}>
               {t('simple.bill.recordPayment')}
+            </Button>
+          )}
+          {returnable !== false && (
+            <Button data-testid="btn-bill-return" title={t('simple.returns.returnItemsHint')} onClick={() => nav.go(returnScreen(SALE_SIDE, bill.voucherId))}>
+              {t('simple.returns.returnItems')}
             </Button>
           )}
           <Button data-testid="btn-bill-edit" title={t('simple.bill.editHint')} onClick={() => nav.go(editScreen(bill.voucherId))}>

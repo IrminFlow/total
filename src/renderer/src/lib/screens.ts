@@ -116,10 +116,6 @@ export const SCREENS: ScreenDef[] = [
     name: 'voucher-entry',
     modes: ['accountant'],
     simpleSection: 'sell',
-    simpleEntries: [
-      { id: 'sale-returns', label: 'simple.entries.saleReturns', screen: { name: 'voucher-entry', kindHint: 'credit_note' } },
-      { id: 'purchase-returns', label: 'simple.entries.purchaseReturns', section: 'buy', screen: { name: 'voucher-entry', kindHint: 'debit_note' } }
-    ],
     title: 'Voucher entry',
     screen: { name: 'voucher-entry' },
     navSection: 'top',
@@ -1076,6 +1072,34 @@ export const SCREENS: ScreenDef[] = [
     screen: null, // simple shell only
     navSection: null,
     invalidates: ['counterConfig', 'counterHeld', 'counterDayEnd', 'nextNumber', 'stockItems', 'ledgers', 'groups', 'units', 'pricingConfig', 'printTemplates']
+  },
+  // WP 9.5: Sell → Return a sale / Buy → Return a purchase (simple/returns: which bill, what came
+  // back, money back or kept as credit → a `return_sale` / `return_purchase` intent →
+  // simple:post). Their accountant counterparts are the credit / debit note editors ("Accountant
+  // view"); a bill's simple view starts one from that bill (`billId`).
+  {
+    name: 'simple-return-sale',
+    modes: ['simple'],
+    simpleView: 'returns/ReturnSale',
+    simpleSection: 'sell',
+    simpleEntries: [{ id: 'sale-returns', label: 'simple.entries.saleReturns', screen: { name: 'simple-return-sale' } }],
+    title: 'Return a sale',
+    keywords: ['sale return', 'credit note', 'return', 'refund'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simpleReturnBills', 'simpleReturnBill', 'simpleSellSetup', 'ledgers', 'stockItems']
+  },
+  {
+    name: 'simple-return-purchase',
+    modes: ['simple'],
+    simpleView: 'returns/ReturnPurchase',
+    simpleSection: 'buy',
+    simpleEntries: [{ id: 'purchase-returns', label: 'simple.entries.purchaseReturns', screen: { name: 'simple-return-purchase' } }],
+    title: 'Return a purchase',
+    keywords: ['purchase return', 'debit note', 'return', 'refund'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simpleReturnBills', 'simpleReturnBill', 'simpleSellSetup', 'ledgers', 'stockItems']
   },
   // WP 9.3: Buy → Record a purchase (simple/buy/RecordPurchase: plain questions → a `purchase`
   // intent → simple:post). Its accountant counterpart is the purchase invoice editor

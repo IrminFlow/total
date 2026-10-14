@@ -227,6 +227,9 @@ describe('plain words', () => {
     expect(purchaseStatus(100, 40, 0)).toBe('part')
     expect(purchaseStatus(100, 100, 0)).toBe('due')
     expect(purchaseStatus(100, 100, 3)).toBe('overdue')
+    // WP 9.5 review: a bill a return cleared with nothing paid is not "Paid".
+    expect(purchaseStatus(100, 0, 0, 0)).toBe('returned')
+    expect(purchaseStatus(100, 0, 0, 60)).toBe('paid')
   })
   it('no banned word in the Buy strings', () => {
     const keys = ['simple.buy.preview.part', 'simple.buy.cantClaim', 'simple.buy.gstQuestionWhat', 'simple.buy.notYetHint', 'errors.intent.itemsNoGst', 'errors.intent.duplicateBill'] as const

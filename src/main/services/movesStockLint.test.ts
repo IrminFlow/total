@@ -59,6 +59,7 @@ const ALLOW: { file: string; contains: string; reason: string }[] = [
   { file: 'assistants.ts', contains: "WHERE vt.kind IN ('sales', 'purchase') AND v.date BETWEEN", reason: 'anomaly GST-rate check: the invoice items and their master rates (a document fact, wherever the goods moved)' },
   { file: 'ai/evals/runner.ts', contains: "'inventory_lines'", reason: 'WP 5.8 books digest: hashes every row of the book tables (unchanged-books check, not a stock reader)' },
   { file: 'ai/memory.ts', contains: 'SELECT il.stock_item_id AS id, si.name AS name, COUNT(DISTINCT il.voucher_id) AS n FROM inventory_lines il', reason: "a party's usual item = the items it was billed for (invoice items), wherever the goods moved" },
+  { file: 'simpleReturns.ts', contains: 'SELECT DISTINCT voucher_id AS id FROM inventory_lines', reason: 'WP 9.5: does the bill have item lines (its returnable items, wherever the goods moved) — shape, not stock' },
   { file: 'counter.ts', contains: 'FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u ON u.id = si.unit_id', reason: "day-end items = the counter invoices' items" }
 ]
 

@@ -358,11 +358,14 @@ export function purchasePreviewLine(f: IntentFacts, t: Translate): string {
 }
 
 /** A purchase list row's status chip. */
-export type PurchaseStatus = 'paid' | 'part' | 'due' | 'overdue'
-export function purchaseStatus(total: number, due: number, overdueDays: number): PurchaseStatus {
-  if (due <= 0) return 'paid'
+export type PurchaseStatus = 'paid' | 'part' | 'due' | 'overdue' | 'returned'
+/** `paid` (WP 9.5): what a return took off the bill is not a payment — "part paid" only when money
+ *  was actually paid (omitted = total − due), and a bill that returns cleared with nothing paid is
+ *  'returned' ("Nothing to pay"), never "Paid". */
+export function purchaseStatus(total: number, due: number, overdueDays: number, paid?: number): PurchaseStatus {
+  if (due <= 0) return paid != null && paid <= 0 && total > 0 ? 'returned' : 'paid'
   if (overdueDays > 0) return 'overdue'
-  return due < total ? 'part' : 'due'
+  return (paid ?? total - due) > 0 ? 'part' : 'due'
 }
 
 // ---------------------------------------------------------------- read shapes (services/simpleBuy.ts)
@@ -396,11 +399,14 @@ export interface PurchaseRow {
   partyName: string
   total: number
   tax: number
-  /** Total − what is still due on the bill (the Outstandings allocation as on today). */
+  /** Total − what is still due on the bill (the Outstandings allocation as on today) − what
+   *  returns took off it (WP 9.5). */
   paid: number
   due: number
   dueDate: string | null
   overdueDays: number
+  /** WP 9.5: the returns made against this bill (their total; 0 = none) — the list's chip. */
+  returned: number
 }
 
 export interface PurchaseView extends PurchaseRow {
