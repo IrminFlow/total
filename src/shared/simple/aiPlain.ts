@@ -147,7 +147,12 @@ function dollars(microUsd: number): string {
   return `$${Math.floor(tenThousandths / 10000)}.${String(tenThousandths % 10000).padStart(4, '0')}`
 }
 
-/** "About ₹1.25" with the company's dollar rate, else "About $0.0150 (in US dollars)". */
+/** "₹1.25" with the company's dollar rate, else "$0.0150" (say it with `rateNote`). */
+export function moneyText(microUsd: number, rate: FxRate | null): string {
+  return rate ? formatPaise(microUsdToPaise(microUsd, rate.rateMicro), { symbol: true }) : dollars(microUsd)
+}
+
+/** "about ₹1.25" with the company's dollar rate, else "about $0.0150 (in US dollars)". */
 export function costText(microUsd: number, rate: FxRate | null, t: Translate): string {
   if (rate) return t('simple.ai.cost.rupees', { amount: formatPaise(microUsdToPaise(microUsd, rate.rateMicro), { symbol: true }) })
   return t('simple.ai.cost.dollars', { amount: dollars(microUsd) })

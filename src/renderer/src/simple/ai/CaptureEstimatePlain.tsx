@@ -4,7 +4,7 @@
 // the words differ. The accountant dialog in screens/Capture.tsx is unchanged.
 import { useQuery } from '@tanstack/react-query'
 import type { CaptureEstimate } from '@shared/capture/types'
-import { costText, rateNote, usdRateOn } from '@shared/simple/aiPlain'
+import { moneyText, rateNote, usdRateOn } from '@shared/simple/aiPlain'
 import { todayISO } from '@shared/dates'
 import { cfApi } from '../../lib/cashFinanceClient'
 import { useT } from '../../lib/i18n'
@@ -23,7 +23,7 @@ export function PlainCaptureEstimate({ estimate, onClose, onConfirm }: { estimat
         <p className="text-body font-medium text-ink" data-testid="text-capture-cost">
           {estimate.costMicroUsd == null
             ? t('simple.ai.capture.unpriced', { count })
-            : t('simple.ai.capture.cost', { count, cost: costText(estimate.costMicroUsd, rate, t) })}
+            : t('simple.ai.capture.cost', { count, cost: moneyText(estimate.costMicroUsd, rate) })}
         </p>
         {estimate.costMicroUsd != null && <p className="text-hint text-muted">{rateNote(rate, t)}</p>}
         <p className="text-small text-muted" data-testid="text-capture-privacy">{estimate.maskIds ? t('simple.ai.capture.hidden') : t('simple.ai.capture.notHidden')}</p>
