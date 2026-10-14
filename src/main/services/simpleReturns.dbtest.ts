@@ -433,6 +433,38 @@ describe('the purchase list / bill view show the returns (WP 9.3 + 9.5)', () => 
   })
 })
 
+describe('a return belongs to ITS bill when numbers repeat across years (review fix)', () => {
+  it("a return on this year's bill \"1\" is not counted against last year's bill \"1\" of the same party", () => {
+    const lastYear: CompanyInfo = { ...INFO, booksFrom: 2024 }
+    db = company(lastYear)
+    const oldAmount = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '1000', gstRate: 0 }, date: '2025-02-10', payment: { how: 'cash' } }, db, lastYear)
+    const oldItems = post({ kind: 'sale', customerId: L('Kumar'), items: [{ itemId: I('Widget'), qty: '2', rate: '500' }], date: '2025-02-11', payment: { how: 'cash' } }, db, lastYear)
+    const newAmount = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '800', gstRate: 0 }, date: '2025-08-01', payment: { how: 'cash' } }, db, lastYear)
+    const newItems = post({ kind: 'sale', customerId: L('Kumar'), items: [{ itemId: I('Widget'), qty: '3', rate: '500' }], date: '2025-08-02', payment: { how: 'cash' } }, db, lastYear)
+    // Same party, same number, a year apart (numbering restarts every year).
+    expect(getVoucher(db, oldAmount.voucherIds[0]!)!.number).toBe(getVoucher(db, newAmount.voucherIds[0]!)!.number)
+    expect(getVoucher(db, oldItems.voucherIds[0]!)!.number).toBe(getVoucher(db, newItems.voucherIds[0]!)!.number)
+    const na = returnBill(db, lastYear, 'sale', newAmount.voucherIds[0]!, TODAY)!
+    post(returnIntentFrom(formFor({ amount: 30_000, settle: 'credit' }), na, ctxOf(), sellSetup(db).defaults), db, lastYear)
+    const ni = returnBill(db, lastYear, 'sale', newItems.voucherIds[0]!, TODAY)!
+    post(returnIntentFrom(formFor({ qty: { [ni.lines[0]!.lineUid]: '1' }, settle: 'credit' }), ni, ctxOf(), sellSetup(db).defaults), db, lastYear)
+    // Last year's bills: nothing came back, all of it still returnable.
+    expect(returnBill(db, lastYear, 'sale', oldAmount.voucherIds[0]!, TODAY)).toMatchObject({ amountLeft: 100_000, earlier: [] })
+    expect(returnBill(db, lastYear, 'sale', oldItems.voucherIds[0]!, TODAY)!.earlier).toEqual([])
+    const list = returnBills(db, lastYear, 'sale', TODAY)
+    for (const id of [oldAmount.voucherIds[0]!, oldItems.voucherIds[0]!]) expect(list.find((x) => x.voucherId === id)).toMatchObject({ returns: 0, returned: 0, left: 'all' })
+    // This year's: the return each.
+    expect(returnBill(db, lastYear, 'sale', newAmount.voucherIds[0]!, TODAY)).toMatchObject({ amountLeft: 50_000 })
+    expect(list.find((x) => x.voucherId === newAmount.voucherIds[0])).toMatchObject({ returns: 1, returned: 30_000 })
+    expect(list.find((x) => x.voucherId === newItems.voucherIds[0])).toMatchObject({ returns: 1, returned: 59_000 })
+    // The sales list's chips and paid figures follow.
+    const sales = salesList(db, '2024-04-01', TODAY, TODAY)
+    expect(sales.find((x) => x.voucherId === oldAmount.voucherIds[0])).toMatchObject({ total: 100_000, paid: 100_000, due: 0, returned: 0 })
+    expect(sales.find((x) => x.voucherId === oldItems.voucherIds[0])).toMatchObject({ returned: 0 })
+    expect(sales.find((x) => x.voucherId === newAmount.voucherIds[0])).toMatchObject({ total: 80_000, paid: 80_000, due: 0, returned: 30_000 })
+  })
+})
+
 describe('simple:returns reads', () => {
   it('the list: newest first with what came back and what is left; search reaches by party and number', () => {
     const a = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '2', rate: '500' }], date: '2025-08-01' })

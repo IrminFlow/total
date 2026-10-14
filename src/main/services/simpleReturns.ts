@@ -23,7 +23,7 @@ import type { ReturnBill, ReturnBillRow, ReturnSide } from '@shared/simple/retur
 import { getVoucher, IN_BOOKS } from './vouchers'
 import { listLedgers } from './masters'
 import { counterAccounts, WALK_IN_NAME } from './counter'
-import { loadOriginal } from './simplePost'
+import { loadOriginal, notesByReference } from './simplePost'
 
 /** How many bills the "Which bill?" list shows (newest first; searching reaches the rest). */
 export const RETURN_LIST_CAP = 300
@@ -59,14 +59,10 @@ export function returnsOfBills(db: DB, side: ReturnSide, bills: readonly BillHea
       .all(kind, ...chunk) as { billId: number; noteId: number }[]
     for (const r of linked) add(r.billId, r.noteId)
   }
-  const byRef = db.prepare(
-    `SELECT v.id FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
-     WHERE vt.kind = ? AND v.party_ledger_id = ? AND TRIM(v.reference) = ? AND v.date >= ? AND ${IN_BOOKS}`
-  )
   for (const b of bills) {
     if (b.partyId == null) continue
     const ref = side === 'sale' ? b.number : b.reference?.trim() || b.number
-    for (const r of byRef.all(kind, b.partyId, ref, b.date) as { id: number }[]) add(b.id, r.id)
+    for (const noteId of notesByReference(db, billKind(side), { id: b.id, partyId: b.partyId, date: b.date, ref })) add(b.id, noteId)
   }
   const head = db.prepare('SELECT number, date, party_ledger_id AS partyId FROM vouchers WHERE id = ?')
   const lines = db.prepare('SELECT ledger_id AS ledgerId, dr_cr AS drCr, amount FROM voucher_lines WHERE voucher_id = ?')
