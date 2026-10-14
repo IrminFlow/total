@@ -143,7 +143,8 @@ export function layerCount(): number {
 // simple shell's dock provider registers here while open; Esc then closes the topmost panel
 // before anything below it sees the key (a form's "Esc asks before discarding", the app's
 // "Esc goes back") — the order is dialog → panel → form → screen. A dialog layer, an open
-// popover / picker list (aria-expanded), or a field that clears itself keeps its Esc. The full
+// popover / picker list (aria-expanded), a field that clears itself, or an overlay marked
+// `data-esc-layer` (the ⌘K palette — not a dialog layer) keeps its Esc. The full
 // app's AI panel never registers, so accountant mode keeps its keys exactly as they were.
 
 const panelStack: { close: () => void }[] = []
@@ -171,6 +172,8 @@ export function routePanelEscape(e: KeyboardEvent): boolean {
   if (layerStack.length > 0 || escapeLayers > 0 || consumesEscape(e.target)) return false
   const t = e.target instanceof Element ? e.target : null
   if (t?.matches('[role="combobox"][aria-expanded="true"]')) return false // an open picker list closes first
+  // An overlay drawn over the panels that owns its Esc (the ⌘K palette) closes first.
+  if (typeof document !== 'undefined' && document.querySelector('[data-esc-layer]')) return false
   e.preventDefault()
   e.stopImmediatePropagation()
   panelStack[panelStack.length - 1]!.close()
