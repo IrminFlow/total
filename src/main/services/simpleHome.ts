@@ -21,7 +21,6 @@ import {
   ANOMALY_HOME_CAP, attentionItems, BACKUP_NUDGE_DAYS, daysSince, owedSummary,
   type HomeAttention, type HomeCash, type HomeGst, type HomeGstCredit, type HomeMoneyDay, type HomeProfitPeriod, type SimpleHomeData
 } from '@shared/simple/home'
-import type { DashGst } from '@shared/dashboard'
 import { descendantIdSet, profitAndLoss } from './reports'
 import { outstandingsWithAdvances } from './analysis'
 import { stockValuesAt } from './stockAnalysis'
@@ -122,7 +121,7 @@ function compute(db: DB, company: CompanyInfo, opts: { today: string; backups: D
   const filing = company.gstRegistrationType === 'regular' ? getGstProfile(db).filing : 'monthly'
   const gstRow = dashGst(db, company, today)
   const gst: HomeGst | null = gstRow
-    ? { kind: 'regular', filing, row: gstRow, credit: gstCredit(db, gstRow) }
+    ? { kind: 'regular', filing, row: gstRow, credit: gstCredit(db, gstRow.from ?? `${gstRow.period}-01`, gstRow.to ?? gstRow.from ?? `${gstRow.period}-01`) }
     : company.gstRegistrationType === 'composition'
       ? { kind: 'composition' }
       : null
@@ -130,7 +129,7 @@ function compute(db: DB, company: CompanyInfo, opts: { today: string; backups: D
   // ---- deadlines (WP 8.0: applicable ones only), other than GST ----
   const hasPayroll = features.payroll && !!db.prepare('SELECT 1 FROM employees WHERE active = 1 LIMIT 1').get()
   const tds = tdsApplies(db, company, features.tds, tdsPayableLedgers(ledgers, dutiesIds, bal).length > 0)
-  const deadlines = upcomingDeadlines(today, company.gstRegistrationType, hasPayroll, 30, { tds, gstFiling: filing }).filter((d) => d.kind !== 'gst')
+  const deadlines = upcomingDeadlines(today, company.gstRegistrationType, hasPayroll, 30, { tds, gstFiling: filing, stateCode: company.stateCode }).filter((d) => d.kind !== 'gst')
 
   // ---- backup nudge ----
   const mine = userBackupsOf(opts.backups)
@@ -183,9 +182,7 @@ function balancesOf(db: DB, ids: number[], asOn: string): Map<number, number> {
  * store): a month without a statement is unchecked; in a checked month, the tax on purchase bills
  * 2B does not list (the WP 3.4 matcher's `missingInPortal`) is booked but not yet confirmed.
  */
-function gstCredit(db: DB, row: DashGst): HomeGstCredit {
-  const from = row.from ?? `${row.period}-01`
-  const to = row.to ?? from
+export function gstCredit(db: DB, from: string, to: string): HomeGstCredit {
   const months = monthRange(monthOf(from), monthOf(to))
   let checkedMonths = 0
   let awaiting = 0

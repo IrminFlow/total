@@ -1640,6 +1640,13 @@ export const en = {
   'errors.intent.noSalePrice': 'Type what you sell one {name} for.',
   'errors.intent.noSalePricePlain': 'Type what you sell one for.',
   'errors.openings.noCash': 'Total can’t find your cash account. Open Settings → Advanced to check your accounts.',
+  'errors.reports.period': 'The end date is before the start date. Pick an end date on or after the start.',
+  'errors.taxes.period': 'That period has not started yet. Pick an earlier one.',
+  'errors.taxes.notRegular': 'Only a regular GST registration files these returns.',
+  'errors.taxes.tooEarly': 'This period is not over yet, so its return can’t have been filed.',
+  'errors.taxes.arn': 'Type the acknowledgement number (ARN) the GST portal showed — letters and numbers only.',
+  'errors.taxes.filedDate': 'Enter the day you filed it: after the period ended, and not after today.',
+  'errors.taxes.prepareFailed': 'The file could not be prepared. Some bills need a fix first — open the return in the full app to see which.',
 
   // ---------- command palette (shared chrome; wording unchanged from 0.10) ----------
   'palette.placeholder': 'Type a command, or search the books — name, number, GSTIN, amount…',
