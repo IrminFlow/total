@@ -210,14 +210,16 @@ export function outstandings(db: DB, side: 'receivable' | 'payable', asOn: strin
 
 /** `outstandings` plus what the same allocation leaves unapplied — money a customer paid ahead
  *  (receivable side) or you paid a supplier ahead (payable side), and how many parties hold it
- *  (WP 8.6, the simple Home). One run of the engine, so the two always agree. */
+ *  (WP 8.6, the simple Home) — and, per party, how much (WP 9.8, the simple People list). One run
+ *  of the engine, so they always agree. */
 export function outstandingsWithAdvances(
   db: DB,
   side: 'receivable' | 'payable',
   asOn: string
-): { parties: OutstandingParty[]; advances: number; advanceParties: number } {
+): { parties: OutstandingParty[]; advances: number; advanceParties: number; advanceByParty: Map<number, number> } {
   let advances = 0
   let advanceParties = 0
+  const advanceByParty = new Map<number, number>()
   const groupIds = descendantIdsByName(db, [side === 'receivable' ? 'Sundry Debtors' : 'Sundry Creditors'])
   const parties = (
     db.prepare('SELECT id, name, opening_balance, group_id, credit_days FROM ledgers').all() as {
@@ -236,6 +238,7 @@ export function outstandingsWithAdvances(
     if (unappliedCredit > 0) {
       advances += unappliedCredit
       advanceParties++
+      advanceByParty.set(party.id, unappliedCredit)
     }
     if (bills.length === 0 && warnings.length === 0) continue
 
@@ -253,7 +256,7 @@ export function outstandingsWithAdvances(
       ...(warnings.length > 0 ? { warnings } : {})
     })
   }
-  return { parties: result.sort((a, b) => b.pending - a.pending), advances, advanceParties }
+  return { parties: result.sort((a, b) => b.pending - a.pending), advances, advanceParties, advanceByParty }
 }
 
 /** Open bills for a single party as of `asOn` — feeds the receipt/payment "settle against" picker. */

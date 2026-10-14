@@ -127,10 +127,12 @@ import { createDemoCompany } from './services/demo'
 import { createCompanyFromSetup } from './services/companySetup'
 import * as simplePost from './services/simplePost'
 import * as simpleMoney from './services/simpleMoney'
+import * as simplePeople from './services/simplePeople'
 import * as simpleSell from './services/simpleSell'
 import * as simpleBank from './services/simpleBank'
 import * as simpleBuy from './services/simpleBuy'
 import { simpleIntentSchema } from '@shared/simple/intents'
+import { peopleListSchema, personRemindedSchema, personUpdateSchema, personViewSchema } from '@shared/simple/people'
 import { bankAcceptSchema } from '@shared/simple/bank'
 import { simpleSetupSchema } from '@shared/simple/setup'
 import { simpleOpeningsSchema } from '@shared/simple/openings'
@@ -503,6 +505,29 @@ export function registerIpc(): void {
     const { id, today } = z.object({ id: z.number().int().positive(), today: isoDate.optional() }).strict().parse(payload)
     return simpleSell.saleView(requireCompany().db, id, homeAsOn(today, todayISO()))
   }, 'viewer')
+
+  // WP 9.8: the simple People screens (services/simplePeople.ts) — every figure as on today from
+  // the Outstandings allocation (the Outstandings screen's and Home's). Phone / WhatsApp / credit
+  // days go through masters.updateLedger (the full app's account write, accountant+); a reminder
+  // sent from a person's page is logged in reminder_log like the WP 4.2 letter (accountant+).
+  handle('simple:people:list', (payload) => {
+    const { today } = peopleListSchema.parse(payload ?? {})
+    return simplePeople.peopleList(requireCompany().db, homeAsOn(today, todayISO()))
+  }, 'viewer')
+  handle('simple:people:person', (payload) => {
+    const { id, today } = personViewSchema.parse(payload)
+    const c = requireCompany()
+    return simplePeople.personView(c.db, c.info, id, homeAsOn(today, todayISO()))
+  }, 'viewer')
+  handle('simple:people:billsToPay', (payload) => {
+    const { today } = peopleListSchema.parse(payload ?? {})
+    return simplePeople.billsToPay(requireCompany().db, homeAsOn(today, todayISO()))
+  }, 'viewer')
+  handle('simple:people:update', (payload) => simplePeople.updatePerson(requireCompany().db, personUpdateSchema.parse(payload)))
+  handle('simple:people:reminded', (payload) => {
+    const { id, via, today } = personRemindedSchema.parse(payload)
+    return simplePeople.personReminded(requireCompany().db, id, via, homeAsOn(today, todayISO()))
+  })
 
   // WP 9.6: the simple Bank screen (services/simpleBank.ts). Reads: the bank accounts and every
   // account's class; one bank's statement lines with the matcher's / categoriser's suggestion
