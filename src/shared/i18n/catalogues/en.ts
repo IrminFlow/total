@@ -534,6 +534,7 @@ export const en = {
   'simple.returns.shortcuts': '⌘↵ saves',
   'simple.returns.returnItems': 'Return items',
   'simple.returns.returnItemsHint': 'Record what the customer brought back from this bill.',
+  'simple.returns.returnItemsHintBuy': 'Record what you sent back to the supplier from this bill.',
   'simple.returns.chip': 'Returned {amount}',
   'simple.returns.err.nothing': 'Type how many came back on at least one line.',
   'simple.returns.err.qty': 'Type how many came back, for example 1 or 2.5.',

@@ -17,6 +17,8 @@ import { useNav, useSession } from '../state/stores'
 import { ReturnSale } from '../simple/returns/ReturnSale'
 import { ReturnPurchase } from '../simple/returns/ReturnPurchase'
 import { SalesList } from '../simple/sell/SalesList'
+import { PurchaseList } from '../simple/buy/PurchaseList'
+import type { PurchaseView } from '@shared/simple/buy'
 
 const invoke = vi.fn()
 const ledger = (id: number, name: string, groupId: number, extra: Partial<Ledger> = {}): Ledger =>
@@ -253,10 +255,53 @@ describe('the Sales bill view starts a return (WP 9.5)', () => {
       voucherId: 7, number: '3', date: '2026-10-12', partyId: 10, partyName: 'Ramesh', walkIn: false, items: [], amounts: [], note: null,
       total: 118_000, tax: 18_000, rounding: 0, paid: 118_000, due: 0, dueDate: null, overdueDays: 0, returned: 59_000
     }
-    invoke.mockImplementation(async (channel: string) => (channel === 'simple:sale' ? { ok: true, data: view } : channel === 'simple:sell:setup' ? { ok: true, data: setup } : { ok: true, data: [] }))
+    invoke.mockImplementation(async (channel: string) =>
+      channel === 'simple:sale' ? { ok: true, data: view } : channel === 'simple:returns:bill' ? { ok: true, data: bill } : channel === 'simple:sell:setup' ? { ok: true, data: setup } : { ok: true, data: [] }
+    )
     renderUi(<SalesList billId={7} />)
     expect((await screen.findByTestId('sale-returned')).textContent).toBe('Returned ₹590.00')
+    await waitFor(() => expect(calls('simple:returns:bill')[0]).toMatchObject({ side: 'sale', id: 7 }))
     click('btn-bill-return')
     await waitFor(() => expect(lastScreen()).toEqual({ name: 'simple-return-sale', billId: 7 }))
+  })
+
+  it('a bill with nothing left to return has no "Return items"', async () => {
+    const view: SaleView = {
+      voucherId: 7, number: '3', date: '2026-10-12', partyId: 10, partyName: 'Ramesh', walkIn: false, items: [], amounts: [], note: null,
+      total: 118_000, tax: 18_000, rounding: 0, paid: 0, due: 0, dueDate: null, overdueDays: 0, returned: 118_000
+    }
+    bill = itemsBill({ lines: [{ ...itemsBill().lines[0]!, leftMilli: 0 }] })
+    invoke.mockImplementation(async (channel: string) => (channel === 'simple:sale' ? { ok: true, data: view } : channel === 'simple:returns:bill' ? { ok: true, data: bill } : { ok: true, data: [] }))
+    renderUi(<SalesList billId={7} />)
+    await screen.findByTestId('sale-returned')
+    await waitFor(() => expect(screen.queryByTestId('btn-bill-return')).toBeNull())
+  })
+})
+
+describe('the purchase bill view starts a return; the purchase list carries the chip (WP 9.5 on 9.3)', () => {
+  const pview: PurchaseView = {
+    voucherId: 7, number: '1', billNo: 'BS/9', date: '2026-10-12', partyId: 40, partyName: 'Bharat Steel', total: 118_000, tax: 18_000,
+    paid: 0, due: 94_400, dueDate: null, overdueDays: 0, returned: 23_600, items: [], amounts: [], rounding: 0, note: null
+  }
+  it('"Return items" opens Return a purchase on that bill; the view shows the returned chip', async () => {
+    bill = { ...itemsBill(), side: 'purchase', billNo: 'BS/9', partyId: 40, partyName: 'Bharat Steel' }
+    invoke.mockImplementation(async (channel: string) =>
+      channel === 'simple:purchase' ? { ok: true, data: pview } : channel === 'simple:returns:bill' ? { ok: true, data: bill } : { ok: true, data: [] }
+    )
+    renderUi(<PurchaseList billId={7} />)
+    expect((await screen.findByTestId('purchase-returned')).textContent).toBe('Returned ₹236.00')
+    // A return off an unpaid bill is not a payment: still "Due", never "Part paid".
+    expect(screen.getByTestId('purchase-status').dataset.status).toBe('due')
+    await waitFor(() => expect(calls('simple:returns:bill')[0]).toMatchObject({ side: 'purchase', id: 7 }))
+    click('btn-purchase-return')
+    await waitFor(() => expect(lastScreen()).toEqual({ name: 'simple-return-purchase', billId: 7 }))
+    expect(bannedWordsIn(visibleText())).toEqual([])
+  })
+
+  it('the purchase list row carries the chip', async () => {
+    const { items: _i, amounts: _a, rounding: _r, note: _n, ...row } = pview
+    invoke.mockImplementation(async (channel: string) => (channel === 'simple:purchases' ? { ok: true, data: [row] } : { ok: true, data: [] }))
+    renderUi(<PurchaseList />)
+    expect((await screen.findByTestId('purchase-returned')).textContent).toBe('Returned ₹236.00')
   })
 })

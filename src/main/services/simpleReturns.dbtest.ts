@@ -37,6 +37,8 @@ import { restoreFromBin, undoSave } from './undo'
 import { postIntent, previewIntent } from './simplePost'
 import { returnBill, returnBills } from './simpleReturns'
 import { saleView, salesList, sellSetup } from './simpleSell'
+import { purchasesList, purchaseView } from './simpleBuy'
+import { purchaseStatus } from '@shared/simple/buy'
 import { getTradeDoc, saveTradeDoc } from './tradeDocs'
 
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<{ ok: boolean; data?: unknown; error?: string; code?: string }>>()
@@ -412,6 +414,24 @@ describe('refusals leave no trace; Undo bins the return and its refund together'
 })
 
 // ---------------------------------------------------------------- the reads
+
+describe('the purchase list / bill view show the returns (WP 9.3 + 9.5)', () => {
+  it('a return off an unpaid purchase bill is a chip, not a payment; a paid one stays paid', () => {
+    const unpaid = post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: 'BS/1', items: [{ itemId: I('Widget'), qty: '10', rate: '100' }] })
+    const b = returnBill(db, INFO, 'purchase', unpaid.voucherIds[0]!, TODAY)!
+    post(returnIntentFrom(formFor({ qty: { [b.lines[0]!.lineUid]: '2' } }), b, ctxOf(), sellSetup(db).defaults))
+    // 10 × 100 + 18% = 1180; 2 back = 236 off the bill; nothing paid.
+    const row = purchasesList(db, '2025-04-01', TODAY, TODAY).find((x) => x.voucherId === unpaid.voucherIds[0])!
+    expect(row).toMatchObject({ total: 118_000, due: 94_400, paid: 0, returned: 23_600 })
+    expect(purchaseStatus(row.total, row.due, row.overdueDays, row.paid)).toBe('due')
+    expect(purchaseView(db, unpaid.voucherIds[0]!, TODAY)).toMatchObject({ paid: 0, due: 94_400, returned: 23_600 })
+    const paid = post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: 'BS/2', amount: { amount: '500', accountId: L('Purchases'), gstRate: 0 }, payment: { how: 'bank' } })
+    const pb = returnBill(db, INFO, 'purchase', paid.voucherIds[0]!, TODAY)!
+    post(returnIntentFrom(formFor({ amount: 10_000, settle: 'credit' }), pb, ctxOf(), sellSetup(db).defaults))
+    expect(purchasesList(db, '2025-04-01', TODAY, TODAY).find((x) => x.voucherId === paid.voucherIds[0])).toMatchObject({ total: 50_000, paid: 50_000, due: 0, returned: 10_000 })
+    expect(purchasesList(db, '2025-04-01', TODAY, TODAY).filter((x) => x.returned === 0)).toEqual([])
+  })
+})
 
 describe('simple:returns reads', () => {
   it('the list: newest first with what came back and what is left; search reaches by party and number', () => {

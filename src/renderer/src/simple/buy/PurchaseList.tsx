@@ -10,6 +10,18 @@ import { useNav, useSession } from '../../state/stores'
 import { Button, Page } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { recordSupplierPaymentScreen } from './recordSupplierPayment'
+import { returnScreen, useReturnable } from '../returns/returnable'
+
+/** WP 9.5: a bill with returns against it — "Returned ₹708.00". */
+function ReturnedChip({ amount }: { amount: number }): React.JSX.Element {
+  const t = useT()
+  return (
+    <span className="inline-block rounded-full border border-line bg-panel2 px-2 py-0.5 text-caption text-muted" data-testid="purchase-returned" data-paise={amount}>
+      {t('simple.returns.chip', { amount: formatPaise(amount, { symbol: true }) })}
+    </span>
+  )
+}
+const PURCHASE_SIDE = 'purchase' as const // i18n-technical
 
 const STATUS_TEXT: Record<PurchaseStatus, MessageKey> = {
   paid: 'simple.purchases.status.paid',
@@ -68,8 +80,13 @@ function PurchaseTable(): React.JSX.Element {
         { id: 'due', header: t('simple.purchases.col.due'), kind: 'money', value: (r) => r.due, aggregate: 'sum', explainable: false }, // i18n-technical
         {
           id: 'status', header: t('simple.purchases.col.status'), kind: 'text', groupable: false, filterable: false, // i18n-technical
-          value: (r) => t(STATUS_TEXT[purchaseStatus(r.total, r.due, r.overdueDays)]), // i18n-technical: typed key table
-          cell: (r) => <StatusChip status={purchaseStatus(r.total, r.due, r.overdueDays)} />
+          value: (r) => t(STATUS_TEXT[purchaseStatus(r.total, r.due, r.overdueDays, r.paid)]), // i18n-technical: typed key table
+          cell: (r) => (
+            <span className="flex flex-wrap items-center gap-1">
+              <StatusChip status={purchaseStatus(r.total, r.due, r.overdueDays, r.paid)} />
+              {r.returned > 0 && <ReturnedChip amount={r.returned} />}
+            </span>
+          )
         }
       ]),
     [t]
@@ -116,6 +133,7 @@ function PurchaseBillView({ billId }: { billId: number }): React.JSX.Element {
   const nav = useNav()
   const workingDate = useSession((s) => s.workingDate)
   const { data: bill, isLoading } = useQuery({ queryKey: ['simplePurchase', billId, workingDate], queryFn: () => api.buy.purchase(billId, workingDate) }) // i18n-technical
+  const returnable = useReturnable(PURCHASE_SIDE, billId)
   const { data: setup } = useQuery({ queryKey: ['simpleBuySetup'], queryFn: api.buy.setup }) // i18n-technical
   const money = (p: number): string => formatPaise(p, { symbol: true })
   if (isLoading) return <Page data-testid="simple-purchase">{null}</Page>
@@ -129,7 +147,7 @@ function PurchaseBillView({ billId }: { billId: number }): React.JSX.Element {
       </Page>
     )
   }
-  const status = purchaseStatus(bill.total, bill.due, bill.overdueDays)
+  const status = purchaseStatus(bill.total, bill.due, bill.overdueDays, bill.paid)
   return (
     <Page data-testid="simple-purchase" data-bill={bill.voucherId}>
       <button type="button" className="mb-3 text-detail text-blue hover:underline" data-testid="btn-purchase-back" onClick={() => nav.back()}>
@@ -145,7 +163,10 @@ function PurchaseBillView({ billId }: { billId: number }): React.JSX.Element {
               {t('simple.purchase.from', { name: bill.partyName })} · {t('simple.purchase.on', { date: toPlainDate(bill.date) })}
             </p>
           </div>
-          <StatusChip status={status} />
+          <span className="flex flex-wrap items-center gap-1">
+            <StatusChip status={status} />
+            {bill.returned > 0 && <ReturnedChip amount={bill.returned} />}
+          </span>
         </div>
 
         <h2 className="mt-5 mb-2 text-subtitle font-semibold text-ink">{t('simple.purchase.items')}</h2>
@@ -203,6 +224,11 @@ function PurchaseBillView({ billId }: { billId: number }): React.JSX.Element {
           {bill.due > 0 && (
             <Button variant="primary" data-testid="btn-purchase-record-payment" onClick={() => nav.go(recordSupplierPaymentScreen(bill, setup?.defaults.cash ?? null))}>
               {t('simple.purchase.recordPayment')}
+            </Button>
+          )}
+          {returnable !== false && (
+            <Button data-testid="btn-purchase-return" title={t('simple.returns.returnItemsHintBuy')} onClick={() => nav.go(returnScreen(PURCHASE_SIDE, bill.voucherId))}>
+              {t('simple.returns.returnItems')}
             </Button>
           )}
           <Button data-testid="btn-purchase-edit" title={t('simple.purchase.editHint')} onClick={() => nav.go(editScreen(bill.voucherId))}>

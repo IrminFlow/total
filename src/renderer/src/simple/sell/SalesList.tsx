@@ -10,6 +10,7 @@ import { useNav, useSession } from '../../state/stores'
 import { Button, Page } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { recordPaymentScreen } from './recordPayment'
+import { returnScreen, useReturnable } from '../returns/returnable'
 
 const STATUS_TEXT: Record<SaleStatus, MessageKey> = {
   paid: 'simple.sales.status.paid',
@@ -45,7 +46,7 @@ function ReturnedChip({ amount }: { amount: number }): React.JSX.Element {
 }
 
 const SELL_SCREEN = { name: 'simple-sell' } as const // i18n-technical
-const returnScreen = (billId: number): { name: 'simple-return-sale'; billId: number } => ({ name: 'simple-return-sale', billId }) // i18n-technical
+const SALE_SIDE = 'sale' as const // i18n-technical
 const editScreen = (voucherId: number): { name: 'voucher-entry'; voucherId: number } => ({ name: 'voucher-entry', voucherId }) // i18n-technical
 
 /**
@@ -140,6 +141,7 @@ function BillView({ billId }: { billId: number }): React.JSX.Element {
   const nav = useNav()
   const workingDate = useSession((s) => s.workingDate)
   const { data: bill, isLoading } = useQuery({ queryKey: ['simpleSale', billId, workingDate], queryFn: () => api.simple.sale(billId, workingDate) }) // i18n-technical
+  const returnable = useReturnable(SALE_SIDE, billId)
   const { data: setup } = useQuery({ queryKey: ['simpleSellSetup'], queryFn: api.simple.sellSetup }) // i18n-technical
   const money = (p: number): string => formatPaise(p, { symbol: true })
   if (isLoading) return <Page data-testid="simple-sale">{null}</Page>
@@ -232,9 +234,11 @@ function BillView({ billId }: { billId: number }): React.JSX.Element {
               {t('simple.bill.recordPayment')}
             </Button>
           )}
-          <Button data-testid="btn-bill-return" title={t('simple.returns.returnItemsHint')} onClick={() => nav.go(returnScreen(bill.voucherId))}>
-            {t('simple.returns.returnItems')}
-          </Button>
+          {returnable !== false && (
+            <Button data-testid="btn-bill-return" title={t('simple.returns.returnItemsHint')} onClick={() => nav.go(returnScreen(SALE_SIDE, bill.voucherId))}>
+              {t('simple.returns.returnItems')}
+            </Button>
+          )}
           <Button data-testid="btn-bill-edit" title={t('simple.bill.editHint')} onClick={() => nav.go(editScreen(bill.voucherId))}>
             {t('simple.bill.edit')}
           </Button>
