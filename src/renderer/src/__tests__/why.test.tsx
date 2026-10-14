@@ -21,6 +21,7 @@ import { SimpleHome } from '../simple/SimpleHome'
 import { ReportsScreen } from '../simple/reports/ReportsScreen'
 import { TaxesScreen } from '../simple/taxes/TaxesScreen'
 import { ProfitLossScreen } from '../screens/ProfitLoss'
+import { Gstr1Screen } from '../screens/GstReturns'
 
 const t = translator('en')
 const TODAY = '2026-10-13'
@@ -206,7 +207,7 @@ describe('Taxes: the three figures, each date and TDS have a "Why?" (WP 10.2)', 
     await why('why-gst-purchases', onPurchasesWhy(TAXES, t), fig)
     await why('why-gst-to-pay', toPayPartsWhy(TAXES, t), fig)
     expect(toPayPartsWhy(TAXES, t)).toContain('₹6,000.00 is left; with ₹500.00 under reverse charge, always paid in cash, that makes ₹6,500.00')
-    await why('why-due-gstr1', dueWhy('gstr1', TAXES, t), { label: 'Open GSTR-1 in the full app', target: { name: 'gstr1' } })
+    await why('why-due-gstr1', dueWhy('gstr1', TAXES, t), { label: 'Open GSTR-1 in the full app', target: { name: 'gstr1', month: '2026-07' } })
     await why('why-due-gstr3b', dueWhy('gstr3b', TAXES, t), g3b)
     await why('why-due-pmt06', dueWhy('pmt06', TAXES, t))
     await why('why-tds', withholdingWhy(TDS, TODAY, t), { label: 'Open TDS in the full app', target: { name: 'tds' } })
@@ -233,5 +234,18 @@ describe('the P&L opens on the dates a "Why?" asks for (WP 10.2)', () => {
     invoke.mockClear()
     renderUi(<ProfitLossScreen />)
     await waitFor(() => expect(asked()).toContainEqual(expect.objectContaining({ from: '2026-04-01', to: '2027-03-31' })))
+  })
+})
+
+describe('GSTR-1 opens on the month a "Why?" asks for (WP 10.2 review)', () => {
+  const asked = (): unknown[] => invoke.mock.calls.filter(([c]) => c === 'gst:gstr1').map(([, p]) => p)
+  it('with a month it shows that month; without one, the screen opens as before', async () => {
+    renderUi(<Gstr1Screen initialMonth="2026-07" />)
+    await waitFor(() => expect(asked()).toContainEqual(expect.objectContaining({ from: '2026-07-01', to: '2026-07-31' })))
+    cleanup()
+    invoke.mockClear()
+    renderUi(<Gstr1Screen />)
+    await waitFor(() => expect(asked().length).toBeGreaterThan(0))
+    expect(asked()).not.toContainEqual(expect.objectContaining({ from: '2026-07-01' }))
   })
 })

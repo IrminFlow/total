@@ -12,7 +12,7 @@ import { WithholdingCards } from './Withholding'
 
 type Regular = Extract<SimpleTaxes, { kind: 'regular' }>
 const gstr3bScreen = (month: string): { name: 'gstr3b'; month: string } => ({ name: 'gstr3b', month }) // i18n-technical
-const GSTR1 = { name: 'gstr1' } as const // i18n-technical
+const gstr1Screen = (month: string): { name: 'gstr1'; month: string } => ({ name: 'gstr1', month }) // i18n-technical
 const CMP08 = 'cmp08' // i18n-technical
 const GSTR4 = 'gstr4' // i18n-technical
 const PMT06 = 'pmt06' // i18n-technical
@@ -71,7 +71,7 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
   const by = t('simple.taxes.gst.byDate', { date: shortDate(x.due.gstr3b, x.today) })
   const link = { label: t('simple.taxes.accountant3b'), screen: gstr3bScreen(x.period.from.slice(0, 7)) }
   const dueLink = {
-    gstr1: { label: t('simple.why.link.gstr1'), screen: GSTR1 },
+    gstr1: { label: t('simple.why.link.gstr1'), screen: gstr1Screen(x.period.from.slice(0, 7)) },
     gstr3b: { label: t('simple.why.link.gstr3b'), screen: gstr3bScreen(x.period.from.slice(0, 7)) }
   }
   return (

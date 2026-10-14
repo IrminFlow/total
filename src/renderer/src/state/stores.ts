@@ -122,7 +122,7 @@ export type Screen =
   | { name: 'stock-journal'; mode?: 'transfer' | 'adjust' | 'jobWork' }
   | { name: 'stock-reports'; tab?: 'reorder' | 'ageing' | 'expiry' | 'serials' | 'labels' }
   | { name: 'ledger-statement'; ledgerId: number }
-  | { name: 'gstr1' }
+  | { name: 'gstr1'; month?: string }
   | { name: 'gstr3b'; month?: string }
   | { name: 'gstr2b' }
   // WP 3.4 — GST expansion: tabs of the GST returns screen family.

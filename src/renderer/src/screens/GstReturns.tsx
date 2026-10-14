@@ -232,10 +232,16 @@ function ReturnOptions({ openOn, onOpenOn }: { openOn: OpenOn; onOpenOn: (v: Ope
   )
 }
 
-export function Gstr1Screen(): React.JSX.Element {
+/** `initialMonth` (WP 10.2 review, 'YYYY-MM'): opened from a simple Taxes date's "Why?" on its
+ *  period, as GSTR-3B is. Without it: unchanged. */
+export function Gstr1Screen({ initialMonth }: { initialMonth?: string } = {}): React.JSX.Element {
   const features = useFeatures()
   const opts = useScreenOptions('gstr1', { openOn: 'current' as OpenOn }, { openOn: ['current', 'previous'] })
   const { months, month, monthKey, setMonthKey } = useMonth(opts.options.openOn)
+  useEffect(() => {
+    if (initialMonth && months.some((m) => m.key === initialMonth)) setMonthKey(initialMonth)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialMonth, months])
   const { info } = useSession()
   const nav = useNav()
   const toast = useToasts()
