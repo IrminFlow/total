@@ -17,6 +17,7 @@ import { MoneyList } from './simple/money/MoneyList'
 import { MakeBill } from './simple/sell/MakeBill'
 import { SalesList } from './simple/sell/SalesList'
 import { QuickBill } from './simple/sell/QuickBill'
+import { BankScreen } from './simple/bank/BankScreen'
 import { RecordPurchase } from './simple/buy/RecordPurchase'
 import { PurchaseList } from './simple/buy/PurchaseList'
 import { StockList } from './simple/stock/StockList'
@@ -190,13 +191,14 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-looks' && <SimpleLooks />}
           {screen.name === 'simple-features' && <SimpleFeatures />}
           {screen.name === 'simple-openings' && <Openings />}
-          {screen.name === 'simple-money-in' && <MoneyIn key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} />}
-          {screen.name === 'simple-money-out' && <MoneyOut key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} />}
+          {screen.name === 'simple-money-in' && <MoneyIn key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}|${screen.date ?? ''}|${screen.bankId ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} date={screen.date} bankId={screen.bankId} reference={screen.reference} note={screen.note} />}
+          {screen.name === 'simple-money-out' && <MoneyOut key={`${screen.party ?? ''}|${screen.amount ?? ''}|${screen.bill ?? ''}|${screen.billId ?? ''}|${screen.date ?? ''}|${screen.bankId ?? ''}`} party={screen.party} amount={screen.amount} bill={screen.bill} billId={screen.billId} date={screen.date} bankId={screen.bankId} reference={screen.reference} note={screen.note} />}
           {screen.name === 'simple-move-money' && <MoveMoney />}
           {screen.name === 'simple-money' && <MoneyList key={screen.entryId ?? 'list'} entryId={screen.entryId} />}
           {screen.name === 'simple-sell' && <MakeBill />}
           {screen.name === 'simple-sales' && <SalesList key={screen.billId ?? 'list'} billId={screen.billId} />}
           {screen.name === 'simple-quick-bill' && <QuickBill />}
+          {screen.name === 'simple-bank' && <BankScreen key={screen.bankId ?? 'bank'} bankId={screen.bankId} />}
           {screen.name === 'simple-buy' && <RecordPurchase />}
           {screen.name === 'simple-purchases' && <PurchaseList key={screen.billId ?? 'list'} billId={screen.billId} />}
           {screen.name === 'simple-stock' && <StockList key={`${screen.itemId ?? 'list'}-${screen.filter ?? 'all'}`} filter={screen.filter} itemId={screen.itemId} />}
@@ -278,7 +280,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'stale-documents' && <StaleDocumentsScreen />}
           {screen.name === 'consolidated' && <ConsolidatedScreen />}
           {screen.name === 'consolidation' && <ConsolidationScreen key={screen.groupId ?? 0} tab={screen.tab} groupId={screen.groupId} />}
-          {screen.name === 'banking' && <BankingScreen key={screen.tab ?? 'recon'} tab={screen.tab} />}
+          {screen.name === 'banking' && <BankingScreen key={`${screen.tab ?? 'recon'}:${screen.ledgerId ?? ''}:${screen.asOn ?? ''}`} tab={screen.tab} ledgerId={screen.ledgerId} asOn={screen.asOn} />}
           {screen.name === 'capture' && <CaptureScreen />}
           {screen.name === 'payroll' && <PayrollScreen />}
           {screen.name === 'tds' && <TdsScreen />}
