@@ -139,8 +139,9 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 Fixed in this PR: **MT940 / CAMT.053 statements could not be imported** (Banking → Import kept
 "Apply the mapping first" for any statement without a column mapping) — e2e 72 tests the fixed path.
 
-Being fixed in a separate PR (branch `fix/year-end-ui-bugs`); the scenarios work around them for now
-(the scenarios say so where they work around one):
+Fixed in PR #107 (`fix/year-end-ui-bugs`, merged while this WP ran); the scenarios still carry the
+workarounds they were written with (they pass either way) — tightening them to the fixed paths is a
+follow-up:
 
 | Bug | Scenario | Workaround in the scenario |
 | --- | --- | --- |
