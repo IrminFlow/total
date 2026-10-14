@@ -40,3 +40,7 @@ The screens a first-time, non-accountant user sees (plan `docs/superpowers/specs
 
 - `sell/MakeBill.tsx` is Make a bill: customer (empty = the walk-in "Cash customer"), date, products (`BillLines`) or "just an amount" (`AmountLine`; the only mode with stock off), "Paid how?" (`PaidHow`), the live total and the preview line. Everything it computes comes from `shared/simple/sell.ts` (the editor's calculation); it saves only through `useSimplePost` → `simple:post`, then shows the save card.
 - `sell/SalesList.tsx` is the sales list (shared `DataTable`) and, with `billId`, one bill's read-only view (Print, Record a payment, Edit in the full app). `sell/QuickBill.tsx` is the Counter screen with a plain title.
+
+## Bank (WP 9.6)
+
+- `bank/BankScreen.tsx` is Money → Bank: the bank account (or "Add a bank account"), the BRS in one sentence (`shared/simple/bank.ts` `bankSentence`; "see them" opens the full Banking → BRS on that account), `bank/StatementDrop.tsx` (a dropped / chosen file's bytes go to the existing `bankImport:preview` / `commit`), one `bank/LineCard.tsx` per open line ("What is this?" — the suggestion pre-selected with its "because …") and `bank/DoneLines.tsx` (shared `DataTable`) for what is done. Reads `simple:bank:setup` / `simple:bank:lines`; saves only through `simple:bank:accept` (a WP 9.1 intent via simple:post's service, the line then reconciled). The assistant is asked only from the "Ask the assistant" card, shown while AI is ready.
