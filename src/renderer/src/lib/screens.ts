@@ -117,9 +117,7 @@ export const SCREENS: ScreenDef[] = [
     modes: ['accountant'],
     simpleSection: 'sell',
     simpleEntries: [
-      { id: 'sale-returns', label: 'simple.entries.saleReturns', screen: { name: 'voucher-entry', kindHint: 'credit_note' } },
       { id: 'record-purchase', label: 'simple.entries.recordPurchase', section: 'buy', screen: { name: 'voucher-entry', kindHint: 'purchase' } },
-      { id: 'purchase-returns', label: 'simple.entries.purchaseReturns', section: 'buy', screen: { name: 'voucher-entry', kindHint: 'debit_note' } },
       { id: 'money-in', label: 'simple.home.moneyIn', section: 'money', screen: { name: 'voucher-entry', kindHint: 'receipt' } },
       { id: 'money-out', label: 'simple.home.moneyOut', section: 'money', screen: { name: 'voucher-entry', kindHint: 'payment' } },
       { id: 'move-money', label: 'simple.entries.moveMoney', section: 'money', screen: { name: 'voucher-entry', kindHint: 'contra' } }
@@ -1018,6 +1016,34 @@ export const SCREENS: ScreenDef[] = [
     screen: null, // simple shell only
     navSection: null,
     invalidates: ['counterConfig', 'counterHeld', 'counterDayEnd', 'nextNumber', 'stockItems', 'ledgers', 'groups', 'units', 'pricingConfig', 'printTemplates']
+  },
+  // WP 9.5: Sell → Return a sale / Buy → Return a purchase (simple/returns: which bill, what came
+  // back, money back or kept as credit → a `return_sale` / `return_purchase` intent →
+  // simple:post). Their accountant counterparts are the credit / debit note editors ("Accountant
+  // view"); a bill's simple view starts one from that bill (`billId`).
+  {
+    name: 'simple-return-sale',
+    modes: ['simple'],
+    simpleView: 'returns/ReturnSale',
+    simpleSection: 'sell',
+    simpleEntries: [{ id: 'sale-returns', label: 'simple.entries.saleReturns', screen: { name: 'simple-return-sale' } }],
+    title: 'Return a sale',
+    keywords: ['sale return', 'credit note', 'return', 'refund'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simpleReturnBills', 'simpleReturnBill', 'simpleSellSetup', 'ledgers', 'stockItems']
+  },
+  {
+    name: 'simple-return-purchase',
+    modes: ['simple'],
+    simpleView: 'returns/ReturnPurchase',
+    simpleSection: 'buy',
+    simpleEntries: [{ id: 'purchase-returns', label: 'simple.entries.purchaseReturns', screen: { name: 'simple-return-purchase' } }],
+    title: 'Return a purchase',
+    keywords: ['purchase return', 'debit note', 'return', 'refund'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['simpleReturnBills', 'simpleReturnBill', 'simpleSellSetup', 'ledgers', 'stockItems']
   },
   {
     name: 'search',

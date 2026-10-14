@@ -74,6 +74,9 @@ export type Screen =
   | { name: 'simple-sell' }
   | { name: 'simple-sales'; billId?: number }
   | { name: 'simple-quick-bill' }
+  // WP 9.5: Returns — Return a sale (Sell) / a purchase (Buy); `billId` = start from that bill.
+  | { name: 'simple-return-sale'; billId?: number }
+  | { name: 'simple-return-purchase'; billId?: number }
   | { name: 'counter-billing' }
   // Books search results (⌘⇧F, or "See all" in the ⌘K palette): `q` is the query-language
   // string, `kind` the initially selected tab (omitted = all kinds).

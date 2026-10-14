@@ -11,6 +11,7 @@ import type { SaveSummary } from '@shared/simple/saveCard'
 import type { HomeAttention, SimpleHomeData } from '@shared/simple/home'
 import type { SimpleIntentInput, SimplePostResult, SimplePreview } from '@shared/simple/intents'
 import type { SaleRow, SaleView, SellSetup } from '@shared/simple/sell'
+import type { ReturnBill, ReturnBillRow, ReturnSide as SimpleReturnSide } from '@shared/simple/returns'
 import type { BudgetVarianceRow } from '@shared/budgets'
 import type { McpConfig, McpLogRow, McpSettingsView } from '@shared/mcp'
 import type { AiDraftDto, AiDraftStatus } from '@shared/ai'
@@ -685,7 +686,11 @@ export const api = {
     /** WP 9.2: the sales list — bills dated from…to with what is still due on each (as on today). */
     sales: (from: string, to: string, today?: string) => call<SaleRow[]>('simple:sales', { from, to, ...(today ? { today } : {}) }),
     /** WP 9.2: one bill's simple (read-only) view; null when it is not an in-books sales bill. */
-    sale: (id: number, today?: string) => call<SaleView | null>('simple:sale', { id, ...(today ? { today } : {}) })
+    sale: (id: number, today?: string) => call<SaleView | null>('simple:sale', { id, ...(today ? { today } : {}) }),
+    /** WP 9.5: the recent bills a return can be made against (`q` searches party / bill number). */
+    returnBills: (side: SimpleReturnSide, today?: string, q?: string) => call<ReturnBillRow[]>('simple:returns:bills', { side, ...(today ? { today } : {}), ...(q ? { q } : {}) }),
+    /** WP 9.5: one bill as the return form needs it, as on the return's date. */
+    returnBill: (side: SimpleReturnSide, id: number, asOn?: string) => call<ReturnBill | null>('simple:returns:bill', { side, id, ...(asOn ? { asOn } : {}) })
   },
   /** WP 8.7: the opening setup (what a continuing business had on day one). */
   openings: {
