@@ -1,5 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
-import { isAllowedHelpUrl } from '@shared/helpLinks'
+import { allowedHelpUrl } from '@shared/helpLinks'
 import { nextRegistrationFacts } from '@shared/gst/registration'
 import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync, appendFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -2564,8 +2564,11 @@ export function registerIpc(): void {
   // renderer can never open anything else through it.
   handle('help:openLink', async (p) => {
     const { url } = z.object({ url: z.string().max(500) }).strict().parse(p)
-    if (!isAllowedHelpUrl(url)) throw new Error('Help links open only the GST portal or CBIC')
-    await shell.openExternal(url)
+    // Open the parser's normalised form, never the raw string (the OS URL parser may read odd
+    // input — a backslash, spaces — differently from the WHATWG one that checked it).
+    const safe = allowedHelpUrl(url)
+    if (!safe) throw new Error('Help links open only the GST portal or CBIC')
+    await shell.openExternal(safe)
   }, 'viewer')
 
   // ---------- agent bridge (CSV/JSON mirrors + inbox, lane A) ----------
