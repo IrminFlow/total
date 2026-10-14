@@ -24,6 +24,23 @@ await scenario('63-keyboard-simple', async (h) => {
     }
     throw new Error(`Tab never reached ${testId} (on ${await active()})`)
   }
+  /** Reach a choice the keyboard way (WAI radio group: a question is ONE Tab stop — Tab to the
+   *  group, then the arrow keys move along it and pick). */
+  const radioTo = async (testId, { back = false } = {}) => {
+    const inGroup = () =>
+      page.evaluate((id) => {
+        const a = document.activeElement
+        const target = document.querySelector(`[data-testid="${id}"]`)
+        return !!a && !!target && a.getAttribute('role') === 'radio' && a.closest('[role="radiogroup"]') === target.closest('[role="radiogroup"]')
+      }, testId)
+    for (let i = 0; i < 60 && !(await inGroup()); i++) await page.keyboard.press(back ? 'Shift+Tab' : 'Tab')
+    assert(await inGroup(), `Tab reached the group of ${testId} (on ${await active()})`)
+    for (let i = 0; i < 12; i++) {
+      if ((await active()) === testId) return
+      await page.keyboard.press('ArrowDown')
+    }
+    throw new Error(`the arrow keys never reached ${testId} (on ${await active()})`)
+  }
   const shots = []
   const shot = async (name) => shots.push(await h.shot(name))
   const layout = async (where) => {
@@ -54,20 +71,19 @@ await scenario('63-keyboard-simple', async (h) => {
   assert(gst !== firstGst && gst.startsWith('setup-gst-'), `↓ moved along the GST cards (${firstGst} → ${gst})`)
   assertEq(await page.getAttribute(`[data-testid="${gst}"]`, 'aria-checked'), 'true', '↓ picked the card it landed on')
   if (gst !== 'setup-gst-no') {
-    await tabTo('setup-gst-no', { back: true, max: 10 }).catch(() => tabTo('setup-gst-no'))
-    await page.keyboard.press('Space')
+    await radioTo('setup-gst-no')
   }
   await tabTo('setup-next')
   await page.keyboard.press('Enter')
   await attached('[data-testid="setup-wizard"][data-step="stock"]')
-  await tabTo('setup-stock-yes', { back: true, max: 4 }).catch(() => tabTo('setup-stock-yes'))
+  await radioTo('setup-stock-yes')
   await page.keyboard.press('Space')
   await tabTo('setup-next')
   await page.keyboard.press('Enter')
   await attached('[data-testid="setup-wizard"][data-step="start"]')
-  await tabTo('setup-start-fy', { back: true, max: 6 }).catch(() => tabTo('setup-start-fy'))
+  await radioTo('setup-start-fy')
   await page.keyboard.press('Space')
-  await tabTo('setup-fresh-new')
+  await radioTo('setup-fresh-new')
   await page.keyboard.press('Space')
   await tabTo('setup-next')
   await page.keyboard.press('Enter')
@@ -136,7 +152,7 @@ await scenario('63-keyboard-simple', async (h) => {
   await page.keyboard.press('Enter')
   await h.waitScreen('simple-money-in')
   await attached('[data-testid="money-in-who-customer"]')
-  await tabTo('money-in-who-customer', { back: true }).catch(() => tabTo('money-in-who-customer'))
+  await radioTo('money-in-who-customer', { back: true })
   await page.keyboard.press('ArrowRight') // → "I put in my own money"
   assertEq(await active(), 'money-in-who-owner', '→ moved to the next choice')
   assertEq(await page.getAttribute('[data-testid="money-in-who-owner"]', 'aria-checked'), 'true', '→ picked it')

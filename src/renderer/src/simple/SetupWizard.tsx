@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useT } from '../lib/i18n'
 import { Button } from '../components/ui'
 import { TotalLogo } from '../components/TotalLogo'
-import { handleRadioArrows } from '../lib/simpleKeys'
+import { handleRadioArrows, syncRovingRadios, useRovingRadios } from '../lib/simpleKeys'
 import { todayISO } from '@shared/dates'
 import { PRESETS } from '@shared/simple/presets'
 import {
@@ -62,6 +62,7 @@ export function SetupWizard({
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [])
+  useRovingRadios(true)
   // WP 10.5: Next / Back moves the keyboard to the new step's first question (not back to the
   // top of the page), so the wizard runs by keyboard alone.
   const firstRender = useRef(true)
@@ -70,7 +71,11 @@ export function SetupWizard({
       firstRender.current = false
       return
     }
-    formRef.current?.querySelector<HTMLElement>('input:not([disabled]), select:not([disabled]), textarea:not([disabled]), button:not([disabled])')?.focus()
+    // (a question's Tab stop — its picked card, else the first: lib/simpleKeys useRovingRadios).
+    if (formRef.current) syncRovingRadios(formRef.current)
+    formRef.current
+      ?.querySelector<HTMLElement>(':is(input, select, textarea, button):not([disabled]):not([tabindex="-1"])') // i18n-technical
+      ?.focus()
   }, [stepIdx])
 
   const set = (patch: Partial<SetupDraft>): void => {

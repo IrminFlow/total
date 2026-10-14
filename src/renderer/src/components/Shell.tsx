@@ -22,7 +22,7 @@ import { AssistantButton } from './ai/AssistantButton'
 import { HelpPanel } from '../simple/help/HelpPanel'
 import { DockModeContext } from './kit'
 import { useSimplePanelsOverlay } from '../lib/simpleLayout'
-import { handleRadioArrows, handleSlashKey } from '../lib/simpleKeys'
+import { handleRadioArrows, handleSlashKey, useRovingRadios } from '../lib/simpleKeys'
 
 /** Sidebar derived from the single screen registry (lib/screens.ts) — accountant-mode screens. */
 const NAV = ACCOUNTANT_NAV
@@ -64,6 +64,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [simple])
+  useRovingRadios(simple)
   const visibleNav = NAV.filter((s) => !s.feature || features[s.feature]).map((s) => ({
     ...s,
     items: s.items.filter((i) => (!i.feature || features[i.feature]) && screenApplies(i, info?.gstRegistrationType)),

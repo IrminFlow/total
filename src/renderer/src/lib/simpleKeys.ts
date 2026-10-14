@@ -7,11 +7,14 @@
 //       left alone.
 //   ←/→/↑/↓ on a choice chip / card (role="radio") move to the next choice and pick it — every
 //       simple radio group at once (the wizard installs it too).
+//   Tab  reaches ONE choice per group — the picked one, else the first (WAI-ARIA radio group:
+//       a roving tabindex, `useRovingRadios`), so a question is one Tab stop, not one per choice.
 //
 // The other simple keys live with their owners: ⌘K palette, ⌘J Ask Total (App.tsx), ? and ⌘/
 // help (help/keys.ts — ? never while typing), Esc closes the topmost layer (dialogs:
 // kit/layers.ts useDialogLayer; the simple panels: layers.ts routePanelEscape; then the form's
 // own "discard?" and the app's "back"), ⌘↵ / ⌘N in each entry screen.
+import { useEffect } from 'react'
 import { isAnyModalOpen } from '../components/kit/layers'
 
 export const typingIn = (el: EventTarget | null): boolean => {
@@ -33,7 +36,7 @@ export function screenSearchBox(root: ParentNode = document): HTMLElement | null
 /**
  * ←/→/↑/↓ on a choice chip / card (`role="radio"` in a `role="radiogroup"` — the simple screens'
  * "Paid how?", "Who paid?", the wizard's cards …) move to the next / previous choice and pick it,
- * as a radio group does (Tab still reaches each one). True = handled.
+ * as a radio group does. True = handled.
  */
 export function handleRadioArrows(e: KeyboardEvent): boolean {
   const step = e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : 0
@@ -61,4 +64,32 @@ export function handleSlashKey(e: KeyboardEvent): boolean {
   e.preventDefault()
   box.focus()
   return true
+}
+
+/**
+ * The roving tabindex of every `role="radiogroup"` under `root`: the picked choice (else the first
+ * enabled one) is the group's single Tab stop, every other choice is tabindex -1 (still focusable
+ * by the arrow keys above). Radios of a nested group belong to that group only.
+ */
+export function syncRovingRadios(root: ParentNode = document): void {
+  for (const group of root.querySelectorAll<HTMLElement>('[role="radiogroup"]')) {
+    const radios = [...group.querySelectorAll<HTMLElement>('[role="radio"]')].filter((r) => r.closest('[role="radiogroup"]') === group)
+    const enabled = radios.filter((r) => !(r as HTMLButtonElement).disabled && r.getAttribute('aria-disabled') !== 'true')
+    const stop = enabled.find((r) => r.getAttribute('aria-checked') === 'true') ?? enabled[0]
+    for (const r of radios) {
+      const want = r === stop ? 0 : -1
+      if (r.tabIndex !== want) r.tabIndex = want
+    }
+  }
+}
+
+/** Keeps `syncRovingRadios` true for the whole document while `on` (the simple shell, the wizard). */
+export function useRovingRadios(on: boolean): void {
+  useEffect(() => {
+    if (!on || typeof MutationObserver === 'undefined') return
+    syncRovingRadios()
+    const mo = new MutationObserver(() => syncRovingRadios())
+    mo.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['aria-checked', 'disabled', 'aria-disabled', 'role'] })
+    return () => mo.disconnect()
+  }, [on])
 }
