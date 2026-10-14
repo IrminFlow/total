@@ -3,6 +3,7 @@ import { join } from 'path'
 import type { DB } from '../db/connection'
 import type { CompanyInfo, TradePurpose } from '@shared/domain'
 import type { Gstr3bView } from '@shared/gst/views'
+import { resolvePostedRates, type PostedRateLine, type PostedRates } from '@shared/gst/postedRate'
 export type { Gstr3bView }
 import {
   buildGstr1, buildGstr3b, circular170Inputs, classifyDoc, isZeroRatedTyp,
@@ -92,6 +93,31 @@ export function outwardSupplyClass(
   return { invTyp, isExport, pos, supply, zeroTax }
 }
 
+// One prepared statement per connection (postedLineRates runs once per ledger-line document).
+const postedTaxStmts = new WeakMap<DB, { get(salesSide: string, voucherId: number): unknown }>()
+
+/**
+ * Rates of a ledger-line document's sales-side lines. The ledger's rate is the fallback; when the
+ * voucher POSTS CGST / SGST / IGST the rate-less lines take the rate the posted tax implies
+ * (shared/gst/postedRate.ts) — an amount-only sale on a rate-less Sales ledger is not nil-rated.
+ * Shared by extractOutwardDocs and the e-document extractor.
+ */
+export function postedLineRates(
+  db: DB, voucherId: number, salesSide: 'cr' | 'dr', lines: PostedRateLine[], supply: 'intra' | 'inter', date: string
+): PostedRates {
+  let stmt = postedTaxStmts.get(db)
+  if (!stmt) {
+    stmt = db.prepare(
+      `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = ? THEN vl.amount ELSE -vl.amount END), 0) AS t
+       FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+       WHERE vl.voucher_id = ? AND l.tax_type IN ('cgst', 'sgst', 'igst')`
+    )
+    postedTaxStmts.set(db, stmt)
+  }
+  const posted = (stmt.get(salesSide, voucherId) as { t: number }).t
+  return resolvePostedRates(lines, posted, supply, date)
+}
+
 /**
  * Extract outward GST documents (sales + credit notes + outward debit notes) for a period.
  *
@@ -171,6 +197,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
       const nilLines: GstNilLine[] = []
       let missingHsnCount = 0
       let computedTotal = 0
+      let offSlabRate = false
 
       // The one shared bucketing path: compute per LINE, then only ever sum.
       const addLine = (
@@ -217,11 +244,20 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
         }[]
         // Sales side: credit lines on sales/debit notes, debit lines on credit notes.
         const salesSide = v.kind === 'credit_note' ? 'dr' : 'cr'
-        for (const line of lines) {
-          if (line.drCr !== salesSide || !salesGroupIds.has(line.groupId)) continue
+        const salesLines = lines.filter((l) => l.drCr === salesSide && salesGroupIds.has(l.groupId))
+        // A voucher that posts tax is reported at the rate the posted tax implies on rate-less lines.
+        const resolved =
+          rated && !zeroTax
+            ? postedLineRates(db, v.id, salesSide, salesLines.map((l) => ({ taxable: l.amount, rate: l.gstRate })), supply, v.date)
+            : null
+        if (resolved?.offSlab) offSlabRate = true
+        salesLines.forEach((line, i) => {
           // WP 4.2: a ledger can carry a cess rate (migration 032) — absent = no cess, as before.
-          addLine(line.amount, rated ? (line.gstRate ?? 0) : 0, rated ? (line.cessRate ?? 0) : 0, line.hsn, line.name, 'OTH', 0)
-        }
+          addLine(
+            line.amount, rated ? (resolved ? resolved.rates[i]! : (line.gstRate ?? 0)) : 0, rated ? (line.cessRate ?? 0) : 0,
+            line.hsn, line.name, 'OTH', 0
+          )
+        })
       }
 
       const items: GstDocRateItem[] = [...buckets.values()].map((b) => ({
@@ -248,6 +284,7 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
         validation: {
           valDiff: invoiceValue - (tcsStmt.get(v.id) as { t: number }).t - computedTotal,
           missingHsnCount,
+          ...(offSlabRate ? { offSlabRate: true } : {}),
           // SEZ/deemed-export registrations always have a GSTIN — flag its absence.
           missingGstin: (invTyp === 'SEWP' || invTyp === 'SEWOP' || invTyp === 'DE') && !v.partyGstin
         }
