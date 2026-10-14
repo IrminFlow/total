@@ -594,6 +594,11 @@ textarea {
   position: relative;
   scroll-padding-bottom: 6rem;
 }
+/* A toast never covers the Save bar's buttons: while a simple screen shows one, the stack sits
+   above it. */
+[data-shell='simple']:has([data-testid='save-bar']) [data-toasts] {
+  bottom: 5.5rem;
+}
 /* Under 1200 px the header's key hints give their room to the buttons (each button still
    names its key in its title / accessible name). Same breakpoint as lib/simpleLayout.ts. */
 @media (max-width: 1199.98px) {

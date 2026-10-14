@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useT } from '../lib/i18n'
 import { Button } from '../components/ui'
 import { TotalLogo } from '../components/TotalLogo'
+import { handleRadioArrows } from '../lib/simpleKeys'
 import { todayISO } from '@shared/dates'
 import { PRESETS } from '@shared/simple/presets'
 import {
@@ -54,6 +55,12 @@ export function SetupWizard({
       if (had) root.dataset.shell = had
       else delete root.dataset.shell
     }
+  }, [])
+  // WP 10.5: arrow keys move between a question's cards (lib/simpleKeys.ts).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => void handleRadioArrows(e)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [])
   // WP 10.5: Next / Back moves the keyboard to the new step's first question (not back to the
   // top of the page), so the wizard runs by keyboard alone.

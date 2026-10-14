@@ -22,7 +22,7 @@ import { AssistantButton } from './ai/AssistantButton'
 import { HelpPanel } from '../simple/help/HelpPanel'
 import { DockModeContext } from './kit'
 import { useSimplePanelsOverlay } from '../lib/simpleLayout'
-import { handleSlashKey } from '../lib/simpleKeys'
+import { handleRadioArrows, handleSlashKey } from '../lib/simpleKeys'
 
 /** Sidebar derived from the single screen registry (lib/screens.ts) — accountant-mode screens. */
 const NAV = ACCOUNTANT_NAV
@@ -56,12 +56,13 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
       delete root.dataset.shell
     }
   }, [simple])
-  // WP 10.5: `/` focuses the screen's search box (simple shell only; lib/simpleKeys.ts).
+  // WP 10.5 (simple shell only; lib/simpleKeys.ts): `/` focuses the screen's search box, arrow
+  // keys move between a question's choices.
   useEffect(() => {
     if (!simple) return
-    const onKey = (e: KeyboardEvent): void => void handleSlashKey(e)
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    const onKey = (e: KeyboardEvent): void => void (handleRadioArrows(e) || handleSlashKey(e))
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [simple])
   const visibleNav = NAV.filter((s) => !s.feature || features[s.feature]).map((s) => ({
     ...s,

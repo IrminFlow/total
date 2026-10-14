@@ -349,6 +349,7 @@ export function Toasts(): React.JSX.Element {
     <div
       aria-live="polite"
       role="status"
+      data-toasts=""
       onMouseEnter={pause}
       onMouseLeave={resume}
       className="pointer-events-none fixed right-4 bottom-4 z-50 flex w-96 flex-col gap-2"

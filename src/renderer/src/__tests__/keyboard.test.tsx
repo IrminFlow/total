@@ -15,7 +15,7 @@ import { join, relative, resolve } from 'node:path'
 import { DockModeContext, DockedDrawer, isPanelOpen, routePanelEscape } from '../components/kit'
 import { Modal, isAnyModalOpen } from '../components/ui'
 import { TypeAhead, type PickerOption } from '../components/pickers'
-import { handleSlashKey, screenSearchBox } from '../lib/simpleKeys'
+import { handleRadioArrows, handleSlashKey, screenSearchBox } from '../lib/simpleKeys'
 import { handleHelpKey } from '../help/keys'
 import { useHelpPanel } from '../help/store'
 import { useNav, useSession } from '../state/stores'
@@ -191,6 +191,36 @@ describe('shortcuts never fire while typing', () => {
     expect(document.activeElement).not.toBe(screen.getByTestId('filter'))
   })
 
+  it('arrow keys move between a question’s choices and pick the one they land on (every simple radio group)', () => {
+    const picked = vi.fn()
+    function Group(): React.JSX.Element {
+      const [v, setV] = useState('cash')
+      useEffect(() => {
+        const on = (e: KeyboardEvent): void => void handleRadioArrows(e)
+        window.addEventListener('keydown', on, true)
+        return () => window.removeEventListener('keydown', on, true)
+      }, [])
+      return (
+        <div role="radiogroup" aria-label="Paid how?">
+          {['cash', 'upi', 'card'].map((x) => (
+            <button key={x} type="button" role="radio" aria-checked={v === x} data-testid={`r-${x}`} onClick={() => (setV(x), picked(x))}>
+              {x}
+            </button>
+          ))}
+        </div>
+      )
+    }
+    render(<Group />)
+    screen.getByTestId('r-cash').focus()
+    fireEvent.keyDown(screen.getByTestId('r-cash'), { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(screen.getByTestId('r-upi'))
+    expect(screen.getByTestId('r-upi').getAttribute('aria-checked')).toBe('true')
+    fireEvent.keyDown(screen.getByTestId('r-upi'), { key: 'ArrowLeft' })
+    fireEvent.keyDown(screen.getByTestId('r-cash'), { key: 'ArrowUp' }) // wraps to the last
+    expect(document.activeElement).toBe(screen.getByTestId('r-card'))
+    expect(picked.mock.calls.map((c) => c[0])).toEqual(['upi', 'cash', 'card'])
+  })
+
   it('? opens help only when no box has the keyboard', () => {
     render(<input aria-label="Name" data-testid="name" />)
     const inBox = new KeyboardEvent('keydown', { key: '?', cancelable: true })
@@ -206,7 +236,7 @@ describe('shortcuts never fire while typing', () => {
 
 describe('⌘K reaches every simple flow', () => {
   it('every simple-native entry of the registry is a palette row (all features on, registered, AI ready)', () => {
-    const allOn = Object.fromEntries(Object.keys(DEFAULT_FEATURES).map((k) => [k, true])) as typeof DEFAULT_FEATURES
+    const allOn = Object.fromEntries(Object.keys(DEFAULT_FEATURES).map((k) => [k, true])) as unknown as typeof DEFAULT_FEATURES
     const rows = simplePaletteRows({ features: { ...allOn, manufacturing: true }, regular: true, aiReady: true })
     const labels = new Set(rows.map((r) => r.label))
     const missing = SIMPLE_ENTRIES.filter((e) => screenDef(e.screenName)?.modes.includes('simple') && !labels.has(e.label)).map((e) => e.id)
