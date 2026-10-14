@@ -79,7 +79,7 @@ describe('screen registry modes (WP 8.1)', () => {
   })
 
   it('the simple Settings list: business details, day one … how Total looks, then Advanced (the full Settings)', () => {
-    expect(simpleEntriesOf('settings').map((e) => e.id)).toEqual(['business', 'openings', 'bills-printing', 'backups', 'people-roles', 'features', 'ai-helper', 'looks', 'help-tour', 'advanced'])
+    expect(simpleEntriesOf('settings').map((e) => e.id)).toEqual(['business', 'openings', 'bills-printing', 'backups', 'people-roles', 'security', 'features', 'ai-helper', 'looks', 'help-tour', 'advanced'])
     expect(simpleEntriesOf('settings').find((e) => e.id === 'looks')?.screen).toEqual({ name: 'simple-looks' })
     expect(simpleEntriesOf('settings').find((e) => e.id === 'advanced')?.screen).toEqual({ name: 'settings' })
   })

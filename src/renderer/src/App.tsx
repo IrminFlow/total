@@ -103,6 +103,9 @@ import { LinkedDocsHost } from './components/LinkedDocs'
 import { invalidationFamilies } from './lib/screens'
 import { handleHelpKey } from './help/keys'
 import { HelpSettings } from './simple/HelpSettings'
+import { useSessionLock } from './lib/sessionLock'
+import { SecuritySettings } from './simple/SecuritySettings'
+import { PeopleRoles } from './simple/PeopleRoles'
 
 export default function App(): React.JSX.Element {
   const { slug, locked, integrityWarning, setIntegrityWarning } = useSession()
@@ -115,6 +118,8 @@ export default function App(): React.JSX.Element {
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const queryClient = useQueryClient()
+  // WP 7.2: ⌘L, main's lock events and the activity heartbeat of the idle auto-lock.
+  useSessionLock()
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -207,6 +212,8 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-section' && <SimpleSection key={screen.section} section={screen.section} />}
           {screen.name === 'simple-looks' && <SimpleLooks />}
           {screen.name === 'simple-features' && <SimpleFeatures />}
+          {screen.name === 'simple-security' && <SecuritySettings />}
+          {screen.name === 'simple-people-roles' && <PeopleRoles />}
           {screen.name === 'simple-ai' && <AiHelper />}
           {screen.name === 'simple-help' && <HelpSettings />}
           {screen.name === 'simple-openings' && <Openings />}

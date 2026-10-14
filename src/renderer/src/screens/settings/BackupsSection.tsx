@@ -87,9 +87,11 @@ export function BackupsSection(): React.JSX.Element {
   const backupNow = async (): Promise<void> => {
     setRunningBackup(true)
     try {
-      await api.backups.run()
+      const r = await api.backups.run()
       await queryClient.invalidateQueries({ queryKey: ['backups'] })
-      toast.push('success', 'Backup saved')
+      // WP 7.2: a backup you take is restore-checked at once.
+      if (r.check && !r.check.ok) toast.push('warning', `Backup saved, but its restore check failed: ${r.check.error ?? 'unknown reason'}`)
+      else toast.push('success', r.check?.ok ? 'Backup saved and checked — it restores fine' : 'Backup saved')
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
@@ -140,6 +142,7 @@ export function BackupsSection(): React.JSX.Element {
         Backups live in this company's data folder, with the attached files. A snapshot is also taken automatically on open and before risky
         operations (Tally imports, restores).
       </p>
+      <BackupCheckLine canCheck={canBackup} />
       {restoring && (
         <RestoreModal
           backup={restoring}
@@ -257,5 +260,43 @@ function ExportEncryptedModal({ onClose }: { onClose: () => void }): React.JSX.E
         </Button>
       </div>
     </Modal>
+  )
+}
+
+/** WP 7.2: the newest automatic restore check — the backup copied to a scratch folder, opened,
+ *  migrated, its audit chain verified and its entries checked to balance — and "Check now". */
+function BackupCheckLine({ canCheck }: { canCheck: boolean }): React.JSX.Element {
+  const { data } = useQuery({ queryKey: ['backups', 'checks'], queryFn: api.backups.checks })
+  const queryClient = useQueryClient()
+  const toast = useToasts()
+  const [busy, setBusy] = useState(false)
+  const last = data?.[0] ?? null
+  const run = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const r = await api.backups.check()
+      toast.push(r.ok ? 'success' : 'warning', r.ok ? 'The newest backup restores fine' : `Restore check failed: ${r.error ?? 'unknown reason'}`)
+      await queryClient.invalidateQueries({ queryKey: ['backups'] })
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md border border-line bg-panel px-3 py-2" data-testid="backup-check-line">
+      <p className={`text-body-sm ${last && !last.ok ? 'text-cr' : 'text-muted'}`} data-testid="backup-check-status" data-ok={last ? (last.ok ? 'true' : 'false') : 'none'}>
+        {!last
+          ? 'No restore check yet — automatic backups are checked once a day, a backup you take at once.'
+          : last.ok
+            ? `Last restore check ${toDisplayDateTime(new Date(last.checkedAt))}: ${last.file} opens, migrates, its audit trail verifies and its entries balance.`
+            : `Last restore check ${toDisplayDateTime(new Date(last.checkedAt))} FAILED for ${last.file}: ${last.error ?? 'unknown reason'}. Take a new backup.`}
+      </p>
+      {canCheck && (
+        <Button size="sm" disabled={busy} onClick={() => void run()} data-testid="btn-backup-check-now">
+          {busy ? 'Checking…' : 'Check now'}
+        </Button>
+      )}
+    </div>
   )
 }

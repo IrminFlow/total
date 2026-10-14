@@ -792,7 +792,6 @@ export const SCREENS: ScreenDef[] = [
     simpleEntries: [
       { id: 'bills-printing', label: 'simple.settings.billsPrinting', screen: { name: 'settings', tab: 'invoice' } },
       { id: 'backups', label: 'simple.settings.backups', screen: { name: 'settings', tab: 'backups' } },
-      { id: 'people-roles', label: 'simple.settings.peopleRoles', screen: { name: 'settings', tab: 'users' } },
       { id: 'advanced', label: 'simple.settings.advanced' }
     ],
     title: 'Settings',
@@ -949,6 +948,36 @@ export const SCREENS: ScreenDef[] = [
     screen: null, // simple shell only
     navSection: null,
     invalidates: []
+  },
+  // WP 7.2: Settings → People & roles in the simple shell — what each person may do, as plain
+  // switches (capability flags); adding people and PINs stays in Settings → Users (full app).
+  {
+    name: 'simple-people-roles',
+    modes: ['simple'],
+    simpleView: 'PeopleRoles',
+    helpKey: 'settings',
+    simpleSection: 'settings',
+    simpleEntries: [{ id: 'people-roles', label: 'simple.settings.peopleRoles', screen: { name: 'simple-people-roles' } }],
+    title: 'People & roles',
+    keywords: ['users', 'roles', 'permissions', 'who can'],
+    screen: null, // simple shell only (its accountant home is Settings → Users / Security)
+    navSection: null,
+    invalidates: ['users']
+  },
+  // WP 7.2: Settings → Lock and safety — the passphrase lock, the screen lock, the backup checks
+  // (the full app shows the same component as Settings → Security).
+  {
+    name: 'simple-security',
+    modes: ['simple'],
+    simpleView: 'SecuritySettings',
+    helpKey: 'settings',
+    simpleSection: 'settings',
+    simpleEntries: [{ id: 'security', label: 'simple.settings.security', screen: { name: 'simple-security' } }],
+    title: 'Lock and safety',
+    keywords: ['passphrase', 'encrypt', 'lock', 'security', 'auto-lock', 'backup check'],
+    screen: null, // simple shell only
+    navSection: null,
+    invalidates: ['security']
   },
   // WP 8.3: Settings → Features in the simple shell ("Turn on" cards; its accountant home is
   // Settings → Features).
@@ -1358,7 +1387,7 @@ export const SIMPLE_ENTRY_ORDER: readonly string[] = [
   // Taxes
   'gst-summary', 'gst-sales', 'check-supplier-bills', 'tds', 'tcs',
   // Settings (then Advanced)
-  'business', 'openings', 'bills-printing', 'backups', 'people-roles', 'features', 'ai-helper', 'looks', 'help-tour', 'advanced'
+  'business', 'openings', 'bills-printing', 'backups', 'people-roles', 'security', 'features', 'ai-helper', 'looks', 'help-tour', 'advanced'
 ]
 
 export interface ResolvedSimpleEntry {

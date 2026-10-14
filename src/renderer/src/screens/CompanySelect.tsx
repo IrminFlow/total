@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import type { UiSettings } from '@shared/simple/uiMode'
 import { useIsFetching, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type IntegrityResult } from '../lib/client'
+import { api, IpcError, type IntegrityResult } from '../lib/client'
+import { PassphrasePrompt } from '../simple/PassphrasePrompt'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, Field, Modal, ScrollList, Select, TextInput, useKeyNav } from '../components/ui'
 import { SupportLink } from '../components/SupportLink'
@@ -38,15 +39,25 @@ export function CompanySelect(): React.JSX.Element {
   const companies = registry?.companies ?? []
   const showWizard = wizard || (registry != null && companies.length === 0 && !creating && !importing)
 
+  // WP 7.2: a business locked with a passphrase asks for it before it opens.
+  const [askPassphrase, setAskPassphrase] = useState<{ slug: string; name: string } | null>(null)
+
+  const finishOpen = (r: Awaited<ReturnType<typeof api.company.open>>): void => {
+    if (!r.integrity.ok) {
+      setIntegrityIssue({ pending: { slug: r.slug, info: r.info, locked: r.locked, ui: r.ui }, integrity: r.integrity })
+      return
+    }
+    setCompany(r.slug, r.info, r.locked, r.ui)
+  }
+
   const open = async (slug: string): Promise<void> => {
     try {
-      const r = await api.company.open(slug)
-      if (!r.integrity.ok) {
-        setIntegrityIssue({ pending: { slug: r.slug, info: r.info, locked: r.locked, ui: r.ui }, integrity: r.integrity })
+      finishOpen(await api.company.open(slug))
+    } catch (err) {
+      if (err instanceof IpcError && err.code === 'passphrase_required') {
+        setAskPassphrase({ slug, name: companies.find((c) => c.slug === slug)?.name ?? slug })
         return
       }
-      setCompany(r.slug, r.info, r.locked, r.ui)
-    } catch (err) {
       toast.push('error', (err as Error).message)
     }
   }
@@ -181,6 +192,18 @@ export function CompanySelect(): React.JSX.Element {
           <SupportLink />
         </div>
       </div>
+      )}
+
+      {askPassphrase && (
+        <PassphrasePrompt
+          name={askPassphrase.name}
+          onCancel={() => setAskPassphrase(null)}
+          onSubmit={async (passphrase) => {
+            const r = await api.company.open(askPassphrase.slug, passphrase)
+            setAskPassphrase(null)
+            finishOpen(r)
+          }}
+        />
       )}
 
       {deleting && (
