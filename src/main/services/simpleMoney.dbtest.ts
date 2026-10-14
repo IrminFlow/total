@@ -337,6 +337,39 @@ describe('Money out', () => {
     expect(JSON.stringify(mine)).toContain('9000')
   })
 
+  it('review: a GST bill of ₹1,000.50 paid in cash — the bill and the cash paid are ₹1,000.50 (never rounded), on the INPUT tax accounts, = the accountant’s pair', () => {
+    const io = (d: DB): void => {
+      for (const [n, t] of [['Input CGST', 'cgst'], ['Input SGST', 'sgst'], ['Output CGST', 'cgst'], ['Output SGST', 'sgst']] as const) ledger(d, n, 'Duties & Taxes', { taxType: t })
+    }
+    io(db)
+    const { out } = moneyOut({ who: 'expense', payeeId: L('Rent'), amount: 100_050, gstBill: true, billSupplierId: L('Bharat Steel'), billNo: 'RENT-SEP', gstRate: 18, how: 'cash' })
+    const [bill, pay] = out.voucherIds as [number, number]
+    expect(out.facts).toMatchObject({ total: 100_050, paid: 100_050, balance: 0 })
+    const lines = (id: number) => getVoucher(db, id)!.lines.map((l) => [l.ledgerId, l.drCr, l.amount])
+    // ₹847.88 + 9 % + 9 % = ₹1,000.50 exactly: no round off; the input side's accounts.
+    expect(lines(bill)).toEqual([[L('Bharat Steel'), 'cr', 100_050], [L('Rent'), 'dr', 84_788], [L('Input CGST'), 'dr', 7_631], [L('Input SGST'), 'dr', 7_631]])
+    expect(lines(pay)).toEqual([[L('Bharat Steel'), 'dr', 100_050], [L('Cash'), 'cr', 100_050]])
+    roundTrips(bill)
+    roundTrips(pay)
+    const twin = company()
+    io(twin)
+    const { ids } = handEntered([
+      {
+        kind: 'purchase',
+        state: blank(TODAY, [r('cr', L('Bharat Steel', twin), 100_050), r('dr', L('Rent', twin), 84_788), r('dr', L('Input CGST', twin), 7_631), r('dr', L('Input SGST', twin), 7_631)], [{ kind: 'new', name: 'RENT-SEP', amount: 100_050, dueDate: TODAY }], { reference: 'RENT-SEP' })
+      },
+      { kind: 'payment', state: blank(TODAY, [r('dr', L('Bharat Steel', twin), 100_050), r('cr', L('Cash', twin), 100_050)], [{ kind: 'against', name: 'RENT-SEP', amount: 100_050, dueDate: null }]) }
+    ], twin)
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, bill))
+    expect(rows(twin, ids[1]!)).toEqual(rows(db, pay))
+    expect(JSON.stringify(gstr3b(db, INFO, '2025-08-01', '2025-08-31', '082025'))).toBe(JSON.stringify(gstr3b(twin, INFO, '2025-08-01', '2025-08-31', '082025')))
+    // A total solveTaxable can't reach to the paisa keeps the typed total: the paisa is the round off.
+    const odd = moneyOut({ who: 'expense', payeeId: L('Rent'), amount: 100_003, gstBill: true, billSupplierId: L('Bharat Steel'), billNo: 'RENT-OCT', gstRate: 18, how: 'cash' }).out
+    expect(odd.facts).toMatchObject({ total: 100_003, paid: 100_003 })
+    expect(getVoucher(db, odd.voucherIds[1]!)!.lines.map((l) => l.amount)).toEqual([100_003, 100_003])
+    roundTrips(odd.voucherIds[0]!)
+  })
+
   it('an inter-state supplier’s GST bill books IGST', () => {
     const { out } = moneyOut({ who: 'expense', payeeId: L('Rent'), amount: 59_000, gstBill: true, billSupplierId: L('Delhi Traders'), billNo: 'DT-7', gstRate: 18 })
     const v = getVoucher(db, out.voucherIds[0]!)!
@@ -415,6 +448,16 @@ describe('Move money, the list, the setup', () => {
     expect(s2).toMatchObject({ memoryIn: m.id, memoryOut: null })
     expect(s2.defaultsIn.upi).toBe(L('SBI'))
     expect(s2.defaultsOut.upi).toBe(L('HDFC Bank'))
+  })
+})
+
+describe('review: the owner’s account when none carries the category', () => {
+  it('is the first ledger DIRECTLY under Capital Account — never one under Reserves & Surplus (as the openings choose)', () => {
+    db.prepare("UPDATE ledgers SET simple_category = NULL WHERE simple_category IN ('owner_capital', 'owner_drawings')").run()
+    ledger(db, 'A General Reserve', 'Reserves & Surplus')
+    expect(moneySetup(db)).toMatchObject({ ownerId: L("Owner's money"), drawingsId: L("Owner's drawings") })
+    const { out } = moneyIn({ who: 'owner', amount: 10_000 })
+    expect(getVoucher(db, out.voucherIds[0]!)!.lines.find((l) => l.drCr === 'cr')?.ledgerId).toBe(L("Owner's money"))
   })
 })
 

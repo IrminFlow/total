@@ -80,7 +80,11 @@ const amountLineSchema = z
     /** The income / expense category; omitted = the intent's account, else the default. */
     accountId: id.optional(),
     /** GST % (regular registration only); omitted = the account's rate, else 0. */
-    gstRate: z.number().min(0).max(100).optional()
+    gstRate: z.number().min(0).max(100).optional(),
+    /** WP 9.4: the bill's printed total WITH GST (an expense bill paid on Money out). Given, the
+     *  bill is that total — what GST + the value leave over (under a rupee) is its round off —
+     *  instead of the rupee-rounded total; omitted = rounded to the rupee, as before. */
+    billTotal: amountIn.optional()
   })
   .strict()
 
@@ -213,7 +217,7 @@ export const SIMPLE_INTENT_KINDS: readonly SimpleIntentKind[] = ['sale', 'purcha
 // ---------------------------------------------------------------- normalised intents
 
 export interface NItemLine { itemId: number; qtyMilli: number; rate: number | null; discount: number | null }
-export interface NAmountLine { amount: number; accountId: number | null; gstRate: number | null }
+export interface NAmountLine { amount: number; accountId: number | null; gstRate: number | null; billTotal?: number | null }
 export interface NPayment { how: PaidHow; amount: number | null; accountId: number | null; reference: string | null }
 export interface NMoneyAccount { how: MoneyHow; accountId: number | null; reference: string | null }
 export interface NBill { name: string; amount: number | null }
@@ -290,7 +294,7 @@ function nItems(items: z.infer<typeof itemLineSchema>[] | undefined): NItemLine[
   }))
 }
 const nAmount = (a: z.infer<typeof amountLineSchema> | undefined): NAmountLine | null =>
-  a ? { amount: readAmount(a.amount, 'amount'), accountId: a.accountId ?? null, gstRate: a.gstRate ?? null } : null
+  a ? { amount: readAmount(a.amount, 'amount'), accountId: a.accountId ?? null, gstRate: a.gstRate ?? null, ...(a.billTotal != null ? { billTotal: readAmount(a.billTotal, 'amount') } : {}) } : null
 
 /** Zod-parse and read every amount / quantity / date (against the working date). */
 export function normaliseIntent(raw: unknown, today: string): NormalIntent {
@@ -547,11 +551,16 @@ function ledgerLines(
   party: IntentLedger,
   accountId: number,
   taxable: number,
-  rate: number
+  rate: number,
+  printedTotal: number | null = null
 ): { rows: AccountingRowState[]; total: number; gst: GstBreakup } {
   const supply = supplyTypeFor(ctx.invoice.companyStateCode, party.stateCode ?? ctx.invoice.companyStateCode)
   const gst = addBreakups([computeGst(taxable, rate, supply)])
-  const total = roundToRupee(gst.total)
+  // A printed total (WP 9.4) is the bill as the supplier wrote it; the rest is round off (< ₹1).
+  if (printedTotal != null && Math.abs(printedTotal - gst.total) >= 100) {
+    fail('simple_bill_total', `The bill total ${formatPaise(printedTotal, { symbol: true })} does not fit its value and GST (${formatPaise(gst.total, { symbol: true })})`, 'amount', { amount: formatPaise(gst.total, { symbol: true }) })
+  }
+  const total = printedTotal ?? roundToRupee(gst.total)
   const roundDiff = total - gst.total
   const partyDr = kind === 'sales' || kind === 'debit_note'
   const partySide = partyDr ? 'dr' : 'cr'
@@ -656,7 +665,7 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
       if (rateBp > 0) taxable = nonClaimableCosts([{ taxable, rateBp, printedTax: null }], null)[0]!.cost
       rate = 0
     }
-    const lines = ledgerLines(ctx, kind as 'sales' | 'purchase', party, account.id, taxable, rate)
+    const lines = ledgerLines(ctx, kind as 'sales' | 'purchase', party, account.id, taxable, rate, a.billTotal ?? null)
     total = lines.total
     facts.tax = lines.gst.total - lines.gst.taxable
     bill = accountingEntry(ctx, 'bill', kind, type, {

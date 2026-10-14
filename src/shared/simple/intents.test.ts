@@ -405,6 +405,19 @@ describe('WP 9.4 additions: a supplier refund, unticking every bill', () => {
     expect(codeOf(() => map({ kind: 'money_in', supplierId: L.supplier, customerId: L.ramesh, amount: 100, into: { how: 'cash' } })).code).toBe('simple_no_party')
   })
 
+  it('review: a purchase amount line with a printed bill total — the bill is that total, the paise left over its round off', () => {
+    const m = map({ kind: 'purchase', supplierId: L.supplier, billNo: 'RENT-9', amount: { amount: 84_788, accountId: L.purchases, gstRate: 18, billTotal: 100_050 }, payment: { how: 'cash' } })
+    balanced(m)
+    const [bill, pay] = m.entries as [(typeof m.entries)[number], (typeof m.entries)[number]]
+    expect(bill.payload.lines.find((l) => l.ledgerId === L.supplier)).toMatchObject({ drCr: 'cr', amount: 100_050 })
+    expect(pay.payload.lines.map((l) => l.amount)).toEqual([100_050, 100_050])
+    expect(m.facts).toMatchObject({ total: 100_050, paid: 100_050, due: 0 })
+    // Omitted: rounded to the rupee as before.
+    expect(map({ kind: 'purchase', supplierId: L.supplier, billNo: 'RENT-10', amount: { amount: 84_788, accountId: L.purchases, gstRate: 18 }, payment: { how: 'cash' } }).facts.total).toBe(100_100)
+    // A total that doesn't fit its value + GST (a rupee or more off) is refused under the amount.
+    expect(codeOf(() => map({ kind: 'purchase', supplierId: L.supplier, billNo: 'RENT-11', amount: { amount: 84_788, accountId: L.purchases, gstRate: 18, billTotal: 120_000 }, payment: { how: 'cash' } }))).toEqual({ code: 'simple_bill_total', field: 'amount' })
+  })
+
   it('bills: [] (every bill unticked) is none of them — the advance flag takes it all, without it the entry is short', () => {
     const adv = map({ kind: 'money_in', customerId: L.ramesh, amount: 50_000, into: { how: 'cash' }, bills: [], advance: true }, ctx({ openBills: bills }))
     expect(adv.entries[0]!.payload.billRefs).toEqual([{ kind: 'new', name: 'R-5', amount: 50_000, dueDate: null }])

@@ -155,6 +155,16 @@ export function ticksToBills(open: readonly MoneyOpenBill[], amount: number, tic
   return out
 }
 
+/** The open bill a "Record a payment" link pre-ticks: the one whose entry it is (`billId`, its
+ *  name may carry the FY when the party had that name open already), else by name; null = no
+ *  longer open (the form falls back to oldest first). */
+export function linkedBillName(open: readonly MoneyOpenBill[], bill: string | null | undefined, billId: number | null | undefined): string | null {
+  const byId = billId != null ? open.find((b) => b.voucherId === billId && b.pending > 0) : undefined
+  if (byId) return byId.name
+  if (billId != null) return null
+  return bill && open.some((b) => b.name === bill && b.pending > 0) ? bill : null
+}
+
 /** The bills a fresh pick shows ticked: the ones the amount settles oldest first. */
 export function defaultTicks(open: readonly MoneyOpenBill[], amount: number | null): string[] {
   return billAllocation(open, amount, null, false).settled.map((s) => s.name)
@@ -210,7 +220,9 @@ export function moneyOutIntentFrom(
       date: f.date,
       supplierId: f.billSupplierId ?? 0,
       ...(opt(f.billNo) ? { billNo: opt(f.billNo)! } : {}),
-      amount: { amount: taxable, ...(f.payeeId != null ? { accountId: f.payeeId } : {}), gstRate: rate },
+      // The bill is exactly the total typed (what solveTaxable can't reach is its round off), so
+      // the money paid is what left the cash / bank — never a rupee-rounded figure.
+      amount: { amount: taxable, ...(f.payeeId != null ? { accountId: f.payeeId } : {}), gstRate: rate, ...(f.amount != null && f.amount > 0 ? { billTotal: f.amount } : {}) },
       payment: { how: f.how, ...(accountId != null ? { accountId } : {}), ...(opt(f.reference) ? { reference: opt(f.reference)! } : {}) },
       ...narration
     }

@@ -10,7 +10,7 @@ import { bannedWordsIn } from './bannedWords'
 import { normaliseIntent } from './intents'
 import {
   billAllocation, defaultTicks, emptyMoneyInForm, emptyMoneyOutForm, emptyMoveForm, moneyInErrors, moneyInIntentFrom, moneyOutErrors,
-  moneyOutFieldOf, moneyOutIntentFrom, moveErrors, moveIntentFrom, ticksToBills, type MoneyOpenBill
+  linkedBillName, moneyOutFieldOf, moneyOutIntentFrom, moveErrors, moveIntentFrom, ticksToBills, type MoneyOpenBill
 } from './money'
 
 const TODAY = '2025-08-14'
@@ -25,6 +25,17 @@ const outCtx = (facts: { gstRegistrationType: 'regular' | 'unregistered' } = REG
 const parse = (i: object) => normaliseIntent({ clientId: 'client-0001', ...i }, TODAY)
 
 describe('bill ticks (the allocation simple:post runs)', () => {
+  it('review: "Record a payment" pre-ticks the bill by its entry, its open name may differ from its number', () => {
+    const open = [{ ...bill('7', '2025-04-02', 10_000), voucherId: 3 }, { ...bill('7/25-26', '2025-07-02', 20_000), voucherId: 9 }]
+    expect(linkedBillName(open, '7', 9)).toBe('7/25-26')
+    expect(linkedBillName(open, '7', 3)).toBe('7')
+    // Paid off since (no open bill of that entry): none — the form goes oldest first.
+    expect(linkedBillName(open, '7', 44)).toBeNull()
+    // Without an entry id, by name.
+    expect(linkedBillName(open, '7', null)).toBe('7')
+    expect(linkedBillName(open, 'X', null)).toBeNull()
+  })
+
   it('untouched: oldest first up to the amount — one and a half bills', () => {
     expect(billAllocation(OPEN, 130_000, null, false)).toEqual({ settled: [{ name: 'S-1', amount: 100_000 }, { name: 'S-2', amount: 30_000 }], advance: 0, short: false })
     expect(defaultTicks(OPEN, 130_000)).toEqual(['S-1', 'S-2'])
@@ -85,7 +96,7 @@ describe('Money out → money_out / purchase', () => {
   it('an expense with a GST bill (regular): ONE purchase intent paid now; its value before GST makes the typed total back', () => {
     const f = { ...emptyMoneyOutForm(TODAY), who: 'expense' as const, payeeId: 6, amount: 118_000, gstBill: true, billSupplierId: 20, billNo: 'INV-9', gstRate: 18, how: 'bank' as const }
     const i = moneyOutIntentFrom(f, [], DEFAULTS, outCtx())
-    expect(i).toEqual({ kind: 'purchase', date: TODAY, supplierId: 20, billNo: 'INV-9', amount: { amount: 100_000, accountId: 6, gstRate: 18 }, payment: { how: 'bank', accountId: 3 } })
+    expect(i).toEqual({ kind: 'purchase', date: TODAY, supplierId: 20, billNo: 'INV-9', amount: { amount: 100_000, accountId: 6, gstRate: 18, billTotal: 118_000 }, payment: { how: 'bank', accountId: 3 } })
     expect(roundToRupee(computeGst(100_000, 18, 'intra').total)).toBe(118_000)
     // Inter-state supplier: IGST — same taxable here.
     expect(moneyOutIntentFrom({ ...f, billSupplierId: 21 }, [], DEFAULTS, outCtx())).toMatchObject({ amount: { amount: 100_000 } })
@@ -93,6 +104,15 @@ describe('Money out → money_out / purchase', () => {
     // Unregistered: never a purchase — the question isn't asked.
     expect(moneyOutIntentFrom(f, [], DEFAULTS, outCtx(UNREG))).toMatchObject({ kind: 'money_out', payeeId: 6 })
   })
+  it('review: a bill total that is not a round rupee is sent as printed (the payment is what left the cash, never rounded)', () => {
+    const f = { ...emptyMoneyOutForm(TODAY), who: 'expense' as const, payeeId: 6, amount: 100_050, gstBill: true, billSupplierId: 20, billNo: 'INV-10', gstRate: 18 }
+    const i = moneyOutIntentFrom(f, [], DEFAULTS, outCtx()) as { amount: { amount: number; billTotal: number } }
+    expect(i.amount.billTotal).toBe(100_050)
+    // Its value + GST come within a rupee of the printed total (the rest is the bill's round off).
+    expect(Math.abs(computeGst(i.amount.amount, 18, 'intra').total - 100_050)).toBeLessThan(100)
+    expect(parse(i)).toMatchObject({ amount: { billTotal: 100_050 } })
+  })
+
   it('checks: the GST bill question and its fields only for a regular registration', () => {
     const f = { ...emptyMoneyOutForm(TODAY), who: 'expense' as const, payeeId: 6, amount: 100 }
     expect(moneyOutErrors(f, [], DEFAULTS, outCtx())).toEqual({ gstBill: 'simple.money.err.gstBill' })

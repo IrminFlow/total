@@ -34,6 +34,7 @@ function byCategory(db: DB, key: string): number | null {
 
 export function moneySetup(db: DB): MoneySetup {
   const cls = ledgerClassifier(db)
+  const byCategoryOf = (id: number): string | null => (db.prepare('SELECT simple_category AS c FROM ledgers WHERE id = ?').get(id) as { c: string | null } | undefined)?.c ?? null
   const all = db.prepare('SELECT id, name, group_id AS groupId, state_code AS stateCode, phone FROM ledgers ORDER BY name COLLATE NOCASE').all() as {
     id: number; name: string; groupId: number; stateCode: string | null; phone: string | null
   }[]
@@ -64,9 +65,12 @@ export function moneySetup(db: DB): MoneySetup {
   const mIn = withMemory('receipt')
   const mOut = withMemory('payment')
 
-  const capital = descendantIdsByName(db, ['Capital Account'])
-  const underCapital = all.filter((l) => capital.has(l.groupId))
-  const ownerId = byCategory(db, 'owner_capital') ?? underCapital.find((l) => !/drawing/i.test(l.name))?.id ?? null
+  // The owner's accounts: by category, else — as the WP 8.7 openings choose the capital account —
+  // a ledger DIRECTLY under Capital Account, oldest first (never one under Reserves & Surplus,
+  // such as the year-end close's Retained Earnings).
+  const capitalGroup = (db.prepare("SELECT id FROM groups WHERE name = 'Capital Account'").get() as { id: number } | undefined)?.id
+  const underCapital = all.filter((l) => l.groupId === capitalGroup).sort((x, y) => x.id - y.id)
+  const ownerId = byCategory(db, 'owner_capital') ?? underCapital.find((l) => !/drawing/i.test(l.name) && byCategoryOf(l.id) !== 'owner_drawings')?.id ?? null
   const drawingsId = byCategory(db, 'owner_drawings') ?? underCapital.find((l) => /drawing/i.test(l.name))?.id ?? null
   const loanGroups = descendantIdsByName(db, ['Loans (Liability)'])
   const loans = all.filter((l) => loanGroups.has(l.groupId) && cls.cls(l.id) === 'other').map((l) => ({ id: l.id, name: l.name }))

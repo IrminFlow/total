@@ -149,6 +149,7 @@ export const ERROR_MAP = {
   simple_bill_over: e('errors.intent.billOver', 'bills', ['bill', 'amount'], 'errors.intent.billOverPlain'),
   simple_bills_short: e('errors.intent.billsShort', 'bills', ['amount'], 'errors.intent.billsShortPlain'),
   simple_bills_exceed: e('errors.intent.billsExceed', 'amount', ['amount'], 'errors.intent.billsExceedPlain'),
+  simple_bill_total: e('errors.intent.billTotal', 'amount', ['amount'], 'errors.intent.billTotalPlain'),
   simple_same_account: e('errors.intent.sameAccount', 'to'),
   simple_original_missing: e('errors.intent.originalMissing', 'bill'),
   simple_return_line: e('errors.intent.returnLine', 'items'),
