@@ -4,6 +4,7 @@ import { useNav, useScreen, useSession } from './state/stores'
 import { Button, Modal, Toasts } from './components/ui'
 import { CompanySelect } from './screens/CompanySelect'
 import { Shell } from './components/Shell'
+import { SimpleKitLabels } from './simple/kitLabels'
 import { Gateway } from './screens/Gateway'
 import { SimpleHome } from './simple/SimpleHome'
 import { SimpleSection } from './simple/SimpleSection'
@@ -198,7 +199,8 @@ export default function App(): React.JSX.Element {
   )
 
   return (
-    <>
+    // WP 10.4: inside the simple shell the shared kit speaks the reader's language.
+    <SimpleKitLabels on={simpleView}>
       <Shell onOpenPalette={() => setPaletteOpen(true)}>
         <ErrorBoundary key={screen.name} screen={screen.name}>
           {screen.name === 'gateway' && (simpleView ? <SimpleHome /> : <Gateway />)}
@@ -332,7 +334,7 @@ export default function App(): React.JSX.Element {
       {integrityModal}
       <DialogHost />
       <Toasts />
-    </>
+    </SimpleKitLabels>
   )
 }
 

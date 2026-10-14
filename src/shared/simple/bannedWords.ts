@@ -46,6 +46,36 @@ const PATTERNS: { word: (typeof BANNED_WORDS)[number]; re: RegExp }[] = [
   { word: 'SOA', re: /\bSOA\b/i }
 ]
 
+// WP 10.4: the same words in Hindi (Devanagari transliterations — and गोदाम, the word "godown"
+// comes from) and in Hinglish's Latin spellings. Each maps to the English word it stands for, so
+// the result reads the same whatever the language. Devanagari has no \b (its letters are not
+// \w), so the Hindi patterns are bounded by "no letter or vowel sign on either side".
+const NOT_LETTER_BEFORE = '(?<![\\p{L}\\p{M}])'
+const NOT_LETTER_AFTER = '(?![\\p{L}\\p{M}])'
+const hiWord = (alternatives: string): RegExp => new RegExp(`${NOT_LETTER_BEFORE}(?:${alternatives})${NOT_LETTER_AFTER}`, 'u')
+
+export const TRANSLATED_PATTERNS: { word: (typeof BANNED_WORDS)[number]; re: RegExp }[] = [
+  { word: 'voucher', re: hiWord('वाउचर(?:ों)?|वाऊचर') },
+  { word: 'voucher', re: /\bvou?cha?rs?\b|\bvauchars?\b/i },
+  { word: 'ledger', re: hiWord('लेजर|लेज़र|लेडजर') },
+  { word: 'ledger', re: /\blej(?:a|e)rs?\b|\blegers?\b/i },
+  { word: 'journal', re: hiWord('जर्नल|जरनल') },
+  { word: 'journal', re: /\bjarnals?\b/i },
+  { word: 'contra', re: hiWord('कॉन्ट्रा|कांट्रा|कोन्ट्रा') },
+  { word: 'particulars', re: hiWord('पर्टिकुलर(?:्स)?|पार्टिकुलर(?:्स)?') },
+  { word: 'narration', re: hiWord('नैरेशन|नरेशन') },
+  { word: 'sundry', re: hiWord('संड्री|सन्ड्री|सनड्री') },
+  { word: 'group', re: hiWord('ग्रुप|ग्रूप') },
+  { word: 'ITC', re: hiWord('आईटीसी') },
+  { word: 'set-off', re: hiWord('सेट[- ]?ऑफ़?|सेटऑफ़?') },
+  { word: 'ageing', re: hiWord('एजिंग') },
+  { word: 'godown', re: hiWord('गोडाउन|गोदाम') },
+  { word: 'godown', re: /\bgod(?:a)?ams?\b/i },
+  { word: 'BOM', re: hiWord('बीओएम') },
+  { word: 'BRS', re: hiWord('बीआरएस') },
+  { word: 'SOA', re: hiWord('एसओए') }
+]
+
 /** The banned words found in `text` (empty when clean). `allow` removes phrases first — a
  *  glossary entry may name its own term ("Your accountant calls it ITC"). */
 export function bannedWordsIn(text: string, allow: readonly string[] = []): string[] {
@@ -53,5 +83,7 @@ export function bannedWordsIn(text: string, allow: readonly string[] = []): stri
   for (const phrase of allow) {
     if (phrase) scan = scan.split(new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')).join(' ')
   }
-  return PATTERNS.filter((p) => p.re.test(scan)).map((p) => p.word)
+  const found = PATTERNS.filter((p) => p.re.test(scan)).map((p) => p.word)
+  for (const p of TRANSLATED_PATTERNS) if (!found.includes(p.word) && p.re.test(scan)) found.push(p.word)
+  return found
 }

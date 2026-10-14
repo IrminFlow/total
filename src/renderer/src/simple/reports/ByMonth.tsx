@@ -42,7 +42,7 @@ function Body({ b }: { b: SimpleByMonth }): React.JSX.Element {
   const columns = useMemo(
     () =>
       defineColumns<MonthBar>([
-        { id: 'month', header: t('simple.reports.byMonth.colMonth'), kind: 'text', groupable: false, value: (r) => r.month, text: (r) => toMonthLabel(r.month, 'long') }, // i18n-technical
+        { id: 'month', header: t('simple.reports.byMonth.colMonth'), kind: 'text', groupable: false, value: (r) => r.month, text: (r) => toMonthLabel(r.month, 'long', t.lang) }, // i18n-technical
         { id: 'sales', header: t('simple.reports.byMonth.sales'), kind: 'money', value: (r) => r.sales, aggregate: 'sum', explainable: false }, // i18n-technical
         { id: 'purchases', header: t('simple.reports.byMonth.purchases'), kind: 'money', value: (r) => r.purchases, aggregate: 'sum', explainable: false } // i18n-technical
       ]),
@@ -69,7 +69,7 @@ function Body({ b }: { b: SimpleByMonth }): React.JSX.Element {
         </div>
         <ul className="mt-2 grid h-48 grid-cols-12 items-end gap-1.5 border-b border-line" data-testid="by-month-bars" aria-label={t('simple.reports.byMonth')}>
           {b.months.map((m) => {
-            const label = t('simple.reports.byMonth.bar', { month: toMonthLabel(m.month, 'long'), sales: money(m.sales), purchases: money(m.purchases) })
+            const label = t('simple.reports.byMonth.bar', { month: toMonthLabel(m.month, 'long', t.lang), sales: money(m.sales), purchases: money(m.purchases) })
             return (
               <li key={m.month} className="flex h-full items-end justify-center gap-0.5" title={label} aria-label={label} data-testid={`by-month-bar-${m.month}`} data-sales={m.sales} data-purchases={m.purchases}>
                 <span className="w-1/3 rounded-t-sm bg-blue" style={{ height: `${pct(m.sales, max)}%` }} />
@@ -80,7 +80,7 @@ function Body({ b }: { b: SimpleByMonth }): React.JSX.Element {
         </ul>
         <ul className="mt-1 grid grid-cols-12 gap-1.5 text-center text-caption text-muted" aria-hidden="true">
           {b.months.map((m) => (
-            <li key={m.month}>{toMonthLabel(m.month)}</li>
+            <li key={m.month}>{toMonthLabel(m.month, undefined, t.lang)}</li>
           ))}
         </ul>
         <p className="mt-3 text-small text-muted">{t('simple.reports.byMonth.note')}</p>

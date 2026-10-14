@@ -193,7 +193,7 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
   }
 
   const sentence = view ? bankSentence(view.sentence) : null
-  const sentenceText = sentence ? t(sentence.key as MessageKey, { ...sentence.vars, ...(sentence.tone === 'agree' ? { date: toPlainDate(String(sentence.vars.date)) } : {}) }) : '' // i18n-technical: key from bankSentence
+  const sentenceText = sentence ? t(sentence.key as MessageKey, { ...sentence.vars, ...(sentence.tone === 'agree' ? { date: toPlainDate(String(sentence.vars.date), t.lang) } : {}) }) : '' // i18n-technical: key from bankSentence
   const seeThem = (): void => {
     if (bankLedgerId == null || !view?.sentence.asOn) return
     nav.go({ name: 'banking', tab: BRS_TAB, ledgerId: bankLedgerId, asOn: view.sentence.asOn }) // i18n-technical
@@ -273,7 +273,7 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
                     {sentenceText}
                   </button>
                   <p className="mt-1 text-small text-muted" data-testid="bank-differ-hint">
-                    {t('simple.bank.differHint', { count: view!.sentence.differ, date: toPlainDate(view!.sentence.asOn!) })}
+                    {t('simple.bank.differHint', { count: view!.sentence.differ, date: toPlainDate(view!.sentence.asOn!, t.lang) })}
                   </p>
                 </>
               ) : (

@@ -384,7 +384,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
                 )}
               </div>
               <Field label={t('simple.buy.theirBillDate')} name="date" error={errors.get(F.date)}>
-                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={toPlainDate} testId="input-buy-date" />
+                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={((d: string) => toPlainDate(d, t.lang))} testId="input-buy-date" />
               </Field>
             </div>
           </section>

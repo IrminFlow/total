@@ -73,7 +73,7 @@ function SalesTable(): React.JSX.Element {
   const columns = useMemo(
     () =>
       defineColumns<SaleRow>([
-        { id: 'date', header: t('simple.sales.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date), width: 130, groupable: false }, // i18n-technical
+        { id: 'date', header: t('simple.sales.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date, t.lang), width: 130, groupable: false }, // i18n-technical
         { id: 'number', header: t('simple.sales.col.number'), kind: 'text', value: (r) => r.number, width: 110, groupable: false },
         {
           id: 'customer', header: t('simple.sales.col.customer'), kind: 'text', hideable: false, groupable: false,
@@ -101,7 +101,7 @@ function SalesTable(): React.JSX.Element {
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.sales.title')}</h1>
-          <p className="mt-1 text-detail text-muted">{t('simple.sales.period', { from: toPlainDate(from), to: toPlainDate(until) })}</p>
+          <p className="mt-1 text-detail text-muted">{t('simple.sales.period', { from: toPlainDate(from, t.lang), to: toPlainDate(until, t.lang) })}</p>
         </div>
         {!empty && (
           <Button variant="primary" data-testid="btn-sales-make-bill" onClick={() => nav.go(SELL_SCREEN)}>
@@ -176,7 +176,7 @@ function BillView({ billId }: { billId: number }): React.JSX.Element {
           <div>
             <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.bill.heading', { number: bill.number })}</h1>
             <p className="mt-1 text-detail text-muted">
-              {t('simple.bill.to', { name: bill.walkIn ? t('simple.sales.cashCustomer') : bill.partyName })} · {t('simple.bill.on', { date: toPlainDate(bill.date) })}
+              {t('simple.bill.to', { name: bill.walkIn ? t('simple.sales.cashCustomer') : bill.partyName })} · {t('simple.bill.on', { date: toPlainDate(bill.date, t.lang) })}
             </p>
           </div>
           <span className="flex flex-wrap items-center gap-1">
@@ -232,7 +232,7 @@ function BillView({ billId }: { billId: number }): React.JSX.Element {
             : bill.due <= 0
             ? t('simple.bill.paidAll')
             : bill.dueDate
-              ? t('simple.bill.dueBy', { amount: money(bill.due), date: toPlainDate(bill.dueDate) })
+              ? t('simple.bill.dueBy', { amount: money(bill.due), date: toPlainDate(bill.dueDate, t.lang) })
               : t('simple.bill.due', { amount: money(bill.due) })}
           {bill.due > 0 && bill.paid > 0 && ` ${t('simple.bill.paidSoFar', { amount: money(bill.paid) })}`}
           {bill.due > 0 && offByReturns > 0 && ` ${t('simple.bill.offByReturns', { amount: money(offByReturns) })}`}

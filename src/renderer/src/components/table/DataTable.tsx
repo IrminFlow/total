@@ -62,6 +62,7 @@ import { useTableView, type TableViewController } from './useTableView'
 import { ExplainButton } from '../kit/ExplainButton'
 import { figureText, rowSourceIds, useAiAffordances, type ExplainInput } from '../../lib/explain'
 import { registerTableActions } from './tableActions'
+import { useKitLabels } from '../kit/labels'
 
 /** Fixed row heights (px) per density — virtualisation relies on every DATA row being this tall
  *  (detail rows are measured). Comfortable matches `.ledger-table td` (6px + 20px line + 6px + 1px). */
@@ -286,6 +287,7 @@ function DetailRow({
 }
 
 export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
+  const labels = useKitLabels()
   const {
     columns,
     rows,
@@ -1119,7 +1121,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
               // No data at all: the screen's own empty state, under the (still usable) toolbar.
               <tr className="dt-empty" data-empty="no-data">
                 <td colSpan={colSpan}>
-                  <EmptyState title={empty?.title ?? 'Nothing to show'} hint={empty?.hint} action={empty?.action} icon={empty?.icon} />
+                  <EmptyState title={empty?.title ?? labels.table.nothingToShow} hint={empty?.hint} action={empty?.action} icon={empty?.icon} />
                 </td>
               </tr>
             ) : items.length === 0 ? (
@@ -1127,11 +1129,11 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
               <tr className="dt-empty" data-empty="filtered">
                 <td colSpan={colSpan}>
                   <EmptyState
-                    title="No rows match"
+                    title={labels.table.noRowsMatch}
                     hint={
                       quick
-                        ? `Nothing matches “${quick}” with the current filters`
-                        : `None of the ${model.totalCount.toLocaleString('en-IN')} ${model.totalCount === 1 ? 'row matches' : 'rows match'} your filters`
+                        ? labels.table.quickNoMatch(quick)
+                        : labels.table.noneMatch(model.totalCount)
                     }
                     action={
                       hasTableFilters ? (
@@ -1141,7 +1143,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
                           onClick={clearAllFilters}
                           data-testid={`${area}-table-reset-filters`}
                         >
-                          Clear filters
+                          {labels.table.clearFilters}
                         </button>
                       ) : undefined
                     }
@@ -1239,6 +1241,7 @@ function HeaderCell<Row>({
   onResizeReset: () => void
 }): React.JSX.Element {
   const filterBtn = useRef<HTMLButtonElement>(null)
+  const labels = useKitLabels()
   const thRef = useRef<HTMLTableCellElement>(null)
   const align = columnAlign(col)
   const sortable = col.sortable !== false
@@ -1291,10 +1294,10 @@ function HeaderCell<Row>({
           <button
             ref={filterBtn}
             type="button"
-            aria-label={`Filter ${label}${filtered ? ' (filtered)' : ''}`}
+            aria-label={labels.table.filterColumn(label, filtered)}
             aria-haspopup="dialog"
             aria-expanded={filterOpen}
-            title={`Filter ${label}`}
+            title={labels.table.filterColumn(label, false)}
             onClick={() => setFilterOpen(!filterOpen)}
             data-testid={`filter-${area}-${col.id}`}
             data-no-drag=""

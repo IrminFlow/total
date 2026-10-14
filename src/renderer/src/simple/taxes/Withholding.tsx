@@ -25,8 +25,8 @@ export function WithholdingCards({ items, today }: { items: TaxesWithholding[]; 
           <h2 className="text-subtitle font-semibold text-ink">{w.kind === 'tds' ? t('simple.taxes.tds.what') : t('simple.taxes.tcs.what')}</h2>
           <p className="mt-2 text-body text-ink" data-testid={`taxes-${w.kind}-this-month`}>
             {w.kind === 'tds'
-              ? t('simple.taxes.withholding.thisMonthTds', { amount: money(w.thisMonth), date: shortDate(w.thisMonthDue, today) })
-              : t('simple.taxes.withholding.thisMonthTcs', { amount: money(w.thisMonth), date: shortDate(w.thisMonthDue, today) })}
+              ? t('simple.taxes.withholding.thisMonthTds', { amount: money(w.thisMonth), date: shortDate(w.thisMonthDue, today, t.lang) })
+              : t('simple.taxes.withholding.thisMonthTcs', { amount: money(w.thisMonth), date: shortDate(w.thisMonthDue, today, t.lang) })}
           </p>
           {w.unpaid.length === 0 ? (
             <p className="mt-1 text-detail text-muted">{t('simple.taxes.withholding.allPaid')}</p>

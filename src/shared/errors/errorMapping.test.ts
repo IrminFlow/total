@@ -98,6 +98,13 @@ describe('mapError', () => {
     expect(mapError(bare, { simple: true, t }).fields.date).toBe(t('errors.dateLockedPlain'))
   })
 
+  it('WP 10.4 review: an ISO date param is written in the reader\'s language in the plain text', () => {
+    const err = new AppError('simple_return_before_bill', 'The bill is dated 01-Aug-25', { field: 'date', params: { date: '2025-08-01' } })
+    expect(mapError(err, { simple: true, t, fields: ['date'] }).fields.date).toBe('The bill is dated 1 Aug 2025. A return can only be on that day or later.')
+    expect(mapError(err, { simple: true, t: translator('hi'), fields: ['date'] }).fields.date).toContain('1 अगस्त 2025')
+    expect(mapError(err, { simple: false, t, fields: ['date'] }).fields.date).toBe('The bill is dated 01-Aug-25')
+  })
+
   it('a plain Error (no code): accountant keeps it, simple says the generic sentence', () => {
     const err = new Error('SQLITE_BUSY: database is locked')
     expect(mapError(err, { simple: false, t })).toMatchObject({ fields: {}, general: 'SQLITE_BUSY: database is locked' })

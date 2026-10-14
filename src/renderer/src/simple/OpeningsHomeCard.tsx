@@ -28,7 +28,7 @@ export function OpeningsHomeCard({ owed }: { owed: { receivables: number; payabl
   if (!state) return null
   if (!state.appliedAt && state.startedFresh !== false) return null
   const open = (): void => nav.go(OPENINGS_FROM_HOME)
-  const date = toPlainDate(state.booksBegin)
+  const date = toPlainDate(state.booksBegin, t.lang)
 
   if (state.appliedAt) {
     const owedToYou = owed?.receivables ?? null

@@ -377,7 +377,7 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
                 />
               </Field>
               <Field label={t('simple.sell.date')} name="date" error={errors.get(F.date)}>
-                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={toPlainDate} testId="input-sell-date" />
+                <DateInput value={form.date} context={workingDate} onChange={(d) => update({ date: d })} format={((d: string) => toPlainDate(d, t.lang))} testId="input-sell-date" />
               </Field>
             </div>
             {form.customerId == null ? (

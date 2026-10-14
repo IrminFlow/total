@@ -40,6 +40,7 @@ import { NOT_DELETED } from './vouchers'
 import { writeAudit } from './audit'
 import { htmlToPdf, writeExportPdf } from './pdf'
 import { plexFontFaceCss } from './printFonts'
+import { printLocale } from './printLocale'
 import { companyExportsDir } from '../paths'
 
 /**
@@ -390,7 +391,9 @@ export function documentHtml(
   const template = templateOverride ?? resolveTemplate(db, kind, voucherId)
   const doc = loadPrintDocument(db, company, voucherId, template.totals.showOutstanding)
   const itemCount = doc.shape === 'invoice' ? doc.invoice.items.length : doc.voucher.lines.length
-  return { html: renderDocument(template, doc, RENDER_OPTS), number: head.number, kind, template, itemCount }
+  // WP 10.4: a simple company in Hindi / Hinglish prints in its language (identity otherwise).
+  const locale = printLocale(db)
+  return { html: renderDocument(locale.template(template), doc, locale.opts), number: head.number, kind, template, itemCount }
 }
 
 export const pdfFileName = (kind: PrintDocKind, number: string, voucherId?: number): string => {
