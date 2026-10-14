@@ -358,7 +358,7 @@ export function undoBulk(db: DB, batchId: number): BulkUndoResult {
         // The number the voucher had may have been issued to another voucher since (a type or date
         // change vacated it) — re-saving would duplicate it.
         const b = JSON.parse(r.beforeJson!) as VoucherPayload
-        if (b.number && voucherNumberExists(db, b.voucherTypeId, b.number, r.id)) {
+        if (b.number && voucherNumberExists(db, b.voucherTypeId, b.number, r.id, b.date)) {
           reason = `Its old number ${b.number} (${name('voucherType', b.voucherTypeId)}) has been used by another voucher since — left as it is`
         }
       }
