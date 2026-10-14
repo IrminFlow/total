@@ -93,7 +93,7 @@ function all(t: Translate): string[] {
     deadlineWhy({ kind: 'esi', form: 'ESI', date: '2026-11-15' }, TODAY, t), deadlineWhy({ kind: 'advance-tax', form: 'Advance tax', date: '2026-12-15' }, TODAY, t),
     salesCompareWhy(DOING, t), doingResultWhy(DOING, t), doingCompareWhy(DOING, t),
     cashNowWhy(CASH, t), cashInWhy(CASH, t), cashOutWhy(CASH, t), cashEndWhy(CASH, t), owedTotalWhy(OWED, t), owedTotalWhy({ ...OWED, side: 'payable' }, t), byMonthTotalsWhy(BY_MONTH, t),
-    toPayPartsWhy(TAXES, t), creditLeftWhy({ creditLeft: 1_200_00 }, t)!, dueWhy('gstr1', TAXES, t), dueWhy('gstr3b', TAXES, t),
+    toPayPartsWhy(TAXES, t), toPayPartsWhy({ ...TAXES, figures: { ...TAXES.figures, onPurchases: 0, creditUsed: 0, creditLeft: 0, cashOnSales: 18_000_00, toPay: 18_500_00 } }, t), creditLeftWhy({ creditLeft: 1_200_00 }, t)!, dueWhy('gstr1', TAXES, t), dueWhy('gstr3b', TAXES, t),
     dueWhy('pmt06', { ...TAXES, due: { ...TAXES.due, pmt06: ['2026-08-25', '2026-09-25'] } }, t),
     compositionDueWhy('cmp08', { today: TODAY, composition: { cmp08: { from: '2026-07-01', to: '2026-09-30', due: '2026-10-18' }, gstr4: { fyLabel: '2026-27', due: '2027-06-30' } } }, t),
     compositionDueWhy('gstr4', { today: TODAY, composition: { cmp08: { from: '2026-07-01', to: '2026-09-30', due: '2026-10-18' }, gstr4: { fyLabel: '2026-27', due: '2027-06-30' } } }, t),
@@ -177,6 +177,17 @@ describe('each sentence says the figures it was given (WP 10.2)', () => {
     )
     expect(toPayPartsWhy({ ...TAXES, figures: { ...f, cashOnSales: 0, toPay: 500_00, creditUsed: 18_000_00 } }, t)).toContain('the ₹500.00 under reverse charge is always paid in cash — by 20 Oct.')
     expect(toPayPartsWhy({ ...TAXES, figures: { ...f, cashOnSales: 0, rcmCash: 0, toPay: 0 } }, t)).toContain('nothing to pay in cash')
+    // Review: no credit at all — said as such, never "₹0.00 is covered".
+    const none = { ...f, onPurchases: 0, creditUsed: 0, creditLeft: 0, cashOnSales: 18_000_00, toPay: 18_500_00 }
+    expect(toPayPartsWhy({ ...TAXES, figures: none }, t)).toBe(
+      'No GST on your purchases can be used against the ₹18,000.00 you collected, so all of it is paid in cash; with ₹500.00 under reverse charge, also paid in cash, that makes ₹18,500.00 — by 20 Oct. ' +
+        'Total prepares these figures; you file the return and pay on gst.gov.in.'
+    )
+    // A month of returns in one head (collected − used ≠ cash): only the figures, no subtraction.
+    const odd = { ...f, collected: 400_00, onPurchases: 0, creditUsed: 0, creditLeft: 0, cashOnSales: 500_00, rcmCash: 0, toPay: 500_00 }
+    expect(toPayPartsWhy({ ...TAXES, figures: odd }, t)).toBe(
+      'After the GST on purchases is used against what you collected, ₹500.00 is left to pay in cash by 20 Oct. Total prepares these figures; you file the return and pay on gst.gov.in.'
+    )
     expect(creditLeftWhy({ creditLeft: 0 }, t)).toBeNull()
     expect(dueWhy('gstr1', TAXES, t)).toBe('GSTR-1 lists every sales bill of Sep 2026; it is due 11 Oct, the 11th of the next month.')
     expect(dueWhy('gstr3b', TAXES, t)).toBe('GSTR-3B sums up Sep 2026 and goes with the payment of ₹7,700.00; it is due 20 Oct, the 20th of the next month.')

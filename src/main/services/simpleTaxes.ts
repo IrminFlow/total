@@ -23,7 +23,7 @@ import { depositDueDate } from '@shared/tdsInterest'
 import { tcsDepositDueDate } from '@shared/tcs'
 import { cmp08DueDate, gstr1DueDate, gstr3bDueDate, gstr4DueDate, pmt06DueDate } from '@shared/gst/filing'
 import {
-  GST_FILED_META_KEY, MISSING_BILL_CHECKS, gstPeriodChoices, gstPeriodFor, nextCompositionDue, normalizeArn, normalizeGstFiled,
+  GST_FILED_META_KEY, MISSING_BILL_CHECKS, creditParts, gstPeriodChoices, gstPeriodFor, nextCompositionDue, normalizeArn, normalizeGstFiled,
   type GstFiledInput, type GstFiledMeta, type GstFiledPeriod, type GstForm, type GstPeriod, type MissingBillsItem, type SimpleTaxes, type SupplierBillsMonth, type TaxesWithholding
 } from '@shared/simple/taxes'
 import { getFeatures, getGstProfile } from './config'
@@ -141,8 +141,7 @@ export function simpleTaxes(db: DB, company: CompanyInfo, q: { period?: string }
         toPay: f.payable,
         cashOnSales: f.cashOnSales,
         rcmCash: f.rcmCash,
-        creditUsed: f.outwardTax - f.cashOnSales,
-        creditLeft: f.itc - (f.outwardTax - f.cashOnSales)
+        ...creditParts(f.outwardTax, f.cashOnSales, f.itc)
       },
       due: {
         gstr1: gstr1DueDate(period.period, filing),

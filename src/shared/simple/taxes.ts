@@ -65,6 +65,17 @@ export interface GstFigures {
   creditLeft: number
 }
 
+/**
+ * WP 10.2 review — of the credit, what the set-off used against the tax on sales and what is left
+ * for the next return. gstr3b()'s set-off turns a head whose sales tax is NEGATIVE (a month of
+ * returns) into extra credit; that is not GST paid on purchases, so neither part may go below zero
+ * or past the credit itself. Pure.
+ */
+export function creditParts(collected: number, cashOnSales: number, onPurchases: number): { creditUsed: number; creditLeft: number } {
+  const creditUsed = Math.min(Math.max(0, collected - cashOnSales), Math.max(0, onPurchases))
+  return { creditUsed, creditLeft: Math.max(0, onPurchases - creditUsed) }
+}
+
 export interface GstDue {
   gstr1: string
   gstr3b: string

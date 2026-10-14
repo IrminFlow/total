@@ -1249,6 +1249,8 @@ export const en = {
   'simple.why.byMonth.change': 'In {month} sales were {dir, select, up {{amount} more than} down {{amount} less than} other {the same as}} in {previous}.',
   'simple.why.taxes.toPay':
     'Of the {collected} you collected, {used} is covered by the GST on your purchases, so {cash} is left{rcm, select, yes {; with {rcmAmount} under reverse charge, always paid in cash, that makes {total}} other {}} — to pay by {date}.',
+  'simple.why.taxes.toPayNoCredit':
+    'No GST on your purchases can be used against the {collected} you collected, so all of it is paid in cash{rcm, select, yes {; with {rcmAmount} under reverse charge, also paid in cash, that makes {total}} other {}} — by {date}.',
   'simple.why.taxes.toPayRcmOnly': 'The GST on your purchases covers what you collected; the {amount} under reverse charge is always paid in cash — by {date}.',
   'simple.why.taxes.creditLeft': '{amount} of the GST on your purchases is left over; it is used in the next return.',
   'simple.why.due.gstr1':

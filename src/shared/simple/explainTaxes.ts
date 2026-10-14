@@ -64,15 +64,22 @@ export function toPayPartsWhy(x: Pick<RegularTaxes, 'figures' | 'due' | 'today'>
       ? t('simple.taxes.why.toPayNone')
       : f.cashOnSales <= 0
         ? t('simple.why.taxes.toPayRcmOnly', { amount: money(f.rcmCash), date })
-        : t('simple.why.taxes.toPay', {
-            collected: money(f.collected),
-            used: money(f.creditUsed),
-            cash: money(f.cashOnSales),
-            rcm: f.rcmCash > 0 ? 'yes' : 'no',
-            rcmAmount: money(f.rcmCash),
-            total: money(f.toPay),
-            date
-          })
+        : f.collected - f.creditUsed !== f.cashOnSales
+          ? // Review: a head with negative sales tax (returns) breaks "collected − used = cash"; say
+            // only the figures, never a subtraction that does not add up.
+            join([
+              t('simple.taxes.why.toPay', { amount: money(f.toPay), date }),
+              f.rcmCash > 0 ? t('simple.taxes.why.rcmCash', { amount: money(f.rcmCash) }) : null
+            ])
+          : t(f.creditUsed === 0 ? 'simple.why.taxes.toPayNoCredit' : 'simple.why.taxes.toPay', {
+              collected: money(f.collected),
+              used: money(f.creditUsed),
+              cash: money(f.cashOnSales),
+              rcm: f.rcmCash > 0 ? 'yes' : 'no',
+              rcmAmount: money(f.rcmCash),
+              total: money(f.toPay),
+              date
+            })
   return join([first, t('simple.explain.gstYouFile')])
 }
 

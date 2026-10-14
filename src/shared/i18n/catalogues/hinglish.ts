@@ -56,6 +56,8 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.why.byMonth.change': '{month} mein sale {previous} {dir, select, up {se {amount} zyada rahi} down {se {amount} kam rahi} other {jitni hi rahi}}.',
   'simple.why.taxes.toPay':
     'Aapne jo {collected} collect kiye, unmein se {used} aapki purchase par diye GST se cover ho jaate hain, to {cash} bachte hain{rcm, select, yes {; reverse charge ke {rcmAmount} (jo hamesha cash mein bhare jaate hain) milakar {total}} other {}} — {date} tak bharne hain.',
+  'simple.why.taxes.toPayNoCredit':
+    'Aapne jo {collected} collect kiye, unke saamne aapki purchase par diya koi GST nahi lagta, isliye poora cash mein bharna hai{rcm, select, yes {; reverse charge ke {rcmAmount} (woh bhi cash mein) milakar {total}} other {}} — {date} tak.',
   'simple.why.taxes.toPayRcmOnly': 'Aapki purchase par diya GST collect kiye GST ko cover kar deta hai; reverse charge ke {amount} hamesha cash mein bhare jaate hain — {date} tak.',
   'simple.why.taxes.creditLeft': 'Aapki purchase par diye GST mein se {amount} bache hain; yeh agle return mein kaam aayenge.',
   'simple.why.due.gstr1':

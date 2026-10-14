@@ -61,6 +61,8 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.why.byMonth.change': '{month} में बिक्री {previous} {dir, select, up {से {amount} ज़्यादा रही} down {से {amount} कम रही} other {जितनी ही रही}}।',
   'simple.why.taxes.toPay':
     'आपने जो {collected} वसूले, उनमें से {used} आपकी खरीद पर दिए GST से पूरे हो जाते हैं, तो {cash} बचते हैं{rcm, select, yes {; रिवर्स चार्ज के {rcmAmount} (जो हमेशा नकद भरे जाते हैं) मिलाकर {total}} other {}} — {date} तक भरने हैं।',
+  'simple.why.taxes.toPayNoCredit':
+    'आपने जो {collected} वसूले, उनके सामने आपकी खरीद पर दिया कोई GST नहीं लगता, इसलिए पूरा नकद भरना है{rcm, select, yes {; रिवर्स चार्ज के {rcmAmount} (वो भी नकद) मिलाकर {total}} other {}} — {date} तक।',
   'simple.why.taxes.toPayRcmOnly': 'आपकी खरीद पर दिया GST वसूले गए GST को पूरा कर देता है; रिवर्स चार्ज के {amount} हमेशा नकद भरे जाते हैं — {date} तक।',
   'simple.why.taxes.creditLeft': 'आपकी खरीद पर दिए GST में से {amount} बचे हैं; ये अगले रिटर्न में काम आएँगे।',
   'simple.why.due.gstr1':
