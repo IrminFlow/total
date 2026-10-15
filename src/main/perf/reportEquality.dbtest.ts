@@ -3,7 +3,8 @@
 // the 0.10 demo seed (dated as on PERF_TODAY) and a 10k-voucher Perf Traders seed. The expected
 // hashes in __fixtures__/reportHashes.json were generated from origin/main's code BEFORE the
 // WP 7.1 index / query changes (TOTAL_PERF_WRITE_EXPECTED=1 rewrites them — only ever on code
-// whose outputs are known good). On a mismatch the outputs are written to a temp dir to diff.
+// whose outputs are known good; a field added later is listed in ADDITIVE_FIELDS instead — never
+// regenerate to pass). On a mismatch the outputs are written to a temp dir to diff.
 import { describe, it, expect, vi, afterAll } from 'vitest'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { join } from 'path'
@@ -15,14 +16,22 @@ import { createDemoCompany } from '../services/demo'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import { PERF_COMPANY, PERF_TODAY, seedLargeAsync } from './seedLarge'
-import { canonical, reportHashes, reportOutputs } from './reportSuite'
+import { canonical, hashOf, reportHashes, reportOutputs, withoutAdditive } from './reportSuite'
 
 const EXPECTED_PATH = join(__dirname, '__fixtures__', 'reportHashes.json')
 const WRITE = process.env.TOTAL_PERF_WRITE_EXPECTED === '1'
 const expected: Record<string, Record<string, string>> = existsSync(EXPECTED_PATH) ? JSON.parse(readFileSync(EXPECTED_PATH, 'utf8')) : {}
 const written: Record<string, Record<string, string>> = { ...expected }
 
+/** vouchers.created_at is SQLite's real clock (fake timers can't reach it), and the anomaly scan
+ *  in simple:homeAttention reads it (back-dated = entered 30+ days after its date) — so the hashes
+ *  moved with the calendar (perf10k homeAttention failed on origin/main from 15 Oct 2026). Pinned
+ *  to the day the expectations were generated (14 Oct 2026, UTC), so the inputs are the ones they
+ *  were made on: with this pin origin/main's own code reproduces every expected hash. */
+const ENTERED_ON = '2026-10-14 12:00:00'
+
 async function compare(name: string, db: DB, info: CompanyInfo): Promise<void> {
+  db.prepare('UPDATE vouchers SET created_at = ?').run(ENTERED_ON)
   const got = await reportHashes(db, info, PERF_TODAY)
   if (WRITE) {
     written[name] = got
@@ -43,6 +52,15 @@ async function compare(name: string, db: DB, info: CompanyInfo): Promise<void> {
 describe('report outputs are unchanged by the performance work (WP 7.1)', () => {
   afterAll(() => {
     if (WRITE) writeFileSync(EXPECTED_PATH, JSON.stringify(written, null, 2) + '\n')
+  })
+
+  it('an additive field is left out of the hash only at its neutral value (never regenerate to pass)', () => {
+    const before = { lines: { sales: 100, expenses: 30, profit: 70 } }
+    expect(hashOf(withoutAdditive('doing', { lines: { ...before.lines, rounding: 0 } }))).toBe(hashOf(before))
+    expect(hashOf(withoutAdditive('home', { profit: { month: { lines: { ...before.lines, rounding: 0 } } } }))).toBe(hashOf({ profit: { month: before } }))
+    // A real round-off still changes the hash, and so does the field on any other output.
+    expect(hashOf(withoutAdditive('doing', { lines: { ...before.lines, rounding: 50 } }))).not.toBe(hashOf(before))
+    expect(hashOf(withoutAdditive('pnl:2025-04-01', { lines: { ...before.lines, rounding: 0 } }))).not.toBe(hashOf(before))
   })
 
   // The clock is pinned to the perf day in both cases, so nothing date-relative can drift.
