@@ -41,8 +41,10 @@ export interface DashBackupInput {
   tag: string
 }
 
-/** On-open snapshots are automatic on every company open — they don't count as "you backed up". */
-const AUTOMATIC_TAGS = new Set(['open'])
+/** On-open snapshots are automatic on every company open — they don't count as "you backed up";
+ *  nor does the safe copy Total takes before an upgrade (db/preUpgrade.ts, tag 'pre-upgrade'):
+ *  it would otherwise hide Home's backup nudge for a week and tick the setup step after an update. */
+const AUTOMATIC_TAGS = new Set(['open', 'pre-upgrade'])
 
 /**
  * WP 3.4 — the annual GST deadlines in the next 45 days: GSTR-9 (31 December, rule 80) and, when

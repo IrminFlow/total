@@ -117,6 +117,14 @@ what you typed, and a **Back to simple** button.
   not from the end of the year. See the accountant notes below.
   [#107](https://github.com/IrminFlow/total/pull/107)
 
+- **A safe copy before an upgrade, and no opening books from a newer Total.** When a new version
+  of Total has to upgrade your books, it first keeps a copy of them as they were in Backups
+  ("Before upgrade to …"; the newest two are kept — it is not counted as a backup you took, so
+  Home's backup reminder is unchanged). If the copy can't be made — a full disk — the
+  books are not upgraded and Total says so. Books last opened with a newer Total are refused with
+  "Update Total to open it" instead of being opened and misread. This protects books from 1.0 on:
+  0.11.0 and earlier, already installed, can't be changed. [#116](https://github.com/IrminFlow/total/pull/116)
+
 ### For accountants (figures that changed)
 
 Read these before filing from the next release.
@@ -246,6 +254,15 @@ Read these before filing from the next release.
   documents in `docs/owner/` (commit `487aea97`, direct to main, no PR).
 - `backup:reveal` (viewer) and `backupStamp` local-time backup names:
   [#114](https://github.com/IrminFlow/total/pull/114).
+- **Upgrade guard** (`db/migrate.ts` `assertNotNewer`, `db/preUpgrade.ts`): `migrate()` and
+  `openCompanyDb` refuse a file with more applied migrations than the build knows
+  (`db_newer_version`, before anything is written); backup restore (`assertValidCompanyDb`) and the
+  encrypted import refuse one too. Before migrating an EXISTING file (version > 0) `openCompanyDb`
+  writes `backups/pre-upgrade-<from>-to-<to>-<YYYYMMDD-HHMMSS>.db` (VACUUM INTO — keyed like the
+  books —, quick-checked, fsynced, renamed); no copy → no migration (`db_upgrade_copy_failed`); the
+  newest 2 are kept. The restore reopen passes `preUpgradeCopy: false`. A cached perf seed at the
+  current version takes no copy; one behind takes one (correct, and large).
+  [#116](https://github.com/IrminFlow/total/pull/116)
 
 ## [0.11.0] - 2026-10-13
 

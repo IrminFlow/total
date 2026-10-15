@@ -20,6 +20,7 @@ import type { SecurityView } from '@shared/security'
 import { redactDashboard, redactDashboardSeries, redactHome } from '@shared/profitRedaction'
 import type { DB } from './db/connection'
 import { backupCompany, closeCompanyDb, openCompanyDb, stashBackupAttachments } from './db/connection'
+import { assertNotNewer } from './db/migrate'
 import * as attachments from './services/attachments'
 import { embedAttachments, restoreAttachmentFiles, restoreAttachmentFilesAt, type RestoreFilesResult, type StashResult } from './db/attachmentBackup'
 import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheckAsync, type BackupInfo } from './db/backup'
@@ -1085,7 +1086,9 @@ export function registerIpc(): void {
 
     closeCurrentCompany({ keepKey: true })
     const reopen = (): OpenCompany => {
-      const db = openCompanyDb(slug) // migrates if the backup predates the current schema
+      // Migrates if the backup predates the current schema — with no pre-upgrade copy: the file
+      // came from a backup that is still in the backups folder (and a pre-restore snapshot was taken).
+      const db = openCompanyDb(slug, { preUpgradeCopy: false })
       const info = readCompanyInfo(db)
       return { slug, db, info, usersExist: users.usersExist(db), encrypted: keyOfHandle(db) !== null }
     }
@@ -1203,10 +1206,13 @@ export function registerIpc(): void {
         const result = check.pragma('quick_check') as Array<{ quick_check: string }>
         if (result[0]?.quick_check !== 'ok') throw new Error('bad')
         info = readCompanyInfo(check)
+        // Upgrade guard: a backup from a NEWER Total is refused before it becomes a company.
+        assertNotNewer(check)
       } finally {
         check.close()
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof AppError && err.code === 'db_newer_version') throw err
       throw new Error("This file doesn't look like a Total company backup")
     }
 

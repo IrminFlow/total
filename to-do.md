@@ -20,7 +20,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - AI cost is shown in US dollars unless the company has a USD forex rate: set a default rate? [no default] — PR #101
 - Product "usual cost" (`standard_cost_paise`) is stored but read by nothing: use it for purchase prefill? [no] — WP 8.4, `services/quickCreate.ts`
 - No tour for existing / full-form companies [run it from Help or Settings only] — PR #100
-- Downgrade 0.11 → 0.10 is not blocked: add a schema-version guard before 1.0? [none] — upgrade-report-0.11.0
+- ~~Downgrade 0.11 → 0.10 is not blocked: add a schema-version guard before 1.0?~~ DONE — `db_newer_version` guard + pre-upgrade copy (protects files from 1.0 on; 0.11.0 can't be changed) — PR #116
 - Old local branches `perf-lane-work` (104 commits, reports paging) and `worktree-agent-acf44857d65a8b1ae` (80 commits, counter / borrowing) fork from 0.4.0 and are superseded: delete them? [kept] — local repo only
 - Closed old PRs #1, #2, #4 left their branches on GitHub (`t3code/revamp-ledgers-shortcuts[-1]`, `v5-cloud-agent-sync`, `pr-2-roadmap-complete`): delete? [kept for reference] — WP 7.7
 - Releases v0.6.0 and v0.9.0 were never tagged (the changelog jumps): leave as is? [leave] — `git tag`
@@ -150,7 +150,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Session lock needs a user with a PIN — PR #112
 - Renderer sandbox is off (`sandbox: false`) and IPC handlers don't validate the sender frame — GPT review, `src/main/index.ts:93`, `src/main/ipc.ts`
 - deleteVoucher writes its audit row after (outside) the deleting transaction — GPT review, `src/main/services/vouchers.ts` deleteVoucher
-- A company file migrates on open before any pre-upgrade snapshot is taken; interrupted multi-migration upgrades untested — GPT review, `src/main/db/connection.ts`
+- ~~A company file migrates on open before any pre-upgrade snapshot is taken~~ DONE — `backups/pre-upgrade-*.db` before every migration, no copy = no migration (PR #116); interrupted multi-migration upgrades still untested — GPT review, `src/main/db/connection.ts`
 - The audit hash chain detects but can't prevent tampering (whoever holds the file can recompute it) — WP 3.8
 - In a company without users anyone can change the app-wide update setting; real signed / unsigned macOS update behaviour unverified until a release — PR #108
 
@@ -189,7 +189,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - WP 7.3: no data-folder move setting for OneDrive users; full e2e on Windows — PR #109
 - WP 7.4: tighten e2e 67–71 to the paths #107 fixed (drop workarounds); deferred coverage in `docs/e2e-coverage.md` (live NIC sandbox, price-list editor, TDS lower-deduction certificates) — PR #110
 - WP 7.6: before tagging the release, finish `CHANGELOG.md`'s Unreleased section — it has no entries for #107, #108, #110, #111, #112 and still calls #104 open (#109's Windows text has no PR link); then confirm main's CI is green on all five jobs (the tag run does not repeat e2e or perf) — owner-docs review
-- WP 8.x: no schema-version guard against downgrade — upgrade-report-0.11.0
+- ~~WP 8.x: no schema-version guard against downgrade~~ DONE — PR #116
 - WP 9.1: TDS / TCS, place-of-supply override and the owner's credit-hold override aren't part of simple intents — PR #85
 - WP 9.4: TDS shown as a hint only, deducting stays in the accountant view — PR #88
 - WP 9.9: quarterly file preparation in simple mode; opening gst.gov.in from the app — PR #94

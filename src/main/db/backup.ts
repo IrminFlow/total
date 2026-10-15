@@ -6,12 +6,17 @@ import { join, basename } from 'path'
 import type { DB } from './connection'
 import { keyOfHandle, openDb, removeDbFiles } from './encryption'
 import { CheckStoppedError, pragmaCheck } from './checkHost'
+import { assertNotNewer } from './migrate'
+import { preUpgradeOf, PRE_UPGRADE_TAG } from './preUpgrade'
+import { AppError } from '@shared/errors'
 
 export interface BackupInfo {
   file: string
   sizeBytes: number
   mtime: number
   tag: string
+  /** A pre-upgrade copy (tag 'pre-upgrade'): the schema versions it was taken between. */
+  upgrade?: { from: number; to: number }
 }
 
 /** ISO stamp with ':' and '.' replaced by '-', fixed-width (e.g. "2025-08-15T12-34-56"). */
@@ -31,6 +36,7 @@ export function backupStamp(now = new Date()): string {
  * segment after the last '-', since tags like 'pre-tally-import' contain hyphens too.
  */
 export function tagOf(file: string): string {
+  if (preUpgradeOf(file)) return PRE_UPGRADE_TAG
   const stem = file.endsWith('.db') ? file.slice(0, -3) : file
   if (stem.length > STAMP_LEN + 1 && stem[STAMP_LEN] === '-') return stem.slice(STAMP_LEN + 1)
   // Fallback for anything that doesn't match the expected shape.
@@ -80,7 +86,8 @@ export function listBackupsIn(dir: string): BackupInfo[] {
     .filter((f) => f.endsWith('.db'))
     .map((f) => {
       const st = statSync(join(dir, f))
-      return { file: basename(f), sizeBytes: st.size, mtime: st.mtimeMs, tag: tagOf(f) }
+      const up = preUpgradeOf(f)
+      return { file: basename(f), sizeBytes: st.size, mtime: st.mtimeMs, tag: tagOf(f), ...(up ? { upgrade: { from: up.from, to: up.to } } : {}) }
     })
     .sort((a, b) => b.mtime - a.mtime)
 }
@@ -220,7 +227,10 @@ export function assertValidCompanyDb(path: string, key?: Buffer | null): void {
     const row = check.prepare("SELECT value FROM meta WHERE key = 'company'").get() as { value: string } | undefined
     if (!row) throw new Error('no company meta row')
     JSON.parse(row.value)
-  } catch {
+    // Upgrade guard: a backup from a NEWER Total is refused before it replaces the books.
+    assertNotNewer(check)
+  } catch (err) {
+    if (err instanceof AppError && err.code === 'db_newer_version') throw err
     throw new Error('That file is not a valid Total backup')
   } finally {
     check.close()
