@@ -19,7 +19,8 @@ function formatMtime(mtime: number): string {
   return toDisplayDateTime(new Date(mtime))
 }
 
-const tagLabel = (tag: string): string => {
+const tagLabel = (tag: string, b?: BackupInfo): string => {
+  if (tag === 'pre-upgrade' && b?.upgrade) return `Before upgrade to ${b.upgrade.to}`
   const t = tag.replace(/-/g, ' ')
   return t.charAt(0).toUpperCase() + t.slice(1)
 }
@@ -34,11 +35,11 @@ const BACKUP_COLUMNS = defineColumns<BackupInfo>([
     header: 'Tag',
     kind: 'text',
     value: (b) => b.tag,
-    text: (b) => tagLabel(b.tag),
+    text: (b) => tagLabel(b.tag, b),
     groupable: true,
     width: 150,
     cell: (b) => (
-      <span className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-caption text-muted">{tagLabel(b.tag)}</span>
+      <span className="rounded-full border border-line bg-panel2 px-2 py-0.5 text-caption text-muted">{tagLabel(b.tag, b)}</span>
     )
   }
 ])

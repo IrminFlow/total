@@ -1,6 +1,7 @@
 import type { DB } from './connection'
 import { MIGRATIONS } from './migrations'
 import { auditChainMaxId, sealAuditChain } from '../services/audit'
+import { AppError } from '@shared/errors'
 
 /**
  * A migration whose SQL STARTS with this marker runs with foreign-key enforcement off — the
@@ -19,9 +20,34 @@ export function schemaVersion(db: DB): number {
   return row.max ?? 0
 }
 
+/** The schema version WITHOUT writing anything (schemaVersion creates the table when missing):
+ *  0 for a file with no `migrations` table. Used before a file is touched. */
+export function readSchemaVersion(db: DB): number {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'migrations'").get()) return 0
+  const row = db.prepare('SELECT MAX(id) AS max FROM migrations').get() as { max: number | null }
+  return row.max ?? 0
+}
+
+/** The plain message of `db_newer_version` (shared/errors/codes.ts maps it to errors.upgrade.newer). */
+export const NEWER_VERSION_MESSAGE = 'This business was last opened with a newer Total. Update Total to open it.'
+
+/**
+ * Upgrade guard (protects files from 1.0 on — a shipped 0.11.0 build cannot be changed): a file
+ * with more applied migrations than this build knows was written by a NEWER Total and may be
+ * misread, so it is refused with `db_newer_version` before anything is written to it.
+ */
+export function assertNotNewer(db: DB, migrations: readonly string[] = MIGRATIONS): number {
+  const version = readSchemaVersion(db)
+  if (version > migrations.length) {
+    throw new AppError('db_newer_version', NEWER_VERSION_MESSAGE, { params: { found: version, known: migrations.length } })
+  }
+  return version
+}
+
 /** Apply any not-yet-applied numbered migrations, in order, inside a transaction each. Idempotent.
  *  `migrations` is injectable for the runner's own tests; the app always uses MIGRATIONS. */
 export function migrate(db: DB, migrations: readonly string[] = MIGRATIONS): void {
+  assertNotNewer(db, migrations)
   const applied = schemaVersion(db)
   for (let i = applied; i < migrations.length; i++) {
     const sql = migrations[i]!

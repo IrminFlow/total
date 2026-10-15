@@ -3,7 +3,10 @@ import { keyOfHandle, openDb } from './encryption'
 import { rmSync } from 'fs'
 import { basename, join } from 'path'
 import { companyAttachmentsDir, companyBackupAttachmentsDir, companyBackupsDir, companyDbPath, ensureCompanyTree } from '../paths'
-import { migrate, schemaVersion } from './migrate'
+import { assertNotNewer, migrate, schemaVersion } from './migrate'
+import { MIGRATIONS } from './migrations'
+import { prunePreUpgradeCopies, writePreUpgradeCopy } from './preUpgrade'
+import { log } from '../log'
 import { backupStamp, pruneBackupsIn, snapshotTo } from './backup'
 import { MMAP_SIZE, quickCheckOkAsync } from './checkHost'
 import { testSynchronous } from './testPragmas'
@@ -17,10 +20,25 @@ export { migrate }
 // WP 7.3: the test-only synchronous pragma (vitest workers with a scratch data dir only).
 export { testSynchronous }
 
-export function openCompanyDb(slug: string): DB {
+export interface OpenCompanyOptions {
+  /** Write the pre-upgrade copy before migrating an existing file (default true). The restore
+   *  path passes false: the file it reopens IS a backup, still in the backups folder. */
+  preUpgradeCopy?: boolean
+}
+
+export function openCompanyDb(slug: string, opts: OpenCompanyOptions = {}): DB {
   ensureCompanyTree(slug)
   // WP 7.2: an encrypted company opens with the key unlocked for its folder (db_locked otherwise).
   const db = openDb(companyDbPath(slug))
+  // Upgrade guard: a file from a NEWER Total is refused before anything (even the journal mode)
+  // is written to it — db_newer_version. Protects files from 1.0 on (0.11.0 cannot be changed).
+  let fileVersion: number
+  try {
+    fileVersion = assertNotNewer(db)
+  } catch (err) {
+    db.close()
+    throw err
+  }
   db.pragma('journal_mode = WAL')
   db.pragma('busy_timeout = 5000')
   db.pragma('foreign_keys = ON')
@@ -38,7 +56,12 @@ export function openCompanyDb(slug: string): DB {
   if (sync) db.pragma(`synchronous = ${sync}`)
   try {
     const before = schemaVersion(db)
+    // Safe copy before an upgrade: an EXISTING file about to be migrated is copied first (a new
+    // file — version 0 — or a current one takes none); no copy, no migration.
+    const upgrading = fileVersion > 0 && fileVersion < MIGRATIONS.length
+    if (upgrading && opts.preUpgradeCopy !== false) writePreUpgradeCopy(db, companyBackupsDir(slug), fileVersion, MIGRATIONS.length, { log })
     migrate(db)
+    if (upgrading) prunePreUpgradeCopies(companyBackupsDir(slug), undefined, log)
     // WP 7.1: a full ANALYZE reads every index (~0.5 s at 100k vouchers, seconds at 500k) — run
     // it when a migration just ran or there are no statistics yet; otherwise `PRAGMA optimize`
     // (SQLite's recommended on-open call) re-analyzes only tables whose statistics went stale.

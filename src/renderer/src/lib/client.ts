@@ -119,6 +119,8 @@ export interface BackupInfo {
   sizeBytes: number
   mtime: number
   tag: string
+  /** A pre-upgrade copy (tag 'pre-upgrade'): the schema versions it was taken between. */
+  upgrade?: { from: number; to: number }
 }
 
 /** Mirrors src/main/db/integrity.ts's IntegrityResult shape (kept local — main-process only). */

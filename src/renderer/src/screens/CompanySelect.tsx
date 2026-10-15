@@ -17,6 +17,7 @@ import { SetupWizard } from '../simple/SetupWizard'
 import { markTourPending } from '../help/tour'
 import { useT } from '../lib/i18n'
 import { dataFolder } from '../lib/platform'
+import { errorEntry } from '@shared/errors'
 
 export function CompanySelect(): React.JSX.Element {
   const queryClient = useQueryClient()
@@ -59,7 +60,10 @@ export function CompanySelect(): React.JSX.Element {
         setAskPassphrase({ slug, name: companies.find((c) => c.slug === slug)?.name ?? slug })
         return
       }
-      toast.push('error', (err as Error).message)
+      // Upgrade guard: a file from a newer Total, or no safe copy before an upgrade — plain words
+      // in the reader's language (both modes; the service's English is the same sentence).
+      const plain = err instanceof IpcError && (err.code === 'db_newer_version' || err.code === 'db_upgrade_copy_failed') ? errorEntry(err.code) : null
+      toast.push('error', plain ? t(plain.key) : (err as Error).message)
     }
   }
 

@@ -204,6 +204,9 @@ export const ERROR_MAP = {
   security_not_locked: e('errors.security.notLocked'),
   security_verify_failed: e('errors.security.verifyFailed'),
   lock_needs_people: e('errors.security.lockNeedsPeople'),
+  // ---------- upgrade guard (db/migrate.ts, db/preUpgrade.ts) ----------
+  db_newer_version: e('errors.upgrade.newer'),
+  db_upgrade_copy_failed: e('errors.upgrade.copyFailed'),
   /** Zod: the payload didn't fit its schema — issues carry 'zod.<issue code>' (rules in map.ts). */
   invalid_input: e('errors.checkFields')
 } as const satisfies Record<string, ErrorMapEntry>

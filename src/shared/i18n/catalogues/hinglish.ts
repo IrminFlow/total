@@ -2584,6 +2584,8 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'errors.security.notLocked': 'Yeh business passphrase se lock nahi hai.',
   'errors.security.verifyFailed': 'Total lock ki hui copy ko check nahi kar paya, isliye kuch nahi badla. Aapka hisaab pehle jaisa hai.',
   'errors.security.lockNeedsPeople': 'Screen lock karne ke liye pehle ‘Users aur unke adhikaar’ mein apna PIN banayein.',
+  'errors.upgrade.newer': 'Yeh business pichhli baar Total ke naye version se khola gaya tha. Ise kholne ke liye Total update karein.',
+  'errors.upgrade.copyFailed': 'Hisaab upgrade karne se pehle Total safe copy nahi bana paya; disk mein thodi jagah khaali karein aur phir se try karein.',
   'simple.settings.security': 'Lock aur suraksha',
   'simple.security.title': 'Apna hisaab safe rakhein',
   'simple.security.intro': 'Apne hisaab ko passphrase se lock karein, uthkar jaate samay screen lock karein, aur dekhein ki aapke backup sach mein wapas laaye ja sakte hain ya nahi.',
