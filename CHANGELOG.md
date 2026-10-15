@@ -22,8 +22,8 @@ Things to know about the version numbers:
 
 Everything merged after v0.11.0 (2026-10-13): Phase 9 (simple screens for the daily jobs), the
 Phase 10 simple-mode work (Ask Total, "Why?", help, Hindi, keyboard and accessibility, the plain AI
-helper) and two correctness fixes. Phase 7 items (performance, Windows) are added here as they
-land; the documentation in this change is the docs half of WP 7.5.
+helper, the beginner-study fixes), the Phase 7 work (performance, security, Windows, end-to-end
+tests, documentation) and several correctness fixes.
 
 ### For shop owners (simple mode)
 
@@ -67,7 +67,7 @@ what you typed, and a **Back to simple** button.
 - **The AI helper in plain words** (Settings, "AI helper"). Optional. A three-point summary of what
   is sent, what is hidden and where it goes comes first; you paste your own OpenAI key and press
   "Check it". Spend is shown in rupees only when the business has a dollar rate recorded (Forex); otherwise in US dollars.
-  [#101](https://github.com/IrminFlow/total/pull/101), [#102](https://github.com/IrminFlow/total/pull/102)
+  [#101](https://github.com/IrminFlow/total/pull/101)
 - **Keyboard, screen readers and small windows**: icon-only sidebar under 1200 px wide; the help,
   Ask Total and AI panels overlay instead of docking under 1600 px.
   [#103](https://github.com/IrminFlow/total/pull/103)
@@ -84,6 +84,38 @@ what you typed, and a **Back to simple** button.
   take what you sell each product for; Backups no longer show a file path (Show in Finder instead)
   and are named in local time; the leave-without-saving question and table words follow your
   language. [#114](https://github.com/IrminFlow/total/pull/114)
+- **Fixes from a trial with first-time users** (six scripted "shop owners" drove the app; the real
+  study with people is still to be done). A regular business's opening products now ask their GST
+  rate, so the first bill is not silently sent out without GST; Make a bill and Record a purchase
+  warn when a product has no rate. GST periods start with your books (no "overdue" month from
+  before you began). The bank sentence compares the bank's own closing balance with your books. A
+  sign-in that cannot save sees a note instead of a Save button. Plainer words: "a credit of ₹X to
+  use on the next bill", "no due date set", "Loss ₹X", "This year: Apr 2026 – Mar 2027". Backups is
+  a plain screen. Selling more than you have says the profit will be wrong, and Home flags stock
+  below zero. A customer page says why there is no reminder when nothing is late. "5000 Ramesh" in
+  Ask Total asks which way the money went. "Did you mean ...?" sees through "ji" and a plural s.
+  [#111](https://github.com/IrminFlow/total/pull/111)
+- **Lock your books with a passphrase** (opt-in, owner only: Settings, "Lock and safety"). The
+  books file and every backup are encrypted, Total asks for the passphrase each time you open the
+  business, and **a lost passphrase means lost books**; a recovery copy is offered right after
+  locking. Also: after each backup Total opens a copy in a scratch folder and checks it (Home says
+  "Last backup ... checked OK", or shows a red card), per-person switches in People and roles (post
+  entries, see profit, export, manage the AI helper), and Ctrl/Cmd+L or an idle timeout to sign out.
+  [#112](https://github.com/IrminFlow/total/pull/112)
+- **Updates ask first.** Total never downloads or installs an update without a click ("Download
+  now", "Later", "Skip this version"; "Install when I quit" is a choice). Settings, "How Total
+  looks" (in the full app: Settings, About), has "Check for updates automatically" (on by default);
+  turned off, Total makes no request at launch. [#108](https://github.com/IrminFlow/total/pull/108)
+- **Faster on big books.** Reports, lists, search and opening a business are faster with 100,000
+  or more entries (for example the profit and loss for a year in about 0.2 s on a 100,000-entry
+  test company). Nothing you see changes except the speed. [#104](https://github.com/IrminFlow/total/pull/104)
+- **Windows.** Updating on Windows works again (see Developers), Tally and bank files saved by
+  Windows programs (UTF-16 or with a byte-order mark) import, and shortcuts show as Ctrl and Alt.
+  [#109](https://github.com/IrminFlow/total/pull/109)
+- **Period lock and Bin in a business with no sign-ins** no longer say "Only owners can change
+  this"; the closing entry of a year has a **Move to Bin** button; stock age counts from today,
+  not from the end of the year. See the accountant notes below.
+  [#107](https://github.com/IrminFlow/total/pull/107)
 
 ### For accountants (figures that changed)
 
@@ -107,12 +139,17 @@ Read these before filing from the next release.
   credit note's own bill) is a named credit counted as unapplied credit, and a later entry's
   `against` reference uses that credit by name. Entries without references, `new` on positive
   entries and `against` on negative ones behave as before. GSTR-1 11A/11B read bill references
-  directly and are not affected. [#85](https://github.com/IrminFlow/total/pull/85)
+  directly and are not affected. **After upgrading, advances and credit notes with bill references
+  can move between "open bills" and "unapplied credit". Outstandings, ageing and everything built
+  on the same allocation change with it (Home and People totals, statements, reminders and interest,
+  payment runs, the cash forecast, the month-end checklist); re-check customers and suppliers who
+  paid in advance.** [#85](https://github.com/IrminFlow/total/pull/85)
 - **Due dates corrected** (`src/shared/gst/filing.ts`, cited in the code). Quarterly GSTR-3B is the
   22nd or 24th by state per the rule 61(1)(ii) table (a state in neither entry, such as 97, gets the
   22nd and is flagged). PMT-06 is the 25th (rule 61(3)). CMP-08 is the 18th and GSTR-4 is 30 June
   from FY 2024-25 (rule 62). The TDS deposit for **March deductions is 30 April**, not 7 April
-  (rule 30(2)). [#94](https://github.com/IrminFlow/total/pull/94)
+  (rule 30(2)). **After upgrading, the deadlines shown for these returns (Home, Taxes, the Gateway) use these
+  dates instead of the older ones.** [#94](https://github.com/IrminFlow/total/pull/94)
 - **New bill names never collide.** A new bill, advance or note bill whose name the party still has
   open gets the financial year added (`1/25-26`, then ` (2)`), because numbering restarts each year
   and a settlement by name applies to the oldest open bill of that name.
@@ -120,11 +157,43 @@ Read these before filing from the next release.
 - **Dates are stricter on simple screens than in the voucher editor**: inside the lock date, in a
   closed year, before the books begin, or more than 30 days after today are refused. The voucher
   editor is unchanged. [#85](https://github.com/IrminFlow/total/pull/85)
+- **Moving a year-end closing journal to the bin moves the period lock.** The close locks the books
+  up to its own date, so the editor's new **Move to Bin** button first asks, then sets the lock back
+  to the day before that financial year starts (owner only, audited) and bins the entry; if the
+  bin is refused the lock is put back. If the lock is later than the entry (a later year is
+  closed, or you set it by hand) nothing is changed and you are told to move the lock in Settings,
+  About first. After upgrading, reopening a closed year this way moves your lock date; check it.
+  [#107](https://github.com/IrminFlow/total/pull/107)
+- **Other #107 fixes that change what you see.** The duplicate-number warning now looks only at the
+  financial year of the voucher's date when the series restarts each year (continuous series still
+  clash across years); a cost centre's Net follows the P&L (profit = Cr, loss = Dr), where a loss
+  used to read "Cr"; stock ageing (and the Stock summary's analysis panel) runs as on today, capped
+  at the period end, instead of the period's end date, which had put stock bought today in "90+
+  days"; undoing an import that left a used ledger or item now clears its opening instead of
+  leaving the openings off by that amount. [#107](https://github.com/IrminFlow/total/pull/107)
+- **New database driver (SQLite Multiple Ciphers).** Books files are read and written by
+  `better-sqlite3-multiple-ciphers`, the same SQLite engine with encryption support. An existing
+  business opens exactly as before, with no prompt and no change to any figure; only a business you
+  lock gets an encrypted file. Do take a backup before upgrading, as for any release.
+  [#112](https://github.com/IrminFlow/total/pull/112)
+- **Round Off is its own line in "How is my business doing".** It no longer shows as a negative
+  running cost; profit is unchanged (sales - cost + other income + rounding - running costs =
+  the P&L's net profit). [#114](https://github.com/IrminFlow/total/pull/114)
+- **Performance work left every figure unchanged**: each budgeted report, list and search was
+  hashed against the previous code on a demo and a 10,000-entry company and matches exactly.
+  [#104](https://github.com/IrminFlow/total/pull/104)
+- **Simple Taxes and Home skip periods before the books begin** (a month before your books or GST
+  registration began is not asked for); a running month's files wait for its month end. The
+  accountant GST screens are unchanged. [#111](https://github.com/IrminFlow/total/pull/111)
 - The UNVERIFIED items listed under 0.11.0 (QRMP details, GSTR-1 amendment notifications, the
   2025/2026 slab sources) still apply.
 
 ### For developers
 
+- **Migrations.** Two more migrations are appended after 050, each the last in its turn (numbered
+  by position): migration 051, WP 7.1's six covering indexes (`CREATE INDEX IF NOT EXISTS` only,
+  [#104](https://github.com/IrminFlow/total/pull/104)) and migration 052, WP 7.2's `backup_runs` table plus
+  `users.capabilities_json` (NULL = the role exactly, [#112](https://github.com/IrminFlow/total/pull/112)).
 - **Migration 050** `simple_posts` (the 50th entry, numbered by position): the idempotency record
   for `simple:post`. [#85](https://github.com/IrminFlow/total/pull/85) Migrations 046 to 049 shipped
   in 0.11.0 (below). WP 9.2 to 9.10 and 10.1 to 10.6 added no migration.
@@ -145,16 +214,38 @@ Read these before filing from the next release.
   `src/shared/i18n/GLOSSARY-hi.md`; `bannedWords.ts` gained Hindi and Hinglish patterns.
   [#105](https://github.com/IrminFlow/total/pull/105)
 - Docs and tests: [#84](https://github.com/IrminFlow/total/pull/84) (CLAUDE.md tidy after Phase 8),
-  e2e fixes [#95](https://github.com/IrminFlow/total/pull/95), [#97](https://github.com/IrminFlow/total/pull/97).
-- **Windows parity (WP 7.3)**: the Windows CI job runs every suite, the smoke against `out/` and the
+  e2e fixes [#95](https://github.com/IrminFlow/total/pull/95), [#97](https://github.com/IrminFlow/total/pull/97), [#102](https://github.com/IrminFlow/total/pull/102).
+- **Windows parity (WP 7.3)**, [#109](https://github.com/IrminFlow/total/pull/109): the Windows CI job runs every suite, the smoke against `out/` and the
   packaged `Total.exe`, e2e 01 03 46 48 and the NSIS build. Fixes: Windows auto-update (the
   installer is now `Total-Setup-<version>.exe`, the name `latest.yml` asks for — 0.11.0's asset was
   stored as `Total.Setup.0.11.0.exe`); Tally XML in UTF-16 ("Unicode") and files with a BOM / CRLF;
   company and export names that are Windows device names (CON, NUL …); file locks on rename;
   Ctrl / Alt shortcut labels; the CLI's data folder under OneDrive. See
   [docs/windows.md](docs/windows.md).
-- Open at the time of writing and **not** included: WP 7.1 performance
-  ([#104](https://github.com/IrminFlow/total/pull/104)).
+- **Performance (WP 7.1)**, [#104](https://github.com/IrminFlow/total/pull/104):
+  `total-cli perf-seed` and `npm run perf` (budgets at 100k and 500k entries, `docs/perf-budgets.md`),
+  a CI `perf` job, one SQLite memory map up to 2 GB, `ANALYZE` only after a migration, and the
+  whole-file checks moved to a worker thread (`out/main/checkWorker.js`, a third main entry).
+- **Security (WP 7.2)**, [#112](https://github.com/IrminFlow/total/pull/112): every import of the
+  driver is `'better-sqlite3-multiple-ciphers'`; rebuild with
+  `npx @electron/rebuild -f -w better-sqlite3-multiple-ciphers`. New channels
+  `security:passphrase:on|off|change`, `security:autoLock:set`, `session:lock`, `session:activity`,
+  `backup:check`, `backup:checks`; `company:open` takes `passphrase`; `users:save` takes capability
+  flags. Window-open allow-list (`shared/externalLinks.ts`) and a stricter CSP. Decision record:
+  `docs/security/encryption-at-rest.md`. Not encrypted: attachments, capture files, exports, logs.
+- **Updater consent**, [#108](https://github.com/IrminFlow/total/pull/108): `autoDownload` and
+  `autoInstallOnAppQuit` are off; the app-level setting `updates` lives in
+  `<dataRoot>/app-settings.json`; channels `app:updates:get|set|act`; electron-updater's per-install
+  header is replaced by a constant.
+- **End-to-end tests (WP 7.4)**, [#110](https://github.com/IrminFlow/total/pull/110): scenarios
+  66 to 72, local-date helpers in `scripts/lib/harness.mjs`, `run-e2e.mjs --repeat/--shard/--json`,
+  `docs/e2e-coverage.md`. One app fix: Banking, Import could not import MT940 or CAMT.053 files.
+- **Documentation.** WP 7.5 docs half ([#106](https://github.com/IrminFlow/total/pull/106): this
+  file, `docs/ai-and-privacy.md`, migration guides, features, README); `to-do.md` and the pull
+  request triage (WP 7.7, [#113](https://github.com/IrminFlow/total/pull/113)); the owner
+  documents in `docs/owner/` (commit `487aea97`, direct to main, no PR).
+- `backup:reveal` (viewer) and `backupStamp` local-time backup names:
+  [#114](https://github.com/IrminFlow/total/pull/114).
 
 ## [0.11.0] - 2026-10-13
 
