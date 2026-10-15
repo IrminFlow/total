@@ -67,7 +67,7 @@ what you typed, and a **Back to simple** button.
 - **The AI helper in plain words** (Settings, "AI helper"). Optional. A three-point summary of what
   is sent, what is hidden and where it goes comes first; you paste your own OpenAI key and press
   "Check it". Spend is shown in rupees only when the business has a dollar rate recorded (Forex); otherwise in US dollars.
-  [#101](https://github.com/IrminFlow/total/pull/101), [#102](https://github.com/IrminFlow/total/pull/102)
+  [#101](https://github.com/IrminFlow/total/pull/101)
 - **Keyboard, screen readers and small windows**: icon-only sidebar under 1200 px wide; the help,
   Ask Total and AI panels overlay instead of docking under 1600 px.
   [#103](https://github.com/IrminFlow/total/pull/103)
@@ -104,16 +104,16 @@ what you typed, and a **Back to simple** button.
   [#112](https://github.com/IrminFlow/total/pull/112)
 - **Updates ask first.** Total never downloads or installs an update without a click ("Download
   now", "Later", "Skip this version"; "Install when I quit" is a choice). Settings, "How Total
-  looks", has "Check for updates automatically" (on by default); turned off, Total makes no request
-  at launch. [#108](https://github.com/IrminFlow/total/pull/108)
+  looks" (in the full app: Settings, About), has "Check for updates automatically" (on by default);
+  turned off, Total makes no request at launch. [#108](https://github.com/IrminFlow/total/pull/108)
 - **Faster on big books.** Reports, lists, search and opening a business are faster with 100,000
   or more entries (for example the profit and loss for a year in about 0.2 s on a 100,000-entry
   test company). Nothing you see changes except the speed. [#104](https://github.com/IrminFlow/total/pull/104)
 - **Windows.** Updating on Windows works again (see Developers), Tally and bank files saved by
-  Windows programs (UTF-16, BOM, CRLF) import, and shortcuts show as Ctrl and Alt.
+  Windows programs (UTF-16 or with a byte-order mark) import, and shortcuts show as Ctrl and Alt.
   [#109](https://github.com/IrminFlow/total/pull/109)
 - **Period lock and Bin in a business with no sign-ins** no longer say "Only owners can change
-  this"; the closing entry of a year has a **Move to Bin** button; stock ageing counts from today,
+  this"; the closing entry of a year has a **Move to Bin** button; stock age counts from today,
   not from the end of the year. See the accountant notes below.
   [#107](https://github.com/IrminFlow/total/pull/107)
 
@@ -140,8 +140,10 @@ Read these before filing from the next release.
   `against` reference uses that credit by name. Entries without references, `new` on positive
   entries and `against` on negative ones behave as before. GSTR-1 11A/11B read bill references
   directly and are not affected. **After upgrading, advances and credit notes with bill references
-  can move between "open bills" and "unapplied credit" in Outstandings and ageing; re-check
-  customers and suppliers who paid in advance.** [#85](https://github.com/IrminFlow/total/pull/85)
+  can move between "open bills" and "unapplied credit". Outstandings, ageing and everything built
+  on the same allocation change with it (Home and People totals, statements, reminders and interest,
+  payment runs, the cash forecast, the month-end checklist); re-check customers and suppliers who
+  paid in advance.** [#85](https://github.com/IrminFlow/total/pull/85)
 - **Due dates corrected** (`src/shared/gst/filing.ts`, cited in the code). Quarterly GSTR-3B is the
   22nd or 24th by state per the rule 61(1)(ii) table (a state in neither entry, such as 97, gets the
   22nd and is flagged). PMT-06 is the 25th (rule 61(3)). CMP-08 is the 18th and GSTR-4 is 30 June
@@ -189,8 +191,8 @@ Read these before filing from the next release.
 ### For developers
 
 - **Migrations.** Two more migrations are appended after 050, each the last in its turn (numbered
-  by position): WP 7.1's six covering indexes (`CREATE INDEX IF NOT EXISTS` only,
-  [#104](https://github.com/IrminFlow/total/pull/104)) and WP 7.2's `backup_runs` table plus
+  by position): migration 051, WP 7.1's six covering indexes (`CREATE INDEX IF NOT EXISTS` only,
+  [#104](https://github.com/IrminFlow/total/pull/104)) and migration 052, WP 7.2's `backup_runs` table plus
   `users.capabilities_json` (NULL = the role exactly, [#112](https://github.com/IrminFlow/total/pull/112)).
 - **Migration 050** `simple_posts` (the 50th entry, numbered by position): the idempotency record
   for `simple:post`. [#85](https://github.com/IrminFlow/total/pull/85) Migrations 046 to 049 shipped
@@ -212,7 +214,7 @@ Read these before filing from the next release.
   `src/shared/i18n/GLOSSARY-hi.md`; `bannedWords.ts` gained Hindi and Hinglish patterns.
   [#105](https://github.com/IrminFlow/total/pull/105)
 - Docs and tests: [#84](https://github.com/IrminFlow/total/pull/84) (CLAUDE.md tidy after Phase 8),
-  e2e fixes [#95](https://github.com/IrminFlow/total/pull/95), [#97](https://github.com/IrminFlow/total/pull/97).
+  e2e fixes [#95](https://github.com/IrminFlow/total/pull/95), [#97](https://github.com/IrminFlow/total/pull/97), [#102](https://github.com/IrminFlow/total/pull/102).
 - **Windows parity (WP 7.3)**, [#109](https://github.com/IrminFlow/total/pull/109): the Windows CI job runs every suite, the smoke against `out/` and the
   packaged `Total.exe`, e2e 01 03 46 48 and the NSIS build. Fixes: Windows auto-update (the
   installer is now `Total-Setup-<version>.exe`, the name `latest.yml` asks for — 0.11.0's asset was
