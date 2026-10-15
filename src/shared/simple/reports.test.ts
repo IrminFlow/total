@@ -83,6 +83,26 @@ describe('the one column', () => {
     expect(isRoundOffName('Rounding charges')).toBe(false)
   })
 
+  it('review: rounding — round-off only, rounded down (negative), on both sides, under a trading group', () => {
+    const empty = { openingStock: 0, closingStock: 0, tradingIncomes: [], tradingExpenses: [], indirectIncomes: [], indirectExpenses: [], grossProfit: 0 }
+    const identity = (l: ReturnType<typeof doingLines>): number => l.sales - l.costOfGoods + l.otherIncome + l.rounding - l.expenses
+    // A period with nothing but a ₹0.40 round-off (a bill rounded DOWN: Round Off Dr 0.40 under
+    // Indirect Expenses) → rounding −₹0.40, no running cost, loss ₹0.40 (the P&L's).
+    const down = doingLines({ ...empty, indirectExpenses: [node(4, 'Indirect Expenses', 40, [node(43, 'Round Off', 40)])], netProfit: -40 })
+    expect(down).toMatchObject({ sales: 0, expenses: 0, otherIncome: 0, rounding: -40, profit: -40 })
+    expect(identity(down)).toBe(down.profit)
+    expect(topParts(withoutRoundOff([node(4, 'Indirect Expenses', 40, [node(43, 'Round Off', 40)])]))).toEqual([])
+    // Rounded up (Cr 0.30) under Indirect Incomes as the only line → +₹0.30, not other income.
+    const up = doingLines({ ...empty, indirectIncomes: [node(32, 'Rounding Off', 30)], netProfit: 30 })
+    expect(up).toMatchObject({ otherIncome: 0, rounding: 30, profit: 30 })
+    expect(identity(up)).toBe(up.profit)
+    // Under Direct Expenses (a trading group) it is part of what the goods cost — no separate
+    // line, and the column still adds up to the P&L's profit.
+    const trading = doingLines({ ...empty, tradingIncomes: [node(11, 'Sales', 999_50)], tradingExpenses: [node(2, 'Direct Expenses', -50, [node(23, 'Round Off', -50)])], grossProfit: 1_000_00, netProfit: 1_000_00 })
+    expect(trading).toMatchObject({ sales: 999_50, purchases: -50, costOfGoods: -50, rounding: 0, profit: 1_000_00 })
+    expect(identity(trading)).toBe(trading.profit)
+  })
+
   it('top parts are the biggest leaves', () => {
     expect(topParts(pnl.indirectExpenses)).toEqual([
       { name: 'Salary', amount: 18_000_00, ledgerId: 42 },

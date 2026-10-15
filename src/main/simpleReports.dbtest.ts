@@ -249,5 +249,33 @@ describe('gate polish: a bill\'s round-off in "How is my business doing"', () =>
     expect(d.lines.profit).toBe(1_000_00)
     expect(d.lines.profit).toBe(profitAndLoss(db, '2026-05-01', '2026-05-31').netProfit)
     expect(d.topExpenses).toEqual([])
+
+    // Review: a period with nothing but a round-off, rounded DOWN (Round Off Dr ₹0.40, cash Cr) →
+    // rounding −₹0.40, no running cost, loss ₹0.40 = the P&L's; and a round-off account under
+    // Indirect Incomes ("Rounding Off", Cr ₹0.30 in August) → +₹0.30, not other income.
+    const jv = (db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal'").get() as { id: number }).id
+    const post = (date: string, lines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]): void => {
+      saveVoucher(db, {
+        voucherTypeId: jv, date, partyLedgerId: null, narration: null, reference: null, instrumentNo: null, instrumentDate: null,
+        transporterId: null, vehicleNo: null, transportDistanceKm: null, currencyCode: null, exchangeRate: null,
+        lines: lines.map((l) => ({ ...l, costAllocations: [] })), inventory: [], billRefs: [], tds: null
+      })
+    }
+    post('2026-07-10', [{ ledgerId: roundOff, drCr: 'dr', amount: 40 }, { ledgerId: cash, drCr: 'cr', amount: 40 }])
+    const july = businessDoing(db, { period: 'custom', from: '2026-07-01', to: '2026-07-31' }, '2026-10-14')
+    expect(july.lines).toMatchObject({ sales: 0, expenses: 0, otherIncome: 0, rounding: -40, profit: -40 })
+    expect(july.lines.profit).toBe(profitAndLoss(db, '2026-07-01', '2026-07-31').netProfit)
+    expect(july.topExpenses).toEqual([])
+    const incomeSide = ledger('Rounding Off', 'Indirect Incomes')
+    post('2026-08-10', [{ ledgerId: cash, drCr: 'dr', amount: 30 }, { ledgerId: incomeSide, drCr: 'cr', amount: 30 }])
+    const aug = businessDoing(db, { period: 'custom', from: '2026-08-01', to: '2026-08-31' }, '2026-10-14')
+    expect(aug.lines).toMatchObject({ otherIncome: 0, rounding: 30, profit: 30 })
+    expect(aug.lines.profit).toBe(profitAndLoss(db, '2026-08-01', '2026-08-31').netProfit)
+    // The year: +0.50 − 0.40 + 0.30 = +₹0.40, and the column still adds up to the P&L's profit.
+    const year = businessDoing(db, { period: 'custom', from: '2026-04-01', to: '2026-10-14' }, '2026-10-14')
+    const y = year.lines
+    expect(y.rounding).toBe(40)
+    expect(y.sales - y.costOfGoods + y.otherIncome + y.rounding - y.expenses).toBe(y.profit)
+    expect(y.profit).toBe(profitAndLoss(db, '2026-04-01', '2026-10-14').netProfit)
   })
 })
