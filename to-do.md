@@ -188,6 +188,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - WP 7.2: encrypt attachments / exports / logs; `--passphrase` for the CLI / MCP; remember-on-this-Mac — PR #112
 - WP 7.3: no data-folder move setting for OneDrive users; full e2e on Windows — PR #109
 - WP 7.4: tighten e2e 67–71 to the paths #107 fixed (drop workarounds); deferred coverage in `docs/e2e-coverage.md` (live NIC sandbox, price-list editor, TDS lower-deduction certificates) — PR #110
+- WP 7.6: before tagging the release, finish `CHANGELOG.md`'s Unreleased section — it has no entries for #107, #108, #110, #111, #112 and still calls #104 open (#109's Windows text has no PR link); then confirm main's CI is green on all five jobs (the tag run does not repeat e2e or perf) — owner-docs review
 - WP 8.x: no schema-version guard against downgrade — upgrade-report-0.11.0
 - WP 9.1: TDS / TCS, place-of-supply override and the owner's credit-hold override aren't part of simple intents — PR #85
 - WP 9.4: TDS shown as a hint only, deducting stays in the accountant view — PR #88
