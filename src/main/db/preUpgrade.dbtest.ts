@@ -17,9 +17,10 @@ const { TEST_INFO } = await import('./testdb')
 const { assertValidCompanyDb, listBackupsIn } = await import('./backup')
 const { forgetAllKeys, isEncryptedFile, openDb, rekeyFile, rememberFolderKey } = await import('./encryption')
 const { newDataKey } = await import('./keyEnvelope')
-const { bookFacts } = await import('../services/dbEncryption')
-const { preUpgradeOf, prunePreUpgradeCopies } = await import('./preUpgrade')
+const { bookFacts, removeLeftoverCopies } = await import('../services/dbEncryption')
+const { preUpgradeOf, prunePreUpgradeCopies, writePreUpgradeCopy } = await import('./preUpgrade')
 const { verifyBackupFile } = await import('../services/backupVerify')
+const { userBackupsOf } = await import('../services/dashboard')
 
 afterAll(() => {
   forgetAllKeys()
@@ -140,6 +141,42 @@ describe('safe copy before an upgrade', () => {
     expect(versionOf(companyDbPath(slug))).toBe(N - 1)
     expect(readFileSync(companyDbPath(slug)).equals(before)).toBe(true)
     expect(readdirSync(companyBackupsDir(slug))).toEqual([])
+  })
+
+  it('a copy that cannot be written (every platform: the target folder is a plain file) throws db_upgrade_copy_failed and leaves no trace', () => {
+    const slug = companyAt(N - 1)
+    const notAFolder = join(companyDir(slug), 'not-a-folder')
+    writeFileSync(notAFolder, 'x')
+    const db = new Database(companyDbPath(slug))
+    try {
+      expect(() => writePreUpgradeCopy(db, notAFolder, N - 1, N)).toThrow(expect.objectContaining({ code: 'db_upgrade_copy_failed', message: expect.stringMatching(/safe copy/) }))
+      // The handle is still usable and the file untouched (the open would close it and rethrow).
+      expect(readSchemaVersion(db)).toBe(N - 1)
+    } finally {
+      db.close()
+    }
+    expect(readFileSync(notAFolder, 'utf8')).toBe('x')
+    expect(readdirSync(companyDir(slug)).filter((f) => f.includes('vacuum-tmp') || preUpgradeOf(f))).toEqual([])
+    expect(preUpgradeFiles(slug)).toEqual([])
+  })
+
+  it('a half-written copy (crash during VACUUM INTO) is swept before the next open and never counts as a copy', () => {
+    const slug = companyAt(N - 1)
+    const dir = companyBackupsDir(slug)
+    const stale = join(dir, `pre-upgrade-${N - 1}-to-${N}-20250101-090000.db.vacuum-tmp`)
+    writeFileSync(stale, 'half')
+    expect(listBackupsIn(dir)).toEqual([])
+    expect(prunePreUpgradeCopies(dir, 0)).toEqual([])
+    removeLeftoverCopies(companyDbPath(slug), dir, join(companyDir(slug), 'exports'))
+    expect(readdirSync(dir)).toEqual([])
+  })
+
+  it('is listed as an automatic backup — never the user\'s (Home\'s nudge and the setup step ignore it)', () => {
+    const slug = companyAt(N - 1)
+    openCompanyDb(slug).close()
+    const listed = listBackupsIn(companyBackupsDir(slug))
+    expect(listed.map((b) => b.tag)).toEqual(['pre-upgrade'])
+    expect(userBackupsOf(listed)).toEqual([])
   })
 
   it('keeps only the newest 2 pre-upgrade copies (other backups untouched)', () => {

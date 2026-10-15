@@ -119,7 +119,8 @@ what you typed, and a **Back to simple** button.
 
 - **A safe copy before an upgrade, and no opening books from a newer Total.** When a new version
   of Total has to upgrade your books, it first keeps a copy of them as they were in Backups
-  ("Before upgrade to …"; the newest two are kept). If the copy can't be made — a full disk — the
+  ("Before upgrade to …"; the newest two are kept — it is not counted as a backup you took, so
+  Home's backup reminder is unchanged). If the copy can't be made — a full disk — the
   books are not upgraded and Total says so. Books last opened with a newer Total are refused with
   "Update Total to open it" instead of being opened and misread. This protects books from 1.0 on:
   0.11.0 and earlier, already installed, can't be changed. [#116](https://github.com/IrminFlow/total/pull/116)
