@@ -39,7 +39,7 @@ function itemFacts(db: DB): Map<number, ItemFacts> {
 }
 
 /** The walk-in selling price per unit on `date` (resolvePrice), null when none is set. */
-function sellingPrices(db: DB, date: string): (itemId: number) => number | null {
+export function sellingPrices(db: DB, date: string): (itemId: number) => number | null {
   const price = pricingLoader(db)
   return (itemId) => {
     const p = price({ date, partyLedgerId: null, currency: 'INR', supply: 'intra' }, itemId, 1000)

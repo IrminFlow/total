@@ -12,6 +12,7 @@ import { fyOf, todayISO } from '@shared/dates'
 import type { DashboardSeries } from '@shared/dashboard'
 import type { OutstandingParty, ProfitAndLoss } from '@shared/reports'
 import type { HomeAttention, SimpleHomeData } from '@shared/simple/home'
+import { withoutRoundOff } from '@shared/simple/reports'
 import { partyAllocation } from './services/analysis'
 
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<{ ok: boolean; data?: unknown; error?: string }>>()
@@ -115,8 +116,8 @@ describe('simple:home (WP 8.6)', () => {
     expect(home.profit.year.openingStock).toBe(pl.openingStock)
     expect(yl.sales).toBe(sumOf(pl.tradingIncomes))
     expect(yl.costOfGoods).toBe(pl.openingStock + sumOf(pl.tradingExpenses) - pl.closingStock)
-    expect(yl.expenses).toBe(sumOf(pl.indirectExpenses))
-    expect(yl.sales - yl.costOfGoods + yl.otherIncome - yl.expenses).toBe(pl.netProfit)
+    expect(yl.expenses).toBe(sumOf(withoutRoundOff(pl.indirectExpenses)))
+    expect(yl.sales - yl.costOfGoods + yl.otherIncome + yl.rounding - yl.expenses).toBe(pl.netProfit)
     expect(yl.profit).toBe(pl.netProfit)
     if (yl.expenses > 0) expect(home.profit.year.topExpense!.amount).toBeGreaterThan(0)
     // The month's comparison = the P&L for the same days of the month before.

@@ -1031,6 +1031,17 @@ export function registerIpc(): void {
 
   handle('backup:run', runManualBackup)
 
+  // Gate polish: "Show in Finder" for the simple Backups screen — a backup file of THIS company
+  // (by name, the restore's own file schema, so nothing outside its backups folder) or the folder.
+  handle('backup:reveal', (payload) => {
+    const { file } = z.object({ file: backupFileSchema.optional() }).strict().parse(payload ?? {})
+    const dir = companyBackupsDir(requireCompany().slug)
+    const path = file ? join(dir, file) : dir
+    if (file && existsSync(path)) shell.showItemInFolder(path)
+    else void shell.openPath(dir)
+    return null
+  }, 'viewer')
+
   handle('backup:restore', async (payload) => {
     const { file } = z.object({ file: backupFileSchema }).parse(payload)
     const c = requireCompany()

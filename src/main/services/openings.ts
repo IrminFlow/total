@@ -40,6 +40,7 @@ import { getFeatures, getUi, setUi } from './config'
 import { writeAudit } from './audit'
 import { openingTotals } from './dataImport'
 import { openingBillsByParty, replaceOpeningBills, type OpeningBillRow } from './openingBills'
+import { sellingPrices, setSellingPrice } from './simpleStock'
 
 const META_KEY = 'simpleOpenings'
 const DEBTORS = 'Sundry Debtors'
@@ -124,9 +125,10 @@ export function openingsState(db: DB): OpeningsState {
   const itemRows = db.prepare('SELECT id, name, unit_id, opening_qty_milli, opening_value FROM stock_items ORDER BY name COLLATE NOCASE').all() as {
     id: number; name: string; unit_id: number; opening_qty_milli: number; opening_value: number
   }[]
+  const sell = stockOn ? sellingPrices(db, booksBegin) : (): null => null
   const items = itemRows
     .filter((r) => r.opening_qty_milli !== 0 || r.opening_value !== 0)
-    .map((r) => ({ itemId: r.id, name: r.name, unitId: r.unit_id, qtyMilli: r.opening_qty_milli, value: r.opening_value, ratePaise: stockLineRate(r.opening_qty_milli, r.opening_value) }))
+    .map((r) => ({ itemId: r.id, name: r.name, unitId: r.unit_id, qtyMilli: r.opening_qty_milli, value: r.opening_value, ratePaise: stockLineRate(r.opening_qty_milli, r.opening_value), sellPrice: sell(r.id) }))
   const others: OpeningsState['others'] = []
   for (const kind of OPENING_OTHER_KINDS) {
     // Loans given sit under Current Assets (Loans & Advances); a bank OD is a bank, not a loan.
@@ -165,7 +167,7 @@ export function openingsState(db: DB): OpeningsState {
 
 // ---------- the run ----------
 
-interface Change { kind: 'account' | 'item' | 'bills'; id: number; name: string; before: unknown; after: unknown }
+interface Change { kind: 'account' | 'item' | 'bills' | 'price'; id: number; name: string; before: unknown; after: unknown }
 
 interface RunCtx {
   db: DB
@@ -269,6 +271,23 @@ function itemInput(db: DB, id: number): Record<string, unknown> {
   return { ...it }
 }
 
+/** Gate polish: "What you sell it for" — the walk-in selling price from the books-begin day, on
+ *  the default price level (WP 8.4's level, else "Selling price") through the Stock screen's own
+ *  Change price (simpleStock.setSellingPrice → priceLevels.saveRate, audited). Idempotent like
+ *  every opening: the price already in force writes nothing; one changed elsewhere since the
+ *  screen loaded it (`sellBase`) is left alone with a warning. Blank = leave the price alone. */
+function writeSellPrice(ctx: RunCtx, itemId: number, name: string, r: SimpleOpenings['items'][number]): void {
+  if (r.sellPrice == null || r.sellPrice <= 0) return
+  const now = sellingPrices(ctx.db, ctx.booksBegin)(itemId)
+  if (now === r.sellPrice) return
+  if (r.sellBase !== undefined && (r.sellBase ?? null) !== now) {
+    ctx.warnings.push({ kind: 'price', name, kept: now ?? 0 })
+    return
+  }
+  setSellingPrice(ctx.db, itemId, r.sellPrice, ctx.booksBegin)
+  ctx.changes.push({ kind: 'price', id: itemId, name, before: now, after: r.sellPrice })
+}
+
 function writeItems(ctx: RunCtx, input: SimpleOpenings): void {
   const defaultUnit = (ctx.db.prepare("SELECT id FROM units WHERE symbol IN ('Pcs', 'Nos') ORDER BY CASE symbol WHEN 'Pcs' THEN 0 ELSE 1 END LIMIT 1").get() as { id: number } | undefined)?.id
     ?? (ctx.db.prepare('SELECT id FROM units ORDER BY id LIMIT 1').get() as { id: number } | undefined)?.id
@@ -285,8 +304,10 @@ function writeItems(ctx: RunCtx, input: SimpleOpenings): void {
       if (!unitId) throw new AppError('openings_invalid', 'No unit to count this item in', { field: `items.${i}.unit` })
       const created = masters.createStockItem(ctx.db, stockItemInputSchema.parse({ name: r.name, unitId, openingQtyMilli: r.qtyMilli, openingValue: value, ...(r.gstRate != null ? { gstRate: r.gstRate } : {}) }))
       ctx.changes.push({ kind: 'item', id: created.id, name: created.name, before: null, after: { qtyMilli: r.qtyMilli, value } })
+      writeSellPrice(ctx, created.id, created.name, r)
       return
     }
+    writeSellPrice(ctx, existing.id, existing.name, r)
     if (existing.q === r.qtyMilli && existing.v === value) return
     const base = r.base ?? { qtyMilli: 0, value: 0 }
     if (existing.q !== base.qtyMilli || existing.v !== base.value) {

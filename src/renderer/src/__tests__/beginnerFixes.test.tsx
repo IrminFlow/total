@@ -30,7 +30,12 @@ describe('WP 10.8: the plain Backups screen', () => {
     )
     expect(await screen.findByText('Your last backup was made on 12 Oct 2026.')).toBeTruthy()
     fireEvent.click(screen.getByTestId('btn-simple-backup-now'))
-    expect((await screen.findByTestId('simple-backups-saved')).textContent).toContain('/Users/x/Documents/total/shop/backups/manual.db')
+    // Gate polish: where it went in words, never the raw path; Show in Finder reveals that file.
+    const saved = await screen.findByTestId('simple-backups-saved')
+    expect(saved.textContent).toContain('in your Total folder')
+    expect(saved.textContent).not.toContain('/Users/')
+    fireEvent.click(screen.getByTestId('btn-simple-backups-reveal-saved'))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('backup:reveal', { file: 'manual.db' }))
     expect(bannedWordsIn(document.body.textContent ?? '')).toEqual([])
     expect(document.body.textContent).not.toMatch(/SHA-256|voucher|ledger/i)
     fireEvent.click(screen.getByTestId('btn-simple-backups-all'))

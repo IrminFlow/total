@@ -4,7 +4,7 @@
 import { describe, expect, it } from 'vitest'
 import { translator } from '../i18n'
 import { bannedWordsIn } from './bannedWords'
-import { doingLines, last12Months, monthBars, monthTotals, owedRows, previousSpan, reportSpan, topParts, type BusinessDoing, type SimpleCash } from './reports'
+import { doingLines, isRoundOffName, last12Months, monthBars, monthTotals, owedRows, previousSpan, reportSpan, topParts, withoutRoundOff, type BusinessDoing, type SimpleCash } from './reports'
 import { byMonthWhy, cashNext30Why, costWhy, doingCashWhy, doingOwedWhy, doingProfitWhy, expensesWhy, owedListWhy, profitOnGoodsWhy, salesWhy } from './explain'
 import type { ProfitAndLoss, StatementNode } from '../reports'
 
@@ -55,10 +55,52 @@ describe('the one column', () => {
     const l = doingLines(pnl)
     expect(l).toEqual({
       sales: 1_05_000_00, openingStock: 20_000_00, purchases: 62_000_00, closingStock: 30_000_00, costOfGoods: 52_000_00,
-      profitOnGoods: 53_000_00, otherIncome: 1_000_00, expenses: 30_000_00, profit: 24_000_00
+      profitOnGoods: 53_000_00, otherIncome: 1_000_00, expenses: 30_000_00, rounding: 0, profit: 24_000_00
     })
     expect(l.sales - l.costOfGoods).toBe(l.profitOnGoods)
     expect(l.profitOnGoods + l.otherIncome - l.expenses).toBe(l.profit)
+  })
+
+  it('gate polish: the bills\' round-off is its own line, not a negative running cost', () => {
+    // Hand-worked: the same books, plus Round Off −₹0.50 under Indirect Expenses (a bill rounded
+    // UP by 50 paise) and ₹0.20 under Indirect Incomes elsewhere → rounding +₹0.70; expenses stay
+    // ₹30,000, other income ₹1,000, profit 24,000.70 (the P&L's).
+    const withRound = {
+      ...pnl,
+      indirectIncomes: [node(31, 'Interest received', 1_000_00), node(32, 'Round-off', 20)],
+      indirectExpenses: [node(4, 'Indirect Expenses', 30_000_00 - 50, [node(41, 'Rent', 12_000_00), node(42, 'Salary', 18_000_00), node(43, 'Round Off', -50)])],
+      netProfit: 24_000_70
+    }
+    const l = doingLines(withRound)
+    expect(l.expenses).toBe(30_000_00)
+    expect(l.otherIncome).toBe(1_000_00)
+    expect(l.rounding).toBe(70)
+    expect(l.profit).toBe(24_000_70)
+    expect(l.sales - l.costOfGoods + l.otherIncome + l.rounding - l.expenses).toBe(l.profit)
+    expect(topParts(withoutRoundOff(withRound.indirectExpenses)).map((p) => p.name)).toEqual(['Salary', 'Rent'])
+    expect(withoutRoundOff(withRound.indirectExpenses)[0]!.amount).toBe(30_000_00)
+    expect(isRoundOffName('Round Off') && isRoundOffName('round-off') && isRoundOffName('Rounding')).toBe(true)
+    expect(isRoundOffName('Rounding charges')).toBe(false)
+  })
+
+  it('review: rounding — round-off only, rounded down (negative), on both sides, under a trading group', () => {
+    const empty = { openingStock: 0, closingStock: 0, tradingIncomes: [], tradingExpenses: [], indirectIncomes: [], indirectExpenses: [], grossProfit: 0 }
+    const identity = (l: ReturnType<typeof doingLines>): number => l.sales - l.costOfGoods + l.otherIncome + l.rounding - l.expenses
+    // A period with nothing but a ₹0.40 round-off (a bill rounded DOWN: Round Off Dr 0.40 under
+    // Indirect Expenses) → rounding −₹0.40, no running cost, loss ₹0.40 (the P&L's).
+    const down = doingLines({ ...empty, indirectExpenses: [node(4, 'Indirect Expenses', 40, [node(43, 'Round Off', 40)])], netProfit: -40 })
+    expect(down).toMatchObject({ sales: 0, expenses: 0, otherIncome: 0, rounding: -40, profit: -40 })
+    expect(identity(down)).toBe(down.profit)
+    expect(topParts(withoutRoundOff([node(4, 'Indirect Expenses', 40, [node(43, 'Round Off', 40)])]))).toEqual([])
+    // Rounded up (Cr 0.30) under Indirect Incomes as the only line → +₹0.30, not other income.
+    const up = doingLines({ ...empty, indirectIncomes: [node(32, 'Rounding Off', 30)], netProfit: 30 })
+    expect(up).toMatchObject({ otherIncome: 0, rounding: 30, profit: 30 })
+    expect(identity(up)).toBe(up.profit)
+    // Under Direct Expenses (a trading group) it is part of what the goods cost — no separate
+    // line, and the column still adds up to the P&L's profit.
+    const trading = doingLines({ ...empty, tradingIncomes: [node(11, 'Sales', 999_50)], tradingExpenses: [node(2, 'Direct Expenses', -50, [node(23, 'Round Off', -50)])], grossProfit: 1_000_00, netProfit: 1_000_00 })
+    expect(trading).toMatchObject({ sales: 999_50, purchases: -50, costOfGoods: -50, rounding: 0, profit: 1_000_00 })
+    expect(identity(trading)).toBe(trading.profit)
   })
 
   it('top parts are the biggest leaves', () => {

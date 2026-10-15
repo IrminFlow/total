@@ -305,7 +305,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     loading = false,
     empty,
     totals: totalsMode = 'auto',
-    totalsLabel = 'Total',
+    totalsLabel = labels.table.total,
     renderFooter,
     toolbar = true,
     keyboard = true,
@@ -840,7 +840,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
               type="button"
               className="mr-1.5 inline-block w-3 text-muted"
               aria-expanded={!item.collapsed}
-              aria-label={`${item.collapsed ? 'Expand' : 'Collapse'} ${item.label}`}
+              aria-label={labels.table.expandGroup(item.collapsed, String(item.label))}
               onClick={(e) => {
                 e.stopPropagation()
                 toggleGroup(item.key)
@@ -887,7 +887,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
                 className="w-4 text-muted hover:text-ink"
                 aria-expanded={open}
                 aria-controls={open ? detailId : undefined}
-                aria-label={`${open ? 'Hide' : 'Show'} details${visible[0] ? ` for ${cellText(visible[0], row)}` : ''}`}
+                aria-label={labels.table.showDetails(open, visible[0] ? cellText(visible[0], row) : null)}
                 onClick={() => setRowExpanded(key, !open)}
                 data-testid={`${area}-expand-${String(key)}`}
               >
@@ -1050,7 +1050,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
             <tr aria-rowindex={virtual ? headerRows : undefined}>
               {hasExpander && (
                 <th>
-                  <span className="sr-only">Details</span>
+                  <span className="sr-only">{labels.table.details}</span>
                 </th>
               )}
               {hasSelect && (
@@ -1067,7 +1067,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
                   />
                 </th>
               )}
-              {leading && <th aria-label="Row actions" />}
+              {leading && <th aria-label={labels.table.rowActions} />}
               {visible.map((c) => (
                 <HeaderCell
                   key={c.id}
@@ -1113,7 +1113,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
                   }
                 />
               ))}
-              {trailing && <th aria-label="Actions" />}
+              {trailing && <th aria-label={labels.table.actions} />}
             </tr>
           </thead>
           <tbody data-testid={`rows-${area}`}>
@@ -1272,7 +1272,7 @@ function HeaderCell<Row>({
             type="button"
             className={`inline-flex min-w-0 items-center gap-1 uppercase hover:text-ink ${sortDir ? 'text-ink' : ''}`}
             onClick={(e) => onSort(e.shiftKey)}
-            title={`Sort by ${label} (Shift-click to add a secondary sort; drag to reorder)`}
+            title={labels.table.sortBy(label)}
             data-testid={`sort-${area}-${col.id}`}
           >
             <span className="truncate">{col.header}</span>
@@ -1323,7 +1323,7 @@ function HeaderCell<Row>({
       <span
         role="separator"
         aria-orientation="vertical"
-        aria-label={`Resize ${label}`}
+        aria-label={labels.table.resize(label)}
         tabIndex={0}
         className="dt-resize"
         data-testid={`resize-${area}-${col.id}`}

@@ -42,6 +42,17 @@ export interface KitLabels {
     activeFilters: string
     removeFilter: (what: string) => string
     filterColumn: (label: string, filtered: boolean) => string
+    /** Gate polish: the rest of the DataTable's own words (header tooltips, sr-only labels). */
+    sortBy: (label: string) => string
+    resize: (label: string) => string
+    total: string
+    details: string
+    showDetails: (open: boolean, what: string | null) => string
+    expandGroup: (collapsed: boolean, label: string) => string
+    rowActions: string
+    actions: string
+    excelTitle: string
+    compactTitle: (own: boolean) => string
   }
 }
 
@@ -80,7 +91,17 @@ export const ENGLISH_KIT_LABELS: KitLabels = {
     clearAll: 'Clear all',
     activeFilters: 'Active filters',
     removeFilter: (what) => `Remove filter: ${what}`,
-    filterColumn: (label, filtered) => `Filter ${label}${filtered ? ' (filtered)' : ''}`
+    filterColumn: (label, filtered) => `Filter ${label}${filtered ? ' (filtered)' : ''}`,
+    sortBy: (label) => `Sort by ${label} (Shift-click to add a secondary sort; drag to reorder)`,
+    resize: (label) => `Resize ${label}`,
+    total: 'Total',
+    details: 'Details',
+    showDetails: (open, what) => `${open ? 'Hide' : 'Show'} details${what ? ` for ${what}` : ''}`,
+    expandGroup: (collapsed, label) => `${collapsed ? 'Expand' : 'Collapse'} ${label}`,
+    rowActions: 'Row actions',
+    actions: 'Actions',
+    excelTitle: 'Excel workbook — amounts as numbers, dates as dates',
+    compactTitle: (own) => (own ? 'Compact rows (this table)' : 'Compact rows (following the app setting)')
   }
 }
 

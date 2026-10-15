@@ -1,7 +1,7 @@
 // WP 10.1: the Ask Total question corpus — phrasings (English, Hinglish, a little Hindi, typos,
 // with and without amounts and dates) → the intent and slots the classifier must pick. Pure.
 import { describe, expect, it } from 'vitest'
-import { classify, normalise, periodOf } from './classify'
+import { classify, normalise, periodOf, questionLanguage } from './classify'
 import { CATALOGUES, LANGUAGES } from '@shared/i18n'
 
 const TODAY = '2026-10-14'
@@ -66,6 +66,22 @@ const CORPUS: [string, Expect][] = [
   ['what is running low', { kind: 'stock', low: true }],
   ['kya khatam ho raha hai', { kind: 'stock', low: true }],
   ['stock', { kind: 'stock', item: undefined }],
+  // gate polish: "bacha" is "left", never a typo of "becha" (sold)
+  ['Tata Namak kitna bacha hai', { kind: 'stock', item: 'tata namak' }],
+  ['tata namak bacha hai?', { kind: 'stock', item: 'tata namak' }],
+  ['Tata Namak stock', { kind: 'stock', item: 'tata namak' }],
+  ['tata namak stock kitna hai', { kind: 'stock', item: 'tata namak' }],
+  ['how much Tata Namak is left', { kind: 'stock', item: 'tata namak' }],
+  ['Tata Namak kitna hai', { kind: 'stock', item: 'tata namak', loose: true }],
+  ['टाटा नमक कितना बचा है', { kind: 'stock', item: 'टाटा नमक' }],
+  ['चीनी कितनी बची है', { kind: 'stock', item: 'चीनी' }],
+  ['kitna paisa hai', { kind: 'money', which: 'both' }],
+  ['Ramesh ka kitna hai', { kind: 'unknown' }],
+  // review: "becha" (sold) still reads as sales next to the "bacha" (left) fix; a loose name needs 3+ letters
+  ['is mahine kitna becha', { kind: 'figure', measure: 'sales' }],
+  ['Tata Namak kitna becha', { kind: 'figure', measure: 'sales' }],
+  ['आज कितना बेचा', { kind: 'figure', measure: 'sales' }],
+  ['a kitna hai', { kind: 'unknown' }],
   // ---- open ----
   ['open bank', { kind: 'open', target: 'bank' }],
   ['go to customers', { kind: 'open', target: 'customers' }],
@@ -228,4 +244,21 @@ describe('Ask Total suggestion chips in every language', () => {
       })
     }
   }
+})
+
+// Review: the language a "what does X mean" answer is written in (gate polish `questionLanguage`).
+describe('questionLanguage', () => {
+  it.each([
+    ['what is GSTR-3B', null],
+    ['What is a debit note?', null],
+    ['meaning of TDS', null],
+    ['GSTR-3B kya hai', 'hinglish'],
+    ['what is ITC ka matlab', 'hinglish'],
+    ['ITC means kya', 'hinglish'],
+    ['TDS kaise kaam karta hai', 'hinglish'],
+    ['GSTR-3B क्या है', 'hi'],
+    ['what is जीएसटी', 'hi']
+  ] as const)('%s → %s', (q, lang) => {
+    expect(questionLanguage(q)).toBe(lang)
+  })
 })

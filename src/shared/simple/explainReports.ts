@@ -32,6 +32,11 @@ export function otherIncomeWhy(d: Pick<BusinessDoing, 'lines'>, t: Translate): s
   return t('simple.reports.why.otherIncome', { amount: money(d.lines.otherIncome) })
 }
 
+/** Gate polish: the bills' round-off line. */
+export function roundingWhy(d: Pick<BusinessDoing, 'lines'>, t: Translate): string {
+  return t('simple.reports.why.rounding', { amount: money(d.lines.rounding) })
+}
+
 export function expensesWhy(d: Pick<BusinessDoing, 'lines' | 'span' | 'topExpenses'>, t: Translate): string {
   if (d.lines.expenses === 0) return t('simple.reports.why.expensesNone', span(d.span, t.lang))
   const list = d.topExpenses

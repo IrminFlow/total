@@ -119,7 +119,7 @@ export function TableToolbar<Row>({
               className="rounded-md border border-line bg-panel2 px-2 py-1 text-small text-muted hover:border-amber/60 hover:text-ink"
               aria-pressed={density === 'compact'}
               aria-label={labels.table.compactRows}
-              title={view.density ? 'Compact rows (this table)' : 'Compact rows (following the app setting)'}
+              title={labels.table.compactTitle(!!view.density)}
               // Picking the app's own density stores null, so the table follows the setting again.
               onClick={() => {
                 const next: Density = density === 'compact' ? 'comfortable' : 'compact'
@@ -170,7 +170,7 @@ export function TableToolbar<Row>({
             </Button>
           )}
           {features.export && onExportXlsx && (
-            <Button variant="ghost" size="sm" onClick={onExportXlsx} data-testid={`${area}-table-xlsx`} title="Excel workbook — amounts as numbers, dates as dates">
+            <Button variant="ghost" size="sm" onClick={onExportXlsx} data-testid={`${area}-table-xlsx`} title={labels.table.excelTitle}>
               Excel
             </Button>
           )}

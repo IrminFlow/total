@@ -5,7 +5,7 @@ import { toPlainDate } from '@shared/dates'
 import { mapError, type CaughtError } from '@shared/errors'
 import type { BusinessDoing as Doing, ReportPeriodKind } from '@shared/simple/reports'
 import {
-  changeSentence, costWhy, doingCashWhy, doingCompareWhy, doingOwedWhy, doingResultWhy, expensesWhy, otherIncomeWhy, profitOnGoodsWhy, salesCompareWhy
+  changeSentence, costWhy, doingCashWhy, doingCompareWhy, doingOwedWhy, doingResultWhy, expensesWhy, otherIncomeWhy, roundingWhy, profitOnGoodsWhy, salesCompareWhy
 } from '@shared/simple/explain'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
@@ -144,6 +144,7 @@ function DoingBody({ d }: { d: Doing }): React.JSX.Element {
           <Line id="goods" op="=" label={t('simple.reports.profitOnGoods')} paise={l.profitOnGoods} why={profitOnGoodsWhy(d, t)} link={pnl} />
           {l.otherIncome !== 0 && <Line id="other" op="+" label={t('simple.reports.otherIncome')} paise={l.otherIncome} why={otherIncomeWhy(d, t)} link={pnl} />}
           <Line id="expenses" op="−" label={t('simple.reports.expenses')} paise={l.expenses} why={expensesWhy(d, t)} link={pnl} />
+          {!!l.rounding && <Line id="rounding" op={l.rounding < 0 ? '−' : '+'} unsigned label={t('common.rounding')} paise={l.rounding} why={roundingWhy(d, t)} link={pnl} />}
           <Line id="profit" op="=" strong unsigned label={t('simple.reports.doing.result', { result })} paise={l.profit} why={doingResultWhy(d, t)} extra={doingCompareWhy(d, t)} link={pnl} />
         </ul>
         <p className="mt-2 text-small text-muted" data-testid="doing-change">

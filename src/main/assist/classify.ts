@@ -55,6 +55,7 @@ const PHRASES: [RegExp, string][] = [
   [/\b(?:nakad|nagad|nakd|galla|galle|gulla|gulle)\b/g, 'cash'],
   [dv('नकद|नक़द'), 'cash'],
   [dv('स्टॉक'), 'stock'],
+  [dv('बचा|बचे|बची'), 'bacha'],
   [dv('बैंक'), 'bank'],
   [dv('जीएसटी'), 'gst'],
   [dv('बकाया'), 'baki'],
@@ -155,9 +156,12 @@ function editDistance1(a: string, b: string): boolean {
 }
 
 const KNOWN = new Set(VOCAB)
+/** Real words one letter away from a VOCAB word, never "fixed" (gate polish: "kitna bacha hai" =
+ *  how much is LEFT, not "becha" = sold). */
+const NOT_TYPOS = new Set(['bacha', 'bache', 'bachi', 'bachaa', 'baccha'])
 
 function fixTypo(word: string): string {
-  if (word.length < 5 || KNOWN.has(word) || !/^[a-z]+$/.test(word)) return word
+  if (word.length < 5 || KNOWN.has(word) || NOT_TYPOS.has(word) || !/^[a-z]+$/.test(word)) return word
   return VOCAB.find((v) => v.length >= 5 && editDistance1(word, v)) ?? word
 }
 
@@ -589,8 +593,14 @@ function owedParty(q: string, side: 'receivable' | 'payable'): string | undefine
 const STOCK_LOW = /\b(?:running low|low stock|stock low|out of stock|khatam|kam ho|kam hai|kam bacha|reorder|finishing|running out)\b/
 const STOCK_ITEM = [
   /\bstock of (.+)$/, /\bhow many (.+?) (?:do i have|are left|left|in stock|hai|hain|bache|bacha|bachi)\b/, /^(.+?) (?:ka|ki|ke) stock\b/,
-  /^how much (.+?) (?:hai|hain|bache|bacha|bachi|left|in stock)\b/, /^(.+?) how much (?:hai|hain|bache|bacha|bachi|left)\b/, /\bstock (?:for|in) (.+)$/
+  /^how much (.+?) (?:(?:is|are) )?(?:hai|hain|bache|bacha|bachi|left|in stock)\b/, /^(.+?) how much (?:hai|hain|bache|bacha|bachi|left)\b/, /\bstock (?:for|in) (.+)$/,
+  // gate polish: "Tata Namak stock", "Tata Namak stock kitna hai", "Tata Namak bacha hai"
+  /^(.+?) (?:in )?stock(?: how much)?(?: hai| hain| left| bacha| bache)?$/, /^(.+?) (?:bacha|bache|bachi|left) (?:hai|hain)$/
 ]
+/** "Tata Namak kitna hai": a name and "how much is there" — read as a product's stock, LOOSELY
+ *  (the answer falls back to "not understood" when no product has that name). */
+const LOOSE_ITEM = /^(.+?) how much (?:hai|hain)$/
+const NOT_AN_ITEM = /\b(?:ka|ke|ki|ko|se|par|pe|mein|me|mera|mere|meri|mujhe|kis|kisko|kisse|who|what|how|much|many|paisa|paise|money|rs|rupees)\b|\d/
 
 const CASH_Q = /\bcash (?:in hand|balance|hai|how much|kitna|do i have|left|available)\b|\bhow much cash\b|\bcash in hand\b|\bin (?:the )?cash\b|^cash$/
 const BANK_Q = /\bbank (?:balance|me|mein|main|account|how much|kitna|mai|hai)\b|\bin (?:the |my )?bank\b|\bhow much (?:money )?(?:is )?in (?:the |my )?bank\b|^bank balance$/
@@ -604,6 +614,15 @@ const MEASURE_WORDS: [RegExp, AssistMeasure][] = [
 ]
 
 const OPEN = /^(?:please\s+)?(?:open|go to|goto|take me to|jump to|show me|show|kholo|khol do|khol|dikhao|dikha do|dikhaao)\s+(.+)$|^(.+?)\s+(?:kholo|khol do|dikhao|dikha do|kholiye|dikhaiye|open karo|open)$/
+
+/** Gate polish: the language a question is written in, when it says — Devanagari = Hindi, a Latin
+ *  question with Hindi words ("GSTR-3B kya hai", "ITC ka matlab") = Hinglish; null = English (or
+ *  can't tell), so the reader's own language applies. */
+export function questionLanguage(text: string): 'hi' | 'hinglish' | null {
+  if (/[\u0900-\u097F]/.test(text)) return 'hi'
+  const s = text.toLowerCase()
+  return /\b(?:kya|kyaa|hai|hain|hota|hoti|hote|matlab|kaise|kitna|kitni|kitne|batao|bataiye|samjhao|mera|mere|meri|mujhe|kaun|kab|ka|ki|ke|ko|se|mein|aur|nahi)\b/.test(s) ? 'hinglish' : null
+}
 
 /** The intent of a question (or an entry request). */
 export function classify(text: string, today: string): AssistIntent {
@@ -643,7 +662,7 @@ export function classify(text: string, today: string): AssistIntent {
   if (CASH_Q.test(q)) return { kind: 'money', which: 'cash' }
   if (BANK_Q.test(q)) return { kind: 'money', which: 'bank' }
 
-  if (/\bstock\b/.test(q) || /\bhow (?:many|much)\b.*\b(?:left|bache|bacha|bachi|in stock|do i have)\b/.test(q)) {
+  if (/\bstock\b/.test(q) || /\bhow (?:many|much)\b.*\b(?:left|bache|bacha|bachi|in stock|do i have)\b/.test(q) || /\b(?:bacha|bache|bachi) (?:hai|hain)$/.test(q)) {
     for (const re of STOCK_ITEM) {
       const m = re.exec(q)
       const item = m?.[1]?.replace(/^(?:the|my)\s+/, '').trim()
@@ -651,6 +670,10 @@ export function classify(text: string, today: string): AssistIntent {
     }
     return { kind: 'stock' }
   }
+
+  const loose = LOOSE_ITEM.exec(q)?.[1]?.replace(/^(?:the|my)\s+/, '').trim()
+  // Review: at least three letters ("a kitna hai" is no product's name, read loosely).
+  if (loose && !NOT_AN_ITEM.test(loose) && loose.replace(/\s/g, '').length >= 3 && loose.split(' ').length <= 4) return { kind: 'stock', item: loose, loose: true }
 
   if (meaning) {
     const term = (meaning[1] ?? meaning[2] ?? '').trim()

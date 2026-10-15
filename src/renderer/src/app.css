@@ -599,6 +599,13 @@ textarea {
 [data-shell='simple']:has([data-testid='save-bar']) [data-toasts] {
   bottom: 5.5rem;
 }
+/* Gate polish: on Lock and safety (and the plain Backups screen) the last card — the backup
+   check, Back up now — sits where a bottom-right toast lands, and its result toast covered it:
+   there the stack sits at the top right, just under the header. Simple shell only. */
+[data-shell='simple']:has([data-testid='simple-security'], [data-testid='simple-backups']) [data-toasts] {
+  top: 3.75rem;
+  bottom: auto;
+}
 /* Under 1200 px the header's key hints give their room to the buttons (each button still
    names its key in its title / accessible name). Same breakpoint as lib/simpleLayout.ts. */
 @media (max-width: 1199.98px) {

@@ -117,7 +117,36 @@ export async function reportOutputs(db: DB, info: CompanyInfo, today: string): P
   return out
 }
 
+/** Fields added to an output AFTER the expectations were generated (from origin/main's code),
+ *  per output id. Left out of the hash only while they hold the given neutral value, so the
+ *  expectations are never regenerated for an additive field, and a seed where the field carries
+ *  a figure (which then also moves the figures beside it) still fails. Review of the gate-polish
+ *  PR: `rounding` (doingLines' own Rounding line) is 0 on both seeds; with it left out the new
+ *  outputs hash to the fixture origin/main's code wrote. */
+export const ADDITIVE_FIELDS: Record<string, Record<string, unknown>> = {
+  home: { rounding: 0 },
+  doing: { rounding: 0 }
+}
+
+/** `value` without the additive fields still at their neutral value (anywhere in the tree). */
+export function withoutAdditive(id: string, value: unknown): unknown {
+  const fields = ADDITIVE_FIELDS[id]
+  if (!fields) return value
+  const strip = (v: unknown): unknown => {
+    if (Array.isArray(v)) return v.map(strip)
+    if (v && typeof v === 'object') {
+      return Object.fromEntries(
+        Object.entries(v as Record<string, unknown>)
+          .filter(([k, x]) => !(Object.prototype.hasOwnProperty.call(fields, k) && Object.is(fields[k], x)))
+          .map(([k, x]) => [k, strip(x)])
+      )
+    }
+    return v
+  }
+  return strip(value)
+}
+
 export async function reportHashes(db: DB, info: CompanyInfo, today: string): Promise<Record<string, string>> {
   const outputs = await reportOutputs(db, info, today)
-  return Object.fromEntries(Object.entries(outputs).map(([k, v]) => [k, hashOf(v)]))
+  return Object.fromEntries(Object.entries(outputs).map(([k, v]) => [k, hashOf(withoutAdditive(k, v))]))
 }

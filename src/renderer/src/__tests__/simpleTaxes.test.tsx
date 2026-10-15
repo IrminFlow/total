@@ -79,6 +79,18 @@ describe('Taxes — regular GST (WP 9.9)', () => {
     await waitFor(() => expect(lastScreen()).toEqual({ name: 'gstr3b', month: '2026-09' }))
   })
 
+  it('gate polish: a continuing business is told the returns run from the day its books began', async () => {
+    act(() => useSession.setState({ info: { ...info, booksBeginDate: '2026-04-01' } }))
+    renderUi(<TaxesScreen />)
+    expect((await screen.findByTestId('taxes-since-books')).textContent).toContain('the months since your books began on 1 Apr 2026')
+    cleanup()
+    // Without a books-begin day (an accountant-made company) — no such line.
+    act(() => useSession.setState({ info }))
+    renderUi(<TaxesScreen />)
+    await screen.findByTestId('tile-gst-collected')
+    expect(screen.queryByTestId('taxes-since-books')).toBeNull()
+  })
+
   it('a passed date says so until that return is noted as filed', async () => {
     reply = { ...REGULAR, today: '2026-10-25', filed: { gstr1: { arn: 'AA270926123456X', date: '2026-10-11', by: null, at: '' } } }
     renderUi(<TaxesScreen />)

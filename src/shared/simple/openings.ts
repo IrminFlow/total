@@ -80,7 +80,12 @@ const itemSchema = z.object({
   /** WP 10.8: a NEW product's GST rate (percent) — asked while the company charges GST on the
    *  books-begin day, so its first bill carries GST; absent / null = none (an existing product
    *  keeps its own). */
-  gstRate: z.number().min(0).max(100).nullable().optional()
+  gstRate: z.number().min(0).max(100).nullable().optional(),
+  /** Gate polish: "What you sell it for" (paise per unit, before GST) — the walk-in selling price
+   *  from the books-begin day; absent / null = leave the price as it is. */
+  sellPrice: amount.nullable().optional(),
+  /** The selling price the screen loaded (null = none) — one changed elsewhere since is kept. */
+  sellBase: amount.nullable().optional()
 })
 const otherSchema = moneyRowSchema.extend({ kind: z.enum(OPENING_OTHER_KINDS) })
 
@@ -236,6 +241,9 @@ export interface ItemDraft {
   base: { qtyMilli: number; value: number } | null
   /** WP 10.8: a new product's GST rate (null = not picked; asked only while GST is charged). */
   gstRate?: number | null
+  /** Gate polish: what one sells for (paise, before GST; null = not said) and what was loaded. */
+  sell?: number | null
+  sellBase?: number | null
 }
 export interface OtherDraft extends MoneyRowDraft {
   kind: OpeningOtherKind
@@ -276,7 +284,7 @@ export function parseQtyText(text: string): number | null {
 
 const blankBill = (b: BillDraft): boolean => !b.ref.trim() && !b.date && b.amount == null
 const blankParty = (p: PartyDraft): boolean => p.ledgerId == null && !p.name.trim() && p.bills.every(blankBill)
-const blankItem = (r: ItemDraft): boolean => r.itemId == null && !r.name.trim() && !r.qty.trim() && r.rate == null
+const blankItem = (r: ItemDraft): boolean => r.itemId == null && !r.name.trim() && !r.qty.trim() && r.rate == null && r.sell == null
 const blankMoney = (r: MoneyRowDraft): boolean => r.ledgerId == null && !r.name.trim() && r.amount == null
 
 function checkMoneyRows(rows: MoneyRowDraft[], path: string, e: OpeningsErrors): void {
@@ -329,6 +337,7 @@ function checkItems(rows: ItemDraft[], e: OpeningsErrors, opts: OpeningsCheckOpt
     if (r.qty.trim() && qty == null) e[`items.${i}.qty`] = r.qty.trim().startsWith('-') ? 'errors.openings.negative' : 'errors.openings.qtyInvalid'
     else if (!r.qty.trim() && (r.rate ?? 0) > 0) e[`items.${i}.qty`] = 'errors.openings.qtyNeeded'
     if (r.rate != null && r.rate < 0) e[`items.${i}.rate`] = 'errors.openings.negative'
+    if (r.sell != null && r.sell < 0) e[`items.${i}.sell`] = 'errors.openings.negative'
     // WP 10.8: a new product in a GST-charging company needs its rate, or its first bill would
     // silently carry no GST (the beginner study's top wrong-tax finding).
     if (opts.chargesGst && r.itemId == null && r.name.trim() && !known.has(refKey(r.name)) && r.gstRate == null) e[`items.${i}.gstRate`] = 'errors.openings.gstRateNeeded'
@@ -385,7 +394,8 @@ export function openingsPayload(d: OpeningsDraft, confirmCapital?: number, capit
         const ratePaise = r.rate ?? 0
         const asLoaded = r.base != null && qtyMilli === r.base.qtyMilli && ratePaise === stockLineRate(r.base.qtyMilli, r.base.value)
         const gst = r.itemId == null && r.gstRate != null ? { gstRate: r.gstRate } : {}
-        return { itemId: r.itemId, name: r.name.trim(), unitId: r.unitId, qtyMilli, ratePaise, ...(asLoaded ? { value: r.base!.value } : {}), base: r.base, ...gst }
+        const sell = r.sell != null && r.sell > 0 ? { sellPrice: r.sell, sellBase: r.sellBase ?? null } : {}
+        return { itemId: r.itemId, name: r.name.trim(), unitId: r.unitId, qtyMilli, ratePaise, ...(asLoaded ? { value: r.base!.value } : {}), base: r.base, ...gst, ...sell }
       })
       .filter((r) => r.itemId != null || r.qtyMilli > 0),
     others: d.others.filter((r) => r.ledgerId != null || (!blankMoney(r) && (r.amount ?? 0) > 0)).map((r) => ({ ...money(r), kind: r.kind })),
@@ -413,7 +423,7 @@ export interface OpeningsState {
   overdrafts: { ledgerId: number; name: string; amount: number }[]
   customers: OpeningPartyState[]
   suppliers: OpeningPartyState[]
-  items: { itemId: number; name: string; unitId: number; qtyMilli: number; value: number; ratePaise: number }[]
+  items: { itemId: number; name: string; unitId: number; qtyMilli: number; value: number; ratePaise: number; sellPrice: number | null }[]
   others: { kind: OpeningOtherKind; ledgerId: number; name: string; amount: number }[]
   /** Pickers: every customer / supplier / item / unit by name. */
   pick: {
@@ -441,8 +451,8 @@ export interface OpeningPartyState {
 }
 
 export interface OpeningsWarning {
-  /** What was left alone: an account, an item. */
-  kind: 'account' | 'item'
+  /** What was left alone: an account, an item, an item's selling price. */
+  kind: 'account' | 'item' | 'price'
   name: string
   /** Its opening now (paise; an item's value). */
   kept: number
@@ -480,7 +490,7 @@ export function draftFromState(st: OpeningsState, formatQty: (qtyMilli: number) 
     overdrafts: st.overdrafts.map((b) => ({ key: key(), ledgerId: b.ledgerId, name: b.name, amount: b.amount, base: -b.amount })),
     customers: st.customers.map((p) => party(p, 1)),
     suppliers: st.suppliers.map((p) => party(p, -1)),
-    items: st.items.map((i) => ({ key: key(), itemId: i.itemId, name: i.name, unitId: i.unitId, qty: formatQty(i.qtyMilli), rate: i.ratePaise, base: { qtyMilli: i.qtyMilli, value: i.value } })),
+    items: st.items.map((i) => ({ key: key(), itemId: i.itemId, name: i.name, unitId: i.unitId, qty: formatQty(i.qtyMilli), rate: i.ratePaise, base: { qtyMilli: i.qtyMilli, value: i.value }, sell: i.sellPrice, sellBase: i.sellPrice })),
     others: st.others.map((o) => ({ key: key(), kind: o.kind, ledgerId: o.ledgerId, name: o.name, amount: o.amount, base: OTHER_KIND_SIDE[o.kind] * o.amount }))
   }
 }

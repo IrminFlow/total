@@ -830,6 +830,8 @@ export const api = {
   backups: {
     list: () => call<BackupInfo[]>('backup:list'),
     run: () => call<{ path: string; check?: BackupCheck | null }>('backup:run'),
+    /** Gate polish: Show in Finder — a backup file by name, or the backups folder. */
+    reveal: (file?: string) => call<null>('backup:reveal', file ? { file } : {}),
     /** WP 7.2: the restore checks (newest first) and "Check now" (the newest backup, or `file`). */
     checks: () => call<BackupCheck[]>('backup:checks'),
     check: (file?: string) => call<BackupCheck>('backup:check', file ? { file } : {}),

@@ -71,6 +71,17 @@ describe('listBackupsIn / tagOf / backupStamp', () => {
     expect(list[1]?.tag).toBe('auto')
     expect(tagOf('2025-01-01T00-00-00-pre-tally-import.db')).toBe('pre-tally-import')
   })
+
+  it('gate polish: the stamp is LOCAL time in the fixed-width sortable ISO shape (1 am stays that day)', () => {
+    const at = new Date(2026, 9, 15, 1, 5, 9)
+    expect(backupStamp(at)).toBe('2026-10-15T01-05-09')
+    const now = new Date()
+    const local = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    expect(backupStamp(now).slice(0, 10)).toBe(local)
+    expect(backupStamp(at)).toHaveLength(19)
+    expect(tagOf(`${backupStamp(at)}-manual.db`)).toBe('manual')
+    expect(backupStamp(new Date(2026, 11, 31, 23, 59, 59)) > backupStamp(new Date(2026, 11, 31, 23, 59, 58))).toBe(true)
+  })
 })
 
 function basename(p: string): string {

@@ -274,6 +274,33 @@ describe('Ask Total on hand-worked books', () => {
     expect(paise(await ask('who owes me'))).toContain(669700)
   })
 
+  it('gate polish: GST asked while October runs also says October so far (the Taxes service’s running period)', async () => {
+    // A cash sale on 3 Oct 2025: ₹1,000 + 18% = ₹180 of GST collected (CGST 90 + SGST 90); paid,
+    // so who owes me is unchanged for the test below.
+    await ok('simple:post', { intent: { kind: 'sale', clientId: 'hand-sale-oct1', date: '2025-10-03', amount: { amount: 100000, gstRate: 18 }, payment: { how: 'cash' } }, today: T })
+    const g = await ask('GST kitna dena hai')
+    expect(g.intent).toBe('gst')
+    // September's return first (unchanged), then October so far.
+    expect(g.figures.slice(0, 3).map((f) => f.paise)).toEqual([90000, 180000, 90000])
+    const text = g.sentences.join(' ')
+    expect(text).toContain('Oct 2025 so far')
+    expect(text).toContain('₹180.00')
+    expect(paise(g)).toContain(18000)
+    expect(g.links.map((l) => l.target)).toContainEqual({ screen: 'simple-taxes', params: { period: '2025-10' } })
+  })
+
+  it('gate polish: "what does X mean" follows the question’s language', async () => {
+    const hinglish = await ask('GSTR-3B kya hai')
+    expect(hinglish.intent).toBe('meaning')
+    expect(hinglish.sentences.join(' ')).toContain('taiyaar karta hai, file aap karte hain')
+    const hindi = await ask('GSTR-3B क्या है')
+    expect(hindi.sentences.join(' ')).toMatch(/तैयार करता है/)
+    const english = await ask('what is GSTR-3B')
+    expect(english.sentences.join(' ')).toContain('Total prepares it, you file it')
+    // No translation in the glossary: the English explanation inside the Hinglish sentence.
+    expect((await ask('godown kya hai')).sentences.join(' ')).toContain('A place where you keep stock')
+  })
+
   it('a viewer can ask (entries come back as not recordable) but cannot draft', async () => {
     expect(ipc.CHANNEL_ROLES.get('assist:ask')).toBe('viewer')
     expect(ipc.CHANNEL_ROLES.get('assist:draft')).toBe('accountant')
@@ -314,5 +341,20 @@ describe('Ask Total on the demo seed: every figure is the screen service’s', (
     if (taxes.kind === 'regular') expect(paise(gst).slice(0, 3)).toEqual([Math.max(0, taxes.figures.toPay), taxes.figures.collected, taxes.figures.onPurchases])
     const stock = await ok<StockList>('simple:stock:list', { today: TODAY })
     expect(paise(await askNow('stock'))[0]).toBe(stock.rows.reduce((s, r) => s + r.value, 0))
+    // Gate polish: "<product> kitna bacha hai" is that product's stock (it read as SALES before —
+    // "bacha" was "fixed" into "becha").
+    const row = stock.rows.find((r) => r.value > 0)!
+    const left = await askNow(`${row.name} kitna bacha hai`)
+    expect(left.intent).toBe('stock')
+    expect(paise(left)[0]).toBe(row.value)
+    // "<not a product> kitna hai" is not understood (never "no such product").
+    expect((await askNow('Zzyzx kitna hai')).understood).toBe(false)
+    // Review: a single letter is not read as a product ("a kitna hai" asked "Which product is
+    // “a”?"), nor a name no product has; a product's own name still answers.
+    for (const q of ['a kitna hai', 'steel almirah kitna hai', 'office table kitna hai', 'wireless keyboard kitna hai']) expect((await askNow(q)).understood, q).toBe(false)
+    const plainRow = stock.rows.find((r) => r.value > 0 && !/\d/.test(r.name))!
+    const named = await askNow(`${plainRow.name} kitna hai`)
+    expect(named.intent).toBe('stock')
+    expect(paise(named)[0]).toBe(plainRow.value)
   })
 })

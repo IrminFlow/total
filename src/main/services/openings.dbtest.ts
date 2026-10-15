@@ -15,6 +15,7 @@ import { stockSummary, stockValue } from './stockAnalysis'
 import { openingTotals } from './dataImport'
 import { getUi } from './config'
 import { getLedger, listStockItems, updateLedger } from './masters'
+import { sellingPrices, setSellingPrice, stockList } from './simpleStock'
 import { stableBillKey } from '@shared/receivables/types'
 import type { DB } from '../db/connection'
 import type { SimpleOpeningsInput } from '@shared/simple/openings'
@@ -150,6 +151,38 @@ describe('simple opening setup', () => {
     const items = listStockItems(db)
     expect(items.find((i) => i.name === 'Atta 10 kg')?.gstRate).toBe(5)
     expect(items.find((i) => i.name === 'Salt')?.gstRate).toBe(0)
+  })
+
+  it('gate polish: "What you sell it for" sets the walk-in price from the books-begin day — idempotent, kept when changed elsewhere', () => {
+    const db = kirana()
+    const input = answers(db)
+    input.items = input.items!.map((r) => (r.name === 'Sugar' ? { ...r, sellPrice: 55_00, sellBase: null } : r))
+    confirmAndApply(db, input)
+    const sugar = (db.prepare("SELECT id FROM stock_items WHERE name = 'Sugar'").get() as { id: number }).id
+    // The Stock list's selling price (resolvePrice for a walk-in) and the first bill's prefill.
+    expect(stockList(db, TODAY).rows.find((r) => r.itemId === sugar)!.sellingPrice).toBe(55_00)
+    expect(sellingPrices(db, '2026-04-01')(sugar)).toBe(55_00)
+    const row = db.prepare('SELECT effective_from AS f, rate FROM price_list_rates WHERE stock_item_id = ?').get(sugar) as { f: string; rate: number }
+    expect(row).toEqual({ f: '2026-04-01', rate: 55_00 })
+    expect(count(db, 'audit_log', "entity = 'priceRate'")).toBe(1)
+    // The screen loads it back; the same answers again write nothing.
+    const st = openingsState(db)
+    expect(st.items.find((i) => i.itemId === sugar)!.sellPrice).toBe(55_00)
+    const reloaded = { ...answers(db), items: st.items.map((i) => ({ itemId: i.itemId, name: i.name, unitId: i.unitId, qtyMilli: i.qtyMilli, ratePaise: i.ratePaise, value: i.value, base: { qtyMilli: i.qtyMilli, value: i.value }, sellPrice: i.sellPrice, sellBase: i.sellPrice })) }
+    reloaded.cash = { amount: 5_000_00, base: 5_000_00 }
+    reloaded.banks = []
+    reloaded.customers = []
+    reloaded.suppliers = []
+    reloaded.others = []
+    const again = confirmAndApply(db, reloaded)
+    expect(again.warnings).toEqual([])
+    expect(count(db, 'price_list_rates', `stock_item_id = ${sugar}`)).toBe(1)
+    expect(count(db, 'audit_log', "entity = 'priceRate'")).toBe(1)
+    // Changed elsewhere (Stock → Change price) after the screen loaded 55: a new answer is kept out.
+    setSellingPrice(db, sugar, 60_00, '2026-04-01')
+    const stale = confirmAndApply(db, { ...reloaded, items: reloaded.items.map((r) => (r.itemId === sugar ? { ...r, sellPrice: 58_00, sellBase: 55_00 } : r)) })
+    expect(stale.warnings).toContainEqual({ kind: 'price', name: 'Sugar', kept: 60_00 })
+    expect(sellingPrices(db, '2026-04-01')(sugar)).toBe(60_00)
   })
 
   it('re-running the same answers changes nothing and writes no audit row', () => {
