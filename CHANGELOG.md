@@ -122,7 +122,7 @@ what you typed, and a **Back to simple** button.
   ("Before upgrade to …"; the newest two are kept). If the copy can't be made — a full disk — the
   books are not upgraded and Total says so. Books last opened with a newer Total are refused with
   "Update Total to open it" instead of being opened and misread. This protects books from 1.0 on:
-  0.11.0 and earlier, already installed, can't be changed. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  0.11.0 and earlier, already installed, can't be changed. [#116](https://github.com/IrminFlow/total/pull/116)
 
 ### For accountants (figures that changed)
 
