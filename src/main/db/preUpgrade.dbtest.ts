@@ -36,12 +36,26 @@ function companyAt(version: number): string {
   const slug = `co-${++n}`
   ensureCompanyTree(slug)
   const db = new Database(companyDbPath(slug))
-  db.pragma('journal_mode = WAL')
-  db.pragma('foreign_keys = ON')
-  migrate(db, MIGRATIONS.slice(0, version))
-  seedCompany(db, TEST_INFO)
-  db.close()
+  try {
+    db.pragma('journal_mode = WAL')
+    db.pragma('foreign_keys = ON')
+    migrate(db, MIGRATIONS.slice(0, version))
+    seedCompany(db, TEST_INFO)
+  } finally {
+    db.close()
+  }
   return slug
+}
+
+/** Read a file with the plain (unkeyed) driver — the handle is ALWAYS closed: a handle left open
+ *  (the throwing read of an encrypted copy) made Windows refuse the cleanup (EBUSY). */
+function readWithoutKey(path: string): unknown {
+  const d = new Database(path, { readonly: true })
+  try {
+    return d.prepare('SELECT 1 FROM meta').get()
+  } finally {
+    d.close()
+  }
 }
 
 const preUpgradeFiles = (slug: string): string[] => readdirSync(companyBackupsDir(slug)).filter((f) => preUpgradeOf(f)).sort()
@@ -68,8 +82,11 @@ describe('newer-file guard', () => {
   it('a file with one migration more than this build knows is refused (db_newer_version) and left byte-identical', () => {
     const slug = companyAt(N)
     const raw = new Database(companyDbPath(slug))
-    raw.prepare('INSERT INTO migrations (id, applied_at) VALUES (?, ?)').run(N + 1, new Date().toISOString())
-    raw.close()
+    try {
+      raw.prepare('INSERT INTO migrations (id, applied_at) VALUES (?, ?)').run(N + 1, new Date().toISOString())
+    } finally {
+      raw.close()
+    }
     const before = readFileSync(companyDbPath(slug))
     expect(() => openCompanyDb(slug)).toThrow(expect.objectContaining({ code: 'db_newer_version', message: expect.stringMatching(/newer Total/) }))
     expect(readFileSync(companyDbPath(slug)).equals(before)).toBe(true)
@@ -92,8 +109,11 @@ describe('safe copy before an upgrade', () => {
     const slug = companyAt(N - 1)
     const factsBefore = factsOf(companyDbPath(slug))
     const db = openCompanyDb(slug)
-    expect(readSchemaVersion(db)).toBe(N)
-    db.close()
+    try {
+      expect(readSchemaVersion(db)).toBe(N)
+    } finally {
+      db.close()
+    }
     const copies = preUpgradeFiles(slug)
     expect(copies).toHaveLength(1)
     expect(copies[0]).toMatch(new RegExp(`^pre-upgrade-${N - 1}-to-${N}-\\d{8}-\\d{6}\\.db$`))
@@ -124,7 +144,7 @@ describe('safe copy before an upgrade', () => {
     expect(copies).toHaveLength(1)
     const copy = join(companyBackupsDir(slug), copies[0]!)
     expect(isEncryptedFile(copy)).toBe(true)
-    expect(() => new Database(copy, { readonly: true }).prepare('SELECT 1 FROM meta').get()).toThrow(/not a database/)
+    expect(() => readWithoutKey(copy)).toThrow(/not a database/)
     expect(versionOf(copy, key)).toBe(N - 1)
     expect(factsOf(copy, key)).toEqual(factsBefore)
   })
