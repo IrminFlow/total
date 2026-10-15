@@ -672,7 +672,8 @@ export function classify(text: string, today: string): AssistIntent {
   }
 
   const loose = LOOSE_ITEM.exec(q)?.[1]?.replace(/^(?:the|my)\s+/, '').trim()
-  if (loose && !NOT_AN_ITEM.test(loose) && loose.split(' ').length <= 4) return { kind: 'stock', item: loose, loose: true }
+  // Review: at least three letters ("a kitna hai" is no product's name, read loosely).
+  if (loose && !NOT_AN_ITEM.test(loose) && loose.replace(/\s/g, '').length >= 3 && loose.split(' ').length <= 4) return { kind: 'stock', item: loose, loose: true }
 
   if (meaning) {
     const term = (meaning[1] ?? meaning[2] ?? '').trim()

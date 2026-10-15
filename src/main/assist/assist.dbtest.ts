@@ -349,5 +349,12 @@ describe('Ask Total on the demo seed: every figure is the screen service’s', (
     expect(paise(left)[0]).toBe(row.value)
     // "<not a product> kitna hai" is not understood (never "no such product").
     expect((await askNow('Zzyzx kitna hai')).understood).toBe(false)
+    // Review: a single letter is not read as a product ("a kitna hai" asked "Which product is
+    // “a”?"), nor a name no product has; a product's own name still answers.
+    for (const q of ['a kitna hai', 'steel almirah kitna hai', 'office table kitna hai', 'wireless keyboard kitna hai']) expect((await askNow(q)).understood, q).toBe(false)
+    const plainRow = stock.rows.find((r) => r.value > 0 && !/\d/.test(r.name))!
+    const named = await askNow(`${plainRow.name} kitna hai`)
+    expect(named.intent).toBe('stock')
+    expect(paise(named)[0]).toBe(plainRow.value)
   })
 })
