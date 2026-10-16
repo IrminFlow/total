@@ -9,7 +9,9 @@ import { autoPlan, parseImportFile, planSteps } from './importFiles'
 import { buildBooksWorkbook } from './booksExport'
 import { xlsxBytes } from './xlsxFile'
 import { createLedger, getLedger, updateLedger } from './masters'
-import { getVoucher, saveVoucher } from './vouchers'
+import { deleteVoucher, getVoucher, saveVoucher } from './vouchers'
+import { openingBillsByParty, replaceOpeningBills } from './openingBills'
+import { outstandings } from './analysis'
 import { canonicalDump } from './canonicalDump.testutil'
 
 const enc = new TextEncoder()
@@ -212,5 +214,95 @@ describe('#9 "create renamed" and unknown groups on update', () => {
     const l = getLedger(db, id(db, "SELECT id FROM ledgers WHERE name = 'Acme'")!)!
     expect(l.groupId).toBe(groupId(db, 'Sundry Debtors'))
     expect(l.creditDays).toBe(45)
+  })
+})
+
+describe('#7 undo: a user receipt against an imported opening bill (to-do §4, PR #107)', () => {
+  // The rule: an opening bill the undo would take away that a user's entry rests on pins the
+  // batch's OPENINGS — every opening the import put in (ledgers, items, opening bills) stays as
+  // imported, the rest is undone, and the kept rows say why (opening_bills_in_use + the entry).
+  // So Dr = Cr and bills = opening (WP 8.7) both hold, and the receipt keeps its bill.
+  const openingSum = (db: DB): number =>
+    (db.prepare('SELECT COALESCE(SUM(opening_balance), 0) AS s FROM ledgers').get() as { s: number }).s +
+    (db.prepare('SELECT COALESCE(SUM(opening_value), 0) AS s FROM stock_items').get() as { s: number }).s
+
+  it('keeps the openings (Dr = Cr, bills = opening) while the receipt rests on the bill; undoes them once the receipt is binned', () => {
+    // Source books: Acme owes ₹1,000 as one opening bill OB-1; Capital ₹1,000 Cr is the contra.
+    const src = seededDb()
+    const acmeSrc = createLedger(src, { name: 'Acme', groupId: groupId(src, 'Sundry Debtors'), openingBalance: 100_000, pan: null }).id
+    createLedger(src, { name: 'Capital', groupId: groupId(src, 'Capital Account'), openingBalance: -100_000, pan: null })
+    replaceOpeningBills(src, acmeSrc, [{ name: 'OB-1', date: '2025-04-01', dueDate: null, amount: 100_000 }])
+    // A party ledger with no opening (a plain created master) — the part of the batch still undone.
+    createLedger(src, { name: 'Bystander', groupId: groupId(src, 'Sundry Debtors'), pan: null })
+
+    const db = seededDb()
+    expect(openingSum(db)).toBe(0)
+    const r = importBooks(db, books(src))
+    expect(r.blocked).toBeUndefined()
+    const acme = id(db, "SELECT id FROM ledgers WHERE name = 'Acme'")!
+    const capital = id(db, "SELECT id FROM ledgers WHERE name = 'Capital'")!
+    expect(openingSum(db)).toBe(0)
+    expect(openingBillsByParty(db, [acme]).get(acme)).toEqual([{ name: 'OB-1', date: '2025-04-01', dueDate: null, amount: 100_000 }])
+
+    // The user receives ₹400 against OB-1.
+    const cash = id(db, "SELECT id FROM ledgers WHERE name = 'Cash'")!
+    const rv = id(db, "SELECT id FROM voucher_types WHERE kind = 'receipt'")!
+    const receipt = saveVoucher(db, {
+      voucherTypeId: rv, number: 'R-7', date: '2025-06-01', partyLedgerId: acme,
+      lines: [{ ledgerId: cash, drCr: 'dr', amount: 40_000, costAllocations: [] }, { ledgerId: acme, drCr: 'cr', amount: 40_000, costAllocations: [] }],
+      billRefs: [{ kind: 'against', name: 'OB-1', amount: 40_000, dueDate: null }]
+    }).id
+
+    const u = undoImport(db, r.batchId!)
+    // Openings agree, and Acme's bill still equals its opening.
+    expect(openingSum(db)).toBe(0)
+    expect(getLedger(db, acme)!.openingBalance).toBe(100_000)
+    expect(getLedger(db, capital)!.openingBalance).toBe(-100_000)
+    expect(openingBillsByParty(db, [acme]).get(acme)).toEqual([{ name: 'OB-1', date: '2025-04-01', dueDate: null, amount: 100_000 }])
+    // The receipt still settles OB-1: ₹1,000 − ₹400 = ₹600 pending on it.
+    const acmeOut = outstandings(db, 'receivable', '2025-06-30').find((p) => p.ledgerId === acme)!
+    expect(acmeOut.bills.map((b) => [b.number, b.pending])).toEqual([['OB-1', 60_000]])
+    expect(acmeOut.warnings ?? []).toEqual([])
+    // The rest of the batch is undone (Bystander had no opening); the kept rows say why.
+    expect(id(db, "SELECT id FROM ledgers WHERE name = 'Bystander'")).toBeUndefined()
+    expect(u.kept.map((k) => [k.entity, k.id]).sort()).toEqual([['ledger', acme], ['ledger', capital], ['opening_bills', acme]].sort())
+    for (const k of u.kept) expect(k.reason).toMatch(/kept with its opening — opening bill OB-1 of Acme has Receipt R-7 against it \(opening_bills_in_use\)/)
+    expect((db.prepare('SELECT status FROM import_batches WHERE id = ?').get(r.batchId) as { status: string }).status).toBe('partly_undone')
+
+    // Bin the receipt: nothing rests on OB-1 any more, and undoing again takes the openings out
+    // together — Capital deleted, Acme (still named by the binned receipt) kept with no opening.
+    deleteVoucher(db, receipt)
+    const again = undoImport(db, r.batchId!)
+    expect(openingSum(db)).toBe(0)
+    expect(id(db, "SELECT id FROM ledgers WHERE name = 'Capital'")).toBeUndefined()
+    expect(getLedger(db, acme)!.openingBalance).toBe(0)
+    expect(openingBillsByParty(db, [acme]).get(acme)).toBeUndefined()
+    expect(again.kept).toEqual([expect.objectContaining({ entity: 'ledger', id: acme, reason: expect.stringMatching(/opening cleared/) })])
+  })
+
+  it('a receipt against a bill the undo keeps (an earlier bill of the same name) pins nothing', () => {
+    // Acme already had OB-1 for ₹1,000 before the import; the import only changes its due date.
+    const db = seededDb()
+    const acme = createLedger(db, { name: 'Acme', groupId: groupId(db, 'Sundry Debtors'), openingBalance: 100_000, pan: null }).id
+    const capital = createLedger(db, { name: 'Capital', groupId: groupId(db, 'Capital Account'), openingBalance: -100_000, pan: null }).id
+    replaceOpeningBills(db, acme, [{ name: 'OB-1', date: '2025-04-01', dueDate: null, amount: 100_000 }])
+    const src = seededDb()
+    const acmeSrc = createLedger(src, { name: 'Acme', groupId: groupId(src, 'Sundry Debtors'), openingBalance: 100_000, pan: null }).id
+    createLedger(src, { name: 'Capital', groupId: groupId(src, 'Capital Account'), openingBalance: -100_000, pan: null })
+    replaceOpeningBills(src, acmeSrc, [{ name: 'OB-1', date: '2025-04-01', dueDate: '2025-05-15', amount: 100_000 }])
+    const r = importBooks(db, books(src), { duplicate: 'update' })
+    expect(openingBillsByParty(db, [acme]).get(acme)![0]!.dueDate).toBe('2025-05-15')
+    const cash = id(db, "SELECT id FROM ledgers WHERE name = 'Cash'")!
+    const rv = id(db, "SELECT id FROM voucher_types WHERE kind = 'receipt'")!
+    saveVoucher(db, {
+      voucherTypeId: rv, number: 'R-8', date: '2025-06-01', partyLedgerId: acme,
+      lines: [{ ledgerId: cash, drCr: 'dr', amount: 40_000, costAllocations: [] }, { ledgerId: acme, drCr: 'cr', amount: 40_000, costAllocations: [] }],
+      billRefs: [{ kind: 'against', name: 'OB-1', amount: 40_000, dueDate: null }]
+    })
+    const u = undoImport(db, r.batchId!)
+    expect(u.kept.filter((k) => /kept with its opening/.test(k.reason))).toEqual([])
+    expect(openingBillsByParty(db, [acme]).get(acme)).toEqual([{ name: 'OB-1', date: '2025-04-01', dueDate: null, amount: 100_000 }])
+    expect(getLedger(db, capital)!.openingBalance).toBe(-100_000)
+    expect(openingSum(db)).toBe(0)
   })
 })
