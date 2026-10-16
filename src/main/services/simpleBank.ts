@@ -23,16 +23,19 @@ import type { Language } from '@shared/i18n'
 import type { CompanyInfo } from '@shared/domain'
 import { toPlainDate } from '@shared/dates'
 import { AppError, structuredOf } from '@shared/errors'
+import { gstRegistrationOf } from '@shared/gst/registration'
+import { validateGstin } from '@shared/gst/validate'
+import { moneyOutFieldOf } from '@shared/simple/money'
 import { narrationPrefix } from '@shared/capture/categorise'
 import {
-  becauseFor, choiceFitsSide, choiceForAccount, endOfDayBalance, intentForChoice, repeatedLines,
-  type BankAcceptItem, type BankAcceptResult, type BankAccountInfo, type BankLineFacts, type BankLineView, type BankSetup, type BankSuggestion, type BankView
+  becauseFor, choiceFitsSide, choiceForAccount, endOfDayBalance, gstBillComplete, intentForChoice, repeatedLines,
+  type BankAcceptItem, type BankGstContext, type BankAcceptResult, type BankAccountInfo, type BankLineFacts, type BankLineView, type BankSetup, type BankSuggestion, type BankView
 } from '@shared/simple/bank'
 import { ledgerClassifier } from '../ai/ledgerClass'
 import { categoriseStatement } from '../ai/capture/bankCategorise'
 import { bankLedgers, brs } from './banking'
 import { confirmMatches, reconcileSavedDraft, statementWorkspace } from './bankImport'
-import { descendantIdsByName } from './masters'
+import { createLedger, descendantIdsByName } from './masters'
 import { postIntent } from './simplePost'
 import { IN_BOOKS } from './vouchers'
 
@@ -162,6 +165,40 @@ const matchedVouchers = (db: DB, lineId: number): number[] =>
     .prepare(`SELECT m.voucher_id AS id FROM bank_statement_matches m JOIN vouchers v ON v.id = m.voucher_id WHERE m.statement_line_id = ? AND ${IN_BOOKS}`)
     .all(lineId) as { id: number }[]).map((r) => r.id)
 
+/** A bank charge with GST: the bank as a supplier — the creditor with the GSTIN given, else the
+ *  one named "<bank> (charges)", else that one added (under Sundry Creditors, with the GSTIN and
+ *  its state when given; audited by createLedger, inside the line's transaction). */
+function bankAsSupplier(db: DB, bankLedgerId: number, gstinRaw: string | undefined): number {
+  const gstin = gstinRaw?.trim().toUpperCase() || null
+  if (gstin && !validateGstin(gstin).valid) throw new AppError('simple_bank_bad_gstin', `${gstin} is not a GSTIN`, { field: 'gstin' })
+  const creditors = descendantIdsByName(db, ['Sundry Creditors'])
+  const rows = db.prepare('SELECT id, name, group_id AS groupId, gstin FROM ledgers').all() as { id: number; name: string; groupId: number; gstin: string | null }[]
+  const own = rows.filter((r) => creditors.has(r.groupId))
+  const byGstin = gstin ? own.find((r) => r.gstin?.toUpperCase() === gstin) : undefined
+  if (byGstin) return byGstin.id
+  const bank = rows.find((r) => r.id === bankLedgerId)!
+  const name = `${bank.name} (charges)`
+  const byName = own.find((r) => r.name.toLowerCase() === name.toLowerCase())
+  if (byName) return byName.id
+  const groupId = (db.prepare("SELECT id FROM groups WHERE name = 'Sundry Creditors'").get() as { id: number }).id
+  return createLedger(db, {
+    name, groupId, openingBalance: 0, gstin, stateCode: gstin ? gstin.slice(0, 2) : null, address: null, taxType: null, gstRate: null, hsn: null,
+    tdsSectionId: null, pan: null, creditDays: null, exportType: null
+  }).id
+}
+
+/** A refusal of the purchase a GST bill becomes, on the bank line's own questions (Money out's
+ *  remap: its party is the bill's supplier, its account the expense). */
+function onLineFields(err: unknown): never {
+  if (!(err instanceof AppError)) throw err
+  const at = (f: string | undefined): string | undefined => moneyOutFieldOf(f, true)
+  throw new AppError(err.code, err.message, {
+    ...(at(err.field) ? { field: at(err.field) } : {}),
+    ...(err.params ? { params: err.params } : {}),
+    ...(err.issues ? { issues: err.issues.map((i) => ({ ...i, ...(at(i.field) ? { field: at(i.field) } : {}) })) } : {})
+  })
+}
+
 /** The vouchers an earlier simple:post with this clientId saved (a retry of the same accept). */
 function postedBefore(db: DB, clientId: string): number[] {
   const r = db.prepare('SELECT voucher_ids_json AS ids FROM simple_posts WHERE client_id = ?').get(clientId) as { ids: string } | undefined
@@ -196,10 +233,30 @@ function acceptOne(db: DB, company: CompanyInfo, bankLedgerId: number, item: Ban
     confirmMatches(db, bankLedgerId, [{ lineIds: p.lineIds, voucherIds, voucherLineIds: p.entries.map((e) => e.lineId) }], 0)
     return voucherIds
   }
-  const intent = intentForChoice(line, item.choice, bankLedgerId, item.clientId)
+  // A GST bill on a bank expense / the GST on a bank charge: Money out's purchase intent.
+  const c = item.choice
+  let gst: BankGstContext | undefined
+  if ((c.kind === 'expense' || c.kind === 'charges') && c.gstBill) {
+    if (!gstBillComplete(c)) throw new AppError('simple_bank_bill_incomplete', 'Say who the GST bill is from, its number and its GST rate', { field: 'gstBill' })
+    const stateOf = db.prepare('SELECT state_code AS s FROM ledgers WHERE id = ?')
+    gst = {
+      facts: gstRegistrationOf(company),
+      companyStateCode: company.stateCode,
+      supplierState: (id) => (stateOf.get(id) as { s: string | null } | undefined)?.s ?? null,
+      chargesSupplierId: c.kind === 'charges' ? bankAsSupplier(db, bankLedgerId, c.gstBill.gstin) : null
+    }
+  }
+  const intent = intentForChoice(line, c, bankLedgerId, item.clientId, gst)
   if (!intent) throw new AppError('simple_bank_wrong_choice', 'Nothing to save for this answer', { field: 'choice' })
-  const posted = postIntent(db, company, intent, today)
-  const voucherId = posted.entries.find((e) => e.role === 'money')?.voucherId ?? posted.voucherIds[0]!
+  let posted: ReturnType<typeof postIntent>
+  try {
+    posted = postIntent(db, company, intent, today)
+  } catch (err) {
+    if (intent.kind === 'purchase') onLineFields(err)
+    throw err
+  }
+  // The money that left the bank: the entry itself, or a GST bill's payment.
+  const voucherId = posted.entries.find((e) => e.role === 'money' || e.role === 'payment')?.voucherId ?? posted.voucherIds[0]!
   const rec = reconcileSavedDraft(db, bankLedgerId, row.id, voucherId)
   if (!rec.ok) throw new AppError('simple_bank_not_matched', `The entry was not saved: ${rec.reason}`, { field: 'line' })
   return posted.voucherIds

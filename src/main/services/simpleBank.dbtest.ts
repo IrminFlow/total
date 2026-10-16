@@ -17,6 +17,10 @@ import { brs } from './banking'
 import { commitStatement, statementWorkspace, undoLastImport, unmatchLine } from './bankImport'
 import { postIntent } from './simplePost'
 import { acceptLines, bankSetup, bankView } from './simpleBank'
+import { gstr3b } from './gst'
+import { gstRegistrationOf } from '@shared/gst/registration'
+import { validateGstin } from '@shared/gst/validate'
+import { emptyMoneyOutForm, moneyOutIntentFrom, type MoneyOutForm } from '@shared/simple/money'
 
 const INFO: CompanyInfo = { ...TEST_INFO, name: 'Bank Simple Co', gstRegistrationType: 'unregistered' }
 const TODAY = '2025-08-20'
@@ -248,5 +252,113 @@ describe('simple Bank (WP 9.6)', () => {
     expect(back.match?.amount).toBe(400_000)
     // A line that is not done is refused (nothing to take off).
     expect(() => unmatchLine(db, ids.bank, ramesh.id)).toThrow(/not matched/)
+  })
+})
+
+describe('GST bills on bank lines (Money out’s purchase, a regular registration)', () => {
+  const REG: CompanyInfo = { ...TEST_INFO, name: 'Bank GST Co', gstin: '27AAPFU0939F1ZV', stateCode: '27', gstRegistrationType: 'regular' }
+  const RENT_ROW = '14/08/2025,NEFT-SHREE PROPERTIES RENT AUG,R1,"11,800.00",,'
+  const CHARGE_ROW = '16/08/2025,SMS CHARGES JUL-SEP INCL GST,S2,"118.00",,'
+
+  /** A regular company set up the same way every time (so ledger ids agree with its twin). */
+  function regular(): { d: DB; L: (name: string) => number } {
+    const d = seededDb()
+    writeCompanyInfo(d, REG)
+    const mk = (name: string, group: string, extra: Record<string, unknown> = {}): number =>
+      createLedger(d, {
+        name, groupId: (d.prepare('SELECT id FROM groups WHERE name = ?').get(group) as { id: number }).id, openingBalance: 0, gstin: null, stateCode: null, address: null,
+        taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null, ...extra
+      }).id
+    mk('HDFC Bank', 'Bank Accounts')
+    mk('Rent', 'Indirect Expenses', { simpleCategory: 'rent' })
+    mk('Bank charges', 'Indirect Expenses', { simpleCategory: 'bank_charges' })
+    for (const [n, t] of [['Input CGST', 'cgst'], ['Input SGST', 'sgst'], ['Input IGST', 'igst'], ['Output CGST', 'cgst'], ['Output SGST', 'sgst'], ['Output IGST', 'igst']] as const) mk(n, 'Duties & Taxes', { taxType: t })
+    mk('Round Off', 'Indirect Expenses')
+    mk('Bharat Steel', 'Sundry Creditors', { stateCode: '27', gstin: '27AABCG3456H1ZN' })
+    return { d, L: (name) => (d.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number }).id }
+  }
+  const rows = (d: DB, id: number): unknown => ({
+    voucher: d.prepare('SELECT voucher_type_id, date, number, party_ledger_id, narration, reference, instrument_no FROM vouchers WHERE id = ?').get(id),
+    lines: d.prepare('SELECT ledger_id, dr_cr, amount, line_order FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order').all(id),
+    billRefs: d.prepare('SELECT party_ledger_id, kind, name, amount, due_date FROM bill_refs WHERE voucher_id = ? ORDER BY id').all(id)
+  })
+  const g3b = (d: DB): string => JSON.stringify(gstr3b(d, REG, '2025-08-01', '2025-08-31', '082025'))
+  /** Money out's own path in the twin: the form's answers → moneyOutIntentFrom → simple:post. */
+  function moneyOutTwin(twin: DB, L: (n: string) => number, f: Partial<MoneyOutForm>): number[] {
+    const ctx = { facts: gstRegistrationOf(REG), companyStateCode: '27', supplierState: (id: number) => (twin.prepare('SELECT state_code AS s FROM ledgers WHERE id = ?').get(id) as { s: string | null }).s, drawingsId: null }
+    const intent = moneyOutIntentFrom({ ...emptyMoneyOutForm('2025-08-14'), how: 'bank', accountId: L('HDFC Bank'), ...f }, [], { cash: null, upi: null, card: null, bank: L('HDFC Bank') }, ctx)
+    return postIntent(twin, REG, { clientId: 'twin-money-out-1', ...intent }, TODAY).voucherIds
+  }
+  const lineIdOf = (d: DB, text: string): number => (d.prepare('SELECT id FROM bank_statement_lines WHERE description LIKE ?').get(`%${text}%`) as { id: number }).id
+  const matchedTo = (d: DB, lineId: number): number[] =>
+    (d.prepare(`SELECT m.voucher_id AS id FROM bank_statement_matches m JOIN vouchers v ON v.id = m.voucher_id WHERE m.statement_line_id = ? AND ${IN_BOOKS}`).all(lineId) as { id: number }[]).map((r) => r.id)
+
+  it('an expense with a GST bill: the same purchase + payment as Money out, the payment tied to the line — and the same GSTR-3B', () => {
+    const { d, L } = regular()
+    commitStatement(d, L('HDFC Bank'), { fileName: 'hdfc.csv', text: [HEADER, RENT_ROW].join('\n') })
+    const lineId = lineIdOf(d, 'RENT AUG')
+    const r = acceptLines(d, REG, L('HDFC Bank'), [{ lineId, clientId: 'bank-rent-0001', choice: { kind: 'expense', accountId: L('Rent'), gstBill: { supplierId: L('Bharat Steel'), billNo: 'RENT-AUG', gstRate: 18 } } }], TODAY)
+    expect(r.failed).toEqual([])
+    const [bill, pay] = r.done[0]!.voucherIds as [number, number]
+    expect(getVoucher(d, bill)!.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[L('Bharat Steel'), 'cr', 1_180_000], [L('Rent'), 'dr', 1_000_000], [L('Input CGST'), 'dr', 90_000], [L('Input SGST'), 'dr', 90_000]])
+    expect(matchedTo(d, lineId)).toEqual([pay])
+    expect(getVoucher(d, pay)!.lines.find((l) => l.ledgerId === L('HDFC Bank'))).toMatchObject({ drCr: 'cr', amount: 1_180_000, bankDate: '2025-08-14' })
+
+    const twin = regular()
+    const theirs = moneyOutTwin(twin.d, twin.L, { who: 'expense', payeeId: twin.L('Rent'), amount: 1_180_000, gstBill: true, billSupplierId: twin.L('Bharat Steel'), billNo: 'RENT-AUG', gstRate: 18, reference: 'R1', note: 'NEFT-SHREE PROPERTIES RENT AUG' })
+    expect(theirs.map((id) => rows(twin.d, id))).toEqual([bill, pay].map((id) => rows(d, id)))
+    expect(g3b(d)).toBe(g3b(twin.d))
+    expect(g3b(d)).toContain('90000')
+  })
+
+  it('a bank charge with GST: the bank as the supplier (its GSTIN), the input tax split out — = Money out’s purchase, the same GSTR-3B', () => {
+    const { d, L } = regular()
+    // A valid GSTIN for the bank (the check character found by the validator itself).
+    const head = '27AAACH2702H1Z'
+    const gstin = [...'0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'].map((ch) => head + ch).find((g) => validateGstin(g).valid)!
+    commitStatement(d, L('HDFC Bank'), { fileName: 'hdfc.csv', text: [HEADER, CHARGE_ROW].join('\n') })
+    const lineId = lineIdOf(d, 'SMS CHARGES')
+    // A bad GSTIN is refused on its field, with no trace (no supplier added, nothing saved).
+    const before = (d.prepare('SELECT COUNT(*) AS n FROM ledgers').get() as { n: number }).n
+    const bad = acceptLines(d, REG, L('HDFC Bank'), [{ lineId, clientId: 'bank-chg-bad-01', choice: { kind: 'charges', accountId: L('Bank charges'), gstBill: { gstRate: 18, gstin: '27AAACH2702H1ZZ' } } }], TODAY)
+    expect(bad.failed[0]!.error).toMatchObject({ code: 'simple_bank_bad_gstin', field: 'gstin' })
+    expect((d.prepare('SELECT COUNT(*) AS n FROM ledgers').get() as { n: number }).n).toBe(before)
+    expect((d.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n).toBe(0)
+
+    const r = acceptLines(d, REG, L('HDFC Bank'), [{ lineId, clientId: 'bank-chg-0001', choice: { kind: 'charges', accountId: L('Bank charges'), gstBill: { gstRate: 18, gstin } } }], TODAY)
+    expect(r.failed).toEqual([])
+    const supplier = d.prepare("SELECT id, gstin, state_code AS s FROM ledgers WHERE name = 'HDFC Bank (charges)'").get() as { id: number; gstin: string; s: string }
+    expect(supplier).toMatchObject({ gstin, s: '27' })
+    const [bill, pay] = r.done[0]!.voucherIds as [number, number]
+    expect(getVoucher(d, bill)!.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[supplier.id, 'cr', 11_800], [L('Bank charges'), 'dr', 10_000], [L('Input CGST'), 'dr', 900], [L('Input SGST'), 'dr', 900]])
+    expect(matchedTo(d, lineId)).toEqual([pay])
+    // One supplier for the bank.
+    expect((d.prepare("SELECT COUNT(*) AS n FROM ledgers WHERE name LIKE 'HDFC Bank (charges)%'").get() as { n: number }).n).toBe(1)
+
+    const twin = regular()
+    const sid = createLedger(twin.d, {
+      name: 'HDFC Bank (charges)', groupId: (twin.d.prepare("SELECT id FROM groups WHERE name = 'Sundry Creditors'").get() as { id: number }).id, openingBalance: 0, gstin, stateCode: '27',
+      address: null, taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null
+    }).id
+    expect(sid).toBe(supplier.id)
+    const theirs = moneyOutTwin(twin.d, twin.L, { date: '2025-08-16', who: 'expense', payeeId: twin.L('Bank charges'), amount: 11_800, gstBill: true, billSupplierId: sid, billNo: '', gstRate: 18, reference: 'S2', note: 'SMS CHARGES JUL-SEP INCL GST' })
+    expect(theirs.map((id) => rows(twin.d, id))).toEqual([bill, pay].map((id) => rows(d, id)))
+    expect(g3b(d)).toBe(g3b(twin.d))
+  })
+
+  it('an incomplete GST bill is refused on the line; an unregistered company’s answer is the plain payment', async () => {
+    const { d, L } = regular()
+    commitStatement(d, L('HDFC Bank'), { fileName: 'hdfc.csv', text: [HEADER, RENT_ROW].join('\n') })
+    const lineId = lineIdOf(d, 'RENT AUG')
+    const r = acceptLines(d, REG, L('HDFC Bank'), [{ lineId, clientId: 'bank-rent-inc-1', choice: { kind: 'expense', accountId: L('Rent'), gstBill: { gstRate: 18 } } }], TODAY)
+    expect(r.failed[0]!.error).toMatchObject({ code: 'simple_bank_bill_incomplete', field: 'gstBill' })
+    expect((d.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n).toBe(0)
+    // The unregistered company of the other tests: a GST bill answer saves the payment only.
+    statement(['14/08/2025,UPI-STATIONERY MART-PAPER,U1,"450.00",,'])
+    const line = lineOf(await view(), 'STATIONERY')
+    const plain = accept([{ lineId: line.id, choice: { kind: 'expense', accountId: ids.office, gstBill: { supplierId: ids.bharat, billNo: 'SM-1', gstRate: 18 } } }])
+    expect(plain.failed).toEqual([])
+    expect(plain.done[0]!.voucherIds).toHaveLength(1)
+    expect(getVoucher(db, plain.done[0]!.voucherIds[0]!)!.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[ids.office, 'dr', 45_000], [ids.bank, 'cr', 45_000]])
   })
 })

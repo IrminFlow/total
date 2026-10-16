@@ -174,6 +174,8 @@ export const ERROR_MAP = {
   simple_bank_wrong_choice: e('errors.bank.wrongChoice', 'choice'),
   simple_bank_no_match: e('errors.bank.noMatch', 'choice'),
   simple_bank_not_matched: e('errors.bank.notMatched', 'line'),
+  simple_bank_bill_incomplete: e('errors.bank.billIncomplete', 'gstBill'),
+  simple_bank_bad_gstin: e('errors.bank.badGstin', 'gstin'),
   simple_items_no_gst: e('errors.intent.itemsNoGst', 'gstOnBill'),
   // WP 9.8: the simple People screens (services/simplePeople.ts).
   simple_people_not_party: e('errors.people.notParty'),
