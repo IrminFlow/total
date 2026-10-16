@@ -255,7 +255,8 @@ Read these before filing from the next release.
   - Restoring a binned sales invoice or delivery challan to a party on credit hold is refused like
     a new invoice; an owner can override it with a reason (audited `credit_override`). A post-dated
     invoice to a held party stays post-dated when its date comes ("Mature now" needs the owner's
-    reason). Post-dated cheques never create credit and mature as before.
+    reason) and the PDC register says "party on credit hold" beside it. Post-dated cheques never
+    create credit and mature as before.
   - The ledger form of a customer has the credit-hold switch and reason for the owner (read-only
     for everyone else).
   - The TDS Deducted tab shows the s.201(1A)(i) late-deduction interest (1 % a month or part) on a
