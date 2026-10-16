@@ -5,7 +5,7 @@ import { tmpdir } from 'os'
 import { join, basename as nodeBasename } from 'path'
 import { migrate } from './migrate'
 import { seedCompany } from './seed'
-import { TEST_INFO, postSimpleVoucher } from './testdb'
+import { TEST_INFO, postSimpleVoucher, testFileDb } from './testdb'
 import {
   snapshotTo, listBackupsIn, pruneBackupsIn, tagOf, backupStamp, restoreCompanyDb, rollbackRestore
 } from './backup'
@@ -18,7 +18,7 @@ describe('snapshotTo', () => {
   it('captures uncheckpointed WAL content that a raw file copy would miss', async () => {
     const dir = tmpDir()
     const dbPath = join(dir, 'company.db')
-    const db = new Database(dbPath)
+    const db = testFileDb(dbPath)
     db.pragma('journal_mode = WAL')
     migrate(db)
     seedCompany(db, TEST_INFO)
@@ -150,7 +150,7 @@ describe('pruneBackupsIn', () => {
 
 /** Build a standalone, valid Total company DB file at `path` with `voucherCount` vouchers. */
 function makeCompanyDbFile(path: string, voucherCount: number): void {
-  const db = new Database(path)
+  const db = testFileDb(path)
   migrate(db)
   seedCompany(db, TEST_INFO)
   for (let i = 0; i < voucherCount; i++) {
@@ -174,7 +174,7 @@ describe('restoreCompanyDb', () => {
     mkdirSync(backupsDir)
 
     // Live DB has 2 vouchers, posted without checkpointing (WAL-only content).
-    const db = new Database(dbPath)
+    const db = testFileDb(dbPath)
     db.pragma('journal_mode = WAL')
     migrate(db)
     seedCompany(db, TEST_INFO)
@@ -206,7 +206,7 @@ describe('restoreCompanyDb', () => {
     const backupsDir = join(dir, 'backups')
     mkdirSync(backupsDir)
 
-    const db = new Database(dbPath)
+    const db = testFileDb(dbPath)
     db.pragma('journal_mode = WAL')
     migrate(db)
     seedCompany(db, TEST_INFO)
@@ -236,12 +236,12 @@ describe('restoreCompanyDb', () => {
     const backupsDir = join(dir, 'backups')
     mkdirSync(backupsDir)
 
-    const db = new Database(dbPath)
+    const db = testFileDb(dbPath)
     migrate(db)
     seedCompany(db, TEST_INFO)
 
     const unrelatedPath = join(dir, 'unrelated.db')
-    const unrelated = new Database(unrelatedPath)
+    const unrelated = testFileDb(unrelatedPath)
     unrelated.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY, text TEXT)')
     unrelated.close()
 
@@ -259,7 +259,7 @@ describe('rollbackRestore', () => {
     const backupsDir = join(dir, 'backups')
     mkdirSync(backupsDir)
 
-    const db = new Database(dbPath)
+    const db = testFileDb(dbPath)
     db.pragma('journal_mode = WAL')
     migrate(db)
     seedCompany(db, TEST_INFO)

@@ -9,7 +9,7 @@ import { join } from 'path'
 import { createHash } from 'crypto'
 import { migrate } from '../db/migrate'
 import { seedCompany } from '../db/seed'
-import { TEST_INFO, postSimpleVoucher, seededDb } from '../db/testdb'
+import { TEST_INFO, postSimpleVoucher, seededDb, testFileDb } from '../db/testdb'
 import { restoreCompanyDb, snapshotSync, snapshotTo } from '../db/backup'
 import { encryptFile, decryptFile } from '../db/crypt'
 import {
@@ -143,7 +143,7 @@ describe('attachments — backups', () => {
     mkdirSync(backups)
     const src = join(root, 'src')
     mkdirSync(src)
-    let db = new Database(dbPath)
+    let db = testFileDb(dbPath)
     db.pragma('journal_mode = WAL')
     migrate(db)
     seedCompany(db, TEST_INFO)
@@ -165,7 +165,7 @@ describe('attachments — backups', () => {
     expect(existsSync(join(live, storedPathFor(a.sha256)))).toBe(false)
 
     restoreCompanyDb(db, dbPath, backupPath, backups)
-    db = new Database(dbPath)
+    db = testFileDb(dbPath)
     const res = restoreAttachmentFiles(db, live, bstore)
     expect(res).toEqual({ restored: 2, present: 0, missing: [], refused: [] })
     const rows = listAttachments(db, { entity: 'voucher', entityId: v.id })
@@ -198,7 +198,7 @@ describe('attachments — backups', () => {
     await decryptFile(enc, dec, 'correct horse battery')
     const newStore = join(root, 'imported-attachments')
     expect(restoreAttachmentFilesAt(dec, newStore, null)).toEqual({ restored: 1, present: 0, missing: [], refused: [] })
-    const imported = new Database(dec)
+    const imported = testFileDb(dec)
     expect(imported.prepare("SELECT 1 FROM sqlite_master WHERE name = ?").get(BLOB_TABLE)).toBeUndefined()
     const rows = listAttachments(imported, { entity: 'voucher', entityId: v.id })
     expect(rows.map((r) => r.sha256)).toEqual([a.sha256])
@@ -212,7 +212,7 @@ describe('attachments — backups', () => {
     const snap = join(root, 'snap.db')
     snapshotSync(db, snap)
     embedAttachments(snap, store)
-    const s = new Database(snap)
+    const s = testFileDb(snap)
     s.prepare(`UPDATE ${BLOB_TABLE} SET data = ?`).run(Buffer.from('EVIL'))
     s.close()
     const out = join(root, 'fresh')

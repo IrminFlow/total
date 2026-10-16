@@ -1,18 +1,17 @@
 // Lane Q, task Q3 #99: backup post-write verification + scheduled weekly full integrity check.
 import { describe, it, expect } from 'vitest'
-import Database from 'better-sqlite3-multiple-ciphers'
 import { mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { migrate } from './migrate'
 import { seedCompany } from './seed'
-import { TEST_INFO, seededDb } from './testdb'
+import { TEST_INFO, seededDb, testFileDb } from './testdb'
 import { quickCheckOk, runWeeklyIntegrityCheck, snapshotTo, INTEGRITY_CHECK_META_KEY } from './backup'
 
 describe('quickCheckOk (backup post-write verification)', () => {
   it('passes a real snapshot of a live company DB', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'total-hardening-'))
-    const db = new Database(join(dir, 'company.db'))
+    const db = testFileDb(join(dir, 'company.db'))
     db.pragma('journal_mode = WAL')
     migrate(db)
     seedCompany(db, TEST_INFO)

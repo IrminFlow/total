@@ -3,6 +3,8 @@
 //    Electron-as-Node — scripts/test-db.mjs);
 //  - nothing imports the old `better-sqlite3` package any more (it is not installed: a stray
 //    import would fail only at run time, in the packaged app).
+//  - PR #129 review: the test helpers (db/testdb.ts — testFileDb opens files with synchronous OFF —
+//    and the *.testutil.ts fixtures) are imported only by tests, never by app / CLI code.
 import { describe, expect, it } from 'vitest'
 import { readdirSync, readFileSync, statSync } from 'fs'
 import { join, relative } from 'path'
@@ -30,6 +32,13 @@ describe('native driver imports', () => {
   it('nothing imports the old better-sqlite3 package', () => {
     const old = /(?:from\s+|require\(\s*|import\(\s*)['"]better-sqlite3['"]/
     const bad = files.filter((f) => old.test(readFileSync(f, 'utf8'))).map((f) => relative(ROOT, f))
+    expect(bad).toEqual([])
+  })
+
+  it('only tests import the test helpers (db/testdb.ts, *.testutil.ts)', () => {
+    const HELPER = /(?:from\s+|require\(\s*|import\(\s*)['"][^'"]*\/(?:testdb|[\w.-]+\.testutil)['"]/
+    const isTest = (f: string): boolean => /\.(test|dbtest)\.tsx?$|\.testutil\.ts$/.test(f) || /[\\/]db[\\/]testdb\.ts$/.test(f)
+    const bad = files.filter((f) => !isTest(f) && HELPER.test(readFileSync(f, 'utf8'))).map((f) => relative(ROOT, f))
     expect(bad).toEqual([])
   })
 })

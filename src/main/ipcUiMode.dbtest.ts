@@ -8,6 +8,7 @@ import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { basename, join } from 'path'
 import Database from 'better-sqlite3-multiple-ciphers'
+import { testFileDb } from './db/testdb'
 
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<{ ok: boolean; data?: unknown; error?: string }>>()
 
@@ -152,7 +153,7 @@ describe('company mode (meta ui)', () => {
     const { slug } = await ok<{ slug: string }>('company:create', company('Broken Meta Co'))
     for (const value of ['{not json', JSON.stringify({ mode: 'expert' }), JSON.stringify('simple')]) {
       await ok('company:close')
-      const db = new Database(join(DATA_DIR, 'companies', slug, 'company.db'))
+      const db = testFileDb(join(DATA_DIR, 'companies', slug, 'company.db'))
       db.prepare("INSERT INTO meta (key, value) VALUES ('ui', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(value)
       db.close()
       expect((await ok<{ ui: unknown }>('company:open', { slug })).ui).toEqual({ mode: 'accountant' })

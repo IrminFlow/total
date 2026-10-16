@@ -7,12 +7,11 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import Database from 'better-sqlite3-multiple-ciphers'
 import { openDb } from './encryption'
 import { newDataKey } from './keyEnvelope'
 import { migrate } from './migrate'
 import { seedCompany } from './seed'
-import { TEST_INFO } from './testdb'
+import { TEST_INFO, testFileDb } from './testdb'
 import { trialBalance } from '../services/reports'
 import { convertCompanyFile } from '../services/dbEncryption'
 
@@ -21,7 +20,7 @@ const VOUCHERS = 100_000
 const ROOT = mkdtempSync(join(tmpdir(), 'total-enc-perf-'))
 
 function seed(path: string): void {
-  const db = new Database(path)
+  const db = testFileDb(path)
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   migrate(db)

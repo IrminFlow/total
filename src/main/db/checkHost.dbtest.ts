@@ -11,7 +11,7 @@ import { createRequire } from 'module'
 import { tmpdir } from 'os'
 import { migrate } from './migrate'
 import { seedCompany } from './seed'
-import { TEST_INFO, postSimpleVoucher } from './testdb'
+import { TEST_INFO, postSimpleVoucher, testFileDb } from './testdb'
 import { quickCheckOk, runWeeklyIntegrityCheck, runWeeklyIntegrityCheckAsync, snapshotTo, INTEGRITY_CHECK_META_KEY } from './backup'
 import { checkIntegrity, checkIntegrityAsync, QUICK_CHECK_TIMED_OUT } from './integrity'
 import { CheckTimeoutError, pragmaCheck, quickCheckOkAsync, runningChecks, setCheckWorkerFile, stopChecks } from './checkHost'
@@ -19,7 +19,7 @@ import { CheckTimeoutError, pragmaCheck, quickCheckOkAsync, runningChecks, setCh
 function fileDb(): { db: Database.Database; path: string; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'total-checkhost-'))
   const path = join(dir, 'company.db')
-  const db = new Database(path)
+  const db = testFileDb(path)
   db.pragma('journal_mode = WAL')
   migrate(db)
   seedCompany(db, TEST_INFO)

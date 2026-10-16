@@ -12,6 +12,7 @@ import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import Database from 'better-sqlite3-multiple-ciphers'
+import { testFileDb } from '../db/testdb'
 import { todayISO } from '@shared/dates'
 import type { AssistAnswer, AssistDraftResult } from '@shared/assist'
 import type { AiDraftDto } from '@shared/ai'
@@ -314,7 +315,7 @@ describe('Ask Total on hand-worked books', () => {
   it('WP 10.6: a chat (AI panel) draft opened in its simple flow is consumed by the save; other drafts are left alone', async () => {
     const { insertDraft } = await import('../ai/store')
     const receipt = (extra: Record<string, unknown> = {}): number => {
-      const db = new Database(dbPath)
+      const db = testFileDb(dbPath)
       try {
         return insertDraft(db, {
           threadId: null, messageId: null, summary: 'Receipt from Ramesh', source: 'chat',
@@ -494,7 +495,7 @@ describe('Ask Total: bills in two years, TDS and payroll (an unregistered busine
     expect((await ask('how much TDS this month')).sentences[0]).toBe('You have not deducted any TDS (tax deducted at source) yet.')
     // ₹1,000 deducted on 10 Sep 2025 (due 7 Oct — late by the 14th), ₹300 on 3 Oct (due 7 Nov).
     const { ensureTdsPayableLedger } = await import('../services/tds')
-    const db = new Database(pdb)
+    const db = testFileDb(pdb)
     let payable = 0
     try {
       const section = (db.prepare("SELECT id FROM tds_sections WHERE code LIKE '194C%' ORDER BY id LIMIT 1").get() as { id: number }).id

@@ -6,6 +6,7 @@ import { chmodSync, copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync
 import { tmpdir } from 'os'
 import { join } from 'path'
 import Database from 'better-sqlite3-multiple-ciphers'
+import { testFileDb } from './testdb'
 
 process.env.TOTAL_DATA_DIR = mkdtempSync(join(tmpdir(), 'total-pre-upgrade-'))
 const { openCompanyDb } = await import('./connection')
@@ -35,7 +36,7 @@ let n = 0
 function companyAt(version: number): string {
   const slug = `co-${++n}`
   ensureCompanyTree(slug)
-  const db = new Database(companyDbPath(slug))
+  const db = testFileDb(companyDbPath(slug))
   try {
     db.pragma('journal_mode = WAL')
     db.pragma('foreign_keys = ON')
@@ -81,7 +82,7 @@ function factsOf(path: string, key?: Buffer): ReturnType<typeof bookFacts> {
 describe('newer-file guard', () => {
   it('a file with one migration more than this build knows is refused (db_newer_version) and left byte-identical', () => {
     const slug = companyAt(N)
-    const raw = new Database(companyDbPath(slug))
+    const raw = testFileDb(companyDbPath(slug))
     try {
       raw.prepare('INSERT INTO migrations (id, applied_at) VALUES (?, ?)').run(N + 1, new Date().toISOString())
     } finally {
@@ -95,7 +96,7 @@ describe('newer-file guard', () => {
     expect(() => assertValidCompanyDb(companyDbPath(slug))).toThrow(expect.objectContaining({ code: 'db_newer_version' }))
     expect(verifyBackupFile(companyDbPath(slug), { asOn: AS_ON }).ok).toBe(false)
     // migrate() itself refuses (CLI, evals, every other caller).
-    const db = new Database(companyDbPath(slug))
+    const db = testFileDb(companyDbPath(slug))
     try {
       expect(() => migrate(db)).toThrow(expect.objectContaining({ code: 'db_newer_version' }))
     } finally {
@@ -167,7 +168,7 @@ describe('safe copy before an upgrade', () => {
     const slug = companyAt(N - 1)
     const notAFolder = join(companyDir(slug), 'not-a-folder')
     writeFileSync(notAFolder, 'x')
-    const db = new Database(companyDbPath(slug))
+    const db = testFileDb(companyDbPath(slug))
     try {
       expect(() => writePreUpgradeCopy(db, notAFolder, N - 1, N)).toThrow(expect.objectContaining({ code: 'db_upgrade_copy_failed', message: expect.stringMatching(/safe copy/) }))
       // The handle is still usable and the file untouched (the open would close it and rethrow).

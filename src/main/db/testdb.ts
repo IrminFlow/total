@@ -23,6 +23,24 @@ export const TEST_INFO: CompanyInfo = {
   tan: null
 }
 
+/**
+ * A FILE-backed scratch database for a dbtest, opened like `new Database(path, options)` but
+ * with `synchronous = OFF` on every writable connection. A raw `new Database(path)` keeps
+ * SQLite's durable default — a file in rollback-journal mode fsyncs (FlushFileBuffers on Windows)
+ * the journal and the file and creates / deletes the journal at EVERY commit, and migrate() +
+ * seedCompany() alone are ~60 commits. On the Windows runner's OS disk (os.tmpdir() is on C:)
+ * that made backup.dbtest's fixtures take 2–7 s per test on a good day and 70 s on a slow one
+ * (restoreCompanyDb happy path, CI run 38913361210; the earlier rollbackRestore timeout) — the
+ * restore under test is a few hundred ms. Per connection only: nothing persists into the file, so
+ * the code under test (which opens its own handles) runs with the production pragmas.
+ * `scratchDbLint.dbtest.ts` refuses a writable raw file open in a dbtest.
+ */
+export function testFileDb(path: string, options?: Database.Options): DB {
+  const db = new Database(path, options)
+  if (!options?.readonly) db.pragma('synchronous = OFF')
+  return db
+}
+
 /** An in-memory DB with the schema migrated but no seed data. */
 export function freshDb(): DB {
   const db = new Database(':memory:')
