@@ -72,7 +72,7 @@ import type { JobWorkChallanPayload } from '@shared/voucherEdit'
 import type { ExpiryReportRow, ReorderRow, SerialListRow, StockMovementRegister } from '@shared/stockPlanning'
 import type { SerialStatus } from '@shared/serials'
 import type {
-  OpenSourceLine, PendingNoteRow, PendingOrderRow, QuotationPipeline, TradeDoc, TradeDocDraft, TradeDocListRow, VoucherKindRow, VoucherLinks,
+  OpenSourceLine, NoteListFilter, PendingNoteRow, StockNoteListRow, PendingOrderRow, QuotationPipeline, TradeDoc, TradeDocDraft, TradeDocListRow, VoucherKindRow, VoucherLinks,
   ItemDemandRow, LeadTimeRow, NoteClosure, OrderBookRow, ReturnRateRow, ReturnRow, ReturnSide, StaleDocRow, TradeChain, UnbilledGoods
 } from '@shared/tradeCycle/types'
 import type { MatchRow, MatchTolerances } from '@shared/tradeCycle/match'
@@ -909,6 +909,9 @@ export const api = {
   /** WP 2.5b — trade-cycle reports. */
   trade: {
     pending: (stage: 'delivery_note' | 'receipt_note', asOn: string) => call<PendingNoteRow[]>('trade:pending', { stage, asOn }),
+    /** WP 2.5b lists — challans / GRNs with what is pending, their status and linked documents. */
+    noteList: (q: { stage: 'delivery_note' | 'receipt_note'; from: string; to: string; asOn?: string; filter: NoteListFilter }) =>
+      call<StockNoteListRow[]>('trade:noteList', q),
     /** WP 2.5c — open sales / purchase order lines as on a date. */
     pendingOrders: (kind: 'sales_order' | 'purchase_order', asOn: string) => call<PendingOrderRow[]>('trade:pendingOrders', { kind, asOn }),
     quotationPipeline: (from: string, to: string, asOn: string) => call<QuotationPipeline>('trade:quotationPipeline', { from, to, asOn }),

@@ -292,6 +292,31 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['tradePending']
   },
 
+  // WP 2.5b lists: every challan / GRN with its pending quantity, status and the invoice / bill
+  // drawing on it, and "Convert to invoice / bill". Not in the sidebar (navSection null): the
+  // accountant sidebar stays exactly 0.10's (accountantSidebar.test.tsx) — reached from the
+  // palette and the Pending challans / GRNs screens' tabs.
+  {
+    name: 'challans',
+    modes: ['accountant'],
+    title: 'Delivery challans',
+    keywords: ['challan list', 'all challans', 'convert challan to invoice', 'invoice from challan', 'dc list'],
+    screen: { name: 'challans' },
+    navSection: null,
+    feature: 'orders',
+    invalidates: ['tradeNoteList']
+  },
+  {
+    name: 'grns',
+    modes: ['accountant'],
+    title: 'Goods receipt notes',
+    keywords: ['grn list', 'all grns', 'convert grn to bill', 'bill from grn', 'goods receipts'],
+    screen: { name: 'grns' },
+    navSection: null,
+    feature: 'orders',
+    invalidates: ['tradeNoteList']
+  },
+
   // WP 2.5d: trade-cycle reports — match, demand, order book / lead time, returns, GRNI / GDNI, stale.
   {
     name: 'three-way-match',

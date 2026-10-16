@@ -36,6 +36,7 @@ import { useInvoicePricing } from './useLinePricing'
 import { AddFromDrawer } from './AddFromDrawer'
 import { addFromFor, rowsFromSourcePicks, sourceLocksGoods, type SourcePick } from '@shared/voucherEdit'
 import type { OpenSourceLine } from '@shared/tradeCycle/types'
+import { convertPicks, type ConvertSource } from '@shared/tradeCycle/convert'
 import { DocLink } from '../../components/links'
 import { creditLimitWarningText } from '@shared/tradeCycle/edit'
 import { chargesGstOn, gstRegistrationOf, legacyTaxWarning, NON_CLAIMABLE_RATE_HINT, registrationOn } from '@shared/gst/registration'
@@ -596,13 +597,18 @@ export function InvoiceEntry({
     if (reason) setNarration((n) => (n.trim() ? n : reason))
     setAddFromOpen(false)
   }
-  // WP 2.5c "Convert to invoice / bill" on an order: draw all of its pending lines once loaded.
-  const convertFrom = useRef(draft?.fromTradeDocId ?? null)
+  // WP 2.5c "Convert to invoice / bill" on an order, and WP 2.5b's on challans / GRNs (the lists):
+  // draw all of their pending lines once loaded — the drawer's own picks (convertPicks).
+  const convertFrom = useRef<ConvertSource | null>(
+    draft?.fromTradeDocId != null || (draft?.fromVoucherIds?.length ?? 0) > 0
+      ? { tradeDocId: draft?.fromTradeDocId ?? null, voucherIds: draft?.fromVoucherIds ?? null }
+      : null
+  )
   useEffect(() => {
     if (convertFrom.current == null || !openLines) return
-    const docId = convertFrom.current
+    const src = convertFrom.current
     convertFrom.current = null
-    const picks = openLines.filter((l) => l.tradeDocId === docId).map((line) => ({ line, qtyMilli: line.pendingMilli }))
+    const picks = convertPicks(openLines, src)
     if (picks.length > 0) insertPicks(picks)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openLines])
@@ -658,7 +664,7 @@ export function InvoiceEntry({
         <Field label={isSalesSide ? 'Party (buyer)' : 'Party (supplier)'} name="party" error={formErrors.get('party')}>
           <div className="flex items-center gap-1.5">
             <LedgerPicker
-              autoFocus={!isEdit && draft?.fromTradeDocId == null && draft?.aiDraftId == null}
+              autoFocus={!isEdit && draft?.fromTradeDocId == null && draft?.fromVoucherIds == null && draft?.aiDraftId == null}
               value={partyId}
               onPick={(id) => {
                 setPendingParty(null)
