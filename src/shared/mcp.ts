@@ -31,6 +31,8 @@ export interface McpSettingsView {
   dataDir: string | null
   /** A signed-in role (accountant / owner) then needs --user and TOTAL_MCP_PIN. */
   usersExist: boolean
+  /** WP 7.2: the business is locked with a passphrase — the server then needs TOTAL_PASSPHRASE. */
+  encrypted?: boolean
 }
 
 export const MCP_DISABLED_MESSAGE = 'MCP access is off for this company — the owner turns it on in Settings → Agent access → MCP server'
@@ -80,6 +82,8 @@ export interface McpLaunchOptions {
   user?: string | null
   /** Data root when it is not ~/Documents/total. */
   dataDir?: string | null
+  /** The business is locked with a passphrase: the client passes it as TOTAL_PASSPHRASE. */
+  locked?: boolean
 }
 
 /** argv for `node <repo>/scripts/total-cli.mjs mcp …`. WP 7.3: a Windows checkout
@@ -99,6 +103,9 @@ export function mcpEnv(o: McpLaunchOptions, needsPin: boolean): Record<string, s
   const env: Record<string, string> = {}
   if (o.dataDir) env.TOTAL_DATA_DIR = o.dataDir
   if (needsPin && o.role !== 'viewer') env.TOTAL_MCP_PIN = '<your PIN>'
+  // From the environment, never a flag (argv is visible to every user in `ps`); a placeholder —
+  // the app never shows the passphrase.
+  if (o.locked) env.TOTAL_PASSPHRASE = '<the passphrase of this business>'
   return env
 }
 

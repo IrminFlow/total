@@ -146,7 +146,7 @@ done on main were dropped. One line each; the pointer says where to look.
 
 ### Security
 - Attachments, capture files, exports, logs and the temporary plaintext snapshot inside an encrypted export are not encrypted — PR #112
-- `total-cli` / MCP refuse a locked business (no `--passphrase`); consolidation reads a locked member only while it is the open business — PR #112
+- ~~`total-cli` / MCP refuse a locked business (no `--passphrase`); consolidation reads a locked member only while it is the open business~~ DONE — `TOTAL_PASSPHRASE` (environment, never a flag; app's throttled unlock, exit 2, key forgotten at exit) for every `--company` command incl. MCP; `consolGroup:run` takes `memberPassphrases` for the run; the consolidation screen doesn't ask for them yet — PR #132 (from PR #112)
 - No "remember on this Mac" — the passphrase is asked on every open — PR #112
 - ~~`canSeeProfit` doesn't cover the trial balance, report builder or AI tools; the UI doesn't hide buttons by flag (main refuses)~~ DONE — trial balance redacted, report builder / packs / AI tools / Ask Total refuse profit, export / Save / AI-settings buttons follow the flags — PR #127 (from PR #112)
 - ~~Session lock needs a user with a PIN~~ DONE — a business without users locks to a privacy screen (its passphrase when it has one; `session:unlock`) — PR #127 (from PR #112)
@@ -187,7 +187,7 @@ done on main were dropped. One line each; the pointer says where to look.
 
 - WP 6.x / 7.5 site: marketing site work deferred by the owner (WP 10.7); site FAQ says "nothing leaves the machine" (false once AI / capture / NIC are on) — `site/app/docs/faq/page.tsx`
 - WP 7.1: server-side DataTable paging not needed yet (Sales / People under budget at 100k) — PR #104
-- WP 7.2: encrypt attachments / exports / logs; `--passphrase` for the CLI / MCP; remember-on-this-Mac — PR #112
+- WP 7.2: encrypt attachments / exports / logs; remember-on-this-Mac; member-passphrase prompt on the consolidation screen — PR #112 (CLI / MCP passphrase DONE in PR #132)
 - WP 7.3: no data-folder move setting for OneDrive users; full e2e on Windows — PR #109
 - WP 7.4: tighten e2e 67–71 to the paths #107 fixed (drop workarounds); deferred coverage in `docs/e2e-coverage.md` (live NIC sandbox, price-list editor, TDS lower-deduction certificates) — PR #110
 - WP 7.6: before tagging the release, finish `CHANGELOG.md`'s Unreleased section — it has no entries for #107, #108, #110, #111, #112 and still calls #104 open (#109's Windows text has no PR link); then confirm main's CI is green on all five jobs (the tag run does not repeat e2e or perf) — owner-docs review

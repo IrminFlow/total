@@ -409,7 +409,7 @@ function emptyInput(m: ConsolidationMember, name: string): MemberInput {
   }
 }
 
-function snapshot(m: ConsolidationMember, name: string, group: ConsolidationGroup, from: string, to: string, warnings: string[]): MemberSnapshot {
+function snapshot(m: ConsolidationMember, name: string, group: ConsolidationGroup, from: string, to: string, warnings: string[], key: Buffer | null): MemberSnapshot {
   const empty = emptyInput(m, name)
   const snap: MemberSnapshot = { name, ok: false, inputs: { tb: empty, pnl: empty, bs: empty }, flows: new Map(), ageing: new Map(), names: new Map() }
   const read = withMemberDb(m.companySlug, name, (mdb) => {
@@ -507,7 +507,7 @@ function snapshot(m: ConsolidationMember, name: string, group: ConsolidationGrou
       }
     }
     return true
-  })
+  }, key)
   if (!read.ok) warnings.push(read.warning)
   snap.ok = read.ok
   return snap
@@ -515,13 +515,13 @@ function snapshot(m: ConsolidationMember, name: string, group: ConsolidationGrou
 
 // ---------------------------------------------------------------- the run
 
-function runStatements(group: ConsolidationGroup, from: string, to: string, names: Map<string, string>): {
+function runStatements(group: ConsolidationGroup, from: string, to: string, names: Map<string, string>, memberKeys: ReadonlyMap<string, Buffer> = new Map()): {
   tb: StatementResult; pnl: StatementResult; bs: StatementResult; snaps: Map<string, MemberSnapshot>; warnings: string[]
 } {
   const warnings: string[] = []
   if (group.presentationCurrency !== 'INR') warnings.push(`Presentation currency ${group.presentationCurrency}: members' books are in INR and no translation is applied`)
   const snaps = new Map<string, MemberSnapshot>()
-  for (const m of group.members) snaps.set(m.companySlug, snapshot(m, names.get(m.companySlug) ?? m.companySlug, group, from, to, warnings))
+  for (const m of group.members) snaps.set(m.companySlug, snapshot(m, names.get(m.companySlug) ?? m.companySlug, group, from, to, warnings, memberKeys.get(m.companySlug) ?? null))
   definitionChecks(group, snaps, warnings)
   const statement = (kind: StatementKind): StatementResult => {
     const pairs: PairInput[] = group.pairs.map((p) => ({
@@ -585,10 +585,10 @@ const yearBefore = (date: string): string => {
 
 const byKey = (s: StatementResult): Record<string, number> => Object.fromEntries(s.lines.map((l) => [l.key, l.consolidated]))
 
-export function runGroup(db: DB, groupId: number, from: string, to: string, opts: { comparePrior?: boolean; openSlug?: string | null } = {}): GroupRunResult {
+export function runGroup(db: DB, groupId: number, from: string, to: string, opts: { comparePrior?: boolean; openSlug?: string | null; memberKeys?: ReadonlyMap<string, Buffer> } = {}): GroupRunResult {
   const group = getGroup(db, groupId)
   const names = new Map(readRegistry().companies.map((c) => [c.slug, c.name]))
-  const { tb, pnl, bs, snaps, warnings } = runStatements(group, from, to, names)
+  const { tb, pnl, bs, snaps, warnings } = runStatements(group, from, to, names, opts.memberKeys)
 
   const nameOf = (slug: string): string => snaps.get(slug)?.name ?? names.get(slug) ?? slug
   const recon: IcReconRow[] = group.pairs.map((p) => {
@@ -620,7 +620,7 @@ export function runGroup(db: DB, groupId: number, from: string, to: string, opts
   }
   if (opts.comparePrior) {
     const pf = yearBefore(from), pt = yearBefore(to)
-    const prior = runStatements(group, pf, pt, names)
+    const prior = runStatements(group, pf, pt, names, opts.memberKeys)
     result.prior = {
       period: { from: pf, to: pt }, tb: byKey(prior.tb), pnl: byKey(prior.pnl), bs: byKey(prior.bs),
       netProfit: prior.pnl.profit!.netProfit, ownersProfit: prior.pnl.profit!.ownersProfit

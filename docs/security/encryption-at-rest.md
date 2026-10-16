@@ -39,8 +39,8 @@ A node-sqlite3 (callback, async) API, not better-sqlite3's synchronous one: ever
 | Crash safety | SQLite's own (WAL, atomic commits) | a crash between "write temp" and "re-encrypt" loses or exposes data; needs its own journal |
 | Open cost (raw 32-byte key, no KDF per open) | see `src/main/db/encryption.perf.dbtest.ts` (100k vouchers, open + migrate check + quick_check + trial balance): measured on this (heavily loaded) laptop — see the PR for the printed figures; the guard is "encrypted ≤ 3× plaintext + 1 s" | decrypt the whole file on every open (O(file size)), re-encrypt on every close / backup |
 | Backups | `VACUUM INTO` copies keep the key → every backup encrypted automatically; the online backup API refuses an encrypted source (uses `VACUUM INTO` instead) | every backup must be re-encrypted separately |
-| `withMemberDb` (consolidation, read-only) | opens a member read-only with its key **if** that member was unlocked this session; otherwise skipped with "locked with a passphrase" | needs a decrypted copy of every member |
-| MCP CLI (`total-cli`) | opens plaintext businesses as before; a locked one is refused with `db_locked` (deferred: `--passphrase`) | same refusal |
+| `withMemberDb` (consolidation, read-only) | opens a member read-only with its key **if** that member is the open business or its passphrase was given for the run (PR #132); otherwise skipped with "locked with a passphrase" | needs a decrypted copy of every member |
+| MCP CLI (`total-cli`) | opens plaintext businesses as before; a locked one opens with `TOTAL_PASSPHRASE` (PR #132), else it is refused | same refusal |
 | e2e harness | unchanged; encryption in tests uses the insecure test cipher for the secret store and a cheap (still accepted) scrypt cost | — |
 | CI (mac / win / linux) | native module like better-sqlite3 (`allowScripts` entry updated); `npm run build:mac` packages it | none |
 
@@ -136,11 +136,64 @@ C was rejected because of its asynchronous API.
   or disables export / Save / AI-settings buttons only for a flag set to false, so owners and
   unflagged users see what they always did.
 
+## CLI, MCP and consolidation access (PR #132)
+
+- **`total-cli` and the MCP server** (`src/main/cli/unlock.ts`). Every command that opens a
+  business (`--company`: `post`, `import-masters`, `trial-balance`, `next-number`, `export`,
+  `inbox`, `mcp`) unlocks a locked one from the environment variable **`TOTAL_PASSPHRASE`**.
+  - **Never a flag.** A process's command line is readable by every user of the computer (`ps`,
+    Activity Monitor, Task Manager) and lands in shell history; its environment is readable only by
+    the same user (and an administrator). The CLI reads the variable once, at start — before it
+    starts anything (on Windows the data-root lookup runs `reg` / `powershell`) — and deletes it
+    from its own environment, so nothing it starts afterwards (worker threads included: they copy
+    the environment when they are created) inherits it. What deleting cannot reach: the
+    `scripts/total-cli.mjs` launcher (the process the MCP client starts, which then starts
+    Electron-as-Node) keeps the variable in its environment while the command runs, and on Linux
+    `/proc/<pid>/environ` keeps showing a process's ORIGINAL environment to the same user and root.
+    Neither widens who can read it — the same user can read the client's configuration file anyway.
+  - **Same unlock as the app.** `companyKeys.unlockCompanyKey` → `unlockKey`: every envelope
+    (folder copy, then the secret-store mirror where the CLI can read it — under Electron-as-Node
+    there is no safeStorage, so normally only `company.key.json`), a key accepted only once it opens
+    the file. Missing, wrong or throttled prints the app's message (`That passphrase is not right`
+    for a wrong one) and **exits with code 2** (other failures stay 1). A plaintext business ignores
+    a passphrase given for it.
+  - **The throttle.** The wrong-passphrase counter (5 wrong → 30 s) is one per-process map keyed by
+    slug in `companyKeys.ts`, shared by `company:open` / `company:delete` / `session:unlock`,
+    consolidation runs and the CLI. The app never persisted it and neither does the CLI: a CLI
+    process tries once and exits, so its counter never reaches the limit. That is acceptable
+    because the counter is not the defence against guessing — the envelope's scrypt cost
+    (N = 2^17, ~0.5 s and 128 MB a try) is, and anyone who can start a process as this user can
+    copy `company.key.json` and guess offline at that same cost. A persisted counter would be a
+    file that same user can delete.
+  - **The key is forgotten** when the command ends (`forgetFolderKey`) and again on process exit
+    (`forgetAllKeys`); the unwrapped buffer is zeroed after it is remembered, and the remembered
+    copy is zeroed when the command's handle has closed (`forgetCliKey`). For `mcp` the
+    session's database handle holds the key for as long as the server runs, so the per-request
+    re-checks (kill switch, user still active, same PIN) work exactly as on a plaintext file.
+  - **Never stored.** The passphrase is not logged, audited or written to `mcp_log` (sizes and a
+    hash of each request only — the passphrase is never part of a request); `mcp.dbtest.ts` checks
+    the log, the audit log and the files.
+  - **Client configuration.** Settings → Agent access adds a `TOTAL_PASSPHRASE` placeholder to the
+    copied Claude Code / Claude Desktop snippets for a locked business, with a warning: the client's
+    configuration file holds it in plain text, and anyone who can read that file can open the books.
+    Prefer a viewer session, and keep that file private.
+- **Consolidation** (`services/consolidated.ts`). `withMemberDb` reads a locked member with its
+  folder's remembered key — the open business; keys are forgotten when a business closes, so "opened
+  earlier this session" does not count — or with a key unwrapped for **one run** from the optional
+  `memberPassphrases: { [slug]: passphrase }` of `consolGroup:run` (Zod-strict payload). Each one goes
+  through the same throttled unlock (a wrong one refuses the run, naming the member); members of
+  other groups, plaintext members and the open business ignore their entry; the keys are never
+  remembered and are zeroed when the run ends (`dropMemberKeys`); the passphrases are never stored,
+  logged or audited. A locked member with no key is skipped exactly as before ("locked with a
+  passphrase — skipped …"), so no figure changes. The renderer does not ask for member passphrases
+  yet (the payload field is there for it); member charts and pair suggestions still skip a locked
+  member that is not open.
+
 ## Not covered (deferred)
 
 - Attachments (`attachments/`, `backups/attachments/`), capture files, exports, logs and the
   temporary plaintext snapshot inside an encrypted export are not encrypted.
-- The MCP CLI and `total-cli` refuse a locked business (no `--passphrase` yet).
-- Consolidation reads a locked member only while that member is the open business.
+- The consolidation screen does not ask for member passphrases yet (the run payload takes them,
+  PR #132); member charts / pair suggestions skip a locked member that is not open.
 - "Remember on this Mac" (keychain-held key, no prompt) is not offered: the passphrase is asked on
   every open.

@@ -9,6 +9,10 @@ import type { Role } from './services/roles'
 import { consolGroupInputSchema, consolMappingInputSchema, consolPairInputSchema, consolRunSchema } from '@shared/consolidation/schemas'
 import * as consolidation from './services/consolidation'
 
+import { readRegistry } from './registry'
+import { appSecretStore } from './services/secretStore'
+import { dropMemberKeys, unlockMemberKeys } from './services/consolidated'
+
 type Handle = (channel: string, fn: (payload: unknown) => unknown, minRole?: Role) => void
 interface Company { db: DB; slug: string }
 
@@ -28,10 +32,20 @@ export function registerConsolidationIpc(handle: Handle, company: () => Company)
     return null
   }, 'owner')
   handle('consolGroup:charts', (p) => consolidation.memberCharts(db(), groupIdSchema.parse(p).groupId), 'viewer')
-  handle('consolGroup:run', (p) => {
+  handle('consolGroup:run', async (p) => {
     const q = consolRunSchema.parse(p)
     const c = company()
-    return consolidation.runGroup(c.db, q.groupId, q.from, q.to, { comparePrior: q.comparePrior, openSlug: c.slug })
+    // WP 7.2: a locked member is read with a key unwrapped for this run from the passphrase given
+    // (throttled like opening it), dropped when the run is done; without one it is skipped.
+    const group = consolidation.getGroup(c.db, q.groupId)
+    const names = new Map(readRegistry().companies.map((r) => [r.slug, r.name]))
+    const members = group.members.map((m) => ({ slug: m.companySlug, name: names.get(m.companySlug) ?? m.companySlug }))
+    const memberKeys = await unlockMemberKeys(members, q.memberPassphrases, appSecretStore())
+    try {
+      return consolidation.runGroup(c.db, q.groupId, q.from, q.to, { comparePrior: q.comparePrior, openSlug: c.slug, memberKeys })
+    } finally {
+      dropMemberKeys(memberKeys)
+    }
   }, 'viewer')
 
   handle('consolMapping:save', (p) => consolidation.saveMapping(db(), consolMappingInputSchema.parse(p)), 'owner')

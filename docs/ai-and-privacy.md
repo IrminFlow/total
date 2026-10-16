@@ -172,6 +172,10 @@ Code: `src/main/mcp/`, started with `npm run cli -- mcp` from a source checkout 
   with users, a user name and PIN.
 - Identifiers are masked by field by default. Every request is logged by size and a hash, never the
   content (`mcp_log`).
+- A business locked with a passphrase opens only with the passphrase in the environment variable
+  `TOTAL_PASSPHRASE` (never a command-line flag, which other users of the computer can see). It sits
+  in your MCP client's configuration in plain text; it is never logged or stored by Total
+  (docs/security/encryption-at-rest.md, "CLI, MCP and consolidation access").
 - **What you connect to it is your choice, and that client may send what it reads to its own
   provider.** Total cannot see or limit that.
 

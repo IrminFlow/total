@@ -10,7 +10,18 @@
 //   - identity: roles above viewer need a verified user when the company has users;
 //   - resources: company, chart of accounts and mirrors, computed from the DB at read time;
 //   - every request lands in mcp_log (sizes + hash, never content).
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { mkdtempSync, readFileSync, rmSync } from 'fs'
+import { tmpdir } from 'os'
+import { join } from 'path'
+import { openCompanyDb } from '../db/connection'
+import { seedCompany } from '../db/seed'
+import { lockCompanyFileForTest, TEST_INFO } from '../db/testdb'
+import { forgetAllKeys, isEncryptedFile } from '../db/encryption'
+import { passphraseFails } from '../services/companyKeys'
+import { companyDbPath, companyDir, ensureCompanyTree } from '../paths'
+import { openCompany } from '../cli/commands'
+import { forgetCliKey, unlockForCli } from '../cli/unlock'
 import { createHash } from 'crypto'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
@@ -499,5 +510,72 @@ describe('MCP log hygiene, budgets and Delete all AI data', () => {
     expect(before).toMatchObject({ agentDrafts: 1, mcpLog: logRows })
     expect(deleteAllAiData(db, true)).toEqual(before)
     expect(aiDataCounts(db)).toMatchObject({ drafts: 0, agentDrafts: 0, mcpLog: logRows })
+  })
+})
+
+// WP 7.2 follow-up: `total-cli mcp` on a business locked with a passphrase. The CLI unlocks the
+// folder from TOTAL_PASSPHRASE (cli/unlock.ts — the app's throttled unlock) before the server
+// opens the books; the session's handle keeps its key, so the per-request re-checks work as on
+// a plaintext file. The passphrase never reaches mcp_log, the audit log or the file.
+describe('MCP on a business locked with a passphrase', () => {
+  const PASS = 'mcp locked passphrase 7'
+  const SLUG = 'locked-mcp'
+  let dataDir: string
+  let prevDir: string | undefined
+
+  beforeAll(() => {
+    prevDir = process.env.TOTAL_DATA_DIR
+    dataDir = mkdtempSync(join(tmpdir(), 'total-mcp-locked-'))
+    process.env.TOTAL_DATA_DIR = dataDir
+    ensureCompanyTree(SLUG)
+    const fdb = openCompanyDb(SLUG)
+    seedCompany(fdb, TEST_INFO)
+    setMcpConfig(fdb, { enabled: true })
+    fdb.close()
+    lockCompanyFileForTest(companyDir(SLUG), companyDbPath(SLUG), PASS)
+    forgetAllKeys()
+  })
+  afterAll(() => {
+    forgetAllKeys()
+    passphraseFails.delete(SLUG)
+    if (prevDir === undefined) delete process.env.TOTAL_DATA_DIR
+    else process.env.TOTAL_DATA_DIR = prevDir
+    rmSync(dataDir, { recursive: true, force: true })
+  })
+
+  it('refuses without the passphrase or with a wrong one — the books are never opened', async () => {
+    expect(isEncryptedFile(companyDbPath(SLUG))).toBe(true)
+    await expect(unlockForCli(SLUG, null, null)).rejects.toMatchObject({ code: 'passphrase_required' })
+    await expect(unlockForCli(SLUG, 'not it', null)).rejects.toMatchObject({ code: 'wrong_passphrase', message: 'That passphrase is not right' })
+    expect(() => openCompany(SLUG)).toThrow(expect.objectContaining({ code: 'db_locked' }))
+    passphraseFails.delete(SLUG)
+  })
+
+  it('unlocked: tools and resources work, the kill switch still ends the session, nothing stores the passphrase', async () => {
+    expect(await unlockForCli(SLUG, PASS, null)).toBe(true)
+    const ldb = openCompany(SLUG)
+    const saved = db
+    db = ldb
+    try {
+      const { client } = await connect()
+      const tb = await call(client, 'trial_balance', { asOn: TODAY })
+      expect(tb.isError, tb.text).toBe(false)
+      expect(((await client.readResource({ uri: 'total://company' })).contents[0] as { text: string }).text).toContain('Test Co')
+      setMcpConfig(ldb, { enabled: false })
+      await expect(client.listTools()).rejects.toThrow(/MCP access is off/)
+      setMcpConfig(ldb, { enabled: true })
+      expect((await client.listTools()).tools.length).toBeGreaterThan(0)
+      expect(listMcpLog(ldb).length).toBeGreaterThan(2)
+      const dump = JSON.stringify([ldb.prepare('SELECT * FROM mcp_log').all(), ldb.prepare('SELECT * FROM audit_log').all()])
+      expect(dump).not.toContain(PASS)
+    } finally {
+      for (const c of open) await c.client.close()
+      open = []
+      ldb.close()
+      db = saved
+      forgetCliKey(SLUG)
+    }
+    expect(() => openCompany(SLUG)).toThrow(expect.objectContaining({ code: 'db_locked' }))
+    for (const f of [companyDbPath(SLUG), join(companyDir(SLUG), 'company.key.json')]) expect(readFileSync(f).includes(Buffer.from(PASS))).toBe(false)
   })
 })

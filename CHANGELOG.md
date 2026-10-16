@@ -300,6 +300,15 @@ Read these before filing from the next release.
 
 ### For developers
 
+- **Locked businesses from `total-cli`, MCP and consolidation.** Every `--company` command
+  (including `mcp` and `inbox`) opens a business locked with a passphrase from the environment
+  variable `TOTAL_PASSPHRASE` — never a flag (command lines are visible in `ps`) — through the app's
+  own throttled unlock (`companyKeys.unlockCompanyKey`, the wrong-passphrase counter now one shared
+  map); missing / wrong / throttled → the app's message and exit code 2; the key is forgotten when
+  the command ends. Settings → Agent access puts a `TOTAL_PASSPHRASE` placeholder in the MCP client
+  snippets for a locked business. `consolGroup:run` takes an optional `memberPassphrases` (for that
+  run only, never stored or logged); a locked member without a key is still skipped as "locked".
+  [#132](https://github.com/IrminFlow/total/pull/132)
 - **DataTable widths (both modes).** A flexible text column with `hideable: false` is the row's
   name column: it starts at 152 px (`NAME_MIN_WIDTH`) and takes a double share of spare room; when
   the columns don't fit, money / quantity / enum columns on their kind default shrink to 128 / 112 /

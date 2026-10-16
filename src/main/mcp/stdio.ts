@@ -1,5 +1,8 @@
 // `total-cli mcp` over stdio (WP 5.7). stdout carries ONLY the protocol; every human message goes
 // to stderr. Refuses to start when the company's kill switch is on or the identity check fails.
+// A business locked with a passphrase arrives here already unlocked (cli/unlock.ts, from
+// TOTAL_PASSPHRASE): `db` carries its key, so every per-request re-check reads through it; the
+// passphrase itself never reaches this module, mcp_log or the audit log.
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { DB } from '../db/connection'
 import { MCP_DISABLED_MESSAGE } from '@shared/mcp'
