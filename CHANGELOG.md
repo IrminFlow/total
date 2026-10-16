@@ -250,7 +250,7 @@ what you typed, and a **Back to simple** button.
   "Loading the language…" for a moment the first time. The start code is another 0.55 MB
   smaller. A reminder written in a language other than yours (People → Send a reminder) waits for
   that language's words the same way, instead of showing the English message under the Hinglish
-  or Hindi choice. [#143](https://github.com/IrminFlow/total/pull/143), PRLINK
+  or Hindi choice. [#143](https://github.com/IrminFlow/total/pull/143), [#145](https://github.com/IrminFlow/total/pull/145)
 
 - **Quarterly GST filers prepare their files on the Taxes screen.** If you file GST every
   quarter, step 3 no longer sends you to the full app: "Prepare the GSTR-1 files for the quarter"
