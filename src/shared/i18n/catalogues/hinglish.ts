@@ -2740,5 +2740,6 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.home.backupChecked': 'Pichhla backup {days, plural, =0 {aaj} one {# din pehle} other {# din pehle}}, check theek raha.',
   'simple.home.backupCheckFailed': 'Aapka pichhla backup apni check mein pass nahi hua. Naya backup lein.',
   'simple.home.profitHidden': 'Munafa aapko nahi dikhaya jaata. Zaroorat ho to owner se poochhein.',
+  'assist.profitHidden': 'Munafa aapke sign-in ko nahi dikhaya jaata, isliye main iska jawab nahi de sakta. Zaroorat ho to owner se poochhein.',
   // ---------- end WP 7.2 ----------
 }

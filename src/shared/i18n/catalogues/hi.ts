@@ -2745,5 +2745,6 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.home.backupChecked': 'पिछला बैकअप {days, plural, =0 {आज} one {# दिन पहले} other {# दिन पहले}}, जाँच ठीक रही।',
   'simple.home.backupCheckFailed': 'आपका पिछला बैकअप अपनी जाँच में पास नहीं हुआ। नया बैकअप लें।',
   'simple.home.profitHidden': 'मुनाफ़ा आपको नहीं दिखाया जाता। ज़रूरत हो तो मालिक से पूछें।',
+  'assist.profitHidden': 'मुनाफ़ा आपके साइन-इन को नहीं दिखाया जाता, इसलिए मैं इसका जवाब नहीं दे सकता। ज़रूरत हो तो मालिक से पूछें।',
   // ---------- end WP 7.2 ----------
 }

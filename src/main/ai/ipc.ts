@@ -54,6 +54,8 @@ export interface AiIpcDeps {
   session: () => { name: string | null; role: Role }
   /** The role right now, or null when signed out (re-checked at every tool call). */
   roleNow: () => Role | null
+  /** WP 7.2: whether the signed-in user may see profit (the profit tools refuse otherwise). */
+  canSeeProfit?: () => boolean
   secrets: () => SecretStore
   emit: (e: AiEvent) => void
   /** TOTAL_AI_MOCK in effect (see env.ts). */
@@ -193,7 +195,7 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     if (!v.ready) throw new Error(v.blocker ?? AI_OFF_MESSAGE)
     const turn = startTurn(
       {
-        db: c.db, company: c.info, provider: provider(), registry, settings: v.settings, user: deps.session(), roleNow: deps.roleNow,
+        db: c.db, company: c.info, provider: provider(), registry, settings: v.settings, user: deps.session(), roleNow: deps.roleNow, canSeeProfit: deps.canSeeProfit,
         emit: deps.emit, runs: aiRuns, scope: c.slug
       },
       input

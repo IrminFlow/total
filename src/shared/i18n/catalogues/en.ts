@@ -2853,6 +2853,7 @@ export const en = {
   'simple.home.backupChecked': 'Last backup {days, plural, =0 {today} one {# day ago} other {# days ago}}, checked OK.',
   'simple.home.backupCheckFailed': 'Your last backup did not pass its check. Take a new backup.',
   'simple.home.profitHidden': 'Profit is not shown to you. Ask the owner if you need it.',
+  'assist.profitHidden': 'Profit is not shown to your sign-in, so I can’t answer that. Ask the owner if you need it.',
   // ---------- end WP 7.2 ----------
 } as const satisfies Record<string, string>
 

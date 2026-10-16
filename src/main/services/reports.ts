@@ -1,4 +1,5 @@
 import type { DB } from '../db/connection'
+import { redactTrialBalance } from '@shared/profitRedaction'
 import type {
   BalanceSheet, CashSparkPoint, DashboardData, DayBookRow, ExceptionRow, ExceptionSection, ExceptionsReport,
   ItemProfitRow, LedgerStatement, LedgerStatementRow,
@@ -640,6 +641,21 @@ function yearBasisBalances(db: DB, asOn: string): { rows: YearBasisRow[]; priorP
     return fyRow
   })
   return { rows, priorPnl }
+}
+
+/** WP 7.2: the income / expense ledgers (the ones that add up to the profit) — what a user who
+ *  may not see profit gets left out of the trial balance (shared/profitRedaction.ts). */
+export function pnlLedgerIds(db: DB): Set<number> {
+  const rows = db
+    .prepare("SELECT l.id FROM ledgers l JOIN groups g ON g.id = l.group_id WHERE g.nature IN ('income', 'expense')")
+    .all() as { id: number }[]
+  return new Set(rows.map((r) => r.id))
+}
+
+/** The trial balance as the signed-in user may see it (`canSeeProfit` false → redacted). */
+export function trialBalanceFor(db: DB, asOn: string, canSeeProfit: boolean): TrialBalance {
+  const tb = trialBalance(db, asOn)
+  return canSeeProfit ? tb : redactTrialBalance(tb, pnlLedgerIds(db))
 }
 
 export function trialBalance(db: DB, asOn: string): TrialBalance {

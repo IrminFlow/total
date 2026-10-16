@@ -87,6 +87,8 @@ export interface AgentDeps {
   user: { name: string | null; role: Role }
   /** The signed-in user's role NOW (re-checked before every tool call); null = signed out. */
   roleNow?: () => Role | null
+  /** WP 7.2: whether the signed-in user may see profit NOW (re-read at every tool call); absent = yes. */
+  canSeeProfit?: () => boolean
   emit: (e: AiEvent) => void
   runs: AgentRuns
   /** The company the runs belong to (AgentRuns key). */
@@ -358,7 +360,8 @@ async function runLoop(
     send(holder)
     emit({ type: 'tool-start', threadId, runId, callId, name: pre.tool, input: pre.input })
     const run = await registry.run(pre.tool, JSON.stringify(pre.input), {
-      db, company: deps.company, role, userName: deps.user.name, threadId, messageId: holder.id, today, period, userRequest, screen: input.context ?? null
+      db, company: deps.company, role, userName: deps.user.name, threadId, messageId: holder.id, today, period, userRequest, screen: input.context ?? null,
+      canSeeProfit: deps.canSeeProfit ? deps.canSeeProfit() : true
     })
     const output = run.ok ? { ok: true, result: run.data } : { ok: false, error: run.error }
     const sent = sentToolText(output, privacy, budget)
@@ -481,7 +484,8 @@ async function runLoop(
         ? { ok: false as const, name: c.name, input: c.input, error: `There is no tool called ${c.name}.` }
         : await registry.run(c.name, c.args, {
             db, company: deps.company, role: roleNow, userName: deps.user.name, threadId, messageId: assistant.id, today, period, userRequest,
-            draftRequested, workingDate, screen: input.context ?? null, memory, memoryRequested
+            draftRequested, workingDate, screen: input.context ?? null, memory, memoryRequested,
+            canSeeProfit: deps.canSeeProfit ? deps.canSeeProfit() : true
           })
       const output = run.ok ? { ok: true, result: run.data } : { ok: false, error: run.error }
       const sent = sentToolText(output, privacy, budget)

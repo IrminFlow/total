@@ -39,6 +39,8 @@ export interface ToolContext {
   memory?: MemoryContext
   /** WP 5.6: whether the user's message asked to remember something (computed once per turn). */
   memoryRequested?: boolean
+  /** WP 7.2: false = the signed-in user may not see profit (profitGuard.ts); absent = may. */
+  canSeeProfit?: boolean
 }
 
 export interface ToolOutput<T = unknown> {

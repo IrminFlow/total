@@ -112,6 +112,10 @@ import { registerCaptureIpc, captureOnCompanyOpen, captureOnCompanyClose, resume
 import { dropPendingAttachments, flushCaptureAttachments } from './ai/capture/consume'
 import { registerAssistantsIpc } from './ipcAssistants'
 import { registerAskTotalIpc } from './assist/ipc'
+import { classify as classifyAsk } from './assist/classify'
+import { assistAskSchema, type AssistAnswer } from '@shared/assist'
+import { translator } from '@shared/i18n'
+import { companyLanguage } from './i18n'
 import { settleAskDraft } from './assist/settle'
 import { aiMockAllowed } from './ai/env'
 import { settleDraftOnSave } from './ai/drafts'
@@ -260,7 +264,7 @@ function sessionView(u: { id: number; name: string; role: Role; capabilities: Ca
 }
 
 /** Whether the current session may see profit figures (dashboards / Home leave them out otherwise). */
-function canSeeProfitNow(): boolean {
+export function canSeeProfitNow(): boolean {
   if (!current?.usersExist || !sessionUser) return true
   return effectiveCapabilities(sessionUser.role, sessionUser.capabilities).canSeeProfit
 }
@@ -481,7 +485,7 @@ export function registerIpc(): void {
   registerPayrollStatutoryIpc(handle, () => requireCompany())
   registerPricingIpc(handle, () => requireCompany())
   // ---------- report builder, comparatives, ratios, scheduled packs (WP 6.1 / 6.2) ----------
-  registerReportsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser())
+  registerReportsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser(), canSeeProfitNow)
   // ---------- group consolidation (WP 6.5) — channels live in ipcConsolidation.ts ----------
   registerConsolidationIpc(handle, () => requireCompany())
   // ---------- AI agent (WP 5.1) — channels live in ai/ipc.ts; events stream on 'total:ai:event' ----------
@@ -490,6 +494,7 @@ export function registerIpc(): void {
     session: () => (sessionUser ? { name: sessionUser.name, role: sessionUser.role } : { name: null, role: 'owner' }),
     // A company with users and nobody signed in has no role (the run stops at its next tool call).
     roleNow: () => (sessionUser ? sessionUser.role : current?.usersExist ? null : 'owner'),
+    canSeeProfit: canSeeProfitNow,
     secrets: () => appSecretStore(),
     anyCompanyHasUsers: () => readRegistry().companies.some((co) => co.slug !== current?.slug && companyHasUsers(companyDbPath(co.slug))),
     appAudit: (entry) => appendAiKeyAudit(entry),
@@ -508,7 +513,19 @@ export function registerIpc(): void {
   // ---------- assistants (WP 5.5): close checklist, anomalies, GSTR-2B mismatches — ipcAssistants.ts ----------
   registerAssistantsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser())
   // ---------- Ask Total (WP 10.1): deterministic answers + entry drafts, no key — assist/ipc.ts ----------
-  registerAskTotalIpc(handle, {
+  // WP 7.2: a profit question from a user who may not see profit gets the redaction note — the
+  // deterministic classifier reads the question exactly as assist:ask does (Hinglish included).
+  const askTotalHandle = (channel: string, fn: Handler, minRole?: Role): void =>
+    handle(channel, channel === 'assist:ask' ? (p) => profitHiddenAnswer(p) ?? fn(p) : fn, minRole)
+  const profitHiddenAnswer = (payload: unknown): AssistAnswer | null => {
+    if (canSeeProfitNow()) return null
+    const q = assistAskSchema.parse(payload)
+    const intent = classifyAsk(q.text, homeAsOn(q.today, todayISO()))
+    if (intent.kind !== 'figure' || intent.measure !== 'profit') return null
+    const t = translator(q.lang ?? companyLanguage(requireCompany().db))
+    return { intent: 'figure', answeredBy: 'total', sentences: [t('assist.profitHidden')], figures: [], links: [], understood: true }
+  }
+  registerAskTotalIpc(askTotalHandle, {
     company: () => requireCompany(),
     roleNow: () => (sessionUser ? sessionUser.role : current?.usersExist ? null : 'owner'),
     userNow: () => sessionUser?.id ?? null
@@ -958,7 +975,7 @@ export function registerIpc(): void {
     // past this reply and only while the company is unlocked (a company with users waits for the
     // sign-in — auth:login starts the pass then).
     mark('capture')
-    void runDuePacksInBackground({ slug, db, info }, { allowed: packsAllowed, current: getUnlockedCompany })
+    void runDuePacksInBackground({ slug, db, info }, { allowed: packsAllowed, current: getUnlockedCompany, canSeeProfit: canSeeProfitNow })
     return { slug, info, integrity, locked: current.usersExist, ui: configSvc.getUi(db), encrypted: current.encrypted }
   }
 
@@ -1681,7 +1698,8 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('report:trialBalance', (p) => {
     const { asOn } = z.object({ asOn: z.string() }).parse(p)
-    return reports.trialBalance(requireCompany().db, asOn)
+    // WP 7.2: without canSeeProfit the P&L ledgers, the computed P&L row and the totals go.
+    return reports.trialBalanceFor(requireCompany().db, asOn, canSeeProfitNow())
   }, 'viewer')
   handle('report:profitLoss', (p) => {
     const { from, to, comparePrior } = periodSchema.extend({ comparePrior: z.boolean().optional() }).parse(p)
@@ -2761,7 +2779,7 @@ export function registerIpc(): void {
     sessionUser = result
     idleClock.touch()
     // WP 6.2: due report packs wait for the first sign-in of a locked company.
-    void runDuePacksInBackground(c, { allowed: packsAllowed, current: getUnlockedCompany })
+    void runDuePacksInBackground(c, { allowed: packsAllowed, current: getUnlockedCompany, canSeeProfit: canSeeProfitNow })
     resumeCapture()
     return sessionView(result)
   })

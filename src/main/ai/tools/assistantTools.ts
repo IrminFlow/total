@@ -13,13 +13,15 @@ import { MISMATCH_LABELS, type MismatchCategory } from '@shared/gst/mismatch2b'
 import { reportRequestSchema, requestToModel, type NameKind, type NameLookup } from '@shared/reportBuilder/nl'
 import type { ReportResult } from '@shared/reportBuilder/model'
 import { anomalies, closeChecklist, gst2bMismatches } from '../../services/assistants'
-import { runReport } from '../../services/reportBuilder'
+import { profitRevealedBy, runReport } from '../../services/reportBuilder'
 import { buildPlanDraft } from '../assistantDrafts'
 import { runDraft } from '../drafting/tools'
 import { capRows, drCr, rupees } from './readTools'
 import { defineTool, type ToolContext, type ToolDef } from './registry'
 import type { DB } from '../../db/connection'
 import { descendantIdsByName } from '../../services/masters'
+import { profitHidden } from './profitGuard'
+import { PROFIT_HIDDEN_TOOL_MESSAGE } from '@shared/profitRedaction'
 
 const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Expected YYYY-MM')
 const iso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
@@ -277,6 +279,11 @@ export const buildReportTool = defineTool({
   handler: (req, ctx) => {
     const res = requestToModel(req, nameLookup(ctx.db))
     if (!res.ok) throw new Error(`The report request is not valid: ${res.problems.join('; ')}`)
+    // WP 7.2: a report that would show the profit is refused for a user who may not see it.
+    if (profitHidden(ctx)) {
+      const why = profitRevealedBy(ctx.db, res.model)
+      if (why) throw new Error(`${why}. ${PROFIT_HIDDEN_TOOL_MESSAGE}`)
+    }
     const working = { from: ctx.screen?.from ?? ctx.period.from, to: ctx.screen?.to ?? ctx.period.to }
     const r = runReport(ctx.db, res.model, { working, today: ctx.today })
     const modelJson = JSON.stringify(res.model)
