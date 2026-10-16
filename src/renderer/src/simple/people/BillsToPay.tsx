@@ -9,6 +9,13 @@ import { useNav, useSession } from '../../state/stores'
 import { DataTable, defineColumns } from '../../components/table'
 import { moneyOutScreen } from '../money/moneyLinks'
 import { Pill } from './Pill'
+import { WhyLink } from '../reports/parts'
+import { billsToPayWhy } from '@shared/simple/explain'
+
+const WEEK = 'week' // i18n-technical
+const MONTH = 'month' // i18n-technical
+/** The tiles' "Why?" link: every open supplier bill, party by party (Outstandings, payable side). */
+const PAYABLES = { name: 'outstandings', side: 'payable' } as const // i18n-technical
 
 /**
  * WP 9.8 — People → Bills to pay: every supplier's open bill as on today (the Outstandings
@@ -48,8 +55,12 @@ export function BillsToPay(): React.JSX.Element {
     <>
       {data && (
         <div className="mb-4 grid gap-3 sm:grid-cols-3" data-testid="bills-to-pay-totals">
-          <Tile label={t('simple.people.toPay.week', { date: toPlainDate(data.weekEnd, t.lang) })} amount={money(data.dueThisWeek)} testId="bills-due-week" paise={data.dueThisWeek} />
-          <Tile label={t('simple.people.toPay.month', { date: toPlainDate(data.monthEnd, t.lang) })} amount={money(data.dueThisMonth)} testId="bills-due-month" paise={data.dueThisMonth} />
+          <Tile label={t('simple.people.toPay.week', { date: toPlainDate(data.weekEnd, t.lang) })} amount={money(data.dueThisWeek)} testId="bills-due-week" paise={data.dueThisWeek}>
+            <WhyLink what={t('simple.people.toPay.week', { date: toPlainDate(data.weekEnd, t.lang) })} sentence={billsToPayWhy(data, WEEK, t)} link={{ label: t('simple.why.link.outstandings'), screen: PAYABLES }} testId="why-bills-due-week" />
+          </Tile>
+          <Tile label={t('simple.people.toPay.month', { date: toPlainDate(data.monthEnd, t.lang) })} amount={money(data.dueThisMonth)} testId="bills-due-month" paise={data.dueThisMonth}>
+            <WhyLink what={t('simple.people.toPay.month', { date: toPlainDate(data.monthEnd, t.lang) })} sentence={billsToPayWhy(data, MONTH, t)} link={{ label: t('simple.why.link.outstandings'), screen: PAYABLES }} testId="why-bills-due-month" />
+          </Tile>
           <Tile label={t('simple.people.toPay.late')} amount={money(data.late)} testId="bills-late" paise={data.late} danger={data.late > 0} />
         </div>
       )}
@@ -84,11 +95,12 @@ export function BillsToPay(): React.JSX.Element {
   )
 }
 
-function Tile({ label, amount, testId, paise, danger = false }: { label: string; amount: string; testId: string; paise: number; danger?: boolean }): React.JSX.Element {
+function Tile({ label, amount, testId, paise, danger = false, children }: { label: string; amount: string; testId: string; paise: number; danger?: boolean; children?: React.ReactNode }): React.JSX.Element {
   return (
     <div className="rounded-lg border border-line bg-panel p-panel shadow-elev-1" data-testid={testId} data-paise={paise}>
       <div className="text-detail text-muted">{label}</div>
       <div className={`num mt-1 text-lead font-semibold ${danger ? 'text-danger' : 'text-ink'}`}>{amount}</div>
+      {children && <div className="mt-1">{children}</div>}
     </div>
   )
 }

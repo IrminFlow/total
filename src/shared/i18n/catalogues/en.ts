@@ -1320,6 +1320,13 @@ export const en = {
   'simple.why.due.pmt06': 'Filing every three months, you still pay the GST of each of the quarter’s first two months by the 25th of the next month (form PMT-06): {dates}.',
   'simple.why.due.cmp08': 'Under composition you pay a fixed share of your sales; CMP-08 states it for {from} to {to} and is due {date}, the 18th after the quarter.',
   'simple.why.due.gstr4': 'GSTR-4 is the yearly return for {fy}; it is due {date}.',
+  'simple.why.link.taxes': 'Open Taxes',
+  'simple.why.link.monthRegisters': 'Open the sales and purchase lists for {month}',
+  'simple.why.byMonth.bar': 'In {month} you sold {sales} on {salesBills, plural, one {# bill} other {# bills}} and bought {purchases} on {purchaseBills, plural, one {# bill} other {# bills}}, before GST.',
+  'simple.why.byMonth.barNone': 'No sales or purchase bills in {month}.',
+  'simple.why.billsToPay': '{count, plural, one {# bill} other {# bills}} from {suppliers, plural, one {# supplier} other {# suppliers}} {count, plural, one {falls} other {fall}} due by {date}, late ones included: {amount} in all.',
+  'simple.why.billsToPayLate': '{amount} of it is already past its due date.',
+  'simple.why.billsToPayNone': 'No supplier bill falls due by {date}.',
   'simple.why.withholding':
     '{kind, select, tds {TDS you deduct} other {TCS you collect}} is the government’s money that you hold until you pay it: {total} is still to pay{late, select, yes {, and {lateAmount} of it is past its date} other {}}.',
   'simple.why.withholdingAllPaid': 'Everything you {kind, select, tds {deducted} other {collected}} so far has been paid; this month’s {amount} is due {date}.',

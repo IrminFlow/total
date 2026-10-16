@@ -147,7 +147,7 @@ export type Screen =
   | { name: 'itc04' }
   | { name: 'itc-reversal' }
   | { name: 'edocs'; tab?: 'documents' | 'self-invoices' }
-  | { name: 'registers'; tab?: 'sales' | 'purchase' | 'items' }
+  | { name: 'registers'; tab?: 'sales' | 'purchase' | 'items'; from?: string; to?: string }
   | { name: 'outstandings'; side?: 'receivable' | 'payable' }
   // WP 4.2: credit control, reminders, interest on overdue bills, collection reports.
   | { name: 'receivables'; tab?: 'control' | 'reminders' | 'interest' | 'collections' }

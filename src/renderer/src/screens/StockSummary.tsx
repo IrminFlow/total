@@ -169,7 +169,7 @@ export function StockSummaryScreen(): React.JSX.Element {
           exportOptions={{ title: 'Stock summary', periodLabel, filename: 'stock-summary' }}
         />
       </Panel>
-      {opts.options.showAnalysis && <StockAnalysis asOn={ageingAsOn(to)} />}
+      {opts.options.showAnalysis && <StockAnalysis asOn={ageingAsOn(to)} summaryTo={to} />}
     </Page>
   )
 }
@@ -274,7 +274,7 @@ function ItemDetail({
 }
 
 /** Stock analysis (v0.3 #58): age of the held quantity, slow movers, reorder breaches. */
-function StockAnalysis({ asOn }: { asOn: string }): React.JSX.Element | null {
+function StockAnalysis({ asOn, summaryTo }: { asOn: string; summaryTo: string }): React.JSX.Element | null {
   const { data } = useQuery({ queryKey: ['stockAgeing', asOn], queryFn: () => api.reports.stockAgeing(asOn) })
   const rows = (data ?? []).filter((r) => r.closingQtyMilli > 0 || r.belowReorder)
   if (rows.length === 0) return null
@@ -282,6 +282,12 @@ function StockAnalysis({ asOn }: { asOn: string }): React.JSX.Element | null {
     <Panel className="mt-section">
       <div className="px-3 pt-3">
         <SectionTitle as="h3">Stock analysis — ageing &amp; reorder</SectionTitle>
+        {/* The panel's own date (to-do §4): ageing never runs past today (ageingAsOn), so while the
+            summary runs to a later period end its quantities can differ — say which date it is. */}
+        <p className="mt-1 text-hint text-muted" data-testid="stock-summary-analysis-as-on">
+          As on {toDisplayDate(asOn)}.
+          {asOn !== summaryTo ? ` Ageing runs to today; the summary above runs to ${toDisplayDate(summaryTo)}, so entries dated after today are not in this panel.` : ''}
+        </p>
       </div>
       <DataTable
         viewId="stock-ageing"

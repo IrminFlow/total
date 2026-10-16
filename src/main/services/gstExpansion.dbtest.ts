@@ -326,6 +326,13 @@ describe('ITC reversal workings (rule 42 / 43 / 37, s.17(5))', () => {
     expect(j.date).toBe('2026-09-30')
     expect(itcReversal(b.db, INFO, ...SEP).posted).toEqual(posted)
     expect(() => postItcReversal(b.db, INFO, ...SEP)).toThrow(/Already posted/)
+    // WP 3.8: the apply and the posting each leave an itc_reversal row of their own.
+    const auditRows = b.db.prepare(
+      "SELECT entity_id AS entityId, action, after_json AS after FROM audit_log WHERE entity = 'itc_reversal' ORDER BY id"
+    ).all() as { entityId: number; action: string; after: string }[]
+    expect(auditRows.map((x) => [x.action, x.entityId])).toEqual([['update', 0], ['create', posted.voucherId]])
+    expect(JSON.parse(auditRows[0]!.after)).toMatchObject({ period: '092026', applied: { rule37: { cgst: rs(450) } } })
+    expect(JSON.parse(auditRows[1]!.after)).toMatchObject({ period: '092026', voucherId: posted.voucherId, number: posted.number })
     // GSTR-9 Table 7 splits the applied reversal by rule.
     const r9 = gstr9(b.db, INFO, 2026)
     const row = (id: string) => r9.rows.find((x) => x.id === id)!.amounts.cgst

@@ -9,7 +9,7 @@ import { itcReversalInputsSchema, type ItcReversalInputs } from '@shared/gst/exp
 import type { Gstr9ItcDoc } from '@shared/gst/gstr9'
 import { RULE37_RULES } from '@shared/gst/sources'
 import { gstr3b } from './gst'
-import { fyMonths, itcDocsFor, writeReversalSplit } from './gstAnnual'
+import { fyMonths, itcDocsFor, readReversalSplit, writeReversalSplit } from './gstAnnual'
 import { openBills } from './analysis'
 import { getGst3bManual, setGst3bManual } from './config'
 import { createLedger, descendantIdsByName } from './masters'
@@ -252,21 +252,30 @@ export function itcReversal(db: DB, company: CompanyInfo, from: string, to: stri
 /** Write the workings into the period's GSTR-3B manual adjustments: 4(B)(1) rules 42/43 (+true-up),
  *  4(B)(2) rule 37, 4(D)(1) reclaimed, 5.1 interest. The late fee is kept. */
 export function applyItcReversalTo3b(db: DB, company: CompanyInfo, from: string, to: string, period: string): ItcReversalView {
-  const v = itcReversal(db, company, from, to, period)
-  const manual = getGst3bManual(db, period)
-  setGst3bManual(db, period, {
-    ...manual,
-    itcRevRul: v.summary.table4B1,
-    itcRevOth: v.summary.table4B2,
-    itcReclaimed: v.summary.reclaimed,
-    interest: v.summary.interest
-  })
-  writeReversalSplit(db, period, {
-    rule37: v.summary.rule37,
-    rule37A: { ...ZERO_HEADS },
-    rule42: addHeads(v.summary.rule42, v.summary.trueUp),
-    rule43: v.summary.rule43
-  })
+  db.transaction(() => {
+    const v = itcReversal(db, company, from, to, period)
+    const manual = getGst3bManual(db, period)
+    setGst3bManual(db, period, {
+      ...manual,
+      itcRevRul: v.summary.table4B1,
+      itcRevOth: v.summary.table4B2,
+      itcReclaimed: v.summary.reclaimed,
+      interest: v.summary.interest
+    })
+    const beforeSplit = readReversalSplit(db, period)
+    const split = {
+      rule37: v.summary.rule37,
+      rule37A: { ...ZERO_HEADS },
+      rule42: addHeads(v.summary.rule42, v.summary.trueUp),
+      rule43: v.summary.rule43
+    }
+    writeReversalSplit(db, period, split)
+    // WP 3.8: the apply itself is an event of its own — the 3B adjustments log as a company
+    // update; this row records the reversal split GSTR-9 reads, with the period it was applied to.
+    writeAudit(db, 'itc_reversal', 0, 'update',
+      { period, applied: beforeSplit },
+      { period, applied: split, summary: v.summary })
+  })()
   return itcReversal(db, company, from, to, period)
 }
 
@@ -295,6 +304,10 @@ export function postItcReversal(db: DB, company: CompanyInfo, from: string, to: 
     } as Parameters<typeof saveVoucher>[1])
     writeMeta(db, POSTED_KEY(period), { voucherId: saved.id })
     const number = (db.prepare('SELECT number FROM vouchers WHERE id = ?').get(saved.id) as { number: string }).number
+    // WP 3.8: the journal logs itself as a voucher; this row records the posting as the
+    // period's ITC-reversal action (which period, which journal, the workings it came from).
+    writeAudit(db, 'itc_reversal', saved.id, 'create', null,
+      { period, voucherId: saved.id, number, summary: v.summary })
     return { voucherId: saved.id, number }
   })()
 }

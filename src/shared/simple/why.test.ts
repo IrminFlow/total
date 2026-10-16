@@ -7,9 +7,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { configureI18n, translator, type I18nProblem, type Language, type Translate } from '../i18n'
 import { bannedWordsIn } from './bannedWords'
 import {
-  byMonthTotalsWhy, cashEndWhy, cashInWhy, cashNowWhy, cashOutWhy, compareSentence, compositionDueWhy, creditLeftWhy, deadlineWhy, doingCompareWhy, doingResultWhy,
-  dueWhy, homeProfitWhy, monthCompareWhy, owedTotalWhy, salesCompareWhy, toPayPartsWhy, withholdingWhy
+  billsToPayWhy, byMonthBarWhy, byMonthTotalsWhy, cashEndWhy, cashInWhy, cashNowWhy, cashOutWhy, compareSentence, compositionDueWhy, creditLeftWhy, deadlineWhy, doingCompareWhy, doingResultWhy,
+  dueWhy, homeProfitWhy, monthCompareWhy, owedTotalWhy, pmt06Why, salesCompareWhy, toPayPartsWhy, withholdingWhy
 } from './explain'
+import { billsToPayTotals, type BillsToPay } from './people'
 import { biggestChange, last12Months, monthBars, monthTotals, type BusinessDoing, type DoingLines, type SimpleCash, type SimpleOwed } from './reports'
 import type { HomeProfit } from './home'
 import type { SimpleTaxes, TaxesWithholding } from './taxes'
@@ -85,6 +86,16 @@ const TDS: TaxesWithholding = {
   unpaid: [{ month: '2026-08', amount: 2_000_00, dueDate: '2026-09-07', late: true }, { month: '2026-10', amount: 1_000_00, dueDate: '2026-11-07', late: false }]
 }
 
+// Bills to pay as on Tue 13 Oct 2026: one late bill (₹2,000, Sharma), one due Fri 16 Oct (₹3,000,
+// Sharma), one due 28 Oct (₹4,000, Bala), one due in November (₹5,000) — week ₹5,000, month ₹9,000.
+const BILLS = [
+  { ledgerId: 8, party: 'Sharma Traders', name: 'S-1', voucherId: 1, date: '2026-09-01', dueDate: '2026-10-01', amount: 2_000_00, pending: 2_000_00, overdueDays: 12 },
+  { ledgerId: 8, party: 'Sharma Traders', name: 'S-2', voucherId: 2, date: '2026-10-01', dueDate: '2026-10-16', amount: 3_000_00, pending: 3_000_00, overdueDays: 0 },
+  { ledgerId: 9, party: 'Bala', name: 'B-1', voucherId: 3, date: '2026-10-05', dueDate: '2026-10-28', amount: 4_000_00, pending: 4_000_00, overdueDays: 0 },
+  { ledgerId: 9, party: 'Bala', name: 'B-2', voucherId: 4, date: '2026-10-10', dueDate: '2026-11-09', amount: 5_000_00, pending: 5_000_00, overdueDays: 0 }
+]
+const TO_PAY: BillsToPay = { today: TODAY, bills: BILLS, ...billsToPayTotals(BILLS, TODAY) }
+
 /** Every sentence, by language (the renderer shows exactly these). */
 function all(t: Translate): string[] {
   return [
@@ -97,7 +108,10 @@ function all(t: Translate): string[] {
     dueWhy('pmt06', { ...TAXES, due: { ...TAXES.due, pmt06: ['2026-08-25', '2026-09-25'] } }, t),
     compositionDueWhy('cmp08', { today: TODAY, composition: { cmp08: { from: '2026-07-01', to: '2026-09-30', due: '2026-10-18' }, gstr4: { fyLabel: '2026-27', due: '2027-06-30' } } }, t),
     compositionDueWhy('gstr4', { today: TODAY, composition: { cmp08: { from: '2026-07-01', to: '2026-09-30', due: '2026-10-18' }, gstr4: { fyLabel: '2026-27', due: '2027-06-30' } } }, t),
-    withholdingWhy(TDS, TODAY, t), withholdingWhy({ ...TDS, kind: 'tcs', totalUnpaid: 0, lateUnpaid: 0, unpaid: [] }, TODAY, t)
+    withholdingWhy(TDS, TODAY, t), withholdingWhy({ ...TDS, kind: 'tcs', totalUnpaid: 0, lateUnpaid: 0, unpaid: [] }, TODAY, t),
+    pmt06Why(['2026-08-25', '2026-09-25'], TODAY, t),
+    billsToPayWhy(TO_PAY, 'week', t), billsToPayWhy(TO_PAY, 'month', t), billsToPayWhy({ ...TO_PAY, bills: [], dueThisWeek: 0, dueThisMonth: 0, late: 0 }, 'week', t),
+    byMonthBarWhy(BARS.find((m) => m.month === '2026-09')!, t), byMonthBarWhy(BARS.find((m) => m.month === '2026-10')!, t), byMonthBarWhy(BARS[0]!, t)
   ]
 }
 
@@ -205,6 +219,33 @@ describe('each sentence says the figures it was given (WP 10.2)', () => {
       'TDS you deduct is the government’s money that you hold until you pay it: ₹3,000.00 is still to pay, and ₹2,000.00 of it is past its date. The oldest is from Aug 2026, due 7 Sep.'
     )
     figuresFrom(withholdingWhy(TDS, TODAY, t), [TDS.totalUnpaid, TDS.lateUnpaid])
+    // PMT-06 (rule 61(3)): Home's tile says the same dates as Taxes.
+    const q2 = { ...TAXES, due: { ...TAXES.due, pmt06: ['2026-08-25', '2026-09-25'] } }
+    expect(pmt06Why(q2.due.pmt06, TODAY, t)).toBe(dueWhy('pmt06', q2, t))
+    expect(pmt06Why(q2.due.pmt06, TODAY, t)).toContain('(form PMT-06): 25 Aug, 25 Sep.')
+    const comp = { today: TODAY, composition: { cmp08: { from: '2026-07-01', to: '2026-09-30', due: '2026-10-18' }, gstr4: { fyLabel: '2025-26', due: '2026-06-30' } } }
+    expect(compositionDueWhy('cmp08', comp, t)).toContain('is due 18 Oct, the 18th after the quarter.')
+  })
+
+  it('Bills to pay: the bills and suppliers behind each tile, its total and the late part', () => {
+    expect(TO_PAY).toMatchObject({ weekEnd: '2026-10-18', monthEnd: '2026-10-31', dueThisWeek: 5_000_00, dueThisMonth: 9_000_00, late: 2_000_00 })
+    const week = billsToPayWhy(TO_PAY, 'week', t)
+    expect(week).toBe('2 bills from 1 supplier fall due by 18 Oct, late ones included: ₹5,000.00 in all. ₹2,000.00 of it is already past its due date.')
+    figuresFrom(week, [TO_PAY.dueThisWeek, TO_PAY.late])
+    const month = billsToPayWhy(TO_PAY, 'month', t)
+    expect(month).toBe('3 bills from 2 suppliers fall due by 31 Oct, late ones included: ₹9,000.00 in all. ₹2,000.00 of it is already past its due date.')
+    figuresFrom(month, [TO_PAY.dueThisMonth, TO_PAY.late])
+    const one = [BILLS[2]!]
+    expect(billsToPayWhy({ today: TODAY, bills: one, ...billsToPayTotals(one, TODAY) }, 'month', t)).toBe('1 bill from 1 supplier falls due by 31 Oct, late ones included: ₹4,000.00 in all.')
+    expect(billsToPayWhy({ today: TODAY, bills: one, ...billsToPayTotals(one, TODAY) }, 'week', t)).toBe('No supplier bill falls due by 18 Oct.')
+  })
+
+  it('by month: each bar says its own month, its two figures and how many bills', () => {
+    const sep = BARS.find((m) => m.month === '2026-09')!
+    expect(byMonthBarWhy(sep, t)).toBe('In Sep 2026 you sold ₹70,000.00 on 3 bills and bought ₹40,000.00 on 2 bills, before GST.')
+    figuresFrom(byMonthBarWhy(sep, t), [sep.sales, sep.purchases])
+    expect(byMonthBarWhy(BARS.find((m) => m.month === '2026-10')!, t)).toBe('In Oct 2026 you sold ₹10,000.00 on 1 bill and bought ₹0.00 on 0 bills, before GST.')
+    expect(byMonthBarWhy(BARS[0]!, t)).toBe('No sales or purchase bills in Nov 2025.')
   })
 })
 

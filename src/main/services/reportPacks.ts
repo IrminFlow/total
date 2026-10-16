@@ -10,7 +10,7 @@
  * PDF rendering is injected (`renderPdf`) so the scheduler logic runs in DB tests without a
  * BrowserWindow; the IPC layer passes services/pdf.ts#htmlToPdf.
  */
-import { mkdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
@@ -25,6 +25,7 @@ import { relativePeriod, type DateRange } from '@shared/reportBuilder/period'
 import { flattenResult } from '@shared/reportBuilder/shape'
 import { RATIO_CATEGORIES, RATIO_DEFS, formatRatio } from '@shared/ratios'
 import { companyExportsDir, slugify } from '../paths'
+import { portableFileName } from '@shared/fileNames'
 import { reportHtml, type ReportColumnSpec, type ReportRowSpec } from './reportHtml'
 import { balanceSheet, dayBook, profitAndLoss, trialBalance } from './reports'
 import { outstandings } from './analysis'
@@ -281,6 +282,18 @@ const localToday = (now: Date): string => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+/**
+ * The pack's folder under `root`: its own name made safe for Windows and macOS (portableFileName —
+ * "Month end" stays "Month end", a reserved "Con" becomes "_Con", a slash a dash). slugify is the
+ * COMPANY-folder rule (a reserved name gets "-company"), so it is no longer used here — but a
+ * folder an earlier version created with it ("month-end", "con-company") keeps being written to.
+ */
+export function packFolderName(root: string, packName: string): string {
+  const legacy = slugify(packName)
+  if (existsSync(join(root, legacy))) return legacy
+  return portableFileName(packName.replace(/[\\/]/g, '-'), { fallback: 'pack', maxLength: 80 })
+}
+
 /** Render one pack for its period rule into its folder; logs the run and audits it. */
 export async function runPack(db: DB, slug: string, info: CompanyInfo, packId: number, opts: RunPackOptions): Promise<PackRun> {
   const pack = getPack(db, packId)
@@ -288,7 +301,7 @@ export async function runPack(db: DB, slug: string, info: CompanyInfo, packId: n
   const today = opts.now ? localToday(now) : todayISO()
   const range = relativePeriod(pack.periodRule, today)
   const root = pack.outputDir ?? join(companyExportsDir(slug), 'packs')
-  const dir = join(root, slugify(pack.name), `${range.from}_${range.to}`)
+  const dir = join(root, packFolderName(root, pack.name), `${range.from}_${range.to}`)
   const startedAt = now.toISOString()
   const files: string[] = []
   const errors: string[] = []

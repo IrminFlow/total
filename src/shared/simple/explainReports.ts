@@ -5,7 +5,7 @@
 
 import type { Translate } from '../i18n'
 import { toMonthLabel, toPlainDate } from '../dates'
-import { biggestChange, type BusinessDoing, type CashFlowSource, type DoingLines, type ProfitPart, type SimpleByMonth, type SimpleCash, type SimpleOwed } from './reports'
+import { biggestChange, type BusinessDoing, type MonthBar, type CashFlowSource, type DoingLines, type ProfitPart, type SimpleByMonth, type SimpleCash, type SimpleOwed } from './reports'
 import { dirOf, join, money, resultOf, shortDate, span } from './explainCommon'
 
 /** "₹1,200.00 more than the previous period (1 Sep 2026 to 13 Sep 2026)." */
@@ -217,4 +217,12 @@ export function byMonthTotalsWhy(b: SimpleByMonth, t: Translate): string {
       ? t('simple.why.byMonth.change', { month: toMonthLabel(last.month, 'long', t.lang), previous: toMonthLabel(before.month, 'long', t.lang), dir: dirOf(last.sales - before.sales), amount: money(Math.abs(last.sales - before.sales)) })
       : null
   ])
+}
+
+/** One month's bar (review, to-do §4): that month's sales and purchases before GST and how many
+ *  bills each — the service's MonthBar, nothing re-derived. */
+export function byMonthBarWhy(m: MonthBar, t: Translate): string {
+  const month = toMonthLabel(m.month, 'long', t.lang)
+  if (m.sales === 0 && m.purchases === 0 && m.salesBills === 0 && m.purchaseBills === 0) return t('simple.why.byMonth.barNone', { month })
+  return t('simple.why.byMonth.bar', { month, sales: money(m.sales), salesBills: m.salesBills, purchases: money(m.purchases), purchaseBills: m.purchaseBills })
 }
