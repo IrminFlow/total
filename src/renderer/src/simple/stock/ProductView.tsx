@@ -4,15 +4,18 @@ import type { MessageKey } from '@shared/i18n'
 import { formatPaise, formatQtyMilli } from '@shared/money'
 import { toPlainDate } from '@shared/dates'
 import { mapError, type CaughtError } from '@shared/errors'
-import type { StockHistoryRow, StockHistoryWhat } from '@shared/simple/stock'
+import { parseCountText, type StockHistoryRow, type StockHistoryWhat } from '@shared/simple/stock'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useFeatures } from '../../lib/useFeatures'
 import { useNav, useSession } from '../../state/stores'
-import { AmountInput, Button, Field, Page } from '../../components/ui'
+import { AmountInput, Button, Field, Page, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { LevelChip } from './StockList'
 import { useCanSave } from '../ViewerNote'
+import type { HandoffFacts } from '@shared/simple/handoff'
+import { simpleTargetFor } from '../../lib/handoff'
+import type { Screen } from '../../state/stores'
 
 const WHAT_TEXT: Record<StockHistoryWhat, MessageKey> = {
   opening: 'simple.stock.what.opening',
@@ -32,6 +35,29 @@ const WHAT_TEXT: Record<StockHistoryWhat, MessageKey> = {
 const editScreen = (itemId: number): { name: 'masters'; tab: 'items'; itemId: number } => ({ name: 'masters', tab: 'items', itemId }) // i18n-technical
 const makeScreen = (itemId: number): { name: 'simple-made-goods'; itemId: number } => ({ name: 'simple-made-goods', itemId }) // i18n-technical
 const NO_MAX = 'none' // i18n-technical: the history grows with the page
+const entryScreen = (voucherId: number): Screen => ({ name: 'voucher-entry', voucherId }) // i18n-technical
+/** The simple screens that show ONE entry (simpleTargetFor's object views); anything else it
+ *  lands on (Stock, a section) is not that entry, so the row opens it in the full app. */
+const ENTRY_VIEWS: ReadonlySet<Screen['name']> = new Set(['simple-sales', 'simple-purchases', 'simple-money', 'simple-return-sale', 'simple-return-purchase']) // i18n-technical
+
+/** A History row → its entry: the simple view of the same entry where there is one (WP 9.10's
+ *  full → simple table, `simpleTargetFor` — a sale's bill view, a purchase's, a return on its
+ *  original bill; a count reopens as the saved count), else the entry in the full app (stock
+ *  journals, made goods). */
+export async function historyTarget(voucherId: number): Promise<Screen> {
+  let facts: HandoffFacts | null = null
+  try {
+    facts = await api.simple.handoffTarget({ voucherId })
+  } catch {
+    facts = null
+  }
+  // A stock count reopens as the count it was (SavedCount — the difference the engine recorded),
+  // with "Edit in the full app" there.
+  if (facts?.voucher?.kind === 'physical_stock') return { name: 'simple-stock-count', voucherId } // i18n-technical
+  const target = simpleTargetFor(entryScreen(voucherId), facts)
+  return ENTRY_VIEWS.has(target.name) ? target : entryScreen(voucherId)
+}
+
 const movementsScreen = (itemId: number): { name: 'stock-movements'; itemId: number } => ({ name: 'stock-movements', itemId }) // i18n-technical
 
 /**
@@ -53,6 +79,10 @@ export function ProductView({ itemId }: { itemId: number }): React.JSX.Element {
   const [price, setPrice] = useState<number | null>(null)
   const [priceError, setPriceError] = useState<string | null>(null)
   const [savingPrice, setSavingPrice] = useState(false)
+  const [editingLow, setEditingLow] = useState(false)
+  const [lowText, setLowText] = useState('')
+  const [lowError, setLowError] = useState<string | null>(null)
+  const [savingLow, setSavingLow] = useState(false)
   const money = (v: number): string => formatPaise(v, { symbol: true })
 
   const columns = useMemo(
@@ -98,6 +128,32 @@ export function ProductView({ itemId }: { itemId: number }): React.JSX.Element {
       setPriceError([m.general, ...Object.values(m.fields)].filter(Boolean).join(' ') || t('errors.generic'))
     } finally {
       setSavingPrice(false)
+    }
+  }
+
+  // "Tell me when it runs low": the product's reorder level (the one stockLevel reads), saved
+  // through the masters item update with the stored item as it is (audited `stockItem`);
+  // blank / 0 = none (told only when it runs out).
+  const saveLow = async (): Promise<void> => {
+    const blankOrZero = lowText.trim() === '' || parseCountText(lowText) === 0
+    const milli = blankOrZero ? null : parseCountText(lowText)
+    if (!blankOrZero && milli == null) {
+      setLowError(t('simple.stock.err.low'))
+      return
+    }
+    setSavingLow(true)
+    setLowError(null)
+    try {
+      const item = (await api.stockItems.list()).find((i) => i.id === p.itemId)
+      if (!item) throw new Error(t('simple.stock.missing'))
+      if ((item.reorderLevelMilli ?? null) !== milli) await api.stockItems.update(item.id, { ...item, reorderLevelMilli: milli })
+      setEditingLow(false)
+      for (const k of ['simpleStockProduct', 'simpleStock', 'stockItems']) void queryClient.invalidateQueries({ queryKey: [k] }) // i18n-technical
+    } catch (err) {
+      const m = mapError(err as CaughtError, { simple: true, t })
+      setLowError([m.general, ...Object.values(m.fields)].filter(Boolean).join(' ') || t('errors.generic'))
+    } finally {
+      setSavingLow(false)
     }
   }
 
@@ -176,11 +232,51 @@ export function ProductView({ itemId }: { itemId: number }): React.JSX.Element {
           </div>
           <div>
             <dt className="text-caption font-semibold tracking-[0.08em] text-muted uppercase">{t('simple.stock.lowAt')}</dt>
-            <dd className="text-body text-ink" data-testid="stock-product-reorder">
-              {p.reorderLevelMilli != null && p.reorderLevelMilli > 0
-                ? t('simple.stock.lowBelow', { qty: formatQtyMilli(p.reorderLevelMilli), unit })
-                : t('simple.stock.lowWhenOut')}
-            </dd>
+            {editingLow ? (
+              <dd className="mt-1 flex flex-wrap items-end gap-2">
+                <Field label={t('simple.stock.lowField', { unit })} name="reorderLevel" error={lowError} hint={t('simple.stock.lowHint')}>
+                  <TextInput
+                    value={lowText}
+                    inputMode="decimal"
+                    autoFocus
+                    className="num text-right"
+                    onChange={(e) => setLowText(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void saveLow()
+                    }}
+                    data-testid="input-stock-low"
+                  />
+                </Field>
+                <Button variant="primary" disabled={savingLow} data-testid="btn-stock-low-save" onClick={() => void saveLow()}>
+                  {t('common.save')}
+                </Button>
+                <Button disabled={savingLow} data-testid="btn-stock-low-cancel" onClick={() => setEditingLow(false)}>
+                  {t('common.cancel')}
+                </Button>
+              </dd>
+            ) : (
+              <dd className="flex flex-wrap items-baseline gap-3">
+                <span className="text-body text-ink" data-testid="stock-product-reorder">
+                  {p.reorderLevelMilli != null && p.reorderLevelMilli > 0
+                    ? t('simple.stock.lowBelow', { qty: formatQtyMilli(p.reorderLevelMilli), unit })
+                    : t('simple.stock.lowWhenOut')}
+                </span>
+                {canSave && (
+                  <button
+                    type="button"
+                    className="text-detail text-blue hover:underline"
+                    data-testid="btn-stock-change-low"
+                    onClick={() => {
+                      setLowText(p.reorderLevelMilli ? formatQtyMilli(p.reorderLevelMilli) : '')
+                      setLowError(null)
+                      setEditingLow(true)
+                    }}
+                  >
+                    {t('simple.stock.lowSet')}
+                  </button>
+                )}
+              </dd>
+            )}
           </div>
           {(p.gstRate != null || p.hsn) && (
             <div>
@@ -222,6 +318,7 @@ export function ProductView({ itemId }: { itemId: number }): React.JSX.Element {
           columns={columns}
           rows={p.history.rows}
           rowKey={(_r, i) => i}
+          onRowActivate={(r) => void historyTarget(r.voucherId).then((target) => nav.go(target))}
           toolbarFeatures={{ quickFilter: false, columns: false, groupBy: false, density: false, views: false }}
           empty={{ title: t('simple.stock.historyEmpty') }}
           totals={false}

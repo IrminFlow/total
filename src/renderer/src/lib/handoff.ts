@@ -51,8 +51,9 @@ export function fullCounterpart(screen: Screen): Screen | null {
       return { name: 'voucher-entry', kindHint: 'credit_note' }
     case 'simple-return-purchase':
       return { name: 'voucher-entry', kindHint: 'debit_note' }
+    // A saved count reopened (Stock → History) opens that count, never a blank one.
     case 'simple-stock-count':
-      return { name: 'voucher-entry', kindHint: 'physical_stock' }
+      return screen.voucherId != null ? { name: 'voucher-entry', voucherId: screen.voucherId } : { name: 'voucher-entry', kindHint: 'physical_stock' }
     case 'simple-made-goods':
       return { name: 'manufacture' }
     case 'simple-stock':

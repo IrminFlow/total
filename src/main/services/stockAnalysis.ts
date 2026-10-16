@@ -486,6 +486,36 @@ export function voucherLineCosts(db: DB, asOn: string, voucherIds: ReadonlySet<n
   return { lineValue, derived, averageAt }
 }
 
+/** What the engine recorded for one physical-stock line: the quantity before the count (the
+ *  pass position just before the line), the counted quantity and the value the difference
+ *  changed stock by. */
+export interface CountLineEffect {
+  lineId: number
+  stockItemId: number
+  beforeMilli: number
+  countedMilli: number
+  valueChange: number
+}
+
+/**
+ * A saved count's lines as the valuation engine recorded them — ONE company-wide pass to the
+ * count's date, observed line by line (the stock summary's own pass; nothing re-derived), so
+ * reopening a count shows the difference it made, never "counted − a total that already includes
+ * the count" (0). Lines of a voucher that is not in the books are absent.
+ */
+export function countLineEffects(db: DB, voucherId: number, date: string): Map<number, CountLineEffect> {
+  const { input } = companyPassInput(db, date)
+  const out = new Map<number, CountLineEffect>()
+  runInventoryPass(input, [], {
+    onLine: (e) => {
+      const m = e.movement
+      if (m.voucherId !== voucherId || !m.isAbsolute || m.lineId === undefined) return
+      out.set(m.lineId, { lineId: m.lineId, stockItemId: m.itemId, beforeMilli: e.qtyAfter - e.qtyDelta, countedMilli: m.qtyMilli, valueChange: e.valueDelta })
+    }
+  })
+  return out
+}
+
 // ---------- cost as of a date (WP 2.1 → WP 2.2's manufacture screen) ----------
 
 export interface CostAsOfQuery {

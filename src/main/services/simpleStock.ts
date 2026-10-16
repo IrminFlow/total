@@ -22,9 +22,10 @@ import { pickBomVersion } from '@shared/bom'
 import { unitRate } from '@shared/manufacture'
 import {
   historyWhat, needsReorder, stockLevel,
-  type MadeGoodsSetup, type StockList, type StockProductView, type StockRecipe, type StockRow
+  type MadeGoodsSetup, type SavedCountView, type StockList, type StockProductView, type StockRecipe, type StockRow
 } from '@shared/simple/stock'
-import { stockMovements, stockSummary } from './stockAnalysis'
+import { countLineEffects, stockMovements, stockSummary } from './stockAnalysis'
+import { IN_BOOKS, MOVES_STOCK } from './vouchers'
 import { pricingLoader } from './pricing'
 import { listBomVersions } from './bom'
 import { suggestedSaleRate } from './manufacture'
@@ -155,6 +156,40 @@ export function stockProduct(db: DB, itemId: number, asOn: string): StockProduct
           balanceMilli: r.runningQtyMilli
         }))
       }
+    }
+  })()
+}
+
+/** A saved stock count reopened: its lines with the difference the ENGINE recorded (the pass
+ *  position just before each line → counted), so a reopened count never shows 0 because the
+ *  total already includes it. null = not a stock count. */
+export function savedCount(db: DB, voucherId: number): SavedCountView | null {
+  return db.transaction((): SavedCountView | null => {
+    const v = db
+      .prepare(
+        `SELECT v.id, v.number, v.date, v.narration, (${IN_BOOKS}) AS inBooks FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+         WHERE v.id = ? AND vt.kind = 'physical_stock'`
+      )
+      .get(voucherId) as { id: number; number: string; date: string; narration: string | null; inBooks: number } | undefined
+    if (!v) return null
+    const lines = db
+      .prepare(
+        `SELECT il.id AS lineId, il.stock_item_id AS itemId, si.name, u.symbol AS unit, il.qty_milli AS countedMilli
+         FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id JOIN units u ON u.id = si.unit_id
+         WHERE il.voucher_id = ? AND il.is_absolute = 1 AND ${MOVES_STOCK} ORDER BY il.line_order, il.id`
+      )
+      .all(voucherId) as { lineId: number; itemId: number; name: string; unit: string; countedMilli: number }[]
+    const effects = v.inBooks ? countLineEffects(db, voucherId, v.date) : new Map()
+    return {
+      voucherId: v.id,
+      number: v.number,
+      date: v.date,
+      narration: v.narration,
+      inBooks: !!v.inBooks,
+      lines: lines.map((l) => {
+        const e = effects.get(l.lineId)
+        return { ...l, beforeMilli: e ? e.beforeMilli : null, valueChange: e ? e.valueChange : null }
+      })
     }
   })()
 }

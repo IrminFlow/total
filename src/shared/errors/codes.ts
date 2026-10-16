@@ -102,6 +102,7 @@ export const ERROR_MAP = {
   undo_nothing: e('errors.undoNothing'),
   undo_linked: e('errors.undoLinked'),
   undo_expired: e('errors.undoExpired'),
+  simple_undo_negative_stock: e('errors.undoNegativeStock', undefined, ['name'], 'errors.undoNegativeStockPlain'),
 
   // ---------- masters (services/masters.ts) ----------
   group_not_found: e('errors.typeMissing', 'group'),

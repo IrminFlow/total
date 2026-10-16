@@ -14,7 +14,7 @@ import { billAmount, type SaveCardEntry, type SaveCardParty, type SaveSummary, t
 import { AppError } from '@shared/errors'
 import { fyOf, todayISO } from '@shared/dates'
 import { writeAudit } from './audit'
-import { deleteVoucher, getLockDate, getVoucher, lockedError, NOT_DELETED, restoreVoucher } from './vouchers'
+import { checkStock, deleteVoucher, getLockDate, getVoucher, lockedError, MOVES_STOCK, NOT_DELETED, restoreVoucher } from './vouchers'
 import { cashBankGroupIds, descendantIdsByName } from './masters'
 import { partyAllocation } from './analysis'
 
@@ -99,6 +99,25 @@ export function undoState(db: DB, voucherIds: readonly number[], opts: UndoOptio
   return { undoable: voucherIds.length > 0, reason: voucherIds.length > 0 ? null : 'binned' }
 }
 
+/** The local calendar day of `now` (the books' "today"). */
+const localDay = (now: Date): string =>
+  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+
+/** The products a count / stock journal (made goods) in `ids` moves — binning one of those after
+ *  later sales can leave stock below zero (the sales were costed on it) — and the earliest such
+ *  entry's position (date, id). Other kinds: none. */
+function stockEntryItems(db: DB, ids: readonly number[]): { items: number[]; first: { date: string; id: number } | null } {
+  const rows = db
+    .prepare(
+      `SELECT il.stock_item_id AS item, v.date, v.id FROM inventory_lines il
+       JOIN vouchers v ON v.id = il.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       WHERE v.id IN (${ids.map(() => '?').join(',')}) AND vt.kind IN ('physical_stock', 'stock_journal') AND ${MOVES_STOCK}
+       ORDER BY v.date, v.id`
+    )
+    .all(...ids) as { item: number; date: string; id: number }[]
+  return { items: [...new Set(rows.map((r) => r.item))], first: rows[0] ? { date: rows[0].date, id: rows[0].id } : null }
+}
+
 /** voucher:undoSave — bin the just-saved vouchers as one group. */
 export function undoSave(db: DB, voucherIds: readonly number[], opts: UndoOptions = {}): { groupId: number; binned: number[] } {
   const ids = [...new Set(voucherIds)]
@@ -116,12 +135,30 @@ export function undoSave(db: DB, voucherIds: readonly number[], opts: UndoOption
     if (why === 'locked') throw lockedError(lock!)
   }
   return db.transaction(() => {
+    // A count or a batch made: what each product it moves has as on today, before binning it.
+    // A product already below zero — today, or just before the entry (accountant mode allows it) —
+    // may go back to that level; only "sold or used since" (lower than both) is refused.
+    const { items, first } = stockEntryItems(db, ids)
+    const today = localDay(now)
+    const neg = (ws: { stockItemId: number; closingQtyMilli: number }[]): Map<number, number> => new Map(ws.map((w) => [w.stockItemId, w.closingQtyMilli]))
+    const belowToday = neg(checkStock(db, items, today))
+    const belowBeforeEntry = first ? neg(checkStock(db, items, first.date, first.id)) : new Map<number, number>()
     const binned: number[] = []
     for (const id of ids) {
       // A partner binned along with an earlier member (forex revaluation pairs) is already there.
       const live = db.prepare('SELECT deleted_at FROM vouchers WHERE id = ?').get(id) as { deleted_at: string | null }
       if (!live.deleted_at) deleteVoucher(db, id)
       binned.push(id)
+    }
+    // Binning it would leave a product below zero (or further below) as on today — sold or used
+    // since — so the whole undo is refused (the transaction rolls the binning back).
+    const worse = checkStock(db, items, today).find(
+      (w) => w.closingQtyMilli < Math.min(belowToday.get(w.stockItemId) ?? 0, belowBeforeEntry.get(w.stockItemId) ?? 0)
+    )
+    if (worse) {
+      throw new AppError('simple_undo_negative_stock', `Undoing this would leave ${worse.name} below zero in stock — some of it was sold or used since. Edit it instead.`, {
+        params: { name: worse.name }
+      })
     }
     const groupId = Number(db.prepare('INSERT INTO undo_groups DEFAULT VALUES').run().lastInsertRowid)
     const add = db.prepare('INSERT INTO undo_group_vouchers (group_id, voucher_id) VALUES (?, ?)')

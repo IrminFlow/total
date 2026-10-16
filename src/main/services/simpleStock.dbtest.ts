@@ -24,7 +24,7 @@ import { stockItemInputSchema } from '@shared/schemas'
 import { buildPhysicalPayload, emptyPhysicalState, manufactureRepresentation, physicalRepresentation } from '@shared/voucherEdit'
 import type { ManufactureInput } from '@shared/manufacture'
 import { countIntentFrom, emptyMakeForm, makeIntentFrom, type MakeForm } from '@shared/simple/stock'
-import { createGodown, createLedger, createStockItem } from './masters'
+import { createGodown, createLedger, createStockItem, listStockItems, updateStockItem } from './masters'
 import { getVoucher, saveVoucher, setLockDate } from './vouchers'
 import { stockSummary } from './stockAnalysis'
 import { setBom } from './bom'
@@ -33,7 +33,7 @@ import { postClose } from './yearEnd'
 import { undoSave } from './undo'
 import { pricingLoader } from './pricing'
 import { previewIntent, postIntent } from './simplePost'
-import { madeGoodsSetup, setSellingPrice, stockList, stockProduct } from './simpleStock'
+import { madeGoodsSetup, savedCount, setSellingPrice, stockList, stockProduct } from './simpleStock'
 import { simpleHomeAttention } from './simpleHome'
 import { createDemoCompany } from './demo'
 
@@ -215,6 +215,91 @@ describe('Count your stock = the hand-entered physical stock entry', () => {
   })
 })
 
+describe('A saved count reopened shows the difference the engine recorded (PR #91 to-do)', () => {
+  it('before = the Stock summary the day before, counted − before (never 0 because the total includes it), the value = the summary’s change', () => {
+    const out = post(countIntentFrom({ date: DAY, counted: { [I('Flour')]: '98', [I('Box')]: '52' } }))
+    // Later movements must not change what the count recorded.
+    post(countIntentFrom({ date: '2025-08-12', counted: { [I('Flour')]: '90' } }))
+    const view = savedCount(db, out.voucherIds[0]!)!
+    const before = new Map(summaryOf(db, '2025-08-09').map((r) => [r.itemId, r]))
+    const after = new Map(summaryOf(db, DAY).map((r) => [r.itemId, r]))
+    expect(view.inBooks).toBe(true)
+    expect(view.lines.map((l) => [l.name, l.beforeMilli, l.countedMilli, l.countedMilli - l.beforeMilli!, l.valueChange])).toEqual([
+      ['Flour', 100_000, 98_000, -2000, -8000],
+      ['Box', 50_000, 52_000, 2000, 2000]
+    ])
+    for (const l of view.lines) {
+      expect(l.beforeMilli).toBe(before.get(l.itemId)!.qtyMilli)
+      expect(l.countedMilli).toBe(after.get(l.itemId)!.qtyMilli)
+      expect(l.valueChange).toBe(after.get(l.itemId)!.value - before.get(l.itemId)!.value)
+    }
+    // The entry itself, as the Physical Stock editor would show it, holds 98 / 52 — the books
+    // total on the day includes it, so "counted − total" would read 0.
+    expect(stockSummary(db, DAY).find((r) => r.stockItemId === I('Flour'))!.closingQtyMilli).toBe(98_000)
+  })
+
+  it('a binned count says so (no figures); anything that is not a count is null', () => {
+    const out = post(countIntentFrom({ date: DAY, counted: { [I('Box')]: '45' } }))
+    undoSave(db, out.voucherIds)
+    const view = savedCount(db, out.voucherIds[0]!)!
+    expect(view).toMatchObject({ inBooks: false, lines: [{ name: 'Box', countedMilli: 45_000, beforeMilli: null, valueChange: null }] })
+    const made = post(makeIntentFrom({ ...emptyMakeForm(DAY), itemId: I('Bread'), qtyText: '1', price: 5000 }))
+    expect(savedCount(db, made.voucherIds[0]!)).toBeNull()
+    expect(savedCount(db, 999_999)).toBeNull()
+  })
+})
+
+describe('Undo never leaves stock below zero (PR #91 to-do)', () => {
+  const blank = { partyLedgerId: null, narration: null, reference: null, instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null, transportDistanceKm: null, posOverride: null, currencyCode: null, exchangeRate: null }
+  const useUp = (item: number, qtyMilli: number, date = TODAY) =>
+    saveVoucher(db, { ...blank, voucherTypeId: typeId(db, 'stock_journal'), date, lines: [], inventory: [
+      { stockItemId: item, godownId: null, batchId: null, qtyMilli, ratePaise: 0, amount: 0, direction: 'out' }
+    ] } as Parameters<typeof saveVoucher>[1])
+  const code = (fn: () => unknown): unknown => {
+    try {
+      fn()
+    } catch (err) {
+      return { code: (err as { code?: string }).code, field: (err as { field?: string }).field, params: (err as { params?: unknown }).params }
+    }
+    return null
+  }
+
+  it('a count after which more was used than the books had without it: Undo refused, nothing binned, no audit row', () => {
+    const out = post(countIntentFrom({ date: DAY, counted: { [I('Box')]: '60' } }))
+    useUp(I('Box'), 55_000) // 60 − 55 = 5 left; without the count 50 − 55 = −5
+    const before = trace()
+    expect(code(() => undoSave(db, out.voucherIds))).toEqual({ code: 'simple_undo_negative_stock', field: undefined, params: { name: 'Box' } })
+    expect(trace()).toEqual(before)
+    expect(getVoucher(db, out.voucherIds[0]!)!.deletedAt).toBeNull()
+    expect(listOf(db, TODAY).find((r) => r.itemId === I('Box'))!.qtyMilli).toBe(5000)
+  })
+
+  it('a batch made whose goods were used since: refused; with enough left it undoes as before', () => {
+    const made = post(makeIntentFrom({ ...emptyMakeForm(DAY), itemId: I('Bread'), qtyText: '4', price: 5000 }))
+    useUp(I('Bread'), 3000)
+    expect(code(() => undoSave(db, made.voucherIds))).toMatchObject({ code: 'simple_undo_negative_stock', params: { name: 'Bread' } })
+    expect(getVoucher(db, made.voucherIds[0]!)!.deletedAt).toBeNull()
+    // A count that only some later use rests on — still ≥ 0 without it — undoes as before.
+    const count = post(countIntentFrom({ date: DAY, counted: { [I('Flour')]: '90' } }))
+    useUp(I('Flour'), 10_000)
+    undoSave(db, count.voucherIds)
+    expect(getVoucher(db, count.voucherIds[0]!)!.deletedAt).not.toBeNull()
+  })
+
+  it('a product already below zero before the count may go back to that level; used since = refused', () => {
+    useUp(I('Box'), 60_000, '2025-08-05') // 50 − 60 = −10 before the count (accountant mode allows it)
+    const back = post(countIntentFrom({ date: DAY, counted: { [I('Box')]: '5' } }))
+    undoSave(db, back.voucherIds) // nothing moved since: back to −10, as before the count
+    expect(getVoucher(db, back.voucherIds[0]!)!.deletedAt).not.toBeNull()
+    expect(listOf(db, TODAY).find((r) => r.itemId === I('Box'))!.qtyMilli).toBe(-10_000)
+    const again = post(countIntentFrom({ date: DAY, counted: { [I('Box')]: '5' } }))
+    useUp(I('Box'), 8000, '2025-08-12') // 5 − 8 = −3 with the count; −18 without it, below the −10 before it
+    const before = trace()
+    expect(code(() => undoSave(db, again.voucherIds))).toMatchObject({ code: 'simple_undo_negative_stock', params: { name: 'Box' } })
+    expect(trace()).toEqual(before)
+  })
+})
+
 describe('Made goods = the hand-entered manufacture', () => {
   const make = (f: Partial<MakeForm>, d: DB = db) => post(makeIntentFrom({ ...emptyMakeForm(DAY), itemId: I('Bread', d), qtyText: '10', price: 5000, ...f }), d)
 
@@ -343,6 +428,37 @@ describe('the product view, Change price, Home', () => {
     expect((db.prepare('SELECT COUNT(*) AS n FROM price_list_rates').get() as { n: number }).n).toBe(2)
   })
 
+  it('Tell me when it runs low: the masters item update with the stored item sets the level the list reads; 0 / none = only when out; audited', () => {
+    const flour = I('Flour')
+    const stored = listStockItems(db).find((i) => i.id === flour)!
+    expect(stockList(db, TODAY).rows.find((r) => r.itemId === flour)!.level).toBe('ok')
+    // What ProductView sends: the stored item with only the level changed (120 kg > the 100 on hand).
+    updateStockItem(db, flour, stockItemInputSchema.parse({ ...stored, reorderLevelMilli: 120_000 }))
+    expect(stockList(db, TODAY).rows.find((r) => r.itemId === flour)).toMatchObject({ reorderLevelMilli: 120_000, level: 'low' })
+    expect(stockProduct(db, flour, TODAY)).toMatchObject({ reorderLevelMilli: 120_000, level: 'low' })
+    expect(simpleHomeAttention(db, INFO, TODAY).items.find((i) => i.source === 'stock')!.count).toBe(2)
+    // Nothing else about the product moved (figures unchanged).
+    const after = listStockItems(db).find((i) => i.id === flour)!
+    expect({ ...after, reorderLevelMilli: null }).toEqual({ ...stored, reorderLevelMilli: null })
+    expect(summaryOf(db, TODAY)).toEqual(summaryOf(twin, TODAY))
+    const audit = db.prepare("SELECT before_json, after_json FROM audit_log WHERE entity = 'stockItem' AND entity_id = ? AND action = 'update' ORDER BY id DESC LIMIT 1").get(flour) as { before_json: string; after_json: string }
+    expect([JSON.parse(audit.before_json).reorderLevelMilli, JSON.parse(audit.after_json).reorderLevelMilli]).toEqual([null, 120_000])
+    updateStockItem(db, flour, stockItemInputSchema.parse({ ...stored, reorderLevelMilli: null }))
+    // Every column of a fully filled-in product round-trips; only reorder_level_milli changes.
+    const full = createStockItem(db, stockItemInputSchema.parse({
+      name: 'Saffron', unitId: unitId(db, 'Kg'), hsn: '0910', gstRate: 5, cessRate: 1, openingQtyMilli: 2500, openingValue: 12_345,
+      barcode: '890123', reorderLevelMilli: 1000, valuationMethod: 'fifo', trackSerials: true, mrpPaise: 99_900, standardCostPaise: 45_600
+    }))
+    const raw = (): Record<string, unknown> => db.prepare('SELECT * FROM stock_items WHERE id = ?').get(full.id) as Record<string, unknown>
+    const levels = (): unknown => db.prepare('SELECT * FROM price_list_rates ORDER BY id').all()
+    const [rowBefore, levelsBefore] = [raw(), levels()]
+    const listed = listStockItems(db).find((i) => i.id === full.id)!
+    updateStockItem(db, full.id, stockItemInputSchema.parse({ ...listed, reorderLevelMilli: 3000 }))
+    expect(raw()).toEqual({ ...rowBefore, reorder_level_milli: 3000 })
+    expect(levels()).toEqual(levelsBefore)
+    expect(stockList(db, TODAY).rows.find((r) => r.itemId === flour)!.level).toBe('ok')
+  })
+
   it('Home: “N products running low” is the list’s own count', () => {
     const att = simpleHomeAttention(db, INFO, TODAY)
     expect(att.items.find((i) => i.source === 'stock')).toEqual({ source: 'stock', key: 'low_stock', count: 1, amount: null, level: 'medium' })
@@ -371,6 +487,10 @@ describe('roles', () => {
     const res = await call('simple:post', { intent: { clientId: 'viewer-count-01', kind: 'stock_count', date: TODAY, counts: [{ itemId: item.id, qty: 1000 }] }, today: TODAY })
     expect(res).toMatchObject({ ok: false, code: 'not_permitted' })
     expect(await call('simple:stock:setPrice', { itemId: item.id, ratePaise: 100 })).toMatchObject({ ok: false, code: 'not_permitted' })
+    // "Tell me when it runs low" is the masters item update — accountant and up.
+    const soap = (await ok<{ id: number; reorderLevelMilli: number | null }[]>('master:stockItems:list')).find((i) => i.id === item.id)!
+    expect(await call('master:stockItems:update', { id: item.id, data: { ...soap, reorderLevelMilli: 2000 } })).toMatchObject({ ok: false, code: 'not_permitted' })
     expect(await ok('simple:stock:list', { today: TODAY })).toEqual(before)
+    expect(await call('simple:stock:count', { voucherId: 1 })).toMatchObject({ ok: true })
   })
 })
