@@ -49,7 +49,7 @@ noisy by ±20 %; the A/B tables below interleave before / after runs on copies o
 |---|---|---:|---:|
 | Trial balance, P&L, Balance sheet, Day book, Ledger statement, Outstandings, Stock summary (valuation pass), GSTR-1, GSTR-3B | `reports.*`, `analysis.outstandings`, `stockAnalysis.stockSummary`, `gst.gstr1 / gstr3b` | 1 s | 3 s |
 | Gateway (accountant Home): `report:dashboardSeries`, `report:dashboard` | `dashboard.dashboardSeries`, `reports.dashboard` | 1 s each | 3 s each |
-| Gateway in one round trip: `dashboard:all` (series + dashboard + MSME due + promised; what the Gateway calls since PR #PRNUM) | `dashboard.dashboardAll` | 2 s | 6 s |
+| Gateway in one round trip: `dashboard:all` (series + dashboard + MSME due + promised; what the Gateway calls since PR #131) | `dashboard.dashboardAll` | 2 s | 6 s |
 | simple:home (one round trip) | `simpleHome` | **600 ms** | 3 s |
 | simple:homeAttention (fills in after Home) | `simpleHomeAttention` | 1 s | 3 s |
 | Reports: how the business is doing; Taxes | `simpleReports.businessDoing`, `simpleTaxes.simpleTaxes` | 1 s | 3 s |
@@ -184,7 +184,7 @@ and balance query, run together; then the Gateway's own reads on the main thread
 other: `report:dashboardSeries` ~0.9 s, `report:dashboard` ~0.37 s, `payables:msmeDue` ~0.25 s,
 `report:dashboardPromised` ~0.19 s. Electron + renderer boot is ~1.9 s with no company at all.
 
-### Launch after PR #PRNUM (one round trip, backup check after Home)
+### Launch after PR #131 (one round trip, backup check after Home)
 
 Measured on the same laptop on 16 Oct 2026 while it was heavily loaded (other work running — every
 figure is ~2–3× the table above; the before / after pairs were taken minutes apart on copies of the
@@ -296,7 +296,7 @@ weekly check writes only its meta stamp.
   round trip; measure on a machine that can cache the file.
 - Full-text search (FTS5 table + triggers) for voucher text — a schema change beyond CREATE INDEX.
 - Launch ≤ 2 s: the Gateway's four reads are one round trip and the backup restore check waits
-  for Home (PR #PRNUM); left: lazy-loaded renderer screens (boot), the restore check in a worker
+  for Home (PR #131); left: lazy-loaded renderer screens (boot), the restore check in a worker
   thread, and the open backup's verification could be moved after the reply if its audit row may
   follow the open's housekeeping rows (an ordering change — owner decision).
 - Server-side paging for the Sales / People DataTables — not needed: both are under budget at 100k

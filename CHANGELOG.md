@@ -196,7 +196,7 @@ what you typed, and a **Back to simple** button.
   loading, and Home waited for it. Now it runs once Home has loaded. The full app's dashboard also
   gets its figures in one request instead of four. Measured on a busy laptop with 100,000 entries,
   from starting Total to a ready Home: the full app's dashboard went from 22.2 s to 12.0 s, simple
-  Home from 24.9 s to 11.3 s. No figure changed. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  Home from 24.9 s to 11.3 s. No figure changed. [#131](https://github.com/IrminFlow/total/pull/131)
 
 ### For accountants (figures that changed)
 
@@ -328,7 +328,7 @@ Read these before filing from the next release.
   read transaction; each part = `report:dashboardSeries` / `report:dashboard` / `payables:msmeDue` /
   `report:dashboardPromised`, which stay) used by the accountant Gateway; PERF_CASE `gatewayAll`
   (2 s at 100k); the deferred backup restore check waits for 2 s without IPC (`quietWait.ts`, at
-  most 60 s). [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  most 60 s). [#131](https://github.com/IrminFlow/total/pull/131)
 - "I've filed" lives in company meta `gstFiled`, not in `assistant_marks` (which has no room for an
   ARN). [#94](https://github.com/IrminFlow/total/pull/94)
 - i18n: `Translate.lang`, `toPlainDate(d, lang)`, `amountInWords(paise, lang)`; the glossary is
