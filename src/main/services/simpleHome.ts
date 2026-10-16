@@ -138,8 +138,11 @@ function compute(db: DB, company: CompanyInfo, opts: { today: string; backups: D
   const gstRow = dashGst(db, company, today, gstStartsOn(company.booksBeginDate, company.gstRegistrationSince))
   // Review (to-do §4): the "Why?" of a quarterly filer's PMT-06 dates and of the composition
   // dates — the dates simple:taxes shows, from the same shared/gst/filing.ts rules.
-  const pmt06 = gstRow && filing === 'quarterly'
-    ? [addMonths(gstRow.period, -2), addMonths(gstRow.period, -1)].map(pmt06DueDate).filter((d): d is string => d != null)
+  // The quarter's first two months — `period` is the quarter's last month only for a filed
+  // quarter; for "the running quarter so far" it is today's month (its first or second).
+  const qFirst = gstRow ? addMonths(gstRow.period, -((Number(gstRow.period.slice(5, 7)) - 1) % 3)) : null
+  const pmt06 = qFirst && filing === 'quarterly'
+    ? [qFirst, addMonths(qFirst, 1)].map(pmt06DueDate).filter((d): d is string => d != null)
     : []
   const gst: HomeGst | null = gstRow
     ? {

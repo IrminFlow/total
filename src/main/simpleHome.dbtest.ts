@@ -14,7 +14,7 @@ import type { OutstandingParty, ProfitAndLoss } from '@shared/reports'
 import type { HomeAttention, SimpleHomeData } from '@shared/simple/home'
 import { withoutRoundOff } from '@shared/simple/reports'
 import { nextCompositionDue } from '@shared/simple/taxes'
-import { cmp08DueDate, gstr4DueDate } from '@shared/gst/filing'
+import { cmp08DueDate, gstr4DueDate, pmt06DueDate } from '@shared/gst/filing'
 import { partyAllocation } from './services/analysis'
 
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<{ ok: boolean; data?: unknown; error?: string }>>()
@@ -229,6 +229,10 @@ describe('simple:home (WP 8.6)', () => {
     expect(r2?.soFar).toBe(true)
     expect(r2?.from).toBe(start)
     expect(r2?.to).toBe(mid)
+    // The running quarter's PMT-06 dates are its own first two months', never the quarter before.
+    expect(running.gst?.kind === 'regular' && running.gst.pmt06).toEqual([start.slice(0, 7), addMonths(start.slice(0, 7), 1)].map(pmt06DueDate))
+    expect((await ok<{ due: { pmt06: string[] } }>('simple:taxes', { period: r2!.period, today: mid })).due.pmt06)
+      .toEqual(running.gst?.kind === 'regular' && running.gst.pmt06)
     const q2 = await view(start, mid)
     expect(r2!.outwardTax).toBe(sum4(q2.outward) + q2.zeroRated.igst + q2.zeroRated.cess)
     // Credit vs GSTR-2B: nothing imported → all of it booked, not yet checked.
