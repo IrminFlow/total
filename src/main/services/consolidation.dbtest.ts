@@ -14,7 +14,12 @@ import { seedCompany } from '../db/seed'
 import { createLedger, createStockItem, listGroups } from './masters'
 import { saveVoucher } from './vouchers'
 import { upsertCompany } from '../registry'
-import { consolGroupInputSchema, consolPairInputSchema, consolMappingInputSchema } from '@shared/consolidation/schemas'
+import { consolGroupInputSchema, consolPairInputSchema, consolMappingInputSchema, consolRunSchema } from '@shared/consolidation/schemas'
+import { companyDir } from '../paths'
+import { lockCompanyFileForTest } from '../db/testdb'
+import { forgetAllKeys, keyForPath, rememberFolderKey } from '../db/encryption'
+import { passphraseFails } from './companyKeys'
+import { dropMemberKeys, LOCKED_MEMBER_WARNING, unlockMemberKeys } from './consolidated'
 import { SPECIAL_LINES } from '@shared/consolidation/engine'
 import {
   deleteGroup, deletePair, getGroup, listGroups as listConsolGroups, memberCharts, runGroup, saveGroup, saveMapping, savePair, suggestGroupPairs
@@ -432,5 +437,68 @@ describe('group consolidation (WP 6.5)', () => {
     expect(r.warnings.some((x) => /was “Alpha Holdings” when saved and ledger #\d+ is now “Somebody else”/.test(x))).toBe(true)
     expect(r.warnings.some((x) => /included from 2025-05-01 but acquired on 2025-04-01/.test(x))).toBe(true)
     w.alpha.close()
+  })
+})
+
+// WP 7.2 follow-up: a member locked with a passphrase is read only with a key — its folder's
+// remembered one (the open business) or one unwrapped for THIS run from `memberPassphrases`
+// (throttled like opening it, never remembered, zeroed after) — and otherwise skipped as "locked".
+describe('group consolidation: members locked with a passphrase', () => {
+  const PASS = 'beta books passphrase'
+  const members = [{ slug: 'alpha', name: 'Alpha Holdings' }, { slug: 'beta', name: 'Beta Traders' }]
+  afterEach(() => {
+    forgetAllKeys()
+    passphraseFails.delete('beta')
+  })
+
+  it('without its key the member is skipped as locked; with its passphrase for the run the figures equal the unlocked books', async () => {
+    const w = world()
+    const id = defineGroup(w)
+    const plain = runGroup(w.alpha, id, FROM, TO, { comparePrior: true, openSlug: 'alpha' })
+    expect(plain.pnl.members.find((m) => m.slug === 'beta')!.included).toBe(true)
+
+    lockCompanyFileForTest(companyDir('beta'), companyDbPath('beta'), PASS)
+    forgetAllKeys()
+    const skipped = runGroup(w.alpha, id, FROM, TO, { comparePrior: true, openSlug: 'alpha' })
+    expect(skipped.warnings).toContain(LOCKED_MEMBER_WARNING('Beta Traders'))
+    expect(skipped.pnl.members.find((m) => m.slug === 'beta')!.included).toBe(false)
+
+    // A wrong passphrase refuses the run, naming the member, and counts toward its throttle.
+    await expect(unlockMemberKeys(members, { beta: 'not it' }, null)).rejects.toMatchObject({ code: 'wrong_passphrase', message: 'That passphrase is not right — Beta Traders' })
+    expect(passphraseFails.get('beta')?.fails).toBe(1)
+
+    // Non-members and plaintext members ignore their entries (nothing is tried for them).
+    const keys = await unlockMemberKeys(members, { beta: PASS, alpha: 'ignored', zeta: 'not a member' }, null)
+    expect([...keys.keys()]).toEqual(['beta'])
+    expect(passphraseFails.has('beta')).toBe(false)
+    const unlocked = runGroup(w.alpha, id, FROM, TO, { comparePrior: true, openSlug: 'alpha', memberKeys: keys })
+    expect({ tb: unlocked.tb, pnl: unlocked.pnl, bs: unlocked.bs, prior: unlocked.prior, warnings: unlocked.warnings }).toEqual({
+      tb: plain.tb, pnl: plain.pnl, bs: plain.bs, prior: plain.prior, warnings: plain.warnings
+    })
+    // The key was for the run only: never remembered, zeroed when dropped.
+    expect(keyForPath(companyDbPath('beta'))).toBeNull()
+    const k = keys.get('beta')!
+    dropMemberKeys(keys)
+    expect(keys.size).toBe(0)
+    expect(k.every((b) => b === 0)).toBe(true)
+    w.alpha.close()
+  })
+
+  it('a member whose folder key is remembered (the open business) is read without a passphrase', () => {
+    const w = world()
+    const id = defineGroup(w)
+    const key = lockCompanyFileForTest(companyDir('beta'), companyDbPath('beta'), PASS)
+    rememberFolderKey(companyDir('beta'), key)
+    const r = runGroup(w.alpha, id, FROM, TO)
+    expect(r.pnl.members.find((m) => m.slug === 'beta')!.included).toBe(true)
+    expect(r.warnings.join('\n')).not.toMatch(/locked/)
+    w.alpha.close()
+  })
+
+  it('the run payload takes memberPassphrases (strict: nothing else new)', () => {
+    const base = { groupId: 1, from: FROM, to: TO }
+    expect(consolRunSchema.parse({ ...base, memberPassphrases: { beta: PASS } }).memberPassphrases).toEqual({ beta: PASS })
+    expect(consolRunSchema.safeParse({ ...base, passphrase: PASS }).success).toBe(false)
+    expect(consolRunSchema.safeParse({ ...base, memberPassphrases: { beta: '' } }).success).toBe(false)
   })
 })

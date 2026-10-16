@@ -1,10 +1,13 @@
 import type Database from 'better-sqlite3-multiple-ciphers'
-import { openDb } from '../db/encryption'
+import { AppError, isAppError } from '@shared/errors'
+import { isEncryptedFile, keyForPath, openDb } from '../db/encryption'
+import { unlockCompanyKey } from './companyKeys'
+import type { SecretStore } from './secrets'
 import type { ProfitAndLoss, StatementNode } from '@shared/reports'
 import {
   mergeByName, type ConsolidateCompanyInput, type ConsolidateInputRow, type ConsolidatedResult
 } from '@shared/consolidate'
-import { companyDbPath } from '../paths'
+import { companyDbPath, companyDir } from '../paths'
 import { MIGRATIONS } from '../db/migrations'
 import { readRegistry } from '../registry'
 import * as reports from './reports'
@@ -50,21 +53,73 @@ function flattenPnl(pnl: ProfitAndLoss): ConsolidateInputRow[] {
  * whose schema is not exactly the current one (older — or newer, from a later build) is never
  * touched: it is skipped with a warning. Shared by the quick combined view below and the group
  * consolidation (services/consolidation.ts, WP 6.5).
+ *
+ * WP 7.2: a member locked with a passphrase is read with `key` (unwrapped for this run from a
+ * passphrase the user gave — `unlockMemberKeys`) or the key remembered for its folder (the open
+ * business); without either it is skipped as "locked", exactly as before.
  */
-export function withMemberDb<T>(slug: string, label: string, fn: (db: Database.Database) => T): { ok: true; value: T } | { ok: false; warning: string } {
+export function withMemberDb<T>(slug: string, label: string, fn: (db: Database.Database) => T, key?: Buffer | null): { ok: true; value: T } | { ok: false; warning: string } {
   let db: Database.Database | undefined
   try {
-    db = openDb(companyDbPath(slug), { readonly: true, fileMustExist: true })
+    db = openDb(companyDbPath(slug), { readonly: true, fileMustExist: true, ...(key ? { key } : {}) })
     const { n } = db.prepare('SELECT COUNT(*) AS n FROM migrations').get() as { n: number }
     if (n !== MIGRATIONS.length) return { ok: false, warning: `${label}: schema is out of date and can't be migrated read-only — skipped` }
     return { ok: true, value: fn(db) }
   } catch (err) {
-    // WP 7.2: a member locked with a passphrase is read only once it was unlocked this session.
-    if ((err as { code?: unknown })?.code === 'db_locked') return { ok: false, warning: `${label}: locked with a passphrase — it is read only while it is the open business — skipped` }
+    if ((err as { code?: unknown })?.code === 'db_locked') return { ok: false, warning: LOCKED_MEMBER_WARNING(label) }
     return { ok: false, warning: `${label}: ${err instanceof Error ? err.message : String(err)} — skipped` }
   } finally {
     db?.close()
   }
+}
+
+/** The skip note of a locked member read without its key (no figure of it is used). */
+export const LOCKED_MEMBER_WARNING = (label: string): string =>
+  `${label}: locked with a passphrase — skipped (it is read while it is the open business, or with its passphrase given for this run)`
+
+/**
+ * The data keys of the locked members a run was given passphrases for (`memberPassphrases`,
+ * slug → passphrase). Only members of the run (`members`) are tried; a plaintext member, or one
+ * whose folder key is already remembered (the open business), needs none and its passphrase is
+ * ignored. Each unlock goes through the app's throttled unlock (companyKeys.unlockCompanyKey,
+ * the same counter as opening the business); a wrong one refuses the run with
+ * `wrong_passphrase` naming the member. The keys are for this run only — never remembered, never
+ * stored; the caller zeroes them (`dropMemberKeys`) when the run is done. The passphrases are
+ * never logged or audited.
+ */
+export async function unlockMemberKeys(
+  members: readonly { slug: string; name: string }[],
+  memberPassphrases: Readonly<Record<string, string>> | undefined,
+  store: SecretStore | null
+): Promise<Map<string, Buffer>> {
+  const keys = new Map<string, Buffer>()
+  if (!memberPassphrases) return keys
+  try {
+    for (const m of members) {
+      const passphrase = memberPassphrases[m.slug]
+      if (!passphrase) continue
+      const dbPath = companyDbPath(m.slug)
+      if (!isEncryptedFile(dbPath) || keyForPath(dbPath)) continue
+      try {
+        keys.set(m.slug, await unlockCompanyKey({ slug: m.slug, dbPath, companyDir: companyDir(m.slug), passphrase, store }))
+      } catch (err) {
+        if (isAppError(err) && (err.code === 'wrong_passphrase' || err.code === 'passphrase_throttled')) {
+          throw new AppError(err.code, `${err.message} — ${m.name}`, { field: 'passphrase', params: { member: m.name } })
+        }
+        throw err
+      }
+    }
+  } catch (err) {
+    dropMemberKeys(keys)
+    throw err
+  }
+  return keys
+}
+
+/** Zero and forget the run's member keys. */
+export function dropMemberKeys(keys: Map<string, Buffer>): void {
+  for (const k of keys.values()) k.fill(0)
+  keys.clear()
 }
 
 /**

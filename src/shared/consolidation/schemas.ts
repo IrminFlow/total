@@ -81,6 +81,13 @@ export const consolPairInputSchema = z
   .refine((p) => p.memberA !== p.memberB, 'a pair links two different companies')
 export type ConsolPairInput = z.infer<typeof consolPairInputSchema>
 
+/** WP 7.2: passphrases of locked members for THIS run only (slug → passphrase) — never stored,
+ *  logged or audited; a member that is not locked (or is the open business) ignores its entry. */
+export const memberPassphrasesSchema = z
+  .record(z.string().trim().min(1).max(200), z.string().min(1).max(1024))
+  .refine((r) => Object.keys(r).length <= 50, 'at most 50 member passphrases')
+
 export const consolRunSchema = z
-  .object({ groupId: id, from: isoDate, to: isoDate, comparePrior: z.boolean().default(false) })
+  .object({ groupId: id, from: isoDate, to: isoDate, comparePrior: z.boolean().default(false), memberPassphrases: memberPassphrasesSchema.optional() })
+  .strict()
   .refine((r) => r.from <= r.to, 'from must be on or before to')
