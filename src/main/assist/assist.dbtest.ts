@@ -165,6 +165,34 @@ describe('Ask Total on hand-worked books', () => {
     expect(g.links[0]!.target).toEqual({ screen: 'simple-taxes', params: { period: '2025-09' } })
   })
 
+  it('a bill by its number: party, date, total and what is still due (the Sales / Purchase list rows)', async () => {
+    const db = new Database(dbPath, { readonly: true })
+    const sale = db.prepare("SELECT v.id, v.number FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE vt.kind = 'sales' ORDER BY v.id LIMIT 1").get() as { id: number; number: string }
+    const buy = db.prepare("SELECT v.id FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE vt.kind = 'purchase' AND v.reference = 'M-1'").get() as { id: number }
+    db.close()
+    // The sale: ₹11,800 to Ramesh Traders on 5 Sep 2025, nothing received yet → ₹11,800 due.
+    for (const q of [`bill ${sale.number}`, `invoice no ${sale.number} kiska hai`, `bill ${sale.number} paid?`]) {
+      const a = await ask(q)
+      expect(a.intent, q).toBe('bill')
+      expect(paise(a), q).toEqual([1180000, 1180000])
+      expect(a.sentences[0], q).toBe(`Bill ${sale.number} of 5 Sep 2025 is to Ramesh Traders, for ₹11,800.00.`)
+      expect(a.sentences[1], q).toBe('₹11,800.00 of it is still due.')
+      expect(a.links[0]!.target, q).toEqual({ screen: 'simple-sales', params: { billId: sale.id } })
+      expect(a.figures.every((f) => f.sourced && f.source?.kind === 'voucher'), q).toBe(true)
+    }
+    // The purchase by the supplier's bill no.: ₹5,900 from Mohan Supplies, unpaid.
+    const p = await ask('supplier bill M-1 paid?')
+    expect(p.intent).toBe('bill')
+    expect(paise(p)).toEqual([590000, 590000])
+    expect(p.sentences.join(' ')).toContain('Mohan Supplies')
+    expect(p.sentences[1]).toBe('₹5,900.00 of it is still to pay.')
+    expect(p.links[0]!.target).toEqual({ screen: 'simple-purchases', params: { billId: buy.id } })
+    // No such bill: said so, never another bill.
+    const none = await ask('bill 987')
+    expect(none.sentences[0]).toBe('I can’t find a bill numbered “987”.')
+    expect(none.figures).toEqual([])
+  })
+
   it('an ambiguous name is asked about, never guessed; the pick answers', async () => {
     const a = await ask('does Ramesh owe me?')
     expect(a.choice?.slot).toBe('party')
@@ -356,5 +384,44 @@ describe('Ask Total on the demo seed: every figure is the screen service’s', (
     const named = await askNow(`${plainRow.name} kitna hai`)
     expect(named.intent).toBe('stock')
     expect(paise(named)[0]).toBe(plainRow.value)
+  })
+})
+
+describe('Ask Total: the same bill number in two years (an unregistered business)', () => {
+  let pslug = ''
+  let pdb = ''
+  const ids2: Record<string, number> = {}
+
+  it('the same bill number in two earlier years is asked about with dates; the pick answers', async () => {
+    pslug = (await ok<{ slug: string }>('simple:setup', { name: 'Ask Pay Traders', stateCode: '27', businessType: 'trader', gst: 'no', stock: false, startDate: '2023-04-01', fresh: true })).slug
+    await ok('company:open', { slug: pslug })
+    pdb = join(DATA_DIR, 'companies', pslug, 'company.db')
+    const groups = await ok<{ id: number; name: string }[]>('master:groups:list')
+    ids2.asha = (await ok<{ id: number }>('master:ledgers:create', { name: 'Asha Stores', groupId: groups.find((g) => g.name === 'Sundry Debtors')!.id, stateCode: '27' })).id
+    // Bill 1 of FY 2023-24 (₹1,000) and bill 1 of FY 2024-25 (₹2,000), both on credit; numbering
+    // restarts each year, so both are "1". Nothing this year (2025-26) is numbered 1.
+    const a = await ok<{ voucherIds: number[] }>('simple:post', { intent: { kind: 'sale', clientId: 'pay-sale-00001', date: '2023-05-10', customerId: ids2.asha, amount: { amount: 100000 }, payment: { how: 'credit' } }, today: T })
+    const b = await ok<{ voucherIds: number[] }>('simple:post', { intent: { kind: 'sale', clientId: 'pay-sale-00002', date: '2024-06-12', customerId: ids2.asha, amount: { amount: 200000 }, payment: { how: 'credit' } }, today: T })
+    const db = new Database(pdb, { readonly: true })
+    const nums = (db.prepare('SELECT number FROM vouchers WHERE id IN (?, ?) ORDER BY id').all(a.voucherIds[0], b.voucherIds[0]) as { number: string }[]).map((r) => r.number)
+    db.close()
+    expect(nums[0]).toBe(nums[1])
+    const q = `bill ${nums[0]} kiska hai`
+    const which = await ask(q)
+    expect(which.choice?.slot).toBe('bill')
+    expect(which.choice!.options.map((o) => o.id).sort()).toEqual([a.voucherIds[0], b.voucherIds[0]].sort())
+    expect(which.choice!.options.map((o) => o.sub).sort()).toEqual(['10 May 2023', '12 Jun 2024'])
+    expect(which.figures).toEqual([])
+    const picked = await ask(q, { picks: { bill: b.voucherIds[0] } })
+    expect(paise(picked)).toEqual([200000, 200000])
+    expect(picked.sentences[0]).toContain('12 Jun 2024')
+    // This year's bill 1 wins over the older ones once there is one.
+    const c = await ok<{ voucherIds: number[] }>('simple:post', { intent: { kind: 'sale', clientId: 'pay-sale-00003', date: '2025-09-01', customerId: ids2.asha, amount: { amount: 50000 }, payment: { how: 'cash' } }, today: T })
+    const now = await ask(q)
+    expect(now.choice).toBeUndefined()
+    expect(now.links[0]!.target).toEqual({ screen: 'simple-sales', params: { billId: c.voucherIds[0] } })
+    // ₹500 paid in cash at the counter → nothing due.
+    expect(paise(now)).toEqual([50000])
+    expect(now.sentences[1]).toBe('It is paid in full.')
   })
 })

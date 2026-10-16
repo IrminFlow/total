@@ -10,7 +10,7 @@ const num = (v: unknown): number | undefined => (typeof v === 'number' && Number
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined)
 const REPORTS: readonly string[] = ['doing', 'cash', 'owed', 'by-month'] // i18n-technical
 const PLAIN: readonly string[] = [
-  'simple-money', 'simple-money-in', 'simple-money-out', 'simple-move-money', 'simple-sales', 'simple-sell', 'simple-purchases', 'simple-buy',
+  'simple-money', 'simple-money-in', 'simple-money-out', 'simple-move-money', 'simple-sell', 'simple-buy',
   'simple-return-sale', 'simple-return-purchase', 'simple-stock-count', 'simple-looks', 'simple-features', 'simple-openings', 'gateway', 'profit-loss', 'stock-summary' // i18n-technical
 ]
 
@@ -22,6 +22,10 @@ export function askScreen(t: AssistTarget | undefined | null): Screen | null {
       const filter = str(p.filter)
       return { name: 'simple-people', ...(p.tab === 'bills' ? { tab: 'bills' as const } : {}), ...(filter && (PEOPLE_FILTERS as readonly string[]).includes(filter) ? { filter: filter as PeopleFilter } : {}) } // i18n-technical
     }
+    case 'simple-sales':
+      return { name: 'simple-sales', ...(num(p.billId) ? { billId: num(p.billId)! } : {}) } // i18n-technical
+    case 'simple-purchases':
+      return { name: 'simple-purchases', ...(num(p.billId) ? { billId: num(p.billId)! } : {}) } // i18n-technical
     case 'simple-person':
       return num(p.id) ? { name: 'simple-person', id: num(p.id)! } : null // i18n-technical
     case 'simple-bank':

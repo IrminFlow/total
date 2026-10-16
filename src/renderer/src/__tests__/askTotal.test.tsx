@@ -206,4 +206,10 @@ describe('askScreen (the whitelist)', () => {
     expect(askScreen({ screen: 'settings', params: { tab: 'users' } })).toEqual({ name: 'settings' })
     expect(askScreen({ screen: 'company-delete' })).toBeNull()
   })
+  it('a bill by its number opens that bill’s simple view', () => {
+    expect(askScreen({ screen: 'simple-sales', params: { billId: 12 } })).toEqual({ name: 'simple-sales', billId: 12 })
+    expect(askScreen({ screen: 'simple-purchases', params: { billId: 7 } })).toEqual({ name: 'simple-purchases', billId: 7 })
+    expect(askScreen({ screen: 'simple-sales', params: { billId: 'x' } })).toEqual({ name: 'simple-sales' })
+    expect(askScreen({ screen: 'simple-purchases' })).toEqual({ name: 'simple-purchases' })
+  })
 })
