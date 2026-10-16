@@ -5,7 +5,7 @@ import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
 import { registerIpc, closeCurrentCompany, getCurrentCompany, getUnlockedCompany, canSeeProfitNow } from './ipc'
-import { ensureDataTree, dataRoot } from './paths'
+import { ensureDataTree, dataRoot, dataRootChoice } from './paths'
 import { initUpdater } from './updater'
 import { initLogging, log } from './log'
 import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
@@ -77,6 +77,25 @@ function warnIfSyncedFolder(): void {
   }
 }
 
+/** A moved data folder (Settings → "Where Total keeps your books") that is not there at launch —
+ *  an unplugged drive, a renamed folder: say so, once. The default folder is open instead and the
+ *  pointer is kept, so the next launch with the folder back opens the moved books again. */
+function warnIfMovedFolderMissing(): void {
+  const problem = dataRootChoice().problem
+  if (!problem) return
+  log('warn', 'data-root-pointer-not-followed', { kind: problem.kind })
+  if (SUPPRESS_SYNC_WARNINGS) return
+  dialog.showMessageBox({
+    type: 'warning',
+    title: 'Your books folder was not found',
+    message: problem.pointerPath ? `Total could not find the folder it keeps your books in: ${problem.pointerPath}` : 'Total could not read where it keeps your books.',
+    detail:
+      `Total opened ${dataRootChoice().defaultPath} instead. If the folder is on a drive that is not connected, connect it and start Total again. ` +
+      'Settings → About → "Where Total keeps your books" shows the folder in use.',
+    buttons: ['OK']
+  })
+}
+
 function createWindow(): void {
   const isMac = process.platform === 'darwin'
   const win = new BrowserWindow({
@@ -137,7 +156,7 @@ if (gotSingleInstanceLock) {
   app.whenReady().then(() => {
     initLogging()
     configureI18n({ dev: !app.isPackaged })
-    log('info', 'app-start', { version: app.getVersion(), platform: process.platform })
+    log('info', 'app-start', { version: app.getVersion(), platform: process.platform, dataRoot: dataRootChoice().source })
     electronApp.setAppUserModelId('com.irminlabs.total')
     if (process.platform === 'darwin') app.dock?.setIcon(appIconPath)
     app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
@@ -155,6 +174,7 @@ if (gotSingleInstanceLock) {
     }
     createWindow()
     warnIfSyncedFolder()
+    warnIfMovedFolderMissing()
     initUpdater()
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()

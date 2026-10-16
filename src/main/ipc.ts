@@ -132,6 +132,7 @@ import { registerPayablesIpc } from './ipcPayables'
 import { registerBankingIpc } from './ipcBanking'
 import { registerCashFinanceIpc } from './ipcCashFinance'
 import { registerWorkspaceIpc } from './ipcWorkspace'
+import { registerDataRootIpc } from './ipcDataRoot'
 import { registerDataImportIpc, clearLoadedImports } from './ipcDataImport'
 import { rememberSalePrices } from './services/pricing'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
@@ -605,6 +606,15 @@ export function registerIpc(): void {
   registerCashFinanceIpc(handle, () => requireCompany())
   // ---------- bulk edit, attachments, party notes (WP 6.4) — channels live in ipcWorkspace.ts ----------
   registerWorkspaceIpc(handle, () => requireCompany())
+  // Settings → "Where Total keeps your books" (app-level, owner where the company has users).
+  registerDataRootIpc(handle, {
+    closeCompany: async () => {
+      const slug = current?.slug
+      closeCurrentCompany()
+      if (slug) await stopChecks(companyDbPath(slug))
+    },
+    who: () => sessionUser?.name ?? null
+  })
   // ---------- Excel export, import wizard, books workbook (WP 6.3) — ipcDataImport.ts ----------
   registerDataImportIpc(handle, () => requireCompany(), { canChangeCompanyInfo, userName: () => sessionUser?.name ?? null })
 

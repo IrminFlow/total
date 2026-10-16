@@ -1,13 +1,48 @@
 import { app } from 'electron'
 import { join } from 'path'
-import { mkdirSync } from 'fs'
+import { mkdirSync, readFileSync, statSync } from 'fs'
 import { portableSlug } from '@shared/fileNames'
+import { DATA_ROOT_POINTER_FILE, resolveDataRoot, type DataRootChoice } from './dataRootResolve'
 
-/** Root of all Total data: ~/Documents/total */
-export function dataRoot(): string {
-  // Hermetic override for CI/smoke tests: an absolute TOTAL_DATA_DIR is used verbatim.
-  if (process.env.TOTAL_DATA_DIR) return process.env.TOTAL_DATA_DIR
+/** `<userData>/data-root.json` — the pointer Settings → "Where Total keeps your books" writes. */
+export function dataRootPointerFile(): string {
+  return join(app.getPath('userData'), DATA_ROOT_POINTER_FILE)
+}
+
+/** The default data root: ~/Documents/total (the Documents known folder on Windows). */
+export function defaultDataRoot(): string {
   return join(app.getPath('documents'), 'total')
+}
+
+let chosen: DataRootChoice | null = null
+
+/** How the data root was chosen this session (dataRootResolve.ts). The pointer is read once —
+ *  a move writes a new one and relaunches, so a session never changes folder half-way. */
+export function dataRootChoice(): DataRootChoice {
+  if (process.env.TOTAL_DATA_DIR) return { path: process.env.TOTAL_DATA_DIR, source: 'env', defaultPath: process.env.TOTAL_DATA_DIR }
+  chosen ??= resolveDataRoot({
+    env: {},
+    pointerFile: dataRootPointerFile(),
+    defaultRoot: defaultDataRoot(),
+    readText: (path) => {
+      try {
+        return readFileSync(path, 'utf8')
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
+        throw err
+      }
+    },
+    isDirectory: (path) => statSync(path).isDirectory()
+  })
+  return chosen
+}
+
+/** Root of all Total data: TOTAL_DATA_DIR, else the folder the pointer names, else ~/Documents/total. */
+export function dataRoot(): string {
+  // Hermetic override for CI/smoke tests: an absolute TOTAL_DATA_DIR is used verbatim (and is
+  // re-read on every call — dbtests point it at a fresh scratch dir per file).
+  if (process.env.TOTAL_DATA_DIR) return process.env.TOTAL_DATA_DIR
+  return dataRootChoice().path
 }
 
 export function registryPath(): string {
