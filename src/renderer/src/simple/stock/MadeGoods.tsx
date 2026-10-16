@@ -91,17 +91,23 @@ export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
   // ---------- the plain preview (simple:preview, rehearsed — nothing saved) ----------
   const ready = Object.keys(clientErrors).length === 0
   const intent = useMemo(() => (ready ? makeIntentFrom(form) : null), [ready, form])
-  const intentKey = intent ? JSON.stringify(intent) : ''
+  // Only "labour already recorded?" unanswered (e.g. the recipe's labour was filled in): still check
+  // the quantities (not enough material goes under How many at once), without the labour and
+  // without showing sentences that leave it out.
+  const onlyLabourAsked = !ready && Object.keys(clientErrors).every((k) => k === 'labourRecorded')
+  const checkIntent = useMemo(() => intent ?? (onlyLabourAsked ? makeIntentFrom({ ...form, labour: null, labourRecorded: null }) : null), [intent, onlyLabourAsked, form])
+  const intentKey = checkIntent ? JSON.stringify(checkIntent) : ''
   const previewRef = useRef(poster.preview)
   previewRef.current = poster.preview
   const placeRef = useRef<(err: unknown) => void>(() => undefined)
   useEffect(() => {
     setPreview(null)
     setPreviewProblem(null)
-    if (!intent || saved) return
+    if (!checkIntent || saved) return
+    const partial = !intent
     const id = window.setTimeout(() => {
-      previewRef.current(intent).then(
-        (p) => setPreview(p),
+      previewRef.current(checkIntent).then(
+        (p) => setPreview(partial ? null : p),
         (err: unknown) => {
           // Not enough material (or another refusal on a question) goes under that question at once.
           const m = mapError(err as CaughtError, { simple: true, t })

@@ -428,5 +428,9 @@ describe('Made goods prefills the recipe’s labour', () => {
     typeIn('input-made-qty', '10')
     await waitFor(() => expect((screen.getByTestId('input-made-labour') as HTMLInputElement).value).toContain('50'))
     await waitFor(() => expect(screen.getByTestId('made-labour-question')).toBeTruthy())
+    // The quantities are still checked while "already recorded?" is unanswered (without the labour).
+    await waitFor(() => expect(calls('simple:preview').length).toBeGreaterThan(0))
+    expect((calls('simple:preview').at(-1) as { intent: Record<string, unknown> }).intent).toMatchObject({ kind: 'make_goods', itemId: 3, qty: 10_000 })
+    expect((calls('simple:preview').at(-1) as { intent: Record<string, unknown> }).intent.labour).toBeUndefined()
   })
 })
