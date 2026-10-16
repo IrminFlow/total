@@ -305,6 +305,16 @@ export function dropKeptForms(): void {
 useNav.subscribe((s) => {
   if (keptForms.length > 0) keptForms = keptForms.filter((k) => s.stack[k.depth] === k.screen)
 })
+// Another company (or none): the answers were typed in the one that closed — its ids mean nothing
+// here, and the stack is kept when the user chose to stay on an unsaved editor (to-do, shots-96).
+useSession.subscribe((s, prev) => {
+  if (s.slug !== prev.slug) dropKeptForms()
+})
+
+/** True when `screen` at `depth` of the stack holds kept answers (not yet taken). */
+export function hasKeptForm(screen: Screen | undefined, depth: number): boolean {
+  return screen != null && keptForms.some((k) => k.depth === depth && k.screen === screen)
+}
 
 /** `useState` for a simple flow's form: on arrival at the nav entry the form was handed off from,
  *  it starts from the answers kept there (else `init`). */
@@ -443,7 +453,13 @@ export function useBackToSimple(): () => Promise<void> {
     // there — useKeptForm), not to a new blank copy of the flow.
     const stack = useNav.getState().stack
     const below = stack.at(-2)
-    const toBelow = screen.name === 'voucher-entry' && !!screen.handoff && facts?.voucher == null && savedIdFor(screen) == null && below?.name === screen.handoff.from
+    const unsavedEditor = screen.name === 'voucher-entry' && facts?.voucher == null && savedIdFor(screen) == null
+    const toBelow =
+      unsavedEditor &&
+      (screen.handoff
+        ? below?.name === screen.handoff.from
+        : // The blank counterpart of answers the mapping refused: the form that kept them is right below.
+          below?.name === target.name && hasKeptForm(below, stack.length - 2))
     // Cleared before the move (the arrival redirect must not see it); put back when the user
     // chooses to stay on an unsaved editor.
     const names = backToSimpleClears(screen, target)

@@ -10,6 +10,7 @@ import { useNav, useSession, useToasts } from '../../state/stores'
 import { Button, DateInput, Field, isAnyModalOpen, Panel, TextInput, inputCls } from '../../components/ui'
 import { ItemPicker, useStockItems } from '../../components/pickers'
 import { confirmDialog } from '../../lib/dialogs'
+import { rememberSaved } from '../../lib/handoff'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, useVoucherNumberField } from './hooks'
 import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } from './LineStockDetail'
@@ -106,6 +107,9 @@ export function PhysicalStockEntry({
       setWorkingDate(date)
       await queryClient.invalidateQueries()
       if (isEdit) return leave()
+      // WP 9.10: "Back to simple" from this (reset) editor means the count just saved, and the
+      // answers a simple form kept for the way back are used up.
+      rememberSaved(result.id)
       setRows([blankCountRow()])
       setNarration('')
       numberField.reset()

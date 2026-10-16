@@ -267,6 +267,15 @@ describe('the remembered choice', () => {
     act(() => useNav.getState().back())
     await waitFor(() => expect(top()).toBe(flow))
     expect(renderHook(() => useKeptForm({ supplierId: null as number | null })).result.current[0]).toEqual({ supplierId: 3 })
+    // Review: "Back to simple" from that blank editor goes BACK to the form that kept them too —
+    // never to a new blank copy of the flow above it.
+    await act(async () => result.current({ intent: { kind: 'purchase', date: '2026-05-10', supplierId: 3, items: [] } as never, keep: { form: { supplierId: 3 } } }))
+    expect(top()).toEqual({ name: 'voucher-entry', kindHint: 'purchase' })
+    const back = renderHook(() => useBackToSimple(), { wrapper: ({ children }) => withClient(<>{children}</>) })
+    await act(async () => back.result.current())
+    expect(top()).toBe(flow)
+    expect(useNav.getState().stack).toHaveLength(2)
+    expect(renderHook(() => useKeptForm({ supplierId: null as number | null })).result.current[0]).toEqual({ supplierId: 3 })
     await act(async () => result.current({ intent: null, savedId: 44 }))
     await waitFor(() => expect(top()).toEqual({ name: 'voucher-entry', voucherId: 44 }))
   })
@@ -297,6 +306,14 @@ describe('the remembered choice', () => {
     // Left the entry another way (the stack no longer holds it): dropped.
     await act(async () => result.current({ intent: { kind: 'sale', date: '2026-05-10', customerId: 7, items: [{ itemId: 4, qty: 2000, rate: 50_000 }], payment: { how: 'credit' } }, keep: { form: answers } }))
     act(() => useNav.setState({ stack: [{ name: 'gateway' }] }))
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow] }))
+    expect(renderHook(() => useKeptForm({ customer: null as number | null, qty: '' })).result.current[0]).toEqual({ customer: null, qty: '' })
+
+    // Review: another company opened while the stack still holds the entry (the user chose to
+    // stay on the unsaved editor when switching) — Company A's answers never come back in B.
+    await act(async () => result.current({ intent: { kind: 'sale', date: '2026-05-10', customerId: 7, items: [{ itemId: 4, qty: 2000, rate: 50_000 }], payment: { how: 'credit' } }, keep: { form: answers } }))
+    act(() => useSession.getState().clearCompany())
+    act(() => useSession.setState({ slug: 'other-co' }))
     act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow] }))
     expect(renderHook(() => useKeptForm({ customer: null as number | null, qty: '' })).result.current[0]).toEqual({ customer: null, qty: '' })
   })

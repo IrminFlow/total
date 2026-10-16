@@ -6,10 +6,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Group, Ledger, StockItem, VoucherType } from '@shared/domain'
 import type { SimpleHandoff } from '@shared/simple/handoff'
-import { emptyInvoiceState } from '@shared/voucherEdit'
+import { emptyInvoiceState, emptyPhysicalState } from '@shared/voucherEdit'
 import { VoucherEntry } from '../screens/VoucherEntry'
 import { DialogHost } from '../components/dialogs'
 import { useNav, useSession } from '../state/stores'
+import { savedIdFor } from '../lib/handoff'
 
 const invoke = vi.fn()
 const GROUPS: Group[] = [
@@ -30,7 +31,8 @@ const ITEMS: StockItem[] = [
 ]
 const TYPES: VoucherType[] = [
   { id: 1, name: 'Sales', kind: 'sales', numbering: 'auto', prefix: '', suffix: '', padWidth: 0, restartFy: true, isSystem: true },
-  { id: 2, name: 'Journal', kind: 'journal', numbering: 'auto', prefix: '', suffix: '', padWidth: 0, restartFy: true, isSystem: true }
+  { id: 2, name: 'Journal', kind: 'journal', numbering: 'auto', prefix: '', suffix: '', padWidth: 0, restartFy: true, isSystem: true },
+  { id: 3, name: 'Physical Stock', kind: 'physical_stock', numbering: 'auto', prefix: '', suffix: '', padWidth: 0, restartFy: true, isSystem: true }
 ]
 const saved: { data: { partyLedgerId: number | null; lines: { ledgerId: number; drCr: string; amount: number }[] } }[] = []
 const created: { name: string; groupId: number; taxType: string | null }[] = []
@@ -58,6 +60,7 @@ beforeEach(() => {
       case 'master:stockItems:list': return { ok: true, data: ITEMS }
       case 'master:units:list': return { ok: true, data: [{ id: 1, name: 'Box', symbol: 'Box', decimals: 0, uqc: 'BOX' }] }
       case 'master:godowns:list': return { ok: true, data: [] }
+      case 'stock:summary': return { ok: true, data: [] }
       case 'voucher:nextNumber': return { ok: true, data: { number: '1' } }
       case 'voucher:numberExists': return { ok: true, data: false }
       case 'voucher:duplicates': return { ok: true, data: [] }
@@ -135,3 +138,28 @@ describe('GST / round-off ledgers of a handed-off "just an amount" bill', () => 
   })
 })
 
+
+describe('a handed-off stock count (review)', () => {
+  it('a save is remembered for the editor entry — "Back to simple" means the count saved, and kept answers are used up', async () => {
+    const handoff: SimpleHandoff = {
+      from: 'simple-stock-count', kind: 'stock_count', others: [], missing: [],
+      entry: {
+        role: 'bill', kind: 'physical_stock', voucherTypeId: 3, form: 'physical', amount: 0,
+        state: { ...emptyPhysicalState('2026-10-14'), rows: [{ itemId: 100, qtyText: '5', godownId: null, batchId: null }] }
+      }
+    }
+    useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-stock-count' }, { name: 'voucher-entry', handoff }] })
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <VoucherEntry handoff={handoff} />
+        <DialogHost />
+      </QueryClientProvider>
+    )
+    await waitFor(() => expect((screen.getAllByTestId('input-counted-qty')[0] as HTMLInputElement).value).toBe('5'), { timeout: 3000 })
+    expect(savedIdFor(useNav.getState().stack.at(-1)!)).toBeNull()
+    await act(async () => fireEvent.click(screen.getByTestId('btn-save-physical')))
+    await waitFor(() => expect(saved).toHaveLength(1))
+    expect(savedIdFor(useNav.getState().stack.at(-1)!)).toBe(99)
+  })
+})

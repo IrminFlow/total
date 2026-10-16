@@ -19,6 +19,7 @@ import {
 import { ItemPicker, LedgerPicker, useLedgers, useStockItems } from '../components/pickers'
 import { GodownPicker, useGodowns } from '../components/stockPickers'
 import { confirmDialog } from '../lib/dialogs'
+import { rememberSaved } from '../lib/handoff'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 import { nextLineKey, NUMBER_LOADING, useLeaveAfterSave, useVoucherNumberField } from './voucher/hooks'
 
@@ -398,6 +399,9 @@ export function ManufactureForm({
       await queryClient.invalidateQueries()
       // An AI draft is used up by its save — go back to where the user came from.
       if (isEdit || aiDraftId) return leave()
+      // WP 9.10: "Back to simple" from this (reset) editor means the batch just saved, and the
+      // answers a simple form kept for the way back are used up.
+      rememberSaved(result.id)
       resetForm()
     } catch (err) {
       toast.push('error', (err as Error).message)
