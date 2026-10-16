@@ -2120,6 +2120,7 @@ export const en = {
   'errors.openings.duplicateName': 'This name is in the list twice. Put all its bills on one line.',
   'errors.openings.duplicateBill': 'Another bill here has the same number. Give each bill its own number, or leave it blank.',
   'errors.openings.dateAfterStart': 'This date is after the first day you record. Use that day or an earlier one.',
+  'errors.openings.dateAfterStartOn': 'This date is after the first day you record ({date}). Use that day or an earlier one.',
   'errors.openings.qtyNeeded': 'Type how many you have.',
   'errors.openings.qtyInvalid': 'Type a number, like 12 or 2.5.',
   'errors.openings.nameTaken': 'This name is already used for something else in your books. Use a different name.',

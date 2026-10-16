@@ -2014,6 +2014,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'errors.openings.duplicateName': 'Yeh naam list mein do baar hai. Iske saare bill ek hi line par rakhein.',
   'errors.openings.duplicateBill': 'Yahan ek aur bill ka bhi yahi number hai. Har bill ko alag number dein, ya khaali chhod dein.',
   'errors.openings.dateAfterStart': 'Yeh date hisaab ke pehle din ke baad ki hai. Wahi din ya usse pehle ka din lein.',
+  'errors.openings.dateAfterStartOn': 'Yeh date hisaab ke pehle din ({date}) ke baad ki hai. Wahi din ya usse pehle ka din lein.',
   'errors.openings.qtyNeeded': 'Likhein ki aapke paas kitne hain.',
   'errors.openings.qtyInvalid': 'Number likhein, jaise 12 ya 2.5.',
   'errors.openings.nameTaken': 'Yeh naam aapke hisaab mein kisi aur cheez ke liye istemaal ho chuka hai. Doosra naam lein.',

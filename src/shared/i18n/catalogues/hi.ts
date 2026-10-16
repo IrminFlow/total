@@ -2019,6 +2019,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'errors.openings.duplicateName': 'यह नाम सूची में दो बार है। इसके सारे बिल एक ही लाइन पर रखें।',
   'errors.openings.duplicateBill': 'यहाँ एक और बिल का भी यही नंबर है। हर बिल को अलग नंबर दें, या खाली छोड़ दें।',
   'errors.openings.dateAfterStart': 'यह तारीख हिसाब के पहले दिन के बाद की है। वही दिन या उससे पहले का दिन लें।',
+  'errors.openings.dateAfterStartOn': 'यह तारीख हिसाब के पहले दिन ({date}) के बाद की है। वही दिन या उससे पहले का दिन लें।',
   'errors.openings.qtyNeeded': 'लिखें कि आपके पास कितने हैं।',
   'errors.openings.qtyInvalid': 'संख्या लिखें, जैसे 12 या 2.5।',
   'errors.openings.nameTaken': 'यह नाम आपके हिसाब में किसी और चीज़ के लिए इस्तेमाल हो चुका है। दूसरा नाम लें।',

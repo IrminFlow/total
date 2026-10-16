@@ -124,7 +124,7 @@ export const ERROR_MAP = {
   openings_invalid: e('errors.checkFields'),
   openings_name_taken: e('errors.openings.nameTaken', 'name'),
   openings_wrong_kind: e('errors.openings.wrongKind', 'name'),
-  openings_date_after_start: e('errors.openings.dateAfterStart', 'date'),
+  openings_date_after_start: e('errors.openings.dateAfterStartOn', 'date', ['date'], 'errors.openings.dateAfterStart'),
   openings_changed: e('errors.openings.changed'),
   openings_no_cash: e('errors.openings.noCash'),
   openings_bill_in_use: e('errors.openings.billInUse', 'name'),
