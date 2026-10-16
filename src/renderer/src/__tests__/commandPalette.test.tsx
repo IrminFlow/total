@@ -46,6 +46,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
   localStorage.clear()
   useSession.getState().setCompany('acme-co', INFO)
+  useSession.getState().setUi({ mode: 'accountant' })
   useSession.getState().setPeriod('2026-04-01', '2027-03-31')
   useNav.setState({ stack: [{ name: 'gateway' }] })
   lastSearch = null
@@ -150,6 +151,19 @@ describe('CommandPalette', () => {
     expect(screen.getByTestId('palette-see-all-voucher').textContent).toContain('See all 312 vouchers')
     // Items section with zero hits is omitted.
     expect(screen.queryByTestId('palette-section-kind-item')).toBeNull()
+  })
+
+  it('review: a simple-mode company reads the result groups in plain words (Accounts / Entries); the accountant palette is unchanged', async () => {
+    act(() => useSession.getState().setUi({ mode: 'simple' }))
+    renderPalette()
+    type('umbrella')
+    await screen.findByTestId('palette-hit-voucher-42')
+    expect(screen.getByTestId('palette-section-kind-ledger').textContent).toContain('Accounts')
+    const vouchers = screen.getByTestId('palette-section-kind-voucher')
+    expect(vouchers.textContent).toContain('Entries')
+    expect(vouchers.textContent).not.toContain('Vouchers')
+    expect(screen.getByTestId('palette-hit-ledger-7').textContent).toContain('Account')
+    expect(screen.getByTestId('palette-see-all-voucher').textContent).toContain('See all 312 found')
   })
 
   it('See all opens the Search results screen for that kind and records the query', async () => {

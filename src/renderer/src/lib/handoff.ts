@@ -12,17 +12,19 @@
 // The remembered choice: only "Always open the full app for this" stores the per-screen override
 // (lib/mode.ts); a simple flow with it set opens its full counterpart (`fullCounterpart`) straight
 // away (`useAlwaysFullRedirect`). "Back to simple" clears it (`backToSimpleClears`).
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { create } from 'zustand'
+import { useQueryClient } from '@tanstack/react-query'
 import type { VoucherKind } from '@shared/domain'
-import { INTENT_SCREEN, type HandoffFacts, type SimpleHandoff } from '@shared/simple/handoff'
+import { INTENT_SCREEN, type HandoffCreate, type HandoffFacts, type HandoffPending, type SimpleHandoff } from '@shared/simple/handoff'
 import type { SimpleIntentInput } from '@shared/simple/intents'
 import { api } from './client'
 import { useT } from './i18n'
 import { readRememberedOverride, setViewOverride, useMode } from './mode'
-import { screenDef, SIMPLE_ENTRIES, simpleSectionOf } from './screens'
+import { screenApplies, screenDef, SIMPLE_ENTRIES, simpleSectionOf } from './screens'
 import { nextDraftId, useNav, useScreen, useSession, useToasts, type Screen } from '../state/stores'
 import type { IntentDraft } from './simplePost'
+import { useTaxLedgers } from '../components/pickers'
 
 type Name = Screen['name']
 
@@ -57,9 +59,38 @@ export function fullCounterpart(screen: Screen): Screen | null {
       return screen.itemId != null ? { name: 'stock-movements', itemId: screen.itemId } : { name: 'stock-summary' }
     case 'simple-bank':
       return screen.bankId != null ? { name: 'banking', tab: 'import', ledgerId: screen.bankId } : { name: 'banking', tab: 'import' }
+    // WP 9.9's plain reports: the accountant report each one's Accountant view opens.
+    case 'simple-reports':
+      switch (screen.report) {
+        case 'cash':
+          return { name: 'cash-forecast' }
+        case 'owed':
+          return { name: 'outstandings', side: screen.side ?? 'receivable' }
+        case 'by-month':
+          return { name: 'registers', tab: 'sales' }
+        default:
+          return { name: 'profit-loss' }
+      }
+    case 'simple-taxes':
+      return screen.period ? { name: 'gstr3b', month: screen.period } : { name: 'gstr3b' }
+    // People: the party masters; its Bills to pay tab, the payables Outstandings.
+    case 'simple-people':
+      return screen.tab === 'bills' ? { name: 'outstandings', side: 'payable' } : { name: 'masters', tab: 'ledgers', parties: true }
+    // The Reports page: the Trial balance (its "For your CA" group's first report), whose Back
+    // to simple lands on this page again.
+    case 'simple-section':
+      return screen.section === 'reports' ? { name: 'trial-balance' } : null
     default:
       return null
   }
+}
+
+/** The name the remembered "Always open the full app for this" is stored under: one per plain
+ *  report (the Reports registry screen holds several), else the screen's own name. */
+export function alwaysKey(screen: Screen): Name {
+  if (screen.name === 'simple-reports') return `simple-reports:${screen.report ?? 'doing'}` as Name // i18n-technical
+  if (screen.name === 'simple-section') return `simple-section:${screen.section}` as Name // i18n-technical
+  return screen.name
 }
 
 /** The simple flow a NEW entry of this kind is made on. */
@@ -174,7 +205,7 @@ export function factsQuery(screen: Screen, savedId: number | null): { voucherId?
 /** The simple screens whose remembered "always full" choice "Back to simple" from `screen` to
  *  `target` clears: the one it lands on, and the simple flow this full screen stands for. */
 export function backToSimpleClears(screen: Screen, target: Screen): Name[] {
-  const out = new Set<Name>([target.name])
+  const out = new Set<Name>([alwaysKey(target)])
   if (screen.name === 'voucher-entry') {
     if (screen.handoff) out.add(INTENT_SCREEN[screen.handoff.kind] as Name)
     const flow = screen.kindHint ? FLOW_FOR_KIND[screen.kindHint] : undefined
@@ -183,6 +214,8 @@ export function backToSimpleClears(screen: Screen, target: Screen): Name[] {
   if (screen.name === 'manufacture') out.add('simple-made-goods')
   if (screen.name === 'stock-summary' || screen.name === 'stock-movements') out.add('simple-stock')
   if (screen.name === 'banking') out.add('simple-bank')
+  if (screen.name === 'registers') out.add(alwaysKey({ name: 'simple-reports', report: 'by-month' }))
+  if (screen.name === 'outstandings' && screen.side === 'payable') out.add('simple-people')
   return [...out]
 }
 
@@ -203,8 +236,106 @@ export function savedIdFor(screen: Screen): number | null {
 
 /** Record the voucher saved on the visible screen (the save card calls this). */
 export function rememberSaved(id: number): void {
+  dropKeptForms()
   const top = useNav.getState().stack.at(-1)
   if (top) useLastSaved.getState().set(top, id)
+}
+
+// ---------------------------------------------------------------- accounts the editor makes on save
+
+/**
+ * The editor's first-use creation for a hand-off's pending accounts (shared/simple/handoff.ts
+ * HandoffPending): the walk-in customer as counter.ts ensureWalkIn makes it (found by its name,
+ * else created under Sundry Debtors), a GST / round-off ledger as InvoiceEntry's save does
+ * (useTaxLedgers). Called on SAVE only — opening the editor writes nothing.
+ */
+export function useHandoffLedgers(): (pending: HandoffPending) => Promise<number> {
+  const queryClient = useQueryClient()
+  const { ensure, ensureRoundOff } = useTaxLedgers()
+  return useCallback(
+    async ({ name, create: how }: HandoffPending): Promise<number> => {
+      const c: HandoffCreate = how
+      if (c.kind === 'tax') return ensure(c.taxType, c.side)
+      if (c.kind === 'roundOff') return ensureRoundOff()
+      const found = (await api.ledgers.list()).find((l) => l.name === name)
+      if (found) return found.id
+      const debtors = (await api.groups.list()).find((g) => g.name === 'Sundry Debtors')
+      if (!debtors) throw new Error('Sundry Debtors group missing')
+      const created = await api.ledgers.create({
+        name, groupId: debtors.id, openingBalance: 0, gstin: null, stateCode: null, address: null, taxType: null,
+        gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null
+      })
+      await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
+      return created.id
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ensure / ensureRoundOff are rebuilt each render; they only read the client
+    [queryClient]
+  )
+}
+
+// ---------------------------------------------------------------- the simple form left for the editor
+
+/** The answers a simple form held when its "Accountant view" opened the full editor (review of
+ *  WP 9.10): Cancel / Esc / "Back to simple" from that editor come back to the SAME nav entry, which
+ *  then starts from these answers instead of a blank form. Keyed by the nav entry — the stack entry
+ *  object AND its depth (registry entries reuse one Screen object) — and taken once; an entry no
+ *  longer in the stack at its depth is dropped, and so is everything once the editor saves
+ *  (`rememberSaved`), so a fresh visit is always blank and saved answers never come back. */
+interface KeptForm {
+  screen: Screen
+  depth: number
+  /** By slot (`useKeptForm`'s second argument; 'form' by default). */
+  slots: Record<string, unknown>
+}
+let keptForms: KeptForm[] = []
+
+function keepForm(slots: Record<string, unknown>): void {
+  const stack = useNav.getState().stack
+  const top = stack.at(-1)
+  if (!top) return
+  const depth = stack.length - 1
+  keptForms = [...keptForms.filter((k) => k.depth !== depth), { screen: top, depth, slots }]
+}
+
+/** Forget every kept form (the hand-off editor saved). */
+export function dropKeptForms(): void {
+  keptForms = []
+}
+
+useNav.subscribe((s) => {
+  if (keptForms.length > 0) keptForms = keptForms.filter((k) => s.stack[k.depth] === k.screen)
+})
+// Another company (or none): the answers were typed in the one that closed — its ids mean nothing
+// here, and the stack is kept when the user chose to stay on an unsaved editor (to-do, shots-96).
+useSession.subscribe((s, prev) => {
+  if (s.slug !== prev.slug) dropKeptForms()
+})
+
+/** True when `screen` at `depth` of the stack holds kept answers (not yet taken). */
+export function hasKeptForm(screen: Screen | undefined, depth: number): boolean {
+  return screen != null && keptForms.some((k) => k.depth === depth && k.screen === screen)
+}
+
+/** `useState` for a simple flow's form: on arrival at the nav entry the form was handed off from,
+ *  it starts from the answers kept there (else `init`). */
+export function useKeptForm<T>(init: T | (() => T), slot = 'form'): [T, Dispatch<SetStateAction<T>>] {
+  const [here] = useState(() => {
+    const stack = useNav.getState().stack
+    return { screen: stack.at(-1), depth: stack.length - 1 }
+  })
+  const found = (): KeptForm | undefined => keptForms.find((k) => k.depth === here.depth && k.screen === here.screen)
+  // Peeked (pure, StrictMode calls it twice); taken after the mount.
+  const state = useState<T>(() => {
+    const k = found()
+    if (k && slot in k.slots) return k.slots[slot] as T
+    return typeof init === 'function' ? (init as () => T)() : init
+  })
+  useEffect(() => {
+    const k = found()
+    if (k) keptForms = keptForms.filter((x) => x !== k)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- on mount only
+  }, [])
+  return state
 }
 
 // ---------------------------------------------------------------- hooks
@@ -220,6 +351,9 @@ export interface AccountantViewRequest {
   always?: boolean
   /** Opened when there is nothing to carry (default: the screen's blank full counterpart). */
   fallback?: Screen
+  /** The form's own state by `useKeptForm` slot: kept under this nav entry, so coming back from
+   *  the editor (Cancel / Esc / Back to simple) shows these answers again. */
+  keep?: Record<string, unknown>
 }
 
 /**
@@ -227,9 +361,10 @@ export interface AccountantViewRequest {
  * (simple:intentForm), without the discard question (the answers go with it); nothing usable → the
  * blank full counterpart. `always` also stores the choice for this screen.
  */
-export function useAccountantView(self: Name): (req: AccountantViewRequest) => Promise<void> {
-  // The simple screen the button is on (by name — params, if any, come with `fallback`).
-  const screen = { name: self } as Screen
+export function useAccountantView(self: Name | Screen): (req: AccountantViewRequest) => Promise<void> {
+  // The simple screen the button is on (by name — params, if any, come with `fallback` — or the
+  // screen itself where its params pick the full counterpart, e.g. a plain report).
+  const screen = typeof self === 'string' ? ({ name: self } as Screen) : self
   const nav = useNav()
   const t = useT()
   const toast = useToasts()
@@ -238,29 +373,34 @@ export function useAccountantView(self: Name): (req: AccountantViewRequest) => P
   const today = useSession((s) => s.workingDate)
   return useCallback(
     async (req: AccountantViewRequest) => {
-      if (req.always) setViewOverride(slug, userId, screen.name, true, true)
+      if (req.always) setViewOverride(slug, userId, alwaysKey(screen), true, true)
       const blank = req.fallback ?? fullCounterpart(screen) ?? section(screen)
       if (req.savedId != null) return nav.go({ name: 'voucher-entry', voucherId: req.savedId })
       if (!req.intent) return nav.go(blank)
+      const kept = !!req.keep
+      if (req.keep) keepForm(req.keep)
       try {
         const r = await api.simple.intentForm({ ...req.intent, clientId: req.clientId ?? HANDOFF_CLIENT_ID } as SimpleIntentInput, today)
         const [entry, ...rest] = r.entries
-        if (!entry) return nav.go(blank)
+        if (!entry) return nav.go(blank, { force: kept })
         const handoff: SimpleHandoff = {
           from: screen.name,
           kind: r.kind,
           entry,
           others: rest.map((e) => ({ role: e.role, kind: e.kind, amount: e.amount })),
-          missing: r.missing
+          missing: r.missing,
+          ...(r.addedOnSave?.length ? { addedOnSave: r.addedOnSave } : {})
         }
         nav.go({ name: 'voucher-entry', handoff, draftId: nextDraftId() }, { force: true })
       } catch {
-        // Answers the mapping can't use yet (no product picked, say): the blank editor.
+        // Answers the mapping can't use yet (no product picked, say): the blank editor, with no
+        // discard question when the answers are kept for the way back (the note says they could
+        // not be carried; Back / Cancel there return to them).
         toast.push('info', t('simple.handoff.notCarried'))
-        nav.go(blank)
+        nav.go(blank, { force: kept })
       }
     },
-    [self, nav, t, toast, slug, userId, today] // eslint-disable-line react-hooks/exhaustive-deps -- `screen` is `self`
+    [typeof self === 'string' ? self : JSON.stringify(self), nav, t, toast, slug, userId, today] // eslint-disable-line react-hooks/exhaustive-deps -- `screen` is `self`
   )
 }
 
@@ -276,14 +416,17 @@ export function useAlwaysFullRedirect(): void {
   const mode = useMode()
   const slug = useSession((s) => s.slug)
   const userId = useSession((s) => s.user?.id)
+  const gstType = useSession((s) => s.info?.gstRegistrationType)
   useEffect(() => {
     const cameBack = lastDepth.current != null && depth < lastDepth.current
     lastDepth.current = depth
     if (cameBack) return
     if (mode !== 'simple' || !screenDef(screen.name)?.modes.includes('simple')) return
-    if (!readRememberedOverride(slug, userId, screen.name)) return
+    if (!readRememberedOverride(slug, userId, alwaysKey(screen))) return
     const full = fullCounterpart(screen)
-    if (full) useNav.getState().replace(full)
+    // Never into a screen the company can't use (GST returns of an unregistered business).
+    const def = full ? screenDef(full.name) : undefined
+    if (full && (!def || screenApplies(def, gstType))) useNav.getState().replace(full)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- on arrival only (the screen entry)
   }, [screen])
 }
@@ -306,11 +449,22 @@ export function useBackToSimple(): () => Promise<void> {
       }
     }
     const target = simpleTargetFor(screen, facts)
+    // An unsaved hand-off whose simple form is right below: go BACK to it (its answers are kept
+    // there — useKeptForm), not to a new blank copy of the flow.
+    const stack = useNav.getState().stack
+    const below = stack.at(-2)
+    const unsavedEditor = screen.name === 'voucher-entry' && facts?.voucher == null && savedIdFor(screen) == null
+    const toBelow =
+      unsavedEditor &&
+      (screen.handoff
+        ? below?.name === screen.handoff.from
+        : // The blank counterpart of answers the mapping refused: the form that kept them is right below.
+          below?.name === target.name && hasKeptForm(below, stack.length - 2))
     // Cleared before the move (the arrival redirect must not see it); put back when the user
     // chooses to stay on an unsaved editor.
     const names = backToSimpleClears(screen, target)
     const remembered = names.filter((name) => readRememberedOverride(slug, userId, name))
     for (const name of names) setViewOverride(slug, userId, name, false)
-    if (!(await nav.tryGo(target))) for (const name of remembered) setViewOverride(slug, userId, name, true, true)
+    if (!(await (toBelow ? nav.tryBack() : nav.tryGo(target)))) for (const name of remembered) setViewOverride(slug, userId, name, true, true)
   }, [screen, nav, slug, userId])
 }

@@ -25,6 +25,8 @@ import { CategoryPicker } from '../../simple/CategoryPicker'
 import { CATEGORIES, CATEGORY_KEYS } from '@shared/simple/categories'
 import { useMode } from '../../lib/mode'
 import { useT } from '../../lib/i18n'
+import { useHandoffLedgers } from '../../lib/handoff'
+import type { HandoffPending, HandoffPendingRefs } from '@shared/simple/handoff'
 import { TransportModal } from './TransportModal'
 import { useTcsCollection, useTdsDeduction, type TcsCandidate } from './useTdsDeduction'
 import { TdsBanner, TdsNotApplicableNote } from './TdsBanner'
@@ -62,7 +64,8 @@ export function InvoiceEntry({
   draft,
   voucherId,
   voucher,
-  initial
+  initial,
+  pending
 }: {
   typeId: number
   kind: VoucherKind
@@ -71,6 +74,9 @@ export function InvoiceEntry({
   voucherId?: number
   voucher?: Voucher
   initial?: InvoiceFormState
+  /** WP 9.10 hand-off: a party that does not exist yet (the walk-in) — named in the pick and
+   *  created on save, as the editor does on first use (lib/handoff.ts useHandoffLedgers). */
+  pending?: HandoffPendingRefs
 }): React.JSX.Element {
   const isEdit = voucherId != null
   const { info, workingDate, setWorkingDate, user } = useSession()
@@ -84,6 +90,10 @@ export function InvoiceEntry({
 
   const [date, setDate] = useState(initial?.date ?? draft?.date ?? workingDate)
   const [partyId, setPartyId] = useState<number | null>(initial ? initial.partyId : (draft?.partyLedgerId ?? null))
+  const [pendingParty, setPendingParty] = useState<HandoffPending | null>(pending?.party ?? null)
+  const createPending = useHandoffLedgers()
+  /** Set while the pending party is being created: the save to run again once it is picked. */
+  const resave = useRef<boolean | null>(null)
   const [accountId, setAccountId] = useState<number | null>(initial?.accountId ?? null)
   const [rows, setRows] = useState<ItemRow[]>(() =>
     initial ? [...initial.rows.map((r) => ({ ...r, key: nextLineKey() })), blankItemRow()] : [blankItemRow()]
@@ -375,6 +385,21 @@ export function InvoiceEntry({
 
   const save = useCallback(async (andPdf = false): Promise<void> => {
     if (saving) return
+    if (!partyId && pendingParty) {
+      // The hand-off's walk-in: created now (first use), then this save runs again with it.
+      setSaving(true)
+      try {
+        const id = await createPending(pendingParty)
+        resave.current = andPdf
+        setPendingParty(null)
+        setPartyId(id)
+      } catch (err) {
+        toast.push('error', (err as Error).message)
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
     // WP 8.5: a missing field is said under that field (the accountant wording is unchanged).
     const plain = errorShell.simple
     if (!partyId) return void formErrors.set('party', plain ? errorShell.t(isSalesSide ? 'errors.chooseCustomer' : 'errors.chooseSupplier') : 'Pick the party account first')
@@ -458,7 +483,13 @@ export function InvoiceEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsDeduction.afterSave, tdsStale, tcsStale, tcsCollection.reset, tcsCollection.afterSave, features.tcs, grandTotal, onHold, overrideReason, canOverrideHold, party, draft?.aiDraftId, formErrors, errorShell, saveCard])
+  }, [saving, partyId, accountId, computed, buildPayload, isSalesSide, kind, typeId, voucherId, isEdit, date, toast, setWorkingDate, queryClient, numberField.reset, leave, tdsDeduction.reset, tdsDeduction.afterSave, tdsStale, tcsStale, tcsCollection.reset, tcsCollection.afterSave, features.tcs, grandTotal, onHold, overrideReason, canOverrideHold, party, draft?.aiDraftId, formErrors, errorShell, saveCard, pendingParty, createPending])
+  useEffect(() => {
+    if (resave.current == null || partyId == null || saving || !party) return
+    const andPdf = resave.current
+    resave.current = null
+    void save(andPdf)
+  }, [partyId, party, saving, save])
 
   const remove = async (): Promise<void> => {
     if (!voucherId) return
@@ -617,8 +648,11 @@ export function InvoiceEntry({
             <LedgerPicker
               autoFocus={!isEdit && draft?.fromTradeDocId == null && draft?.aiDraftId == null}
               value={partyId}
-              onPick={setPartyId}
-              placeholder="Party ledger"
+              onPick={(id) => {
+                setPendingParty(null)
+                setPartyId(id)
+              }}
+              placeholder={pendingParty ? t('simple.handoff.addedOnSaveField', { name: pendingParty.name }) : 'Party ledger'}
               onCreateRequest={(name) => setQuickLedger({ name, forParty: true })}
               className="flex-1"
               testId="picker-party"

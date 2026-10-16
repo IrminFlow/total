@@ -22,12 +22,13 @@ import {
   buildAccountingPayload, buildInvoicePayload, buildPhysicalPayload, derivePartyId, taxLedgerIdsFrom, taxSideOf,
   type AccountingFormState, type InvoiceFormState
 } from '@shared/voucherEdit'
-import type { HandoffEntry } from '@shared/simple/handoff'
+import type { HandoffCreate, HandoffEntry } from '@shared/simple/handoff'
 import { createLedger, createStockItem, listGroups, listLedgers, listStockItems } from './masters'
 import { getVoucher, nextVoucherNumber, saveVoucher } from './vouchers'
 import { intentForm, postIntent } from './simplePost'
 import { handoffFacts } from './simpleHandoff'
 import { setBom } from './bom'
+import { ensureWalkIn } from './counter'
 import { rehearse } from '../ai/drafting/rehearse'
 
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<{ ok: boolean; data?: unknown; error?: string; code?: string }>>()
@@ -153,6 +154,17 @@ function editorSave(e: HandoffEntry): number {
   throw new Error('the manufacture form saves through its screen')
 }
 
+/** The entry with its pending accounts filled in as the editor does on save (`ids` by create kind). */
+function withPending(e: HandoffEntry, walkIn: number, tax: (c: HandoffCreate) => number = () => { throw new Error('no tax ledger expected') }): HandoffEntry {
+  const idOf = (c: HandoffCreate): number => (c.kind === 'walkIn' ? walkIn : tax(c))
+  if (e.form === 'invoice' && e.pending?.party) return { ...e, state: { ...e.state, partyId: idOf(e.pending.party.create) } }
+  if (e.form === 'accounting' && e.pending?.rows) {
+    const p = e.pending.rows
+    return { ...e, state: { ...e.state, rows: e.state.rows.map((r, i) => (p[i] ? { ...r, ledgerId: idOf(p[i]!.create) } : r)) } }
+  }
+  return e
+}
+
 /** The hand-off of `i`: no trace; its entries saved like the editor = what simple:post saves. */
 function handsOffAsPosted(i: Record<string, unknown>, forms: HandoffEntry['form'][]): void {
   const before = trace()
@@ -221,18 +233,75 @@ describe('simple:intentForm — the editor state of the current answers', () => 
     expect(e.state.rows.filter((r) => r.itemId != null)).toEqual([expect.objectContaining({ itemId: I('Flour'), qtyText: '5' })])
   })
 
-  it('a walk-in sale: the cash customer the save would create is named, never referenced', () => {
+  it('a walk-in sale: the cash customer the save would create is named and created on save, never referenced', () => {
     expect(db.prepare("SELECT 1 FROM ledgers WHERE name = 'Cash sale'").get()).toBeUndefined()
+    const i = { kind: 'sale', items: [{ itemId: I('Widget'), qty: '1', rate: '100' }], payment: { how: 'cash' } }
     const before = trace()
-    const hf = intentForm(db, INFO, intent({ kind: 'sale', items: [{ itemId: I('Widget'), qty: '1', rate: '100' }], payment: { how: 'cash' } }), TODAY)
+    const hf = intentForm(db, INFO, intent(i), TODAY)
     expect(trace()).toEqual(before)
-    expect(hf.missing).toEqual(['Cash sale'])
+    expect(hf.missing).toEqual([])
+    expect(hf.addedOnSave).toEqual(['Cash sale'])
     const bill = hf.entries[0]!
     if (bill.form !== 'invoice') throw new Error('invoice form')
     expect(bill.state.partyId).toBeNull()
+    expect(bill.pending).toEqual({ party: { name: 'Cash sale', create: { kind: 'walkIn' } } })
     const payment = hf.entries[1]!
     if (payment.form !== 'accounting') throw new Error('accounting form')
-    expect(payment.state.rows.some((r) => r.ledgerId == null)).toBe(true)
+    const at = payment.state.rows.findIndex((r) => r.ledgerId == null)
+    expect(at).toBeGreaterThanOrEqual(0)
+    expect(payment.pending?.rows?.[at]).toEqual({ name: 'Cash sale', create: { kind: 'walkIn' } })
+    // The editor creates it on save (the counter's own rule) — and then saves what simple:post saves.
+    const viaEditor = rehearse(db, () => {
+      const walkIn = ensureWalkIn(db)
+      return hf.entries.map((e) => rows(editorSave(withPending(e, walkIn))))
+    })
+    const out = post(i)
+    expect(out.voucherIds.map((id) => rows(id))).toEqual(viaEditor)
+  })
+
+  it('a walk-in sale where the counter\'s "Cash sale" exists: the editor shows it', () => {
+    const walkIn = ensureWalkIn(db)
+    const hf = intentForm(db, INFO, intent({ kind: 'sale', items: [{ itemId: I('Widget'), qty: '1', rate: '100' }], payment: { how: 'cash' } }), TODAY)
+    expect(hf.missing).toEqual([])
+    expect(hf.addedOnSave).toEqual([])
+    const bill = hf.entries[0]!
+    if (bill.form !== 'invoice') throw new Error('invoice form')
+    expect(bill.state.partyId).toBe(walkIn)
+    expect(bill.pending).toBeUndefined()
+  })
+
+  it('review: GST and round-off ledgers the save would create are named in their rows and created on save like the editor does', () => {
+    db.prepare("DELETE FROM ledgers WHERE name IN ('CGST', 'SGST', 'Round Off')").run()
+    const i = { kind: 'sale', customerId: L('Ramesh'), amount: { amount: '999', gstRate: 18 }, payment: { how: 'credit' } }
+    const before = trace()
+    const hf = intentForm(db, INFO, intent(i), TODAY)
+    expect(trace()).toEqual(before)
+    expect(hf.missing).toEqual([])
+    expect([...(hf.addedOnSave ?? [])].sort()).toEqual(['CGST', 'Round Off', 'SGST'])
+    const bill = hf.entries[0]!
+    if (bill.form !== 'accounting') throw new Error('accounting form')
+    const pendingRows = bill.state.rows.map((r, at) => [r.ledgerId, bill.pending?.rows?.[at] ?? null] as const).filter(([, p]) => p != null)
+    expect(pendingRows.map(([id]) => id)).toEqual([null, null, null])
+    expect(pendingRows.map(([, p]) => p!.create).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))).toEqual([
+      { kind: 'roundOff' }, { kind: 'tax', taxType: 'cgst', side: 'output' }, { kind: 'tax', taxType: 'sgst', side: 'output' }
+    ])
+    // Created on save as the editor's useTaxLedgers does (same names / groups), then saved = simple:post.
+    const editorCreate = (c: HandoffCreate): number => {
+      if (c.kind === 'roundOff') return ledger(db, 'Round Off', 'Indirect Expenses')
+      if (c.kind === 'tax') return ledger(db, c.taxType.toUpperCase(), 'Duties & Taxes', { taxType: c.taxType })
+      throw new Error('no walk-in expected')
+    }
+    const viaEditor = rehearse(db, () => {
+      const made = new Map<string, number>()
+      const once = (c: HandoffCreate): number => {
+        const k = JSON.stringify(c)
+        if (!made.has(k)) made.set(k, editorCreate(c))
+        return made.get(k)!
+      }
+      return hf.entries.map((e) => rows(editorSave(withPending(e, 0, once))))
+    })
+    const out = post(i)
+    expect(out.voucherIds.map((id) => rows(id))).toEqual(viaEditor)
   })
 
   it('answers that cannot be used are refused like the preview, writing nothing', () => {

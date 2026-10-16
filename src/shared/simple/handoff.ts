@@ -12,22 +12,52 @@
 // point at them: `sanitiseHandoffEntry` (pure) clears every reference to a ledger that does not
 // exist after the rollback and names it, so the editor shows an empty pick instead of a dangling id.
 import type { VoucherKind } from '../domain'
-import type { AccountingFormState, InvoiceFormState, ManufactureFormState, PhysicalFormState } from '../voucherEdit'
+import type { AccountingFormState, InvoiceFormState, ManufactureFormState, PhysicalFormState, TaxSide } from '../voucherEdit'
 import type { IntentRole, SimpleIntentKind } from './intents'
 
+/** How the editor makes an account the rehearsal had to create, the way it does on first use:
+ *  the counter's walk-in customer (counter.ts ensureWalkIn), a GST ledger of the bill's side
+ *  (pickers.tsx useTaxLedgers.ensure), the Round Off ledger (ensureRoundOff). */
+export type HandoffCreate = { kind: 'walkIn' } | { kind: 'tax'; taxType: 'cgst' | 'sgst' | 'igst' | 'cess'; side: TaxSide } | { kind: 'roundOff' }
+
+/** An account the answers use that does not exist yet and that the editor creates when the user
+ *  saves (unless they pick another): its name shows in the empty pick. */
+export interface HandoffPending {
+  name: string
+  create: HandoffCreate
+}
+
+/** Where those accounts go: the bill's party (invoice form) / the rows (accounting form, by index). */
+export interface HandoffPendingRefs {
+  party?: HandoffPending
+  rows?: (HandoffPending | null)[]
+}
+
+interface EntryBase {
+  role: IntentRole
+  kind: VoucherKind
+  voucherTypeId: number
+  amount: number
+  /** Accounts created on save (absent = none). */
+  pending?: HandoffPendingRefs
+}
+
 export type HandoffEntry =
-  | { role: IntentRole; kind: VoucherKind; voucherTypeId: number; form: 'invoice'; state: InvoiceFormState; amount: number }
-  | { role: IntentRole; kind: VoucherKind; voucherTypeId: number; form: 'accounting'; state: AccountingFormState; amount: number }
-  | { role: IntentRole; kind: VoucherKind; voucherTypeId: number; form: 'physical'; state: PhysicalFormState; amount: number }
-  | { role: IntentRole; kind: VoucherKind; voucherTypeId: number; form: 'manufacture'; state: ManufactureFormState; amount: number }
+  | (EntryBase & { form: 'invoice'; state: InvoiceFormState })
+  | (EntryBase & { form: 'accounting'; state: AccountingFormState })
+  | (EntryBase & { form: 'physical'; state: PhysicalFormState })
+  | (EntryBase & { form: 'manufacture'; state: ManufactureFormState })
 
 export interface IntentFormResult {
   kind: SimpleIntentKind
   /** In the order simple:post would save them (the bill / note first, then its payment / refund). */
   entries: HandoffEntry[]
-  /** Accounts the answers need that do not exist yet (created on first use by simple:post / the
-   *  editor) — the editor shows them as empty picks. */
+  /** Accounts the answers need that do not exist yet and that the user picks or creates in the
+   *  editor — shown as empty picks. */
   missing: string[]
+  /** Accounts that do not exist yet and that the editor creates on save, as it does on first use
+   *  (the walk-in customer, GST / round-off ledgers) — their names show in the picks. */
+  addedOnSave?: string[]
 }
 
 /** What the full editor is opened with (a nav param — nothing stored). */
@@ -39,6 +69,7 @@ export interface SimpleHandoff {
   /** The other parts of the same answers (a payment made now, a refund), not in this editor. */
   others: { role: IntentRole; kind: VoucherKind; amount: number }[]
   missing: string[]
+  addedOnSave?: string[]
 }
 
 /** simple:handoffTarget — the facts "Back to simple" needs from main (services/simpleHandoff.ts). */
@@ -48,38 +79,64 @@ export interface HandoffFacts {
   ledger?: { id: number; isParty: boolean }
 }
 
-/** Clear every reference to a ledger that does not exist (after the rehearsal's rollback). The
- *  bill name follows the voucher number again when it was only the number (the editor numbers a
- *  new entry itself, so a number taken meanwhile never sticks to the bill). */
+/** Clear every reference to a ledger that does not exist (after the rehearsal's rollback). One the
+ *  editor makes on first use (`describe` gives how) becomes a pending account, created on save
+ *  and named in the pick (`addedOnSave`); any other is named in `missing` (pick or create it). An
+ *  existing ledger — the counter's own "Cash sale" walk-in included — is kept as it is. The bill
+ *  name follows the voucher number again when it was only the number (the editor numbers a new
+ *  entry itself, so a number taken meanwhile never sticks to the bill). */
 export function sanitiseHandoffEntry(
   entry: HandoffEntry,
   exists: (ledgerId: number) => boolean,
-  nameOf: (ledgerId: number) => string | null
-): { entry: HandoffEntry; missing: string[] } {
+  describe: (ledgerId: number) => { name: string; create: HandoffCreate | null } | null
+): { entry: HandoffEntry; missing: string[]; addedOnSave: string[] } {
   const missing: string[] = []
-  const keep = (id: number | null): number | null => {
-    if (id == null || exists(id)) return id
-    const name = nameOf(id)
-    if (name && !missing.includes(name)) missing.push(name)
-    return null
+  const addedOnSave: string[] = []
+  const add = (list: string[], name: string): void => {
+    if (name && !list.includes(name)) list.push(name)
+  }
+  /** The id kept, or null + the pending account. */
+  const check = (id: number | null): { id: number | null; pending: HandoffPending | null } => {
+    if (id == null || exists(id)) return { id, pending: null }
+    const d = describe(id)
+    if (d?.create) {
+      add(addedOnSave, d.name)
+      return { id: null, pending: { name: d.name, create: d.create } }
+    }
+    if (d) add(missing, d.name)
+    return { id: null, pending: null }
+  }
+  const out = (e: HandoffEntry, pending: HandoffPendingRefs): { entry: HandoffEntry; missing: string[]; addedOnSave: string[] } => {
+    const { pending: _old, ...rest } = e
+    const any = pending.party != null || (pending.rows ?? []).some((p) => p != null)
+    return { entry: (any ? { ...rest, pending } : rest) as HandoffEntry, missing, addedOnSave }
   }
   switch (entry.form) {
     case 'invoice': {
       const s = entry.state
       const billName = s.billName && s.billName === s.number ? '' : s.billName
-      return { entry: { ...entry, state: { ...s, number: '', billName, partyId: keep(s.partyId), accountId: keep(s.accountId) } }, missing }
+      const party = check(s.partyId)
+      const account = check(s.accountId)
+      return out(
+        { ...entry, state: { ...s, number: '', billName, partyId: party.id, accountId: account.id } },
+        party.pending ? { party: party.pending } : {}
+      )
     }
     case 'accounting': {
       const s = entry.state
-      return { entry: { ...entry, state: { ...s, number: '', rows: s.rows.map((r) => ({ ...r, ledgerId: keep(r.ledgerId) })) } }, missing }
+      const checked = s.rows.map((r) => check(r.ledgerId))
+      return out(
+        { ...entry, state: { ...s, number: '', rows: s.rows.map((r, i) => ({ ...r, ledgerId: checked[i]!.id })) } },
+        checked.some((c) => c.pending) ? { rows: checked.map((c) => c.pending) } : {}
+      )
     }
     case 'physical':
-      return { entry: { ...entry, state: { ...entry.state, number: '' } }, missing }
+      return out({ ...entry, state: { ...entry.state, number: '' } }, {})
     case 'manufacture': {
       const s = entry.state
       // null = Wages Payable — what the editor creates on first use anyway.
       const credit = s.labourCreditLedgerId != null && !exists(s.labourCreditLedgerId) ? null : s.labourCreditLedgerId
-      return { entry: { ...entry, state: { ...s, number: '', labourCreditLedgerId: credit } }, missing }
+      return out({ ...entry, state: { ...s, number: '', labourCreditLedgerId: credit } }, {})
     }
   }
 }

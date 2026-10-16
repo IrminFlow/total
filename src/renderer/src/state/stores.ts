@@ -203,12 +203,15 @@ export type Screen =
 interface NavState {
   stack: Screen[]
   /** `force`: skip the unsaved-changes question — only for a hand-off that CARRIES the unsaved
-   *  answers to the next screen (WP 9.10 Accountant view), never to discard them. */
+   *  answers to the next screen or KEEPS them for the way back (WP 9.10 Accountant view,
+   *  lib/handoff.ts useKeptForm), never to discard them. */
   go: (screen: Screen, opts?: { force?: boolean }) => void
   /** `go`, resolving to whether the screen opened (false = the user chose to stay). */
   tryGo: (screen: Screen) => Promise<boolean>
   replace: (screen: Screen) => void
   back: () => void
+  /** `back`, resolving to whether it went back (false = the user chose to stay). */
+  tryBack: () => Promise<boolean>
   home: () => void
 }
 
@@ -264,6 +267,11 @@ export const useNav = create<NavState>((set) => ({
       if (ok) set((s) => (s.stack.length > 1 ? { stack: s.stack.slice(0, -1) } : s))
     })
   },
+  tryBack: () =>
+    confirmLeave().then((ok) => {
+      if (ok) set((s) => (s.stack.length > 1 ? { stack: s.stack.slice(0, -1) } : s))
+      return ok
+    }),
   home: () => {
     void confirmLeave().then((ok) => {
       if (ok) set({ stack: [{ name: 'gateway' }] })
