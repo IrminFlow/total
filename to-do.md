@@ -126,7 +126,7 @@ done on main were dropped. One line each; the pointer says where to look.
 ### Windows (needs a real machine — CI can't check)
 - NSIS install / uninstall, SmartScreen dialog, in-place update (first one works only from the release after 0.11.0) — PR #109
 - Explorer reveal and the default PDF viewer; printing to a real printer; HiDPI scaling; Hindi print fonts — PR #109 / #105
-- Capture inbox with a file another program holds open; DPAPI after a password reset / roaming profile; OneDrive-redirected Documents (no setting to move the data folder) — PR #109
+- Capture inbox with a file another program holds open; DPAPI after a password reset / roaming profile; OneDrive-redirected Documents (~~no setting to move the data folder~~ DONE — PR #PRNUM; the move itself is only tested on macOS) — PR #109
 - Only a 4-scenario e2e subset runs on Windows CI; MCP single-quoted commands work in PowerShell / Git Bash, not cmd.exe; PowerShell Documents fallback only unit-tested on macOS — PR #109
 - Windows CI flake: backup.dbtest `rollbackRestore` (after #111) and `restoreCompanyDb` happy path (run 38913361210, 70 s) timed out at 30 s — not file locks or the check worker (those tests are synchronous and start no check): the fixtures were raw `new Database(path)` files in rollback-journal mode, fsyncing at every one of ~60 commits; dbtests now open writable files with `testFileDb` (synchronous OFF, lint `scratchDbLint.dbtest.ts`) — PR #129. Watch for a recurrence.
 - Windows CI crash seen once (run 38908291078, ~2 s after encryption.dbtest finished — which starts checkHost.pragmaCheck workers; the file running then is not named in the log, dbtests share one fork): Electron's Node aborted natively (`node_platform.cc` `Assertion failed: !flush_tasks_` in `~PerIsolatePlatformData`, a worker thread's teardown), so the vitest fork died and tinypool reported `ERR_IPC_CHANNEL_CLOSED` — not a hang in checkHost's pool. Not reproduced on macOS (25 runs); suspect is `worker.terminate()` racing a worker's own exit / native code (pragmaCheck terminates every worker right after its answer, while it is still closing its connection). Needs a Windows repro before a fix — PR #129
@@ -188,7 +188,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - WP 6.x / 7.5 site: marketing site work deferred by the owner (WP 10.7); site FAQ says "nothing leaves the machine" (false once AI / capture / NIC are on) — `site/app/docs/faq/page.tsx`
 - WP 7.1: server-side DataTable paging not needed yet (Sales / People under budget at 100k) — PR #104
 - WP 7.2: encrypt attachments / exports / logs; remember-on-this-Mac; member-passphrase prompt on the consolidation screen — PR #112 (CLI / MCP passphrase DONE in PR #132)
-- WP 7.3: no data-folder move setting for OneDrive users; full e2e on Windows — PR #109
+- WP 7.3: ~~no data-folder move setting for OneDrive users~~ DONE — PR #133 (the CLI / MCP still ignore the pointer — follow-up); full e2e on Windows — PR #109
 - WP 7.4: tighten e2e 67–71 to the paths #107 fixed (drop workarounds); deferred coverage in `docs/e2e-coverage.md` (live NIC sandbox, price-list editor, TDS lower-deduction certificates) — PR #110
 - WP 7.6: before tagging the release, finish `CHANGELOG.md`'s Unreleased section — it has no entries for #107, #108, #110, #111, #112 and still calls #104 open (#109's Windows text has no PR link); then confirm main's CI is green on all five jobs (the tag run does not repeat e2e or perf) — owner-docs review
 - ~~WP 8.x: no schema-version guard against downgrade~~ DONE — PR #116
