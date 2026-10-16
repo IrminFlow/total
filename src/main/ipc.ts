@@ -8,9 +8,9 @@ import { decodeTextFile } from '@shared/textFiles'
 import { z } from 'zod'
 import { LANGUAGES } from '@shared/i18n'
 import { forgetFolderKey, isEncryptedFile, keyForPath, keyOfHandle, openDb, plainCopy, rekeyFile, removeDbFiles, rememberFolderKey } from './db/encryption'
-import { DEFAULT_SCRYPT, newDataKey, unwrapKeyAsync, wrapKeyAsync, WrongPassphraseError, type ScryptParams } from './db/keyEnvelope'
+import { DEFAULT_SCRYPT, newDataKey, unwrapKeyAsync, wrapKeyAsync, type ScryptParams } from './db/keyEnvelope'
 import { insecureTestCipherAllowed } from './services/secrets'
-import { readEnvelope, readEnvelopes, removeEnvelope, unlockKey, writeEnvelope } from './services/companyKeys'
+import { assertNotThrottled, noteRightPassphrase, noteWrongPassphrase, readEnvelope, readEnvelopes, removeEnvelope, unlockCompanyKey, writeEnvelope } from './services/companyKeys'
 import { commitConvertedCopy, convertBackups, prepareConvertedCopy, removeLeftoverCopies } from './services/dbEncryption'
 import { checkBackupIfDue, latestBackupCheck, listBackupChecks, recordBackupCheck, verifyBackupFile } from './services/backupVerify'
 import { AUTO_LOCK_CHOICES, IdleClock, getAutoLockMinutes, setAutoLockMinutes } from './services/sessionLock'
@@ -215,9 +215,7 @@ const idleClock = new IdleClock(null)
 
 /** WP 7.2: wrong passphrases per company slug — 5 in a row lock the prompt for 30 seconds (in
  *  memory: the passphrase cannot be checked against anything inside the locked file). */
-const passphraseFails = new Map<string, { fails: number; until: number }>()
-const PASSPHRASE_MAX_FAILS = 5
-const PASSPHRASE_LOCKOUT_MS = 30_000
+// The wrong-passphrase counter is shared with consolidation runs and total-cli (companyKeys.ts).
 
 /** Paths the Tally-import file dialog has actually issued this session. A `filePath` supplied in
  *  a tally:import payload must be one of these — otherwise the renderer could pass any path on
@@ -921,23 +919,10 @@ export function registerIpc(): void {
   async function unlockFolderIfNeeded(slug: string, passphrase: string | undefined): Promise<void> {
     const dbPath = companyDbPath(slug)
     if (!isEncryptedFile(dbPath) || keyForPath(dbPath)) return
-    if (!passphrase) throw new AppError('passphrase_required', 'This business is locked with a passphrase — type it to open the books', { field: 'passphrase' })
-    const now = Date.now()
-    const state = passphraseFails.get(slug)
-    if (state && state.until > now) throw new AppError('passphrase_throttled', 'Too many tries — wait 30 seconds', { field: 'passphrase' })
-    const envs = readEnvelopes(companyDir(slug), slug, appSecretStore())
-    if (!envs.length) throw new AppError('db_key_mismatch', 'The key file of this business (company.key.json) is missing — restore the folder or open a recovery copy')
-    let key: Buffer
-    try {
-      key = await unlockKey(dbPath, envs, passphrase)
-    } catch (err) {
-      if (!(err instanceof WrongPassphraseError)) throw err
-      const fails = (state?.fails ?? 0) + 1
-      passphraseFails.set(slug, { fails, until: fails >= PASSPHRASE_MAX_FAILS ? now + PASSPHRASE_LOCKOUT_MS : 0 })
-      log('warn', 'passphrase-wrong', { slug, fails })
-      throw new AppError('wrong_passphrase', 'That passphrase is not right', { field: 'passphrase' })
-    }
-    passphraseFails.delete(slug)
+    const key = await unlockCompanyKey({
+      slug, dbPath, companyDir: companyDir(slug), passphrase, store: appSecretStore(),
+      onWrong: (fails) => log('warn', 'passphrase-wrong', { slug, fails })
+    })
     rememberFolderKey(companyDir(slug), key)
   }
 
@@ -2951,18 +2936,15 @@ export function registerIpc(): void {
     if (c.encrypted) {
       if (!passphrase) throw new AppError('passphrase_required', 'Type the passphrase of this business to unlock', { field: 'passphrase' })
       const now = Date.now()
-      const state = passphraseFails.get(c.slug)
-      if (state && state.until > now) throw new AppError('passphrase_throttled', 'Too many tries — wait 30 seconds', { field: 'passphrase' })
+      assertNotThrottled(c.slug, now)
       try {
         await assertPassphrase(c, passphrase, 'passphrase')
       } catch (err) {
         if (!(err instanceof AppError) || err.code !== 'wrong_passphrase') throw err
-        const fails = (state?.fails ?? 0) + 1
-        passphraseFails.set(c.slug, { fails, until: fails >= PASSPHRASE_MAX_FAILS ? now + PASSPHRASE_LOCKOUT_MS : 0 })
-        log('warn', 'passphrase-wrong', { slug: c.slug, fails })
+        log('warn', 'passphrase-wrong', { slug: c.slug, fails: noteWrongPassphrase(c.slug, now) })
         throw err
       }
-      passphraseFails.delete(c.slug)
+      noteRightPassphrase(c.slug)
     }
     const reason = privacyLock
     privacyLock = null

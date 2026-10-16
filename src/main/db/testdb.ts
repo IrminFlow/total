@@ -8,6 +8,10 @@ import { seedCompany } from './seed'
 import type { CompanyInfo, Voucher, VoucherKind } from '@shared/domain'
 import { saveVoucher } from '../services/vouchers'
 import { createLedger } from '../services/masters'
+import { basename } from 'path'
+import { rekeyFile } from './encryption'
+import { newDataKey, wrapKey } from './keyEnvelope'
+import { writeEnvelope } from '../services/companyKeys'
 
 /** Minimal valid CompanyInfo for seeding test databases. */
 export const TEST_INFO: CompanyInfo = {
@@ -130,4 +134,14 @@ export function postSimpleVoucher(db: DB, opts: SimpleVoucherOpts): Voucher {
     billRefs: [],
     tds: null
   })
+}
+
+/** Test-only: lock a CLOSED company file with a passphrase the way the app's lock leaves it — the
+ *  file rekeyed to a fresh data key and the envelope (cheap scrypt, N = 2^14) beside it. Nothing
+ *  is remembered; returns the data key. */
+export function lockCompanyFileForTest(companyDir: string, dbPath: string, passphrase: string): Buffer {
+  const key = newDataKey()
+  writeEnvelope(companyDir, basename(companyDir), wrapKey(key, passphrase, { N: 2 ** 14, r: 8, p: 1 }), null)
+  rekeyFile(dbPath, null, key)
+  return key
 }

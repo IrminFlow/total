@@ -8,6 +8,10 @@
  * Every command prints a single JSON document to stdout; errors go to stderr with exit code 1.
  * All writes are audit-logged with user_name 'agent-cli' — except `mcp`, which speaks the MCP
  * protocol on stdin/stdout (WP 5.7, src/main/mcp/) and attributes its rows to `mcp:<client>`.
+ *
+ * A business locked with a passphrase (WP 7.2) is unlocked from TOTAL_PASSPHRASE — the
+ * environment, never a flag (argv is visible to every user in `ps`); see ./unlock.ts. A missing,
+ * wrong or throttled passphrase exits with code 2 and the app's message.
  */
 import { readFileSync, writeFileSync } from 'fs'
 import { setAuditContext } from '../services/audit'
@@ -25,6 +29,8 @@ import {
 import { AGENTS_MD, ensureAgentDocs, voucherSchemaJsonText } from './docs'
 import { perfOpenSteps, perfProfile, perfReportText, perfRun, perfSeed } from '../perf/cli'
 import { overBudget } from '../perf/bench'
+import { appSecretStore } from '../services/secretStore'
+import { forgetCliKey, forgetKeysOnExit, isPassphraseRefusal, PASSPHRASE_ENV, PASSPHRASE_EXIT_CODE, takePassphrase, unlockForCli } from './unlock'
 
 if (!process.env.TOTAL_DATA_DIR) process.env.TOTAL_DATA_DIR = defaultDataRoot()
 
@@ -70,6 +76,10 @@ Commands:
                                            drafts for review. --legacy-inbox-post (DEPRECATED)
                                            posts them / imports masters CSVs as before.
 
+Locked businesses: a business locked with a passphrase opens only with the passphrase in the
+environment variable ${PASSPHRASE_ENV} (never a flag — command lines are visible to every user
+in \`ps\`). Missing, wrong or throttled → exit code 2. The key is forgotten when the command ends.
+
 Data root: TOTAL_DATA_DIR (currently ${process.env.TOTAL_DATA_DIR ?? '~/Documents/total'})
 Amounts are integer paise; every voucher must balance (debits == credits) or it is rejected.`
 
@@ -110,13 +120,22 @@ function out(data: unknown): void {
   process.stdout.write(JSON.stringify(data, null, 2) + '\n')
 }
 
-function withCompany<T>(args: Args, fn: (db: import('../db/connection').DB, slug: string) => T): T {
+/** The passphrase from TOTAL_PASSPHRASE — read (and removed from the environment) once, at start. */
+const PASSPHRASE = takePassphrase()
+
+/** Unlock (when locked) and open `--company`; the key is forgotten when `fn` is done. */
+async function withCompany<T>(args: Args, fn: (db: import('../db/connection').DB, slug: string) => T | Promise<T>): Promise<T> {
   const slug = required(args, 'company')
-  const db = openCompany(slug)
+  await unlockForCli(slug, PASSPHRASE, appSecretStore())
   try {
-    return fn(db, slug)
+    const db = openCompany(slug)
+    try {
+      return await fn(db, slug)
+    } finally {
+      db.close()
+    }
   } finally {
-    db.close()
+    forgetCliKey(slug)
   }
 }
 
@@ -124,6 +143,7 @@ const CLI_VERSION = `${process.env.npm_package_version ?? ''}-cli`.replace(/^-/,
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2))
+  forgetKeysOnExit()
   setAuditContext({ appVersion: CLI_VERSION, getUserName: () => 'agent-cli' })
   // Self-discovery: make sure AGENTS.md exists in the data root from the very first CLI run.
   // The perf commands pick their own data root (WP 7.1) and never write into the default one.
@@ -147,7 +167,7 @@ async function main(): Promise<void> {
     case 'post': {
       const file = required(args, 'file')
       const payload: unknown = JSON.parse(readFileSync(file, 'utf8'))
-      const results = withCompany(args, (db) => cmdPost(db, payload))
+      const results = await withCompany(args, (db) => cmdPost(db, payload))
       out(results)
       if (results.some((r) => !r.ok)) process.exitCode = 1
       return
@@ -156,16 +176,16 @@ async function main(): Promise<void> {
       const kind = required(args, 'kind')
       if (kind !== 'ledgers' && kind !== 'items') throw new Error(`--kind must be ledgers or items, got '${kind}'`)
       const csvText = readFileSync(required(args, 'file'), 'utf8')
-      const result = withCompany(args, (db) => cmdImportMasters(db, kind, csvText))
+      const result = await withCompany(args, (db) => cmdImportMasters(db, kind, csvText))
       out(result)
       if (result.errors.length > 0) process.exitCode = 1
       return
     }
     case 'trial-balance':
-      out(withCompany(args, (db) => cmdTrialBalance(db, args.flags.get('as-on') ?? todayISO())))
+      out(await withCompany(args, (db) => cmdTrialBalance(db, args.flags.get('as-on') ?? todayISO())))
       return
     case 'next-number':
-      out(withCompany(args, (db) => cmdNextNumber(db, required(args, 'type'), args.flags.get('date') ?? todayISO())))
+      out(await withCompany(args, (db) => cmdNextNumber(db, required(args, 'type'), args.flags.get('date') ?? todayISO())))
       return
     case 'export': {
       const what = (args.flags.get('what') ?? 'all') as MirrorWhat
@@ -173,17 +193,17 @@ async function main(): Promise<void> {
       if (!['masters', 'vouchers', 'reports', 'all'].includes(what)) throw new Error(`Bad --what '${what}'`)
       if (!['csv', 'json', 'all'].includes(format)) throw new Error(`Bad --format '${format}'`)
       out(
-        withCompany(args, (db, slug) =>
+        await withCompany(args, (db, slug) =>
           cmdExport(db, slug, { what, format, from: args.flags.get('from'), to: args.flags.get('to') })
         )
       )
       return
     }
     case 'mcp': {
-      const slug = required(args, 'company')
-      const db = openCompany(slug)
-      try {
-        await runMcpStdio({
+      // The session's db handle keeps the key it was opened with; the per-request re-checks
+      // (kill switch, user still active, same PIN) read through it as before.
+      await withCompany(args, (db, slug) =>
+        runMcpStdio({
           db,
           slug,
           role: parseRole(args.flags.get('role')),
@@ -193,15 +213,13 @@ async function main(): Promise<void> {
           pseudonymiseParties: args.flags.has('pseudonymise'),
           version: CLI_VERSION
         })
-      } finally {
-        db.close()
-      }
+      )
       return
     }
     case 'inbox': {
       const legacyPost = args.flags.has('legacy-inbox-post')
       if (legacyPost) process.stderr.write(`${LEGACY_INBOX_WARNING}\n`)
-      out(withCompany(args, (db, slug) => runAsAuditUser('agent-inbox', () => scanInbox(db, slug, { legacyPost }))))
+      out(await withCompany(args, (db, slug) => runAsAuditUser('agent-inbox', () => scanInbox(db, slug, { legacyPost }))))
       return
     }
     case 'perf-seed': {
@@ -250,6 +268,7 @@ async function main(): Promise<void> {
 
 main().catch((err: unknown) => {
   process.stderr.write(`${err instanceof Error ? err.message : String(err)}\n`)
+  if (isPassphraseRefusal(err)) process.exit(PASSPHRASE_EXIT_CODE)
   process.stderr.write(`(data root: ${(() => { try { return dataRoot() } catch { return 'unknown' } })()})\n`)
   process.exit(1)
 })
