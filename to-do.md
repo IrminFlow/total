@@ -78,7 +78,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Taxes: quarterly (QRMP) file preparation and the PMT-06 amount are full-app only — PR #94
 - Home: "entries added for an earlier, closed date" also fires for ordinary entries 30 days late; one-column profit "Purchases" includes direct expenses (freight, wages) — PR #94
 - ~~Why?: no link on composition / PMT-06 dates; no Why on Bills to pay "due this week"; one Why per by-month chart~~ DONE — Home's composition / PMT-06 Why opens Taxes, Bills to pay tiles and each month explained — PR #120. Still open: advance tax has no link (Total doesn't work it out); quarterly filers' GSTR-1 / 3B links open the quarter's first month; the Taxes screen's own CMP-08 / GSTR-4 / PMT-06 Whys have no link (it would open the same screen) — PR #99
-- Ask Total: drafts stay open until discarded in Settings → AI drafts; "5000 Ramesh" (no verb) gets "try these" instead of asking in / out; payroll / TDS amount / bill-by-number questions not understood; an Ask Total draft opened from Settings opens the accountant editor — PR #98
+- Ask Total: ~~drafts stay open until discarded in Settings → AI drafts~~; "5000 Ramesh" (no verb) gets "try these" instead of asking in / out (fixed in WP 10.8, the `direction` intent); ~~payroll / TDS amount / bill-by-number questions not understood; an Ask Total draft opened from Settings opens the accountant editor~~ DONE — PR #125 — PR #98
 - Tour card can cover part of Home under its anchor; ~~help-link params (`filter=`, `tab=`) aren't validated per screen~~ DONE — `SCREEN_LINK_PARAMS`, unknown ones dropped (PR #121) — PR #100
 - ~~Viewer sees Sell / Buy forms and Save, then a generic "no permission"; sidebar "Back up now" shown to a viewer~~ DONE — PR #119 (note at the top of each form, no Create / Add-account buttons, a note instead of Back up now) — shots-86 / PR #111
 - ~~Sell: "Prices include GST" doesn't convert already-typed prices; a failed Print shows no message~~ DONE — PR #119 (Make a bill and Record a purchase); still open: supplier / customer with no credit days is overdue the next day (consider "no due date = not overdue") — shots-86 / shots-87
@@ -194,7 +194,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - WP 9.1: TDS / TCS, place-of-supply override and the owner's credit-hold override aren't part of simple intents — PR #85
 - WP 9.4: TDS shown as a hint only, deducting stays in the accountant view — PR #88
 - WP 9.9: quarterly file preparation in simple mode; opening gst.gov.in from the app — PR #94
-- WP 10.1: Ask Total corpus ~30 questions; extend (payroll, TDS, a bill by number) — PR #98
+- ~~WP 10.1: Ask Total corpus ~30 questions; extend (payroll, TDS, a bill by number)~~ DONE — PR #125 (+40 phrasings) — PR #98
 - WP 10.3: help is simple-mode only; the full app keeps its shortcut list — PR #100
 - WP 10.4: accountant screens stay English; full-app button names glossed in Hindi help — PR #105
 - GPT review P3 / P6 / P7: freeze transaction tax facts and unify entry / return / PDF calculation with independent fixtures; guided GST review with filing evidence; verified upgrade recovery and external backups; Electron hardening — `~/.claude/total-orch/gpt-opinion.md`
