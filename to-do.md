@@ -93,7 +93,7 @@ done on main were dropped. One line each; the pointer says where to look.
 
 ### Accountant (full app)
 - ~~Credit hold doesn't cover restoring a binned invoice or automatic PDC maturing~~ DONE — restore of a held party's invoice / challan needs the owner's override; maturing a cheque never creates credit, a post-dated invoice to a held party waits (`blockedByHold`) — PR #126
-- Cheque register is empty after upgrade (old instrument numbers not backfilled); ~~cash forecast ignores pending post-dated cheques~~ DONE — option, off by default — PR #126; ~~ledger form has no credit-hold control~~ DONE — PR #126 — WP 4.4 upgrade check
+- ~~Cheque register is empty after upgrade (old instrument numbers not backfilled)~~ DONE — Banking → Cheques → "Fill the register from earlier entries" (preview accountant+, owner applies; no migration) — PR #146; ~~cash forecast ignores pending post-dated cheques~~ DONE — option, off by default — PR #126; ~~ledger form has no credit-hold control~~ DONE — PR #126 — WP 4.4 upgrade check
 - Companies that closed a year on 0.4.0 show a permanent "Profit & Loss A/c (opening)" residual; a guided re-close would fix it — upgrade notes
 - Pre-0.6 manufacture vouchers don't appear in the Manufacture register (Day book / Stock movements only) — by design, release notes
 - ~~e-invoice original-bill lookup takes the newest sales voucher with that number at ANY party (wrong once numbers restart yearly)~~ DONE — the note's own party, its FY first — PR #120

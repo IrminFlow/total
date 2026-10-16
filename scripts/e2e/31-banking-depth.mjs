@@ -5,7 +5,8 @@
 //   2. a second statement in the same layout opens with the saved mapping; its lines have no book
 //      entries, so the rules learned from step 1 suggest the ledgers ("Suggested from 1 earlier
 //      match") and the vouchers are created in bulk;
-//   3. a cheque book is added and "Print cheque" on a payment voucher issues the next leaf;
+//   3. a cheque book is added and "Print cheque" on a payment voucher issues the next leaf; a payment
+//      typed with a cheque number but never printed is filled into the register from the Cheques tab;
 //   4. beneficiary details are set and a bulk NEFT/RTGS file is exported in the Union Bank layout;
 //   5. post-dated register + rules + cheque layout + every tab are shot in both themes.
 // Set WP41_SHOTS=/tmp/wp41 to also copy the screenshots there.
@@ -179,6 +180,19 @@ await scenario('31-banking-depth', async (h) => {
   await h.click('tab-banking-cheques')
   await h.page.waitForSelector('[data-testid="rows-banking-cheques"] tr[data-status="cleared"]', { timeout: 10000 })
   await bothThemes('06-cheque-register')
+
+  // ---------- 3b. fill the register from an entry that carries a cheque number but was never printed ----------
+  const typed = await h.invoke('voucher:save', { data: voucher('payment', d2, null, [{ ledgerId: rent.id, drCr: 'dr', amount: 50000 }, { ledgerId: hdfc.id, drCr: 'cr', amount: 50000 }], { instrumentNo: '105' }) })
+  await h.click('btn-banking-cheque-backfill')
+  await h.page.waitForSelector(`[data-testid="input-cheque-backfill-${typed.id}-${hdfc.id}"]`, { timeout: 10000 })
+  await bothThemes('06b-cheque-backfill')
+  await h.click('btn-cheque-backfill-apply')
+  await h.page.waitForSelector('[data-testid="cheque-backfill"]', { state: 'detached', timeout: 10000 })
+  const filledReg = await h.invoke('cheques:register', { bankLedgerId: hdfc.id, includeAvailable: false })
+  const leaf105 = filledReg.find((r) => r.number === '000105')
+  assert(leaf105 && leaf105.voucherId === typed.id && leaf105.status === 'issued', 'the typed cheque 105 is in the register as 000105, issued to its payment')
+  assertEq((await h.invoke('voucher:get', { id: typed.id })).instrumentNo, '105', 'the voucher is not changed')
+  assertEq((await h.invoke('cheques:backfillPreview', { bankLedgerId: hdfc.id })).rows.length, 0, 'a second run finds nothing')
 
   // ---------- 4. bulk payment file ----------
   await h.invoke('bulkPay:setBankDetails', { ledgerId: hdfc.id, data: { accountNo: '50100012345678', ifsc: 'HDFC0001234', accountName: null, email: null } })
