@@ -68,3 +68,44 @@ export function lateDeductionInterest(tdsPaise: number, deductibleOn: string, de
   const months = monthsOrPart(deductibleOn, deductedOn)
   return { months, rateBp, interestPaise: monthlyInterestPaise(tdsPaise, rateBp, months) }
 }
+
+/** Shown next to the late-deduction figure (Deducted tab, its export). */
+export const LATE_DEDUCTION_CITATION =
+  'Income-tax Act 1961 s.201(1A)(i) (2025 Act s.398(3)(a)): 1% for every month or part of a month from the date the tax was deductible to the date it was deducted — indicative, not posted'
+
+/** What the late-deduction figure rests on that no official text read here confirms. */
+export const TDS_INTEREST_UNVERIFIED: readonly string[] = [
+  's.201(1A) wording: the department page refused automated access (see the sources above); the 2025-Act text was read from a secondary reproduction.',
+  '"Month or part of a month" counted as calendar months with both the first and the last month counted (TRACES\'s reading; no official text quoted here says so — courts have also read it as periods of a month from the date).',
+  'A bill that became liable only when a LATER bill crossed the annual threshold is taken as deductible on that later bill\'s date.',
+  'Bills of an earlier financial year are not followed: a deduction on payment is compared only with the bills of its own year.',
+  'Each bill\'s share of the deducted tax is the entry\'s TDS × that bill\'s share of the entry\'s base (half-up), its interest rounded to the rupee per bill.'
+]
+
+export interface LateDeduction {
+  /** The earliest date the covered tax became deductible. */
+  deductibleOn: string
+  /** Months (or part) for the earliest bill — the longest delay. */
+  months: number
+  rateBp: number
+  interestPaise: number
+  parts: { voucherId: number; deductibleOn: string; tdsPaise: number; months: number; interestPaise: number }[]
+}
+
+/** s.201(1A)(i) for a deduction made on payment that covered bills already liable at credit
+ *  (`cover` = the walk's `lateCover`). Null when it covered none. */
+export function lateDeductionOnPayment(
+  entryTdsPaise: number, entryBasePaise: number, deductedOn: string,
+  cover: readonly { voucherId: number; deductibleOn: string; basePaise: number }[] | undefined,
+  rateBp = LATE_DEDUCTION_RATE_BP
+): LateDeduction | null {
+  if (!cover?.length || entryBasePaise <= 0 || entryTdsPaise <= 0) return null
+  const parts = cover.map((c) => {
+    const num = BigInt(entryTdsPaise) * BigInt(c.basePaise) * 2n + BigInt(entryBasePaise)
+    const tdsPaise = Number(num / (2n * BigInt(entryBasePaise)))
+    const i = lateDeductionInterest(tdsPaise, c.deductibleOn, deductedOn, rateBp)
+    return { voucherId: c.voucherId, deductibleOn: c.deductibleOn, tdsPaise, months: i.months, interestPaise: i.interestPaise }
+  })
+  const first = parts.reduce((a, b) => (b.deductibleOn < a.deductibleOn ? b : a))
+  return { deductibleOn: first.deductibleOn, months: first.months, rateBp, interestPaise: parts.reduce((s, p) => s + p.interestPaise, 0), parts }
+}

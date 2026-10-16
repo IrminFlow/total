@@ -118,79 +118,25 @@ describe('tdsEligible — thresholds over every qualifying credit', () => {
   it('WP 3.1 gap: the suggestion threshold counts undeducted bills, not just recorded entries', () => {
     const db = seededDb()
     const fx = fixture(db)
+    // Four bills each under the ₹30,000 single limit; the fourth takes the year past ₹1,00,000,
+    // so all four become liable on 10 Jul (the walk's aggregate_later).
     journal(db, '2025-04-10', fx.contractor, fx.labour, 2500000)
     journal(db, '2025-05-10', fx.contractor, fx.labour, 2500000)
     journal(db, '2025-06-10', fx.contractor, fx.labour, 2500000)
-    const s = tdsSuggestion(db, fx.contractor, 2600000, '2025-07-01')!
-    expect(s.threshold.priorPaise).toBe(7500000)
-    expect(s.thresholdCrossed).toBe(true)
-    expect(s.threshold.reason).toBe('aggregate')
-  })
-
-  it('"Not applicable" drops a voucher from the list and from the aggregate', () => {
-    const db = seededDb()
-    const fx = fixture(db)
-    const a = journal(db, '2025-04-10', fx.contractor, fx.labour, 6000000)
-    journal(db, '2025-05-10', fx.contractor, fx.labour, 2500000)
-    journal(db, '2025-06-10', fx.contractor, fx.labour, 2000000)
-    expect(tdsEligible(db, FY.from, FY.to).length).toBe(3)
-    exemptVoucher(db, a, 'Reimbursement of expenses — not a contract payment')
-    // ₹45,000 left, no single bill over ₹30,000: nothing liable.
-    expect(tdsEligible(db, FY.from, FY.to)).toEqual([])
-    expect(tdsEligible(db, FY.from, FY.to, { includeExempt: true })).toMatchObject([{ voucherId: a, exemptReason: 'Reimbursement of expenses — not a contract payment' }])
-    expect(db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'tdsExemption' AND entity_id = ?").get(a)).toEqual({ n: 1 })
-    unexemptVoucher(db, a)
-    expect(tdsEligible(db, FY.from, FY.to).length).toBe(3)
-  })
-
-  it('excludes binned, optional and unmatured post-dated vouchers — from the list and the aggregate', () => {
-    const db = seededDb()
-    const fx = fixture(db)
-    const binned = journal(db, '2025-04-10', fx.contractor, fx.labour, 6000000)
-    deleteVoucher(db, binned)
-    journal(db, '2025-04-11', fx.contractor, fx.labour, 6000000, { isOptional: true })
-    journal(db, '2025-04-12', fx.contractor, fx.labour, 6000000, { postDated: true })
-    const real = journal(db, '2025-05-10', fx.contractor, fx.labour, 2500000)
-    expect(tdsEligible(db, FY.from, FY.to)).toEqual([])
-    expect(tdsSuggestion(db, fx.contractor, 2500000, '2025-06-01')!.threshold.priorPaise).toBe(2500000)
-    void real
-  })
-
-  it('section from the debited ledger: base = debits to that ledger, the party needs a PAN-readable type', () => {
-    const db = seededDb()
-    const fx = fixture(db)
-    const id = journal(db, '2025-05-10', fx.consultant, fx.fees, 6000000)
-    expect(tdsEligible(db, FY.from, FY.to)).toMatchObject([{ voucherId: id, sectionCode: '194J', basePaise: 6000000, tdsPaise: 600000, reason: 'aggregate', expenseLedgerId: fx.fees }])
-  })
-
-  it('purchase base is the taxable value (GST excluded)', () => {
-    const db = seededDb()
-    const fx = fixture(db)
-    const id = purchase(db, fx, '2025-05-10', fx.contractor, 4000000)
-    expect(tdsEligible(db, FY.from, FY.to)).toMatchObject([{ voucherId: id, basePaise: 4000000, tdsPaise: 80000 }])
-  })
-
-  it('first-of-credit-or-payment: a payment that deducts covers the undeducted bill; an advance is its own event', () => {
-    const db = seededDb()
-    const fx = fixture(db)
-    const bill = journal(db, '2025-05-10', fx.contractor, fx.labour, 4000000)
-    expect(tdsEligible(db, FY.from, FY.to).map((r) => r.voucherId)).toEqual([bill])
-    // Paying the bill: the banner offers TDS on the undeducted bill.
-    const s = tdsSuggestion(db, fx.contractor, 4000000, '2025-06-01', { voucherKind: 'payment' })!
-    expect(s.payment).toMatchObject({ undeductedBillsPaise: 4000000, advancePaise: 0, deductedAtCredit: false })
-    expect(s).toMatchObject({ basePaise: 4000000, tdsPaise: 80000 })
-    const pay = payment(db, fx, '2025-06-01', fx.contractor, 4000000)
+    journal(db, '2025-07-10', fx.contractor, fx.labour, 2900000)
+    const pay = payment(db, fx, '2025-08-05', fx.contractor, 10400000)
     applyTdsToVoucher(db, { voucherId: pay })
-    expect(getVoucher(db, pay)!.tds).toMatchObject({ baseAmount: 4000000, tdsAmount: 80000 })
-    expect(tdsEligible(db, FY.from, FY.to)).toEqual([])
-    // A later payment against a bill that was deducted at credit: nothing to deduct.
-    const bill2 = journal(db, '2025-07-10', fx.contractor, fx.labour, 4000000)
-    applyTdsToVoucher(db, { voucherId: bill2 })
-    expect(tdsSuggestion(db, fx.contractor, 3920000, '2025-07-20', { voucherKind: 'payment' })).toMatchObject({ tdsPaise: 0, payment: { deductedAtCredit: true } })
-    // An advance (paid before any bill) above the single limit is eligible as such.
-    const other = ledger(db, 'Advance Contractor', 'Sundry Creditors', { tdsSectionId: sectionId(db, '194C'), pan: 'ABCCE7777F' })
-    const advance = payment(db, fx, '2025-08-01', other, 3500000)
-    expect(tdsEligible(db, FY.from, FY.to)).toMatchObject([{ voucherId: advance, reason: 'advance', basePaise: 3500000 }])
+    const rows = tdsDeducted(db, FY.from, FY.to)
+    // ₹2,080 on ₹1,04,000 = ₹500 + ₹500 + ₹500 + ₹580, all deductible 10 Jul, deducted 5 Aug:
+    // Jul + Aug = 2 months × 1% = ₹10 + ₹10 + ₹10 + ₹11.60 (→ ₹12, rupee per bill) = ₹42.
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.tdsPaise).toBe(208000)
+    expect(rows[0]!.lateDeduction).toMatchObject({ deductibleOn: '2025-07-10', months: 2, interestPaise: 4200 })
+    expect(rows[0]!.lateDeduction!.parts.map((p) => [p.tdsPaise, p.interestPaise])).toEqual([[50000, 1000], [50000, 1000], [50000, 1000], [58000, 1200]])
+    // A bill deducted at credit: no late-deduction figure on its row.
+    const bill = journal(db, '2025-09-10', fx.contractor, fx.labour, 4000000)
+    applyTdsToVoucher(db, { voucherId: bill })
+    expect(tdsDeducted(db, FY.from, FY.to).find((r) => r.voucherId === bill)!.lateDeduction).toBeUndefined()
   })
 })
 

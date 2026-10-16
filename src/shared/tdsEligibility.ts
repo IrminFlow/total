@@ -211,6 +211,11 @@ export interface WalkResult {
    *  part of it). 0 = nothing to deduct. */
   eligibleBasePaise: number
   reason: EligibleReason | null
+  /** A deduction on payment only: the parts of earlier credits it covered that were ALREADY
+   *  liable (tax deductible then, so deducting now is late — s.201(1A)(i)), each with the date
+   *  it became deductible (the credit's own date, or the later credit whose aggregate crossed
+   *  the threshold). Present only when there is one. */
+  lateCover?: { voucherId: number; deductibleOn: string; basePaise: number }[]
 }
 
 /**
@@ -223,7 +228,8 @@ export function walkTdsEvents(events: readonly WalkEvent[], rowOn: (dateISO: str
   const aggregate = new Map<string, number>()
   const results: WalkResult[] = []
   // Undeducted credit events, oldest first, with what is still uncovered.
-  const pending: { idx: number; remaining: number }[] = []
+  // `liable` / `liableOn`: how much of it was liable for TDS, and from when (lateCover).
+  const pending: { idx: number; remaining: number; liable: number; liableOn: string | null }[] = []
   // Below-threshold, undeducted events per period (become liable when the aggregate is crossed).
   const below = new Map<string, number[]>()
   let credited = 0
@@ -250,12 +256,19 @@ export function walkTdsEvents(events: readonly WalkEvent[], rowOn: (dateISO: str
     } else if (e.entryBasePaise != null) {
       // A deduction on payment covers earlier undeducted credits first; the rest is an advance.
       let left = e.entryBasePaise
+      const lateCover: NonNullable<WalkResult['lateCover']> = []
       for (const p of pending) {
         if (left <= 0) break
         const take = Math.min(p.remaining, left)
         p.remaining -= take
         left -= take
+        const late = p.liableOn != null && p.liableOn < e.date ? Math.min(take, p.liable) : 0
+        if (late > 0) {
+          p.liable -= late
+          lateCover.push({ voucherId: results[p.idx]!.voucherId, deductibleOn: p.liableOn!, basePaise: late })
+        }
       }
+      if (lateCover.length) base.lateCover = lateCover
       eventBase = left
       advanceBank += left
     } else {
@@ -282,13 +295,15 @@ export function walkTdsEvents(events: readonly WalkEvent[], rowOn: (dateISO: str
           const earlier = results[j]!
           earlier.eligibleBasePaise = earlier.eventBasePaise
           earlier.reason = 'aggregate_later'
+          const p = pending.find((x) => x.idx === j)
+          if (p) { p.liable = p.remaining; p.liableOn = e.date }
         }
         below.delete(periodKey)
       }
     } else {
       below.set(periodKey, [...(below.get(periodKey) ?? []), idx])
     }
-    if (e.kind === 'credit') pending.push({ idx, remaining: eventBase })
+    if (e.kind === 'credit') pending.push({ idx, remaining: eventBase, liable: r.eligibleBasePaise, liableOn: r.eligibleBasePaise > 0 ? e.date : null })
   }
   // Coverage by later payment-deductions reduces what a credit still needs.
   for (const p of pending) {
