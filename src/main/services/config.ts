@@ -86,9 +86,22 @@ export function getGst3bManual(db: DB, period: string): Gst3bManualInput {
   return parsed.success ? parsed.data : gst3bManualSchema.parse({})
 }
 
+/** Value equality of two JSON-shaped values, key order ignored (the "nothing changed" test). */
+export function sameJsonValue(a: unknown, b: unknown): boolean {
+  const canon = (v: unknown): unknown =>
+    Array.isArray(v) ? v.map(canon)
+      : v && typeof v === 'object'
+        ? Object.fromEntries(Object.keys(v as Record<string, unknown>).sort().map((k) => [k, canon((v as Record<string, unknown>)[k])]))
+        : v
+  return JSON.stringify(canon(a)) === JSON.stringify(canon(b))
+}
+
+/** Saves the period's 3B adjustments. Values equal to what the period already gives (stored, or
+ *  the defaults when nothing is stored) write nothing — no meta, no audit row. */
 export function setGst3bManual(db: DB, period: string, input: unknown): Gst3bManualInput {
   const before = getGst3bManual(db, period)
   const parsed = gst3bManualSchema.parse(input)
+  if (sameJsonValue(before, parsed)) return before
   writeMeta(db, `gst3b.manual.${period}`, parsed)
   writeAudit(db, 'company', 0, 'update', { gst3bManual: { period, ...before } }, { gst3bManual: { period, ...parsed } })
   return parsed
