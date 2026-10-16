@@ -157,6 +157,13 @@ what you typed, and a **Back to simple** button.
   in your language, and on the Bank screen "already recorded on …" follows the language you picked,
   not the business's. Prints in English and every full-app screen are unchanged.
   [#123](https://github.com/IrminFlow/total/pull/123)
+- **Stock: a few gaps closed.** On a product's page you can now say "Tell me when it runs low"
+  (below how many, in its unit; blank or 0 = only when it runs out). A line in its History opens
+  that entry: the bill, the purchase, the return, or the stock count. A reopened count shows how
+  many Total had before it, what you counted and what that did to the stock's worth (it used to
+  read "Matches"). Undo of a count or of goods made is refused when some of that stock has been sold
+  or used since and undoing would leave it below zero. Edit the entry instead.
+  [#124](https://github.com/IrminFlow/total/pull/124)
 
 ### For accountants (figures that changed)
 
