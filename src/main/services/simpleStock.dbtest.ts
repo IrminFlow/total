@@ -24,7 +24,7 @@ import { stockItemInputSchema } from '@shared/schemas'
 import { buildPhysicalPayload, emptyPhysicalState, manufactureRepresentation, physicalRepresentation } from '@shared/voucherEdit'
 import type { ManufactureInput } from '@shared/manufacture'
 import { countIntentFrom, emptyMakeForm, makeIntentFrom, type MakeForm } from '@shared/simple/stock'
-import { createGodown, createLedger, createStockItem } from './masters'
+import { createGodown, createLedger, createStockItem, listStockItems, updateStockItem } from './masters'
 import { getVoucher, saveVoucher, setLockDate } from './vouchers'
 import { stockSummary } from './stockAnalysis'
 import { setBom } from './bom'
@@ -343,6 +343,25 @@ describe('the product view, Change price, Home', () => {
     expect((db.prepare('SELECT COUNT(*) AS n FROM price_list_rates').get() as { n: number }).n).toBe(2)
   })
 
+  it('Tell me when it runs low: the masters item update with the stored item sets the level the list reads; 0 / none = only when out; audited', () => {
+    const flour = I('Flour')
+    const stored = listStockItems(db).find((i) => i.id === flour)!
+    expect(stockList(db, TODAY).rows.find((r) => r.itemId === flour)!.level).toBe('ok')
+    // What ProductView sends: the stored item with only the level changed (120 kg > the 100 on hand).
+    updateStockItem(db, flour, stockItemInputSchema.parse({ ...stored, reorderLevelMilli: 120_000 }))
+    expect(stockList(db, TODAY).rows.find((r) => r.itemId === flour)).toMatchObject({ reorderLevelMilli: 120_000, level: 'low' })
+    expect(stockProduct(db, flour, TODAY)).toMatchObject({ reorderLevelMilli: 120_000, level: 'low' })
+    expect(simpleHomeAttention(db, INFO, TODAY).items.find((i) => i.source === 'stock')!.count).toBe(2)
+    // Nothing else about the product moved (figures unchanged).
+    const after = listStockItems(db).find((i) => i.id === flour)!
+    expect({ ...after, reorderLevelMilli: null }).toEqual({ ...stored, reorderLevelMilli: null })
+    expect(summaryOf(db, TODAY)).toEqual(summaryOf(twin, TODAY))
+    const audit = db.prepare("SELECT before_json, after_json FROM audit_log WHERE entity = 'stockItem' AND entity_id = ? AND action = 'update' ORDER BY id DESC LIMIT 1").get(flour) as { before_json: string; after_json: string }
+    expect([JSON.parse(audit.before_json).reorderLevelMilli, JSON.parse(audit.after_json).reorderLevelMilli]).toEqual([null, 120_000])
+    updateStockItem(db, flour, stockItemInputSchema.parse({ ...stored, reorderLevelMilli: null }))
+    expect(stockList(db, TODAY).rows.find((r) => r.itemId === flour)!.level).toBe('ok')
+  })
+
   it('Home: “N products running low” is the list’s own count', () => {
     const att = simpleHomeAttention(db, INFO, TODAY)
     expect(att.items.find((i) => i.source === 'stock')).toEqual({ source: 'stock', key: 'low_stock', count: 1, amount: null, level: 'medium' })
@@ -371,6 +390,9 @@ describe('roles', () => {
     const res = await call('simple:post', { intent: { clientId: 'viewer-count-01', kind: 'stock_count', date: TODAY, counts: [{ itemId: item.id, qty: 1000 }] }, today: TODAY })
     expect(res).toMatchObject({ ok: false, code: 'not_permitted' })
     expect(await call('simple:stock:setPrice', { itemId: item.id, ratePaise: 100 })).toMatchObject({ ok: false, code: 'not_permitted' })
+    // "Tell me when it runs low" is the masters item update — accountant and up.
+    const soap = (await ok<{ id: number; reorderLevelMilli: number | null }[]>('master:stockItems:list')).find((i) => i.id === item.id)!
+    expect(await call('master:stockItems:update', { id: item.id, data: { ...soap, reorderLevelMilli: 2000 } })).toMatchObject({ ok: false, code: 'not_permitted' })
     expect(await ok('simple:stock:list', { today: TODAY })).toEqual(before)
   })
 })

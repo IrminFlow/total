@@ -34,6 +34,10 @@ const PRODUCT: StockProductView = {
   recipe: null,
   history: { from: '2026-04-01', openingMilli: 100_000, rows: [{ voucherId: 9, date: '2026-10-10', what: 'counted', party: null, inMilli: 0, outMilli: 2000, balanceMilli: 98_000 }] }
 }
+const FLOUR_ITEM = {
+  id: 1, name: 'Flour', groupId: null, unitId: 4, hsn: '1101', gstRate: 0, cessRate: null, openingQtyMilli: 100_000, openingValue: 400_000, barcode: null,
+  reorderLevelMilli: null, valuationMethod: 'weighted_avg', trackSerials: false, tcsSectionId: null, mrpPaise: null, standardCostPaise: 3500
+}
 const MADE: MadeGoodsSetup = {
   date: '2026-10-13',
   products: [{ itemId: 3, name: 'Bread', unit: 'Nos', suggestedPrice: 4000, recipe: { versionId: 7, lines: [{ itemId: 1, name: 'Flour', unit: 'Kg', qtyMilliPerUnit: 500, scrapPctBp: null }, { itemId: 2, name: 'Box', unit: 'Nos', qtyMilliPerUnit: 1000, scrapPctBp: null }] } }]
@@ -62,6 +66,8 @@ beforeEach(() => {
       case 'simple:stock:product': return { ok: true, data: PRODUCT }
       case 'simple:stock:madeSetup': return { ok: true, data: MADE }
       case 'simple:stock:setPrice': return { ok: true, data: { sellingPrice: 5500 } }
+      case 'master:stockItems:list': return { ok: true, data: [FLOUR_ITEM] }
+      case 'master:stockItems:update': return { ok: true, data: FLOUR_ITEM }
       case 'simple:preview': return previewReply()
       case 'simple:post':
         return { ok: true, data: { voucherIds: [9], entries: [], replayed: false, summary: { entries: [], parties: [], undo: { undoable: true, reason: null } }, sentences: ['Stock count of 1 product.', 'Your stock is now worth ₹80.00 less.'], facts: FACTS, warnings: { negativeStock: [], creditLimitExceeded: null } } satisfies SimplePostResult }
@@ -71,7 +77,7 @@ beforeEach(() => {
   })
   window.total = { platform: 'test', invoke }
   act(() => {
-    useSession.setState({ info, slug: 'mehta', ui: { mode: 'simple' }, workingDate: '2026-10-13', from: '2026-04-01', to: '2027-03-31' })
+    useSession.setState({ info, slug: 'mehta', user: null, ui: { mode: 'simple' }, workingDate: '2026-10-13', from: '2026-04-01', to: '2027-03-31' })
     useNav.setState({ stack: [{ name: 'simple-stock' }] })
     useExplain.setState({ ready: false, handler: null })
     useDialogs.setState({ queue: [] })
@@ -123,6 +129,38 @@ describe('the product list and a product (WP 9.7)', () => {
     click('btn-stock-price-save')
     await waitFor(() => expect(calls('simple:stock:setPrice')).toEqual([{ itemId: 1, ratePaise: 5500, date: '2026-10-13' }]))
     expect(bannedWordsIn(visible())).toEqual([])
+  })
+})
+
+describe('Tell me when it runs low (PR #91 to-do)', () => {
+  it('saves the reorder level in the product’s unit through the masters item update, the rest of the item as stored', async () => {
+    renderUi(<StockList itemId={1} />)
+    await waitFor(() => expect(screen.getByTestId('btn-stock-change-low')).toBeTruthy())
+    click('btn-stock-change-low')
+    typeIn('input-stock-low', '12.5')
+    click('btn-stock-low-save')
+    await waitFor(() => expect(calls('master:stockItems:update')).toEqual([{ id: 1, data: { ...FLOUR_ITEM, reorderLevelMilli: 12_500 } }]))
+    expect(bannedWordsIn(visible())).toEqual([])
+  })
+
+  it('blank or 0 = no level (told only when it runs out); unchanged writes nothing; a bad quantity is said under the box', async () => {
+    renderUi(<StockList itemId={1} />)
+    await waitFor(() => expect(screen.getByTestId('btn-stock-change-low')).toBeTruthy())
+    click('btn-stock-change-low')
+    typeIn('input-stock-low', 'lots')
+    click('btn-stock-low-save')
+    await waitFor(() => expect(visible()).toContain('Type a quantity, like 10 or 2.5.'))
+    typeIn('input-stock-low', '0')
+    click('btn-stock-low-save')
+    await waitFor(() => expect(screen.queryByTestId('input-stock-low')).toBeNull())
+    expect(calls('master:stockItems:update')).toEqual([])
+  })
+
+  it('a viewer sees the level but no way to change it', async () => {
+    act(() => useSession.setState({ user: { id: 2, name: 'V', role: 'viewer' } } as never))
+    renderUi(<StockList itemId={1} />)
+    await waitFor(() => expect(screen.getByTestId('stock-product-reorder')).toBeTruthy())
+    expect(screen.queryByTestId('btn-stock-change-low')).toBeNull()
   })
 })
 
