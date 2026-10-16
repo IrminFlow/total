@@ -1,7 +1,9 @@
 // Scenario 65 — WP 7.2 security. Wizard → a simple business with a receipt and a backup →
 // Settings → Lock and safety: lock with a passphrase (the lost-passphrase warning and the
 // "I understand" tick first), save the recovery copy → restart the app → the picker asks for the
-// passphrase (a wrong one is refused in plain words) → the right one opens the same books → the
+// passphrase (a wrong one is refused in plain words) → the right one opens the same books, with
+// "Remember on this computer" ticked → a restart opens without the passphrase → Forget in Lock and
+// safety → the next restart asks again → the
 // backup restore check shows on the screen and on Home → People & roles switches (stored on the
 // user) → ⌘L locks, the PIN brings the user back, a refused call while locked → auto-lock setting.
 import fs from 'fs'
@@ -105,10 +107,38 @@ await scenario('65-security', async (h) => {
   await h.page.waitForFunction(() => document.body.textContent.includes('That passphrase is not right'), null, { timeout: 60000 })
   await h.shot('03-wrong-passphrase')
   await h.fill('input-passphrase', PASS)
+  // "Remember on this computer" is offered unticked; tick it this time.
+  assertEq(await h.page.isChecked('[data-testid="check-passphrase-remember"]'), false, 'remember is not ticked by default')
+  await h.click('check-passphrase-remember')
   await h.click('btn-passphrase-open')
   await attached(h, '[data-testid="simple-home"]', 60000)
   assertEq(await tb(h), before, 'the books are intact after the restart')
   assertEq((await h.invoke('company:current')).encrypted, true, 'the business is open encrypted')
+  const secrets = fs.readFileSync(path.join(h.dataDir, 'secrets.json'), 'utf8')
+  assert(secrets.includes('rememberedDataKey') && !secrets.includes(PASS), 'the data key is remembered (encrypted), never the passphrase')
+
+  // ---------- remembered: the next start opens without the passphrase; Forget asks again ----------
+  await h.relaunch()
+  await h.waitScreen('company-select')
+  await attached(h, `[data-testid="company-remembered-${slug}"]`)
+  await h.shot('03b-picker-remembered')
+  await h.clickText('Safe Traders')
+  await attached(h, '[data-testid="simple-home"]', 60000)
+  assert(!(await h.page.$('[data-testid="passphrase-prompt"]')), 'no passphrase prompt while remembered')
+  assertEq(await tb(h), before, 'the same books open with the remembered key')
+  await openSecurity(h)
+  await attached(h, '[data-testid="security-remember"][data-remembered="on"]')
+  await h.shot('03c-remembered-settings')
+  await h.click('btn-security-forget')
+  await attached(h, '[data-testid="security-remember"][data-remembered="off"]')
+  assert(!fs.readFileSync(path.join(h.dataDir, 'secrets.json'), 'utf8').includes('rememberedDataKey'), 'Forget removes the remembered key')
+  await h.relaunch()
+  await h.waitScreen('company-select')
+  await h.clickText('Safe Traders')
+  await attached(h, '[data-testid="passphrase-prompt"]')
+  await h.fill('input-passphrase', PASS)
+  await h.click('btn-passphrase-open')
+  await attached(h, '[data-testid="simple-home"]', 60000)
 
   // ---------- the restore check of a backup ----------
   await openSecurity(h)
