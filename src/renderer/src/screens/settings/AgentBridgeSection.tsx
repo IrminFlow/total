@@ -10,6 +10,7 @@ import { useNav, useSession, useToasts } from '../../state/stores'
 import { Badge, Button, Panel, SectionTitle, Segmented, Skeleton } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { dataFolder, pathSep } from '../../lib/platform'
+import { CAPABILITY_REFUSED_TEXT, canManageAi, capabilityRefused } from '../../lib/capabilities'
 
 /**
  * Agent access: how external agents (Claude Code, Claude Desktop, Codex, …) reach the books.
@@ -350,7 +351,7 @@ export function AgentBridgeSection(): React.JSX.Element {
   return (
     <div>
       <SectionTitle>Agent access</SectionTitle>
-      <McpPanel isOwner={isOwner} slug={slug ?? '<company>'} />
+      <McpPanel isOwner={canManageAi(user)} slug={slug ?? '<company>'} />
       <AgentDraftsPanel canDiscard={canDiscard} />
       <McpLogPanel />
 
@@ -403,7 +404,12 @@ export function AgentBridgeSection(): React.JSX.Element {
                     computed fresh.
                   </p>
                 </div>
-                <Button data-testid="btn-settings-agent-export" disabled={exporting} onClick={() => void exportMirror()}>
+                <Button
+                  data-testid="btn-settings-agent-export"
+                  disabled={exporting || capabilityRefused(user, 'canExport')}
+                  disabledTitle={capabilityRefused(user, 'canExport') ? CAPABILITY_REFUSED_TEXT.canExport : undefined}
+                  onClick={() => void exportMirror()}
+                >
                   {exporting ? 'Exporting…' : 'Export mirror now'}
                 </Button>
               </div>

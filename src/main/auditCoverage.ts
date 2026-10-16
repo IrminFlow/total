@@ -132,6 +132,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // ---------- WP 7.2 security: the screen lock, the passphrase lock ----------
   'session:activity': r('moves the idle clock of the auto-lock; writes nothing'),
   'session:lock': a('user'),
+  'session:unlock': a('user'),
   'security:get': QUERY,
   'security:autoLock:set': a('security'),
   // On / off: a backup first, the change audited inside the converted file ('security').
@@ -257,7 +258,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'voucher:duplicates': QUERY,
   'pdc:mature': a('voucher', 'credit_override'),
   'yearend:close': a('year_end', 'voucher', 'ledger', 'company'),
-  'manufacture:save': a('manufacture', 'ai_draft'),
+  // The stock journal goes through saveVoucher (a 'voucher' row) — listed so canPost covers it.
+  'manufacture:save': a('manufacture', 'voucher', 'ai_draft'),
   'jobWork:saveChallan': a('job_work'),
 
   // ---------- trade cycle ----------

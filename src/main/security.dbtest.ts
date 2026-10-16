@@ -374,11 +374,77 @@ describe('capability flags (finer-grained roles)', () => {
       expect((await ok<{ autoLockMinutes: number | null }>('security:get')).autoLockMinutes).toBeNull()
     })
 
-    it('a business without users has no screen lock to turn on', async () => {
+    it('a business without users locks too — a privacy screen: everything waits for session:unlock, audited', async () => {
       const { slug } = await ok<{ slug: string }>('company:create', company('No People Co'))
       await ok('company:open', { slug })
-      expect((await call('session:lock')).code).toBe('lock_needs_people')
-      expect((await call('security:autoLock:set', { minutes: 5 })).code).toBe('lock_needs_people')
+      sent.length = 0
+      expect(await ok('session:lock')).toEqual({ locked: true, kind: 'privacy' })
+      expect(sent.find((x) => x.channel === 'total:session:locked')?.payload).toEqual({ reason: 'manual', kind: 'privacy' })
+      for (const [ch, p] of [['report:trialBalance', { asOn: '2027-03-31' }], ['master:ledgers:list', undefined], ['users:save', { data: { name: 'Sneaky', role: 'owner', pin: '9999' } }]] as const) {
+        expect((await call(ch, p)).code, ch).toBe('session_locked')
+      }
+      const cur = await ok<{ locked: boolean; lockKind: string }>('company:current')
+      expect(cur).toMatchObject({ locked: true, lockKind: 'privacy' })
+      // anyone can unlock it (it says so) — no passphrase needed or asked
+      expect(await ok('session:unlock', {})).toEqual({ locked: false })
+      expect((await call('report:trialBalance', { asOn: '2027-03-31' })).ok).toBe(true)
+      expect((await ok<{ locked: boolean }>('company:current')).locked).toBe(false)
+      // unlocking an unlocked business changes nothing
+      expect(await ok('session:unlock')).toEqual({ locked: false })
+      const rows = await auditRows('user')
+      expect(rows.some((r) => r.action === 'logout' && r.after?.lock === 'manual' && r.after?.noUsers === true)).toBe(true)
+      expect(rows.some((r) => r.action === 'login' && r.after?.lock === 'manual' && r.after?.noUsers === true)).toBe(true)
+      // a strict payload
+      await ok('session:lock')
+      expect((await call('session:unlock', { pin: '1' })).code).toBe('invalid_input')
+      await ok('session:unlock', {})
+    })
+
+    it('without users the auto-lock works too; activity keeps it open', async () => {
+      await ok('security:autoLock:set', { minutes: 5 })
+      const t0 = Date.now()
+      const now = vi.spyOn(Date, 'now')
+      try {
+        now.mockReturnValue(t0 + 4 * 60_000)
+        await ok('session:activity')
+        now.mockReturnValue(t0 + 8 * 60_000)
+        expect((await call('master:ledgers:list')).ok).toBe(true)
+        now.mockReturnValue(t0 + 9 * 60_000 + 1)
+        expect((await call('master:ledgers:list')).code).toBe('session_locked')
+        expect((await ok<{ lockKind: string; locked: boolean }>('company:current')).locked).toBe(true)
+        await ok('session:unlock', {})
+      } finally {
+        vi.restoreAllMocks()
+      }
+      expect((await auditRows('user')).some((r) => r.action === 'logout' && r.after?.lock === 'idle' && r.after?.noUsers === true)).toBe(true)
+      await ok('security:autoLock:set', { minutes: null })
+    })
+
+    it('without users but with the passphrase lock on, unlocking asks for the passphrase (throttled like opening)', async () => {
+      const PASS = 'quiet rain 4411'
+      await ok('security:passphrase:on', { passphrase: PASS, confirm: PASS })
+      expect(await ok('session:lock')).toEqual({ locked: true, kind: 'passphrase' })
+      expect((await call('session:unlock', {})).code).toBe('passphrase_required')
+      for (let i = 0; i < 4; i++) expect((await call('session:unlock', { passphrase: 'not it at all' })).code).toBe('wrong_passphrase')
+      expect((await call('session:unlock', { passphrase: 'not it at all' })).code).toBe('wrong_passphrase')
+      // five wrong in a row: even the right one waits 30 seconds
+      expect((await call('session:unlock', { passphrase: PASS })).code).toBe('passphrase_throttled')
+      expect((await call('master:ledgers:list')).code).toBe('session_locked')
+      const t0 = Date.now()
+      const now = vi.spyOn(Date, 'now')
+      try {
+        now.mockReturnValue(t0 + 31_000)
+        expect(await ok('session:unlock', { passphrase: PASS })).toEqual({ locked: false })
+      } finally {
+        vi.restoreAllMocks()
+      }
+      expect((await call('master:ledgers:list')).ok).toBe(true)
+    })
+
+    it('a business WITH users unlocks only through the PIN screen', async () => {
+      await ok('company:open', { slug: 'roles-co' })
+      await login(ids.owner, PIN.owner)
+      expect((await call('session:unlock', {})).code).toBe('unlock_needs_pin')
     })
   })
 })

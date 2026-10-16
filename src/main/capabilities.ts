@@ -6,7 +6,8 @@
 // - canSeeProfit: the screens that show profit / loss (the P&L, the balance sheet's profit line,
 //   comparatives, ratios, item profitability, cash flow, budget variance, the simple "How am I
 //   doing"). Dashboards and simple Home keep working with their profit figures left out (ipc.ts).
-// - canExport: the channels that write the books (or a report of them) to a file.
+// - canExport: the channels that write the books (or a report of them) to a file. The CA pack
+//   (export:caPack) writes the P&L and balance sheet too, so its handler also checks canSeeProfit.
 // - canManageAi: the AI assistant's and agent access's settings.
 //
 // The gate (ipc.ts `handle`): no flag → the channel's minimum role decides, as always. A flag set
@@ -24,7 +25,12 @@ export const PROFIT_CHANNELS: readonly string[] = [
   'report:itemProfitability',
   'report:cashFlow',
   'budget:variance',
-  'simple:reports:doing'
+  'simple:reports:doing',
+  // PR #127 review: the year-end close preview IS the net profit to transfer; a consolidated
+  // P&L / trial balance includes the open business's own statement.
+  'yearend:preview',
+  'consol:run',
+  'consolGroup:run'
 ]
 
 export const EXPORT_CHANNELS: readonly string[] = [

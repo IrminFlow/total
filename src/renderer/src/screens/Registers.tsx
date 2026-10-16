@@ -10,6 +10,7 @@ import { formatMilli } from '../lib/table'
 import { toDisplayDate } from '@shared/dates'
 import type { ItemProfitRow, RegisterMonthRow } from '@shared/reports'
 import { ItemLink } from '../components/links'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../lib/capabilities'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -126,6 +127,7 @@ export function RegistersScreen({ tab: requestedTab, from: askedFrom, to: askedT
   }, [pending, opts])
   const setTab = (t: Tab): void => opts.set('tab', t)
   const [busy, setBusy] = useState<'caPack' | 'tallyXml' | null>(null)
+  const exportRefused = useCapabilityRefused('canExport')
   const kind = tab === 'items' ? 'sales' : tab
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
@@ -158,12 +160,19 @@ export function RegistersScreen({ tab: requestedTab, from: askedFrom, to: askedT
           />
         }
         secondary={
-          <Button disabled={busy !== null} loading={busy === 'tallyXml'} onClick={() => void runExport('tallyXml')}>
+          <Button disabled={busy !== null || exportRefused} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} loading={busy === 'tallyXml'} onClick={() => void runExport('tallyXml')}>
             Tally XML
           </Button>
         }
         actions={
-          <Button variant="primary" data-testid="btn-registers-ca-pack" disabled={busy !== null} loading={busy === 'caPack'} onClick={() => void runExport('caPack')}>
+          <Button
+            variant="primary"
+            data-testid="btn-registers-ca-pack"
+            disabled={busy !== null || exportRefused}
+            disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined}
+            loading={busy === 'caPack'}
+            onClick={() => void runExport('caPack')}
+          >
             CA pack…
           </Button>
         }

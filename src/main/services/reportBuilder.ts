@@ -569,6 +569,33 @@ export interface RunOptions {
   rowCap?: number
 }
 
+/** Account measures whose sum over income AND expense ledgers is the profit. */
+const PNL_REVEALING_MEASURES: readonly string[] = ['debit', 'credit', 'net', 'balance', 'profit']
+
+/**
+ * WP 7.2 (PR #112 follow-up): why a model would show a user who may not see profit the profit,
+ * or null when it does not. Refused: the `profit` measure; an accounts report whose debit /
+ * credit / net / balance measures read BOTH income and expense ledgers (the P&L natures — the
+ * ledgers the filters reach; no ledger / group filter = every ledger, which also brings the
+ * computed "Profit & Loss A/c (opening)" balance row). One side alone ("expenses by ledger",
+ * "sales by month") is allowed: it is not the profit.
+ */
+export function profitRevealedBy(db: DB, input: ReportModelInput): string | null {
+  const model = reportModelSchema.parse(input)
+  if (model.measures.includes('profit')) return 'The report shows Profit, which is not shown to your account'
+  if (model.source !== 'accounts' || !model.measures.some((m) => PNL_REVEALING_MEASURES.includes(m))) return null
+  const f = model.filters
+  const ledgers = db.prepare('SELECT l.id, l.group_id AS groupId, g.nature FROM ledgers l JOIN groups g ON g.id = l.group_id').all() as { id: number; groupId: number; nature: string }[]
+  const groups = db.prepare('SELECT id, parent_id AS parentId FROM groups').all() as TreeNode[]
+  const inGroups = f.groupIds.length ? new Set(descendants(groups, f.groupIds)) : null
+  const inLedgers = f.ledgerIds.length ? new Set(f.ledgerIds) : null
+  const natures = new Set(ledgers.filter((l) => (!inGroups || inGroups.has(l.groupId)) && (!inLedgers || inLedgers.has(l.id))).map((l) => l.nature))
+  if (natures.has('income') && natures.has('expense')) {
+    return 'The report adds up income and expense accounts together — that is the profit, which is not shown to your account. Filter it to income or to expenses'
+  }
+  return null
+}
+
 export function runReport(db: DB, input: ReportModelInput, opts: RunOptions): ReportResult {
   const model = reportModelSchema.parse(input)
   const rowCap = opts.rowCap ?? ROW_CAP

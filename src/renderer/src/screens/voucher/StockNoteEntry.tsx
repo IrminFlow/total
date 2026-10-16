@@ -28,6 +28,7 @@ import { AddFromDrawer } from './AddFromDrawer'
 import { useAddFrom } from './useAddFrom'
 import { useFeatures } from '../../lib/useFeatures'
 import type { VoucherDraft } from '../../state/stores'
+import { PostButton } from '../../components/PostButton'
 
 const TITLE: Record<StockNoteKind, string> = { delivery_note: 'Delivery challan', receipt_note: 'Goods receipt note' }
 
@@ -443,9 +444,9 @@ export function StockNoteEntry({
               Save + PDF
             </Button>
           )}
-          <Button variant="primary" data-testid="btn-save-voucher" disabled={saving} onClick={() => void save()}>
+          <PostButton variant="primary" data-testid="btn-save-voucher" disabled={saving} onClick={() => void save()}>
             {isEdit ? 'Save changes' : `Save ${outward ? 'challan' : 'GRN'}`} ⌘↵
-          </Button>
+          </PostButton>
         </div>
       </div>
 

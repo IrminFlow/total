@@ -44,6 +44,8 @@ import type { ToolDef, ToolRegistry } from '../ai/tools/registry'
 import { identityStillValid, type McpIdentity } from './session'
 import { listMcpResources, readMcpResource } from './resources'
 import { logMcp } from './log'
+import { effectiveCapabilities, parseFlags } from '@shared/capabilities'
+import type { Role } from '../services/roles'
 
 /** Result size budget per tool call (characters). Larger than the in-app budget — the client
  *  decides what to keep — but bounded; arrays cut this way end with an explicit marker. */
@@ -98,6 +100,13 @@ export function outboundResult(output: unknown, p: PrivacyOptions): string {
 }
 
 /** The tools a session may see: registry tools of kind read / draft that its role allows. */
+/** WP 7.2: whether the MCP session's verified user may see profit (re-read per call). */
+function mcpCanSeeProfit(db: DB, userId: number | null): boolean {
+  if (userId === null) return true
+  const row = db.prepare('SELECT role, capabilities_json AS caps FROM users WHERE id = ?').get(userId) as { role: Role; caps: string | null } | undefined
+  return row ? effectiveCapabilities(row.role, parseFlags(row.caps)).canSeeProfit : true
+}
+
 export function exposedTools(registry: ToolRegistry, identity: McpIdentity): ToolDef[] {
   return registry.available(identity.role).filter((t) => t.kind === 'read' || t.kind === 'draft')
 }
@@ -195,7 +204,9 @@ export function createMcpServer(o: McpServerOptions): McpServerHandle {
         // WP 5.6: drafts take memory defaults ("preferred" lines, a party's usual ledger / item)
         // exactly as in the chat — the same capped entries, none while "Use memory" is off.
         memory: memoryContextFor(o.db, getAiSettings(o.db).useMemory),
-        memoryRequested: tool.name === 'remember'
+        memoryRequested: tool.name === 'remember',
+        // WP 7.2: the verified user's own canSeeProfit flag (no user = the role's default: yes).
+        canSeeProfit: mcpCanSeeProfit(o.db, o.identity.userId)
       })
       output = run.ok ? { ok: true, result: run.data } : { ok: false, error: cleanError(run.error) }
       draftId = run.ok ? run.draftId : null
@@ -219,7 +230,7 @@ export function createMcpServer(o: McpServerOptions): McpServerHandle {
     gate('resources/read', uri, t0)
     const p = privacy()
     try {
-      const r = readMcpResource(o.db, o.slug, uri, p, today())
+      const r = readMcpResource(o.db, o.slug, uri, p, today(), mcpCanSeeProfit(o.db, o.identity.userId))
       log({ method: 'resources/read', target: uri, ok: true, response: r.text, t0 })
       return { contents: [{ uri, mimeType: r.mimeType, text: r.text }] }
     } catch (err) {

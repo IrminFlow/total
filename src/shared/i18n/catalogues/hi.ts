@@ -2670,7 +2670,6 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'errors.security.alreadyLocked': 'यह बिज़नेस पहले से पासफ़्रेज़ से लॉक है।',
   'errors.security.notLocked': 'यह बिज़नेस पासफ़्रेज़ से लॉक नहीं है।',
   'errors.security.verifyFailed': 'Total लॉक की हुई कॉपी को जाँच नहीं पाया, इसलिए कुछ नहीं बदला। आपका हिसाब पहले जैसा है।',
-  'errors.security.lockNeedsPeople': 'स्क्रीन लॉक करने के लिए पहले ‘यूज़र और उनके अधिकार’ में अपना PIN बनाएँ।',
   'errors.upgrade.newer': 'यह बिज़नेस पिछली बार Total के नए संस्करण से खोला गया था। इसे खोलने के लिए Total अपडेट करें।',
   'errors.upgrade.copyFailed': 'हिसाब अपग्रेड करने से पहले Total सुरक्षित कॉपी नहीं बना सका; डिस्क में थोड़ी जगह खाली करें और फिर से कोशिश करें।',
   'simple.settings.security': 'लॉक और सुरक्षा',
@@ -2745,5 +2744,13 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.home.backupChecked': 'पिछला बैकअप {days, plural, =0 {आज} one {# दिन पहले} other {# दिन पहले}}, जाँच ठीक रही।',
   'simple.home.backupCheckFailed': 'आपका पिछला बैकअप अपनी जाँच में पास नहीं हुआ। नया बैकअप लें।',
   'simple.home.profitHidden': 'मुनाफ़ा आपको नहीं दिखाया जाता। ज़रूरत हो तो मालिक से पूछें।',
+  'assist.profitHidden': 'मुनाफ़ा आपके साइन-इन को नहीं दिखाया जाता, इसलिए मैं इसका जवाब नहीं दे सकता। ज़रूरत हो तो मालिक से पूछें।',
+  'errors.security.lockPrivacyOnly': 'PIN वाले लोगों के बिना यह लॉक सिर्फ़ स्क्रीन छिपाता है — कोई भी इसे खोल सकता है। असली लॉक के लिए ‘यूज़र और उनके अधिकार’ में PIN वाले लोग जोड़ें।',
+  'errors.security.unlockNeedsPin': 'खोलने के लिए अपना नाम चुनें और PIN लिखें।',
+  'simple.lock.privacy.title': 'स्क्रीन लॉक है',
+  'simple.lock.privacy.text': 'इसे कोई भी खोल सकता है; असली लॉक के लिए PIN वाले लोग जोड़ें।',
+  'simple.lock.privacy.passphraseText': 'खोलने के लिए इस बिज़नेस का पासफ़्रेज़ लिखें।',
+  'simple.lock.privacy.passphrase': 'पासफ़्रेज़',
+  'simple.lock.privacy.unlock': 'खोलें',
   // ---------- end WP 7.2 ----------
 }

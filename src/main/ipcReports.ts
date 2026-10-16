@@ -18,6 +18,7 @@ import * as analytics from './services/reportAnalytics'
 import * as packs from './services/reportPacks'
 import { writeAudit } from './services/audit'
 import { renderPackPdf } from './packScheduler'
+import { AppError } from '@shared/errors'
 
 type Handle = (channel: string, fn: (payload: unknown) => unknown, minRole?: Role) => void
 interface Company { db: DB; info: CompanyInfo; slug: string }
@@ -25,13 +26,21 @@ interface Company { db: DB; info: CompanyInfo; slug: string }
 const idSchema = z.object({ id: z.number().int().positive() })
 const rangeSchema = z.object({ from: isoDate, to: isoDate }).refine((r) => r.from <= r.to, 'from must be on or before to')
 
-export function registerReportsIpc(handle: Handle, company: () => Company, userName: () => string | null): void {
+/** `canSeeProfit`: whether the signed-in user may see profit (WP 7.2 flag; absent = yes). */
+export function registerReportsIpc(handle: Handle, company: () => Company, userName: () => string | null, canSeeProfit: () => boolean = () => true): void {
   const db = (): DB => company().db
+  /** WP 7.2: a model that would show the profit is refused for a user who may not see it. */
+  const assertProfitVisible = (model: Parameters<typeof rb.runReport>[1]): void => {
+    if (canSeeProfit()) return
+    const why = rb.profitRevealedBy(db(), model)
+    if (why) throw new AppError('not_permitted', why)
+  }
 
   // ---------- report builder ----------
   handle('rb:run', (p) => {
     const q = z.object({ model: z.unknown(), working: rangeSchema, today: isoDate.optional() }).parse(p)
     const model = reportModelSchema.parse(q.model)
+    assertProfitVisible(model)
     return rb.runReport(db(), model, { working: q.working, today: q.today ?? todayISO() })
   }, 'viewer')
   handle('rb:list', () => rb.listSavedReports(db()), 'viewer')
@@ -108,7 +117,7 @@ export function registerReportsIpc(handle: Handle, company: () => Company, userN
   })
   handle('pack:runNow', async (p) => {
     const c = company()
-    return packs.runPack(c.db, c.slug, c.info, idSchema.parse(p).id, { trigger: 'manual', renderPdf: renderPackPdf })
+    return packs.runPack(c.db, c.slug, c.info, idSchema.parse(p).id, { trigger: 'manual', renderPdf: renderPackPdf, canSeeProfit: canSeeProfit() })
   })
   handle('pack:chooseFolder', async () => {
     const picked = await dialog.showOpenDialog({ title: 'Folder for the report pack', properties: ['openDirectory', 'createDirectory'] })

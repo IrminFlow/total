@@ -27,10 +27,11 @@ import { RATIO_CATEGORIES, RATIO_DEFS, formatRatio } from '@shared/ratios'
 import { companyExportsDir, slugify } from '../paths'
 import { portableFileName } from '@shared/fileNames'
 import { reportHtml, type ReportColumnSpec, type ReportRowSpec } from './reportHtml'
-import { balanceSheet, dayBook, profitAndLoss, trialBalance } from './reports'
+import { balanceSheet, dayBook, profitAndLoss, trialBalanceFor } from './reports'
 import { outstandings } from './analysis'
 import { ratioReport } from './reportAnalytics'
-import { getSavedReport, runReport } from './reportBuilder'
+import { getSavedReport, profitRevealedBy, runReport } from './reportBuilder'
+import { PROFIT_HIDDEN_MESSAGE } from '@shared/profitRedaction'
 import { SYSTEM_AUDIT_USER, runAsAuditUser, writeAudit } from './audit'
 import { writeXlsxFile } from './xlsxFile'
 import { displayTableToSheet } from '@shared/xlsx/display'
@@ -144,19 +145,22 @@ function flattenNodes(nodes: StatementNode[], depth: number, out: ReportRowSpec[
   }
 }
 
-function builtinTable(db: DB, info: CompanyInfo, key: keyof typeof BUILTIN_PACK_REPORTS, range: DateRange, today: string): PackTable {
+function builtinTable(db: DB, info: CompanyInfo, key: keyof typeof BUILTIN_PACK_REPORTS, range: DateRange, today: string, canSeeProfit = true): PackTable {
   const title = BUILTIN_PACK_REPORTS[key]
   const base = { title, filename: slugify(title), landscape: false }
   const two: ReportColumnSpec[] = [{ label: 'Particulars', align: 'l' }, { label: 'Amount', align: 'r' }]
   switch (key) {
     case 'trialBalance': {
-      const tb = trialBalance(db, range.to)
+      const tb = trialBalanceFor(db, range.to, canSeeProfit)
       return {
         ...base,
         columns: [{ label: 'Ledger', align: 'l' }, { label: 'Group', align: 'l' }, { label: 'Debit', align: 'r' }, { label: 'Credit', align: 'r' }],
         rows: [
           ...tb.rows.map((r) => ({ cells: [r.ledgerName, r.groupName, money(r.debit), money(r.credit)] })),
-          { cells: ['Total', '', money(tb.totalDebit), money(tb.totalCredit)], bold: true, rule: true }
+          // WP 7.2: without the P&L ledgers a total would give the profit away as the difference.
+          tb.profitHidden
+            ? { cells: [`${PROFIT_HIDDEN_MESSAGE} — income and expense accounts and the totals are left out`, '', '', ''], bold: true, rule: true }
+            : { cells: ['Total', '', money(tb.totalDebit), money(tb.totalCredit)], bold: true, rule: true }
         ]
       }
     }
@@ -261,8 +265,8 @@ function tableFromFlat(base: Omit<PackTable, 'columns' | 'rows'>, flat: ReturnTy
 }
 
 /** The table for one pack entry over `range`. */
-export function packTable(db: DB, info: CompanyInfo, ref: PackReportRef, range: DateRange, today: string): PackTable {
-  if (ref.kind === 'builtin') return builtinTable(db, info, ref.key, range, today)
+export function packTable(db: DB, info: CompanyInfo, ref: PackReportRef, range: DateRange, today: string, canSeeProfit = true): PackTable {
+  if (ref.kind === 'builtin') return builtinTable(db, info, ref.key, range, today, canSeeProfit)
   const saved = getSavedReport(db, ref.id)
   if (!saved.model) throw new Error(`“${saved.name}” can’t run: ${saved.problem}`)
   const result = runReport(db, saved.model, { working: range, today, range })
@@ -271,8 +275,25 @@ export function packTable(db: DB, info: CompanyInfo, ref: PackReportRef, range: 
 
 // ---------------------------------------------------------------- running
 
+/** Built-in pack reports that show the profit (left out for a user who may not see it). */
+export const PROFIT_PACK_REPORTS: readonly string[] = ['profitLoss', 'balanceSheet', 'ratios']
+
+/** WP 7.2: why a pack entry is skipped for a user who may not see profit, or null. */
+export function packEntryHidesProfit(db: DB, ref: PackReportRef): boolean {
+  if (ref.kind === 'builtin') return PROFIT_PACK_REPORTS.includes(ref.key)
+  try {
+    const saved = getSavedReport(db, ref.id)
+    return !!saved.model && profitRevealedBy(db, saved.model) !== null
+  } catch {
+    return false
+  }
+}
+
 export interface RunPackOptions {
   trigger: 'schedule' | 'manual'
+  /** WP 7.2: false = the signed-in user may not see profit — profit reports are skipped with a
+   *  note in the run and the trial balance is redacted. Absent = true (as before). */
+  canSeeProfit?: boolean
   now?: Date
   renderPdf: RenderPdf
 }
@@ -316,8 +337,12 @@ export async function runPack(db: DB, slug: string, info: CompanyInfo, packId: n
     for (const [i, ref] of pack.reports.entries()) {
       // Let the event loop breathe between reports — a pack must never freeze the app.
       await yieldToEventLoop()
+      if (opts.canSeeProfit === false && packEntryHidesProfit(db, ref)) {
+        errors.push(`${ref.kind === 'builtin' ? BUILTIN_PACK_REPORTS[ref.key] : `Saved report #${ref.id}`}: skipped — ${PROFIT_HIDDEN_MESSAGE.toLowerCase()}`)
+        continue
+      }
       try {
-        const t = packTable(db, info, ref, range, today)
+        const t = packTable(db, info, ref, range, today, opts.canSeeProfit !== false)
         let base = `${String(i + 1).padStart(2, '0')}-${t.filename || 'report'}`
         while (used.has(base)) base += '-x'
         used.add(base)

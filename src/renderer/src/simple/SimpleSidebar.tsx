@@ -8,7 +8,7 @@ import { useNav, useScreen, useSession, useToasts, type Screen } from '../state/
 import { SupportLink } from '../components/SupportLink'
 import { TotalLogo } from '../components/TotalLogo'
 import { PlainIcon } from './icons'
-import { useCanSave, ViewerBackupNote } from './ViewerNote'
+import { useCanWrite, ViewerBackupNote } from './ViewerNote'
 import type { SimpleSectionId } from '@shared/simple/uiMode'
 
 const HOME: Screen = { name: 'gateway' } // i18n-technical
@@ -43,7 +43,7 @@ export function SimpleSidebar(): React.JSX.Element {
   const toast = useToasts()
   const features = useFeatures()
   const collapsed = useSimpleNavCollapsed()
-  const canSave = useCanSave()
+  const canSave = useCanWrite()
   const [tip, setTip] = useState<{ label: string; top: number; left: number } | null>(null)
   const clearCompany = useSession((s) => s.clearCompany)
   const active = simpleSectionOf(screen)

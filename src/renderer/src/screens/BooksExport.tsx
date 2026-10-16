@@ -3,6 +3,7 @@ import { api } from '../lib/client'
 import { useNav, useToasts } from '../state/stores'
 import { Banner, Button, DrawerSection, Page, PageHeader, Panel } from '../components/ui'
 import { BOOKS_SHEETS } from '@shared/dataImport/books'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../lib/capabilities'
 
 /**
  * System → Export (WP 6.3): the whole company as one Excel workbook — a Manifest sheet (format,
@@ -13,6 +14,7 @@ export function BooksExportScreen(): React.JSX.Element {
   const toast = useToasts()
   const nav = useNav()
   const [busy, setBusy] = useState(false)
+  const exportRefused = useCapabilityRefused('canExport')
   const [done, setDone] = useState<{ path: string; counts: Record<string, number> } | null>(null)
 
   const run = async (): Promise<void> => {
@@ -56,7 +58,15 @@ export function BooksExportScreen(): React.JSX.Element {
         </ul>
         <div className="mt-6 flex items-center justify-between gap-3">
           <p className="text-hint text-muted">Sheets marked (info) are computed for reading and are never imported.</p>
-          <Button variant="primary" data-testid="btn-export-books" loading={busy} onClick={() => void run()} className="px-6">
+          <Button
+            variant="primary"
+            data-testid="btn-export-books"
+            loading={busy}
+            disabled={exportRefused}
+            disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined}
+            onClick={() => void run()}
+            className="px-6"
+          >
             {busy ? 'Exporting…' : 'Export books to Excel'}
           </Button>
         </div>

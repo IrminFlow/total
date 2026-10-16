@@ -116,6 +116,16 @@ what you typed, and a **Back to simple** button.
   "Last backup ... checked OK", or shows a red card), per-person switches in People and roles (post
   entries, see profit, export, manage the AI helper), and Ctrl/Cmd+L or an idle timeout to sign out.
   [#112](https://github.com/IrminFlow/total/pull/112)
+- **Per-person switches hold everywhere.** Someone the owner set to "can't see profit" no longer
+  sees it in the trial balance (the income and expense accounts and the totals are left out, and
+  the screen says why), a custom report, a report pack, the AI assistant or Ask Total ("Profit is
+  not shown to your sign-in"). Someone who can't export or can't record entries sees those buttons
+  greyed out with the reason, instead of finding out after pressing them. Nothing changes for the
+  owner or for anyone whose switches were never touched. [#127](https://github.com/IrminFlow/total/pull/127)
+- **Lock the screen without setting up people.** Ctrl/Cmd+L and the idle timeout now work in a
+  business with no sign-ins: with a passphrase lock it asks for the passphrase, otherwise it is a
+  privacy screen that anyone can unlock (it says so, and points to People and roles for a real
+  lock). [#127](https://github.com/IrminFlow/total/pull/127)
 - **Updates ask first.** Total never downloads or installs an update without a click ("Download
   now", "Later", "Skip this version"; "Install when I quit" is a choice). Settings, "How Total
   looks" (in the full app: Settings, About), has "Check for updates automatically" (on by default);
@@ -315,6 +325,25 @@ Read these before filing from the next release.
   `backup:check`, `backup:checks`; `company:open` takes `passphrase`; `users:save` takes capability
   flags. Window-open allow-list (`shared/externalLinks.ts`) and a stricter CSP. Decision record:
   `docs/security/encryption-at-rest.md`. Not encrypted: attachments, capture files, exports, logs.
+- **Capability gaps (WP 7.2 follow-up)**, [#127](https://github.com/IrminFlow/total/pull/127): `canSeeProfit: false` now also redacts
+  `report:trialBalance` (`TrialBalance.profitHidden`, `reports.trialBalanceFor` /
+  `shared/profitRedaction.ts redactTrialBalance`), refuses `rb:run` models that show the profit
+  (`reportBuilder.profitRevealedBy`: the `profit` measure, or debit / credit / net / balance over
+  both income and expense ledgers) with `not_permitted`, skips profit reports in report packs
+  (`RunPackOptions.canSeeProfit`, a note in the run's error), refuses the AI profit tools
+  (`ai/tools/profitGuard.ts`, `ToolContext.canSeeProfit`, MCP reads the verified user's flags) and
+  answers Ask Total's profit questions with `assist.profitHidden`. Renderer: `lib/capabilities.ts`
+  (only a flag set to false refuses), `components/PostButton.tsx` for every editor's Save, DataTable /
+  Options-drawer export hidden, `useCanSave` reads `canPost` (`useCanWrite` keeps the role rule for
+  backups). Screen lock without users: new ungated `session:unlock` (`{ passphrase? }`, throttled,
+  audited `user` login), `company:current` / `session:lock` / the lock event carry `lockKind`
+  (`pin` / `passphrase` / `privacy`); `lock_needs_people` is no longer thrown, new code
+  `unlock_needs_pin`. Review: `yearend:preview` (the net profit to transfer), `consol:run` /
+  `consolGroup:run` (a consolidated P&L / TB over the open business) join `PROFIT_CHANNELS`;
+  `export:caPack` (profit-and-loss.csv, balance-sheet.csv) also checks `canSeeProfit` in its
+  handler; the agent mirror's `trial-balance.json` (`agent:exportMirror`, the MCP resource) is
+  redacted for a flagged caller (`MirrorOptions.canSeeProfit`); `manufacture:save`'s audit coverage
+  now lists `voucher`, so `canPost: false` refuses it like every other posting channel.
 - **Updater consent**, [#108](https://github.com/IrminFlow/total/pull/108): `autoDownload` and
   `autoInstallOnAppQuit` are off; the app-level setting `updates` lives in
   `<dataRoot>/app-settings.json`; channels `app:updates:get|set|act`; electron-updater's per-install

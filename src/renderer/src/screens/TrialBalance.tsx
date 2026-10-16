@@ -7,6 +7,7 @@ import { DataTable, defineColumns } from '../components/table'
 import { toDisplayDate } from '@shared/dates'
 import type { TrialBalanceRow } from '@shared/reports'
 import { LedgerLink } from '../components/links'
+import { PROFIT_HIDDEN_MESSAGE } from '@shared/profitRedaction'
 
 /** Old useReportConfig('trial-balance') toggle keys → column ids (one "movement" toggle drove two). */
 const LEGACY_IDS = { movement: ['movementDr', 'movementCr'] }
@@ -47,7 +48,7 @@ export function TrialBalanceScreen({ asOn, ledgerIds }: { asOn?: string; ledgerI
   // The service already drops ledgers with no balance and no movement; this also hides ledgers
   // that moved in the period but closed at zero. Totals are unaffected (those rows add 0).
   const rows = (data?.rows ?? []).filter((r) => (!only || only.has(r.ledgerId)) && (!opts.options.hideZeroClosing || r.debit !== 0 || r.credit !== 0))
-  const matched = only != null || !data || data.totalDebit === data.totalCredit
+  const matched = only != null || !data || !!data.profitHidden || data.totalDebit === data.totalCredit
   const periodLabel = `as on ${toDisplayDate(to)}`
 
   return (
@@ -74,6 +75,12 @@ export function TrialBalanceScreen({ asOn, ledgerIds }: { asOn?: string; ledgerI
           )
         }}
       />
+      {data?.profitHidden ? (
+        // WP 7.2: the owner turned "can see profit" off for this sign-in — main left the P&L side out.
+        <p role="note" className="mb-3 text-detail text-muted" data-testid="trial-balance-profit-hidden">
+          {PROFIT_HIDDEN_MESSAGE} — income and expense accounts and the totals are left out of this trial balance.
+        </p>
+      ) : null}
       <Panel>
         <DataTable
           viewId="trial-balance"
@@ -89,6 +96,7 @@ export function TrialBalanceScreen({ asOn, ledgerIds }: { asOn?: string; ledgerI
           empty={{ title: 'No balances yet', hint: 'Enter a voucher or set opening balances' }}
           isRowActivatable={isLedgerRow}
           onRowActivate={(r) => nav.go({ name: 'ledger-statement', ledgerId: r.ledgerId })}
+          totals={data?.profitHidden ? false : 'auto'}
           totalsLabel={matched ? 'Total' : 'Total — debits and credits differ; check opening balances'}
           exportOptions={{ title: 'Trial balance', periodLabel, filename: 'trial-balance' }}
         />

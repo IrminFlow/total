@@ -34,6 +34,7 @@ import { TransportModal } from './TransportModal'
 import { useTcsCollection, useTdsDeduction } from './useTdsDeduction'
 import { TdsBanner, TdsNotApplicableNote } from './TdsBanner'
 import { CarriedStockLines } from './CarriedStockLines'
+import { PostButton } from '../../components/PostButton'
 
 // ---------- accounting mode (payment / receipt / contra / journal, and the lossless fallback
 // for alterations the specialised modes can't show — see planVoucherEdit) ----------
@@ -934,9 +935,9 @@ export function AccountingEntry({
             </Button>
           )}
           <Button onClick={() => nav.back()}>Cancel</Button>
-          <Button variant="primary" data-testid="btn-save-voucher" disabled={!balanced || saving} onClick={() => void save()}>
+          <PostButton variant="primary" data-testid="btn-save-voucher" disabled={!balanced || saving} onClick={() => void save()}>
             {voucherId ? 'Save changes' : 'Save voucher'} ⌘↵
-          </Button>
+          </PostButton>
         </div>
       </div>
 

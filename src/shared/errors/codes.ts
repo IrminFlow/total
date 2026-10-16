@@ -204,7 +204,10 @@ export const ERROR_MAP = {
   security_already_locked: e('errors.security.alreadyLocked'),
   security_not_locked: e('errors.security.notLocked'),
   security_verify_failed: e('errors.security.verifyFailed'),
-  lock_needs_people: e('errors.security.lockNeedsPeople'),
+  /** No longer thrown since a business without people can lock its screen (a privacy screen); kept
+   *  for an older main's answer, in the new words. */
+  lock_needs_people: e('errors.security.lockPrivacyOnly'),
+  unlock_needs_pin: e('errors.security.unlockNeedsPin'),
   // ---------- upgrade guard (db/migrate.ts, db/preUpgrade.ts) ----------
   db_newer_version: e('errors.upgrade.newer'),
   db_upgrade_copy_failed: e('errors.upgrade.copyFailed'),

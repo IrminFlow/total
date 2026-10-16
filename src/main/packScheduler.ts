@@ -29,6 +29,8 @@ export interface PackPassOptions {
   renderPdf?: RenderPdf
   /** Deferral before the pass starts (ms). */
   delayMs?: number
+  /** WP 7.2: whether the signed-in user may see profit (profit reports skipped otherwise). */
+  canSeeProfit?: () => boolean
 }
 
 /** Schedule one pass over the company's due packs; resolves when it has finished (or was
@@ -45,7 +47,7 @@ export function runDuePacksInBackground(company: PackCompany | null, opts: PackP
       if (opts.allowed && !opts.allowed()) return
       const live = opts.current ? opts.current() : company
       if (!live || live.slug !== slug) return
-      const runs = await runDuePacks(live.db, slug, live.info, { renderPdf: opts.renderPdf ?? renderPackPdf })
+      const runs = await runDuePacks(live.db, slug, live.info, { renderPdf: opts.renderPdf ?? renderPackPdf, canSeeProfit: opts.canSeeProfit ? opts.canSeeProfit() : true })
       for (const r of runs) log(r.status === 'ok' ? 'info' : 'warn', 'report-pack-run', { slug, packId: r.packId, status: r.status, files: r.files.length })
     } catch (err) {
       // e.g. the company closed under a running pack — the next open picks it up again.
@@ -60,6 +62,6 @@ export function runDuePacksInBackground(company: PackCompany | null, opts: PackP
 
 /** Hourly due-check while the app runs (the on-open pass is triggered by company:open / login).
  *  `getUnlocked` returns the open company only when packs may run (not locked). */
-export function startPackScheduler(getUnlocked: () => PackCompany | null, intervalMin = 60): NodeJS.Timeout {
-  return setInterval(() => void runDuePacksInBackground(getUnlocked(), { current: getUnlocked }), intervalMin * 60 * 1000)
+export function startPackScheduler(getUnlocked: () => PackCompany | null, intervalMin = 60, canSeeProfit?: () => boolean): NodeJS.Timeout {
+  return setInterval(() => void runDuePacksInBackground(getUnlocked(), { current: getUnlocked, canSeeProfit }), intervalMin * 60 * 1000)
 }

@@ -14,6 +14,7 @@ import { rememberSaved } from '../../lib/handoff'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, useVoucherNumberField } from './hooks'
 import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } from './LineStockDetail'
+import { PostButton } from '../../components/PostButton'
 
 // ---------- physical stock mode (counted closing quantities, is_absolute lines) ----------
 
@@ -248,9 +249,9 @@ export function PhysicalStockEntry({
         <div>{isEdit && <Button variant="danger" onClick={() => void remove()}>Delete voucher</Button>}</div>
         <div className="flex gap-2">
           <Button onClick={() => nav.back()}>Cancel</Button>
-          <Button variant="primary" data-testid="btn-save-physical" disabled={saving} onClick={() => void save()}>
+          <PostButton variant="primary" data-testid="btn-save-physical" disabled={saving} onClick={() => void save()}>
             {isEdit ? 'Save changes' : 'Save count'} ⌘↵
-          </Button>
+          </PostButton>
         </div>
       </div>
     </Panel>

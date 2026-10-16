@@ -2665,7 +2665,6 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'errors.security.alreadyLocked': 'Yeh business pehle se passphrase se lock hai.',
   'errors.security.notLocked': 'Yeh business passphrase se lock nahi hai.',
   'errors.security.verifyFailed': 'Total lock ki hui copy ko check nahi kar paya, isliye kuch nahi badla. Aapka hisaab pehle jaisa hai.',
-  'errors.security.lockNeedsPeople': 'Screen lock karne ke liye pehle ‘Users aur unke adhikaar’ mein apna PIN banayein.',
   'errors.upgrade.newer': 'Yeh business pichhli baar Total ke naye version se khola gaya tha. Ise kholne ke liye Total update karein.',
   'errors.upgrade.copyFailed': 'Hisaab upgrade karne se pehle Total safe copy nahi bana paya; disk mein thodi jagah khaali karein aur phir se try karein.',
   'simple.settings.security': 'Lock aur suraksha',
@@ -2740,5 +2739,13 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.home.backupChecked': 'Pichhla backup {days, plural, =0 {aaj} one {# din pehle} other {# din pehle}}, check theek raha.',
   'simple.home.backupCheckFailed': 'Aapka pichhla backup apni check mein pass nahi hua. Naya backup lein.',
   'simple.home.profitHidden': 'Munafa aapko nahi dikhaya jaata. Zaroorat ho to owner se poochhein.',
+  'assist.profitHidden': 'Munafa aapke sign-in ko nahi dikhaya jaata, isliye main iska jawab nahi de sakta. Zaroorat ho to owner se poochhein.',
+  'errors.security.lockPrivacyOnly': 'PIN waale logon ke bina yeh lock sirf screen chhupata hai — koi bhi ise khol sakta hai. Asli lock ke liye ‘Users aur unke adhikaar’ mein PIN waale log jodein.',
+  'errors.security.unlockNeedsPin': 'Kholne ke liye apna naam chunein aur PIN likhein.',
+  'simple.lock.privacy.title': 'Screen lock hai',
+  'simple.lock.privacy.text': 'Ise koi bhi khol sakta hai; asli lock ke liye PIN waale log jodein.',
+  'simple.lock.privacy.passphraseText': 'Kholne ke liye is business ka passphrase likhein.',
+  'simple.lock.privacy.passphrase': 'Passphrase',
+  'simple.lock.privacy.unlock': 'Kholein',
   // ---------- end WP 7.2 ----------
 }

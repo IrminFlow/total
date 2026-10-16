@@ -17,7 +17,7 @@ declare global {
       /** AI agent events (WP 5.1) — the payload is an AiEvent (src/shared/ai.ts). Returns an unsubscribe. */
       onAiEvent?: (listener: (event: unknown) => void) => () => void
       /** WP 7.2: main locked the session (⌘L / idle auto-lock). */
-      onSessionLocked?: (listener: (event: { reason: 'manual' | 'idle' }) => void) => () => void
+      onSessionLocked?: (listener: (event: { reason: 'manual' | 'idle'; kind?: 'pin' | 'passphrase' | 'privacy' }) => void) => () => void
       onUpdateEvent?: (listener: (notice: unknown) => void) => () => void
     }
   }

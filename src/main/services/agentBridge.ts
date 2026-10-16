@@ -24,7 +24,7 @@ import { fyOf, todayISO } from '@shared/dates'
 import { voucherInputSchema } from '@shared/schemas'
 import type { Voucher } from '@shared/domain'
 import * as masters from './masters'
-import { trialBalance } from './reports'
+import { trialBalanceFor } from './reports'
 import { outstandings } from './analysis'
 import { getVoucher, saveVoucher, NOT_DELETED } from './vouchers'
 import { applyImport, type ImportKind, type ImportResult } from './importers'
@@ -44,6 +44,9 @@ export interface MirrorOptions {
   /** Optional voucher date bounds (inclusive); reports use `to` (default today) as their as-on. */
   from?: string
   to?: string
+  /** WP 7.2 (PR #127): false = the caller may not see profit — the trial balance mirror is
+   *  redacted like the screen's (shared/profitRedaction.ts). Absent = whole. */
+  canSeeProfit?: boolean
 }
 
 export interface MirrorResult {
@@ -168,7 +171,7 @@ export function buildMirrorFiles(db: DB, slug: string, opts: MirrorOptions = {},
   }
 
   if ((what === 'reports' || what === 'all') && wantJson) {
-    json('trial-balance.json', { asOn, ...trialBalance(db, asOn) })
+    json('trial-balance.json', { asOn, ...trialBalanceFor(db, asOn, opts.canSeeProfit !== false) })
     json('outstandings.json', { asOn, receivable: outstandings(db, 'receivable', asOn), payable: outstandings(db, 'payable', asOn) })
   }
 

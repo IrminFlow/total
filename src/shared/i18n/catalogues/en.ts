@@ -2778,7 +2778,6 @@ export const en = {
   'errors.security.alreadyLocked': 'This business is already locked with a passphrase.',
   'errors.security.notLocked': 'This business is not locked with a passphrase.',
   'errors.security.verifyFailed': 'Total could not check the locked copy, so nothing was changed. Your books are as they were.',
-  'errors.security.lockNeedsPeople': 'To lock the screen, first add yourself with a PIN in People & roles.',
   'errors.upgrade.newer': 'This business was last opened with a newer Total. Update Total to open it.',
   'errors.upgrade.copyFailed': 'Total could not make a safe copy before upgrading the books; free some disk space and try again.',
   'simple.settings.security': 'Lock and safety',
@@ -2853,6 +2852,14 @@ export const en = {
   'simple.home.backupChecked': 'Last backup {days, plural, =0 {today} one {# day ago} other {# days ago}}, checked OK.',
   'simple.home.backupCheckFailed': 'Your last backup did not pass its check. Take a new backup.',
   'simple.home.profitHidden': 'Profit is not shown to you. Ask the owner if you need it.',
+  'assist.profitHidden': 'Profit is not shown to your sign-in, so I can’t answer that. Ask the owner if you need it.',
+  'errors.security.lockPrivacyOnly': 'Without people who have PINs, this lock is only a privacy screen — anyone can unlock it. Add people with PINs in People & roles for a real lock.',
+  'errors.security.unlockNeedsPin': 'Tap your name and type your PIN to unlock.',
+  'simple.lock.privacy.title': 'The screen is locked',
+  'simple.lock.privacy.text': 'Anyone can unlock this; add people with PINs for a real lock.',
+  'simple.lock.privacy.passphraseText': 'Type this business’s passphrase to unlock.',
+  'simple.lock.privacy.passphrase': 'Passphrase',
+  'simple.lock.privacy.unlock': 'Unlock',
   // ---------- end WP 7.2 ----------
 } as const satisfies Record<string, string>
 

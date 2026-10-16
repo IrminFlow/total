@@ -16,6 +16,8 @@ import { stockSummary as stockSummarySvc } from '../../services/stockAnalysis'
 import { gstr3b } from '../../services/gst'
 import { tdsSummary as tdsSummarySvc } from '../../services/tds'
 import { defineTool, type ToolDef } from './registry'
+import { assertProfitVisible, profitHidden } from './profitGuard'
+import { PROFIT_HIDDEN_TOOL_MESSAGE } from '@shared/profitRedaction'
 
 /** "₹1,234.00" (negative → "-₹1,234.00"). */
 export const rupees = (paise: number): string => formatPaise(paise, { symbol: true })
@@ -185,14 +187,15 @@ export const trialBalanceTool = defineTool({
   kind: 'read',
   minRole: 'viewer',
   handler: ({ asOn }, ctx) => {
-    const tb = reports.trialBalance(ctx.db, asOn)
+    const tb = reports.trialBalanceFor(ctx.db, asOn, !profitHidden(ctx))
     const rows = tb.rows.filter((r) => r.debit !== 0 || r.credit !== 0)
     const tbCap = capRows(rows, ROW_CAPS.trialBalance, 'the totals cover every ledger; use ledger_statement for the rest')
     return {
       data: {
         asOn,
-        totalDebit: rupees(tb.totalDebit),
-        totalCredit: rupees(tb.totalCredit),
+        ...(tb.profitHidden
+          ? { note: `${PROFIT_HIDDEN_TOOL_MESSAGE} The income and expense ledgers and the totals are left out of this trial balance.` }
+          : { totalDebit: rupees(tb.totalDebit), totalCredit: rupees(tb.totalCredit) }),
         truncated: tbCap.truncated,
         rows: tbCap.rows.map((r) => ({
           ledgerId: r.ledgerId,
@@ -214,6 +217,7 @@ export const profitAndLossTool = defineTool({
   kind: 'read',
   minRole: 'viewer',
   handler: ({ from, to }, ctx) => {
+    assertProfitVisible(ctx)
     const p = reports.profitAndLoss(ctx.db, from, to)
     const all = [...p.tradingIncomes, ...p.tradingExpenses, ...p.indirectIncomes, ...p.indirectExpenses]
     return {
@@ -241,6 +245,7 @@ export const balanceSheetTool = defineTool({
   kind: 'read',
   minRole: 'viewer',
   handler: ({ asOn }, ctx) => {
+    assertProfitVisible(ctx)
     const b = reports.balanceSheet(ctx.db, `${ctx.company.booksFrom}-04-01`, asOn)
     return {
       data: {

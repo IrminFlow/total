@@ -6,7 +6,7 @@ import { api } from '../lib/client'
 import { useT } from '../lib/i18n'
 import { useNav, useToasts } from '../state/stores'
 import { Button, Page } from '../components/ui'
-import { useCanSave, ViewerNote } from './ViewerNote'
+import { useCanWrite, ViewerNote } from './ViewerNote'
 
 const BACKUPS_KEY = ['backups'] as const // i18n-technical: query key
 /** The full Settings → Backups tab (every backup, restore, encrypted copies). */
@@ -29,7 +29,7 @@ const localDay = (ms: number): string => {
 export function SimpleBackups(): React.JSX.Element {
   const t = useT()
   // WP 10.8 review: Back up now is accountant+ (as the full tab shows it); a viewer gets the note.
-  const canSave = useCanSave()
+  const canSave = useCanWrite()
   const nav = useNav()
   const toast = useToasts()
   const queryClient = useQueryClient()

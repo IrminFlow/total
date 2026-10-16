@@ -112,6 +112,10 @@ import { registerCaptureIpc, captureOnCompanyOpen, captureOnCompanyClose, resume
 import { dropPendingAttachments, flushCaptureAttachments } from './ai/capture/consume'
 import { registerAssistantsIpc } from './ipcAssistants'
 import { registerAskTotalIpc } from './assist/ipc'
+import { classify as classifyAsk } from './assist/classify'
+import { assistAskSchema, type AssistAnswer } from '@shared/assist'
+import { translator } from '@shared/i18n'
+import { companyLanguage } from './i18n'
 import { settleAskDraft } from './assist/settle'
 import { aiMockAllowed } from './ai/env'
 import { settleDraftOnSave } from './ai/drafts'
@@ -225,6 +229,28 @@ const dialogIssuedTallyPaths = new Set<string>()
  *  Cleared whenever the company itself closes (see closeCurrentCompany). */
 let sessionUser: { id: number; name: string; role: Role; capabilities: CapabilityFlags | null } | null = null
 
+/** WP 7.2 follow-up: the screen lock of a business WITHOUT users (⌘L / its idle minutes) — a
+ *  privacy screen: every gated channel is refused until `session:unlock`, which asks for the
+ *  business's passphrase when the passphrase lock is on and otherwise just resumes. In memory
+ *  only (a restart opens unlocked, as a company without users always did). */
+let privacyLock: 'manual' | 'idle' | null = null
+
+/** What the lock screen asks for: a PIN (people), the passphrase, or nothing (a privacy screen). */
+type LockKind = 'pin' | 'passphrase' | 'privacy'
+const lockKindOf = (c: OpenCompany): LockKind => (c.usersExist ? 'pin' : c.encrypted ? 'passphrase' : 'privacy')
+
+function lockPrivacy(reason: 'manual' | 'idle'): void {
+  if (!current || current.usersExist || privacyLock) return
+  try {
+    writeAudit(current.db, 'user', 0, 'logout', null, { lock: reason, noUsers: true })
+  } catch (err) {
+    log('warn', 'session-lock-audit-failed', { error: err instanceof Error ? err.message : String(err) })
+  }
+  privacyLock = reason
+  const kind = lockKindOf(current)
+  for (const w of BrowserWindow.getAllWindows?.() ?? []) if (!w.isDestroyed()) w.webContents.send('total:session:locked', { reason, kind })
+}
+
 /** WP 7.2: sign the session out because of a lock (⌘L / idle); audited as the user's logout with
  *  the reason, and every window told so it shows the PIN screen. */
 function lockSession(reason: 'manual' | 'idle'): void {
@@ -235,7 +261,7 @@ function lockSession(reason: 'manual' | 'idle'): void {
     log('warn', 'session-lock-audit-failed', { error: err instanceof Error ? err.message : String(err) })
   }
   sessionUser = null
-  for (const w of BrowserWindow.getAllWindows?.() ?? []) if (!w.isDestroyed()) w.webContents.send('total:session:locked', { reason })
+  for (const w of BrowserWindow.getAllWindows?.() ?? []) if (!w.isDestroyed()) w.webContents.send('total:session:locked', { reason, kind: 'pin' })
 }
 
 /** WP 7.2: the automatic restore check of a backup that was just written — deferred a few
@@ -260,7 +286,7 @@ function sessionView(u: { id: number; name: string; role: Role; capabilities: Ca
 }
 
 /** Whether the current session may see profit figures (dashboards / Home leave them out otherwise). */
-function canSeeProfitNow(): boolean {
+export function canSeeProfitNow(): boolean {
   if (!current?.usersExist || !sessionUser) return true
   return effectiveCapabilities(sessionUser.role, sessionUser.capabilities).canSeeProfit
 }
@@ -326,6 +352,7 @@ export function closeCurrentCompany(opts: { keepKey?: boolean } = {}): void {
   // forgotten with the handle (a restore / a lock change reopens it at once and keeps it).
   if (current && !opts.keepKey) forgetFolderKey(companyDir(current.slug))
   idleClock.setMinutes(null)
+  privacyLock = null
   // Stop the inbox watcher + any pending mirror refresh before the handle closes under them.
   agentBridge.syncInboxWatcher(null)
   // The cached NIC login belongs to this company's identity — never carry it into the next one.
@@ -350,6 +377,8 @@ type Handler = (payload: unknown) => unknown | Promise<unknown>
  *  logging, and the encrypted-backup import dialog. Everything else is gated by `handle`'s
  *  `minRole` — but only once a company is open AND that company actually has users (see below). */
 const UNGATED_CHANNELS = new Set([
+  // WP 7.2 follow-up: the unlock of a business without users (it refuses one with users).
+  'session:unlock',
   'company:list',
   'company:create',
   'company:createDemo',
@@ -422,6 +451,12 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
       // WP 7.2: an idle session past its auto-lock minutes is locked here, before the gate — main
       // decides, so a renderer that missed the lock event cannot keep using the session.
       if (current && current.usersExist && sessionUser && idleClock.due()) lockSession('idle')
+      if (current && !current.usersExist && !privacyLock && idleClock.due()) lockPrivacy('idle')
+      // A business without users whose screen is locked: everything but the ungated channels
+      // (the picker, session:unlock) waits for session:unlock.
+      if (!UNGATED_CHANNELS.has(channel) && current && !current.usersExist && privacyLock) {
+        throw new AppError('session_locked', 'Locked — unlock first')
+      }
       if (!UNGATED_CHANNELS.has(channel) && current && current.usersExist) {
         if (!sessionUser) {
           // Distinct from the role-denied case below: the renderer can route this specifically
@@ -472,6 +507,7 @@ export function registerIpc(): void {
   // comes back while the app sits idle.
   const idleTimer = setInterval(() => {
     if (current && current.usersExist && sessionUser && idleClock.due()) lockSession('idle')
+    if (current && !current.usersExist && !privacyLock && idleClock.due()) lockPrivacy('idle')
   }, 15_000)
   idleTimer.unref?.()
 
@@ -481,7 +517,7 @@ export function registerIpc(): void {
   registerPayrollStatutoryIpc(handle, () => requireCompany())
   registerPricingIpc(handle, () => requireCompany())
   // ---------- report builder, comparatives, ratios, scheduled packs (WP 6.1 / 6.2) ----------
-  registerReportsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser())
+  registerReportsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser(), canSeeProfitNow)
   // ---------- group consolidation (WP 6.5) — channels live in ipcConsolidation.ts ----------
   registerConsolidationIpc(handle, () => requireCompany())
   // ---------- AI agent (WP 5.1) — channels live in ai/ipc.ts; events stream on 'total:ai:event' ----------
@@ -490,6 +526,7 @@ export function registerIpc(): void {
     session: () => (sessionUser ? { name: sessionUser.name, role: sessionUser.role } : { name: null, role: 'owner' }),
     // A company with users and nobody signed in has no role (the run stops at its next tool call).
     roleNow: () => (sessionUser ? sessionUser.role : current?.usersExist ? null : 'owner'),
+    canSeeProfit: canSeeProfitNow,
     secrets: () => appSecretStore(),
     anyCompanyHasUsers: () => readRegistry().companies.some((co) => co.slug !== current?.slug && companyHasUsers(companyDbPath(co.slug))),
     appAudit: (entry) => appendAiKeyAudit(entry),
@@ -508,7 +545,19 @@ export function registerIpc(): void {
   // ---------- assistants (WP 5.5): close checklist, anomalies, GSTR-2B mismatches — ipcAssistants.ts ----------
   registerAssistantsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser())
   // ---------- Ask Total (WP 10.1): deterministic answers + entry drafts, no key — assist/ipc.ts ----------
-  registerAskTotalIpc(handle, {
+  // WP 7.2: a profit question from a user who may not see profit gets the redaction note — the
+  // deterministic classifier reads the question exactly as assist:ask does (Hinglish included).
+  const askTotalHandle = (channel: string, fn: Handler, minRole?: Role): void =>
+    handle(channel, channel === 'assist:ask' ? (p) => profitHiddenAnswer(p) ?? fn(p) : fn, minRole)
+  const profitHiddenAnswer = (payload: unknown): AssistAnswer | null => {
+    if (canSeeProfitNow()) return null
+    const q = assistAskSchema.parse(payload)
+    const intent = classifyAsk(q.text, homeAsOn(q.today, todayISO()))
+    if (intent.kind !== 'figure' || intent.measure !== 'profit') return null
+    const t = translator(q.lang ?? companyLanguage(requireCompany().db))
+    return { intent: 'figure', answeredBy: 'total', sentences: [t('assist.profitHidden')], figures: [], links: [], understood: true }
+  }
+  registerAskTotalIpc(askTotalHandle, {
     company: () => requireCompany(),
     roleNow: () => (sessionUser ? sessionUser.role : current?.usersExist ? null : 'owner'),
     userNow: () => sessionUser?.id ?? null
@@ -959,7 +1008,7 @@ export function registerIpc(): void {
     // past this reply and only while the company is unlocked (a company with users waits for the
     // sign-in — auth:login starts the pass then).
     mark('capture')
-    void runDuePacksInBackground({ slug, db, info }, { allowed: packsAllowed, current: getUnlockedCompany })
+    void runDuePacksInBackground({ slug, db, info }, { allowed: packsAllowed, current: getUnlockedCompany, canSeeProfit: canSeeProfitNow })
     return { slug, info, integrity, locked: current.usersExist, ui: configSvc.getUi(db), encrypted: current.encrypted }
   }
 
@@ -970,7 +1019,14 @@ export function registerIpc(): void {
 
   handle('company:current', () =>
     current
-      ? { slug: current.slug, info: current.info, locked: current.usersExist && !sessionUser, ui: configSvc.getUi(current.db), encrypted: current.encrypted }
+      ? {
+          slug: current.slug,
+          info: current.info,
+          locked: (current.usersExist && !sessionUser) || (!current.usersExist && !!privacyLock),
+          lockKind: lockKindOf(current),
+          ui: configSvc.getUi(current.db),
+          encrypted: current.encrypted
+        }
       : null
   )
 
@@ -1692,7 +1748,8 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('report:trialBalance', (p) => {
     const { asOn } = z.object({ asOn: z.string() }).parse(p)
-    return reports.trialBalance(requireCompany().db, asOn)
+    // WP 7.2: without canSeeProfit the P&L ledgers, the computed P&L row and the totals go.
+    return reports.trialBalanceFor(requireCompany().db, asOn, canSeeProfitNow())
   }, 'viewer')
   handle('report:profitLoss', (p) => {
     const { from, to, comparePrior } = periodSchema.extend({ comparePrior: z.boolean().optional() }).parse(p)
@@ -2631,6 +2688,9 @@ export function registerIpc(): void {
   handle('export:caPack', (p) => {
     const { from, to } = periodSchema.parse(p)
     const c = requireCompany()
+    // PR #127 review: the pack holds profit-and-loss.csv and balance-sheet.csv — canExport alone
+    // must not hand them to a sign-in that may not see profit.
+    if (!canSeeProfitNow()) throw new AppError('not_permitted', 'The CA pack includes the profit and loss and the balance sheet, which are not shown to your account')
     const r = caPack.exportCaPack(c.db, c.info, c.slug, from, to)
     auditExport(c.db, 'ca_pack', { from, to, path: r.path })
     shell.showItemInFolder(r.path)
@@ -2772,7 +2832,7 @@ export function registerIpc(): void {
     sessionUser = result
     idleClock.touch()
     // WP 6.2: due report packs wait for the first sign-in of a locked company.
-    void runDuePacksInBackground(c, { allowed: packsAllowed, current: getUnlockedCompany })
+    void runDuePacksInBackground(c, { allowed: packsAllowed, current: getUnlockedCompany, canSeeProfit: canSeeProfitNow })
     resumeCapture()
     return sessionView(result)
   })
@@ -2821,10 +2881,41 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('session:lock', () => {
     const c = requireCompany()
-    if (!c.usersExist) throw new AppError('lock_needs_people', 'Add a user with a PIN first — a business without users has nothing to lock the screen with')
-    lockSession('manual')
-    return { locked: true }
+    // WP 7.2 follow-up: a business without users locks too — a privacy screen (its passphrase,
+    // when the passphrase lock is on, or a plain Unlock) instead of the PIN screen.
+    if (!c.usersExist) lockPrivacy('manual')
+    else lockSession('manual')
+    return { locked: true, kind: lockKindOf(c) }
   }, 'viewer')
+  // The unlock of a business WITHOUT users (with users it is auth:login). Ungated; the passphrase
+  // (when the business has the passphrase lock on) is throttled like opening; audited as a login.
+  handle('session:unlock', async (p) => {
+    const { passphrase } = z.object({ passphrase: z.string().max(1024).optional() }).strict().parse(p ?? {})
+    const c = requireCompany()
+    if (c.usersExist) throw new AppError('unlock_needs_pin', 'This business has people with PINs — sign in with yours', { field: 'pin' })
+    if (!privacyLock) return { locked: false }
+    if (c.encrypted) {
+      if (!passphrase) throw new AppError('passphrase_required', 'Type the passphrase of this business to unlock', { field: 'passphrase' })
+      const now = Date.now()
+      const state = passphraseFails.get(c.slug)
+      if (state && state.until > now) throw new AppError('passphrase_throttled', 'Too many tries — wait 30 seconds', { field: 'passphrase' })
+      try {
+        await assertPassphrase(c, passphrase, 'passphrase')
+      } catch (err) {
+        if (!(err instanceof AppError) || err.code !== 'wrong_passphrase') throw err
+        const fails = (state?.fails ?? 0) + 1
+        passphraseFails.set(c.slug, { fails, until: fails >= PASSPHRASE_MAX_FAILS ? now + PASSPHRASE_LOCKOUT_MS : 0 })
+        log('warn', 'passphrase-wrong', { slug: c.slug, fails })
+        throw err
+      }
+      passphraseFails.delete(c.slug)
+    }
+    const reason = privacyLock
+    privacyLock = null
+    idleClock.touch()
+    writeAudit(c.db, 'user', 0, 'login', null, { lock: reason, noUsers: true, passphrase: c.encrypted })
+    return { locked: false }
+  })
 
   const securityView = (): SecurityView => {
     const c = requireCompany()
@@ -2844,7 +2935,6 @@ export function registerIpc(): void {
       .strict()
       .parse(p)
     const c = requireCompany()
-    if (minutes !== null && !c.usersExist) throw new AppError('lock_needs_people', 'Add a user with a PIN first — the screen lock asks for a PIN')
     setAutoLockMinutes(c.db, minutes)
     idleClock.setMinutes(minutes)
     return securityView()
@@ -3014,7 +3104,7 @@ export function registerIpc(): void {
   handle('agent:exportMirror', (p) => {
     const input = agentExportSchema.parse(p ?? {})
     const c = requireCompany()
-    const r = agentBridge.exportMirror(c.db, c.slug, input)
+    const r = agentBridge.exportMirror(c.db, c.slug, { ...input, canSeeProfit: canSeeProfitNow() })
     auditExport(c.db, 'agent_mirror', { dir: r.dir, files: r.files.length })
     return r
   })

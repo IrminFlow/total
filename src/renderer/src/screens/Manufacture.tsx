@@ -22,6 +22,7 @@ import { confirmDialog } from '../lib/dialogs'
 import { rememberSaved } from '../lib/handoff'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 import { nextLineKey, NUMBER_LOADING, useLeaveAfterSave, useVoucherNumberField } from './voucher/hooks'
+import { PostButton } from '../components/PostButton'
 
 // ---------- Manufacture voucher (WP 2.2; WP 2.4 depth) ----------
 // Left "Sale Item": one row — Item · Quantity · Average price · Amount. Right "Raw Material":
@@ -984,9 +985,9 @@ export function ManufactureForm({
               </Button>
             )}
             <Button onClick={() => nav.back()}>Cancel</Button>
-            <Button variant="primary" data-testid="btn-save-manufacture" disabled={!canSave} onClick={() => void save()}>
+            <PostButton variant="primary" data-testid="btn-save-manufacture" disabled={!canSave} onClick={() => void save()}>
               {isEdit ? 'Save changes' : jobWork ? 'Save receipt' : 'Save manufacture'} ⌘↵
-            </Button>
+            </PostButton>
           </div>
         </div>
       </Panel>

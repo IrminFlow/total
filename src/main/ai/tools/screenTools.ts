@@ -26,6 +26,7 @@ import { NOT_DELETED } from '../../services/vouchers'
 import { capRows, drCr, rupees, READ_TOOLS } from './readTools'
 import { closeChecklistTool, findAnomaliesTool, gst2bMismatchesTool } from './assistantTools'
 import { defineTool, type ToolContext, type ToolDef, type ToolOutput } from './registry'
+import { PROFIT_SCREENS, assertProfitVisible, isProfitFigureName, profitHidden } from './profitGuard'
 
 const iso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
 const date = (what: string): z.ZodString => iso.describe(`${what} (YYYY-MM-DD); omit for the working period`)
@@ -374,6 +375,7 @@ export const budgetVarianceTool = defineTool({
   kind: 'read',
   minRole: 'viewer',
   handler: ({ budgetId, upToMonth }, ctx) => {
+    assertProfitVisible(ctx)
     const budgets = listBudgets(ctx.db)
     const screenBudget = typeof ctx.screen?.params?.budgetId === 'number' ? ctx.screen.params.budgetId : undefined
     const b = budgets.find((x) => x.id === (budgetId ?? screenBudget)) ?? budgets[0]
@@ -767,6 +769,8 @@ function explainGroup(ctx: ToolContext, groupName: string, from: string, to: str
     prevLabel = { asOn: prevOn }
   }
   if (!node) throw new Error(`No group or line called “${groupName}” in the profit and loss or balance sheet for this period.`)
+  // WP 7.2: a computed line (the profit carried to the balance sheet …) is the profit itself.
+  if (node.kind === 'computed' || isProfitFigureName(node.name)) assertProfitVisible(ctx)
   const kids = [...node.children].filter((c) => c.amount !== 0).sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
   const cap = capRows(kids, 15, 'ask about one ledger')
   const prevKids = new Map((prevNode?.children ?? []).map((c) => [`${c.kind}:${c.id}`, c.amount]))
@@ -820,6 +824,11 @@ export const explainFigureTool = defineTool({
     const itemId = has ? input.itemId : f?.itemId
     const groupName = has ? input.groupName : (f?.groupName ?? (f && !f.ledgerId && !f.voucherId && !f.itemId ? f.label : undefined))
     const asOn = input.asOn ?? (has ? undefined : f?.asOn)
+    // WP 7.2: a figure on a profit screen, or the profit / loss itself, is not explained to a user
+    // who may not see profit.
+    if (profitHidden(ctx) && (PROFIT_SCREENS.includes(ctx.screen?.screen ?? '') || isProfitFigureName(groupName) || isProfitFigureName(has ? undefined : f?.label))) {
+      assertProfitVisible(ctx)
+    }
     const p = periodOf(ctx, input.from ?? (has ? undefined : f?.from), input.to ?? (has ? undefined : f?.to))
     // A balance as on a date is explained over its financial year up to that date.
     const range = asOn ? { from: fyStartOf(asOn) < `${ctx.company.booksFrom}-04-01` ? `${ctx.company.booksFrom}-04-01` : fyStartOf(asOn), to: asOn } : p
@@ -911,6 +920,7 @@ export const currentScreenDataTool = defineTool({
   handler: async (_i, ctx) => {
     const screen = ctx.screen?.screen
     if (!screen) return { data: { screen: null, note: 'The app did not say which screen is open. Ask the user, or use the other tools.' }, sources: [] }
+    if (PROFIT_SCREENS.includes(screen)) assertProfitVisible(ctx)
     const runner = SCREEN_DATA[screen]
     const out = runner ? await runner(ctx, ctx.screen?.params ?? {}) : null
     if (!out) {

@@ -85,6 +85,11 @@ export interface TrialBalance {
   openingCreditTotal: number
   movementDebitTotal: number
   movementCreditTotal: number
+  /** WP 7.2 (PR #112 follow-up): set when the signed-in user may not see profit — the income /
+   *  expense ledgers and the computed "Profit & Loss A/c (opening)" row are left out and every
+   *  total is 0 (the screen shows the redaction note instead of totals; a total over what is left
+   *  would give the profit away as the difference). */
+  profitHidden?: boolean
 }
 
 export interface StatementNode {
