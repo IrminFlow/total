@@ -250,6 +250,19 @@ Read these before filing from the next release.
     runs to a later date. The panel still runs to today.
   - Report-pack folders are named after the pack ("Con" becomes `_Con/`, not `con-company/`).
     Folders that already exist keep being used.
+- **Credit hold, ledger form, TDS interest, PDCs in the forecast — no figure changed**
+  [#126](https://github.com/IrminFlow/total/pull/126):
+  - Restoring a binned sales invoice or delivery challan to a party on credit hold is refused like
+    a new invoice; an owner can override it with a reason (audited `credit_override`). A post-dated
+    invoice to a held party stays post-dated when its date comes ("Mature now" needs the owner's
+    reason). Post-dated cheques never create credit and mature as before.
+  - The ledger form of a customer has the credit-hold switch and reason for the owner (read-only
+    for everyone else).
+  - The TDS Deducted tab shows the s.201(1A)(i) late-deduction interest (1 % a month or part) on a
+    deduction made on payment for bills that were already liable, as its own column in the export.
+    Indicative, never posted; what it assumes is listed as UNVERIFIED in `shared/tdsInterest.ts`.
+  - The Cash forecast can include pending post-dated cheques (Options → Include, off by default),
+    in place of the bills they settle.
 - The UNVERIFIED items listed under 0.11.0 (QRMP details, GSTR-1 amendment notifications, the
   2025/2026 slab sources) still apply.
 

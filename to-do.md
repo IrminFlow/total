@@ -91,8 +91,8 @@ done on main were dropped. One line each; the pointer says where to look.
 - AI helper: a company without sign-ins (while another has them) shows "anyone can change the key" before main refuses; payment draft prefill treats a non-party debit account as an expense without checking its class — PR #101
 
 ### Accountant (full app)
-- Credit hold doesn't cover restoring a binned invoice or automatic PDC maturing — WP 4.2, `services/receivables.ts`
-- Cheque register is empty after upgrade (old instrument numbers not backfilled); cash forecast ignores pending post-dated cheques; ledger form has no credit-hold control — WP 4.4 upgrade check
+- ~~Credit hold doesn't cover restoring a binned invoice or automatic PDC maturing~~ DONE — restore of a held party's invoice / challan needs the owner's override; maturing a cheque never creates credit, a post-dated invoice to a held party waits (`blockedByHold`) — PR #126
+- Cheque register is empty after upgrade (old instrument numbers not backfilled); ~~cash forecast ignores pending post-dated cheques~~ DONE — option, off by default — PR #126; ~~ledger form has no credit-hold control~~ DONE — PR #126 — WP 4.4 upgrade check
 - Companies that closed a year on 0.4.0 show a permanent "Profit & Loss A/c (opening)" residual; a guided re-close would fix it — upgrade notes
 - Pre-0.6 manufacture vouchers don't appear in the Manufacture register (Day book / Stock movements only) — by design, release notes
 - ~~e-invoice original-bill lookup takes the newest sales voucher with that number at ANY party (wrong once numbers restart yearly)~~ DONE — the note's own party, its FY first — PR #120
@@ -101,7 +101,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Barcode labels date / price by the period END — PR #110
 - Cash flow statement has no drill-down; labels PDF, CA pack and e-invoice export write to `exports/` with no save dialog; e-invoice export is whole-period only — e2e 68–71 notes
 - Items created over IPC after a screen loaded don't appear in screens that cache the item list (Labels tab) — e2e 68 notes
-- TDS: late-deduction (1 %) interest computed but not shown; purchase returns don't reduce the threshold aggregate; 26Q CSV is RPU input, not FVU — WP 3.2
+- TDS: ~~late-deduction (1 %) interest computed but not shown~~ DONE — Deducted tab column + export, display only — PR #126; purchase returns don't reduce the threshold aggregate; 26Q CSV is RPU input, not FVU — WP 3.2
 - Fixed assets not done: partial disposals, GST on asset sale, extra-shift depreciation, component lives, rule 25(2) 40 % cap — WP 3.6
 - Trade cycle not done: 16-char invoice-number warning, challan / GRN list screens, convert-to-invoice, live NIC e-way for challans — WP 2.5b
 - TCS not modelled: 206C(1G) 20 % slab, 206C(1C), LRS — WP 3.3
