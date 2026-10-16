@@ -74,19 +74,19 @@ done on main were dropped. One line each; the pointer says where to look.
 - Returns: the bill card doesn't show the bill's own note; the purchase-return picker's empty state looks only at the last 12 months — PR #89 / #100
 - Hand-off: edits in the full editor aren't carried back; a "paid now" payment / refund isn't in the handed-off editor; People / Reports / Taxes have no Accountant-view button — PR #96
 - Hand-off review: refused answers → blank editor after a discard prompt; Cancel returns to an EMPTY simple form; walk-in hand-off leaves the customer empty; missing GST / round-off accounts show empty rows; Reports / Taxes Accountant-view lack the "Always" menu; palette search results still titled "Ledgers" / "Vouchers"; switching company with unsaved editor changes keeps the old stack — shots-96
-- Taxes: after "I've filed", Home's GST tile and the Gateway 3B chip still show the period's amount / date — PR #94
+- ~~Taxes: after "I've filed", Home's GST tile and the Gateway 3B chip still show the period's amount / date~~ DONE — PR #119 (the tile moves on to the running period) — PR #94
 - Taxes: quarterly (QRMP) file preparation and the PMT-06 amount are full-app only — PR #94
 - Home: "entries added for an earlier, closed date" also fires for ordinary entries 30 days late; one-column profit "Purchases" includes direct expenses (freight, wages) — PR #94
 - Why?: no link on composition / PMT-06 dates and advance tax; no Why on Bills to pay "due this week"; one Why per by-month chart; quarterly filers' GSTR-1 / 3B links open the quarter's first month — PR #99
 - Ask Total: drafts stay open until discarded in Settings → AI drafts; "5000 Ramesh" (no verb) gets "try these" instead of asking in / out; payroll / TDS amount / bill-by-number questions not understood; an Ask Total draft opened from Settings opens the accountant editor — PR #98
 - Tour card can cover part of Home under its anchor; help-link params (`filter=`, `tab=`) aren't validated per screen — PR #100
-- Viewer sees Sell / Buy forms and Save, then a generic "no permission"; sidebar "Back up now" shown to a viewer — shots-86 / PR #111
-- Sell: "Prices include GST" doesn't convert already-typed prices; a failed Print shows no message; supplier / customer with no credit days is overdue the next day (consider "no due date = not overdue") — shots-86 / shots-87
+- ~~Viewer sees Sell / Buy forms and Save, then a generic "no permission"; sidebar "Back up now" shown to a viewer~~ DONE — PR #119 (note at the top of each form, no Create / Add-account buttons, a note instead of Back up now) — shots-86 / PR #111
+- ~~Sell: "Prices include GST" doesn't convert already-typed prices; a failed Print shows no message~~ DONE — PR #119 (Make a bill and Record a purchase); still open: supplier / customer with no credit days is overdue the next day (consider "no due date = not overdue") — shots-86 / shots-87
 - Purchases: s.17(5) blocked ITC counted as claimable; reverse charge / ITC eligibility only in the accountant view — PR #87
 - Opening products get the slab list in force on the books-begin date (pre-22 Sep 2025 books still offer 12 % / 28 %) — PR #111
 - Beginner study leftovers: no photo option without an AI key; restaurant UPI settlement has to be "other money in"; a cash expense in Record a purchase needs a supplier; no polite pre-due reminder — PR #111
 - Toasts can briefly cover Save; at 1700 px a toast covers docked Ask Total's question box; DataTable truncates names at 1024 px — PR #87 / #103
-- Dark mode: the selected + disabled walk-in "Cash" chip is hard to read — PR #111
+- ~~Dark mode: the selected + disabled walk-in "Cash" chip is hard to read~~ DONE — PR #119 — PR #111
 - Hindi: dates inside a few main-side error messages, wizard state names, preset account names, the PDF footer "Page 1 of 1", reminder-letter bodies (owner's template) stay English; bank suggestions use the company language, not the reader's — PR #105
 - AI helper: a company without sign-ins (while another has them) shows "anyone can change the key" before main refuses; payment draft prefill treats a non-party debit account as an expense without checking its class — PR #101
 
