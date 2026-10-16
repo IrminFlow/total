@@ -387,7 +387,7 @@ describe('Ask Total on the demo seed: every figure is the screen service’s', (
   })
 })
 
-describe('Ask Total: the same bill number in two years (an unregistered business)', () => {
+describe('Ask Total: bills in two years, TDS and payroll (an unregistered business)', () => {
   let pslug = ''
   let pdb = ''
   const ids2: Record<string, number> = {}
@@ -423,5 +423,76 @@ describe('Ask Total: the same bill number in two years (an unregistered business
     // ₹500 paid in cash at the counter → nothing due.
     expect(paise(now)).toEqual([50000])
     expect(now.sentences[1]).toBe('It is paid in full.')
+  })
+
+  it('TDS: not switched on → says so (Features); on → the Taxes screen’s figures', async () => {
+    const off = await ask('TDS kitna dena hai')
+    expect(off.intent).toBe('withholding')
+    expect(off.sentences[0]).toContain('not switched on')
+    expect(off.links[0]!.target).toEqual({ screen: 'simple-features' })
+    const features = await ok<Record<string, unknown>>('config:features:get')
+    await ok('config:features:set', { ...features, tds: true, payroll: true })
+    // On, but nothing deducted and no payable account yet.
+    expect((await ask('how much TDS this month')).sentences[0]).toBe('You have not deducted any TDS (tax deducted at source) yet.')
+    // ₹1,000 deducted on 10 Sep 2025 (due 7 Oct — late by the 14th), ₹300 on 3 Oct (due 7 Nov).
+    const { ensureTdsPayableLedger } = await import('../services/tds')
+    const db = new Database(pdb)
+    let payable = 0
+    try {
+      const section = (db.prepare("SELECT id FROM tds_sections WHERE code LIKE '194C%' ORDER BY id LIMIT 1").get() as { id: number }).id
+      payable = ensureTdsPayableLedger(db, section)
+    } finally {
+      db.close()
+    }
+    const groups = await ok<{ id: number; name: string }[]>('master:groups:list')
+    const work = (await ok<{ id: number }>('master:ledgers:create', { name: 'Contract work', groupId: groups.find((g) => g.name === 'Indirect Expenses')!.id })).id
+    const types = await ok<{ id: number; kind: string }[]>('master:voucherTypes:list')
+    const journal = types.find((v) => v.kind === 'journal')!.id
+    const post = (date: string, amount: number): Promise<unknown> =>
+      ok('voucher:save', {
+        data: {
+          voucherTypeId: journal, date, partyLedgerId: null, narration: null, reference: null, instrumentNo: null, instrumentDate: null,
+          transporterId: null, vehicleNo: null, transportDistanceKm: null, currencyCode: null, exchangeRate: null,
+          lines: [{ ledgerId: work, drCr: 'dr', amount, costAllocations: [] }, { ledgerId: payable, drCr: 'cr', amount, costAllocations: [] }], inventory: [], billRefs: [], tds: null
+        }
+      })
+    await post('2025-09-10', 100000)
+    await post('2025-10-03', 30000)
+    const taxes = await ok<SimpleTaxes>('simple:taxes', { today: T })
+    const w = taxes.withholding.find((x) => x.kind === 'tds')!
+    // Hand-worked: this month (October) ₹300; unpaid ₹1,000 + ₹300 = ₹1,300, of it ₹1,000 late.
+    expect([w.thisMonth, w.totalUnpaid, w.lateUnpaid]).toEqual([30000, 130000, 100000])
+    for (const q of ['TDS kitna dena hai', 'how much TDS this month', 'टीडीएस कितना देना है']) {
+      const a = await ask(q)
+      expect(a.intent, q).toBe('withholding')
+      expect(paise(a), q).toEqual([30000, 130000, 100000])
+      expect(a.figures.every((f) => f.sourced && f.source?.kind === 'screen'), q).toBe(true)
+      expect(a.links[0]!.target, q).toEqual({ screen: 'simple-taxes' })
+    }
+    // TCS is still off.
+    expect((await ask('how much TCS')).sentences[0]).toContain('not switched on')
+  })
+
+  it('payroll: the Payroll screen’s posted run (net pay, gross) for the month asked; none → the last one', async () => {
+    // One employee on ₹10,000 basic, no PF / ESI / PT: gross ₹10,000 = net ₹10,000 (no tax on ₹1.2 lakh a year).
+    await ok('payroll:employees:save', {
+      data: {
+        name: 'Ravi', code: null, designation: null, joined: null, pan: null, uan: null, esicNo: null,
+        basic: 1000000, hra: 0, special: 0, pfEnabled: false, esiEnabled: false, ptEnabled: false, ptState: 'MH', active: true
+      }
+    })
+    await ok('payroll:commit', { month: '2025-09', days: [] })
+    for (const q of ['salary kitni gayi pichle mahine', 'payroll last month', 'how much salary did I pay in september']) {
+      const a = await ask(q)
+      expect(a.intent, q).toBe('payroll')
+      expect(paise(a), q).toEqual([1000000, 1000000])
+      expect(a.sentences[0], q).toBe('Pay for Sep 2025: ₹10,000.00 to 1 employee after deductions (₹10,000.00 before them).')
+      expect(a.links[0]!.target, q).toEqual({ screen: 'payroll' })
+    }
+    // October has no run yet: said, with September's.
+    const oct = await ask('salary kitni gayi is mahine')
+    expect(oct.sentences[0]).toContain('No pay run is posted this month')
+    expect(oct.sentences[1]).toBe('The last one was for Sep 2025: ₹10,000.00 after deductions.')
+    expect(paise(oct)).toEqual([1000000])
   })
 })

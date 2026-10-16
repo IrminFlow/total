@@ -182,6 +182,21 @@ const CORPUS: [string, Expect][] = [
   ['electricity bill 2000 paid', { kind: 'entry', entry: { action: 'money_out', amount: 200000, what: 'electricity' } }],
   ['Mohan ka bill 5000 bhara', { kind: 'entry', entry: { action: 'money_out', amount: 500000 } }],
   ['bill 42 ka paisa aaya kya', { kind: 'bill', number: '42' }],
+  // ---- TDS / TCS and payroll amounts ----
+  ['TDS kitna dena hai', { kind: 'withholding', which: 'tds' }],
+  ['how much TDS this month', { kind: 'withholding', which: 'tds' }],
+  ['tds payable', { kind: 'withholding', which: 'tds' }],
+  ['TCS kitna jama karna hai', { kind: 'withholding', which: 'tcs' }],
+  ['टीडीएस कितना देना है', { kind: 'withholding', which: 'tds' }],
+  ['tds kya hai', { kind: 'meaning', term: 'tds' }],
+  ['salary kitni gayi is mahine', { kind: 'payroll', period: { rule: 'thisMonth', from: '2026-10-01', to: '2026-10-14' }, periodSaid: true }],
+  ['payroll this month', { kind: 'payroll', period: { rule: 'thisMonth' }, periodSaid: true }],
+  ['how much salary did I pay last month', { kind: 'payroll', period: { rule: 'lastMonth', from: '2026-09-01', to: '2026-09-30' } }],
+  ['pichle mahine tankhwah kitni di', { kind: 'payroll', period: { rule: 'lastMonth' } }],
+  ['salaries', { kind: 'payroll', period: { rule: 'thisMonth' }, periodSaid: false }],
+  ['सैलरी कितनी गई इस महीने', { kind: 'payroll', period: { rule: 'thisMonth' } }],
+  ['paid salary 5000 to Ravi', { kind: 'entry', entry: { action: 'money_out', amount: 500000, party: 'ravi', what: 'salary' } }],
+  ['how do I run payroll', { kind: 'howto', task: 'features' }]
 ]
 
 describe('Ask Total corpus', () => {

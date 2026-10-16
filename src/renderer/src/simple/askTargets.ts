@@ -26,6 +26,8 @@ export function askScreen(t: AssistTarget | undefined | null): Screen | null {
       return { name: 'simple-sales', ...(num(p.billId) ? { billId: num(p.billId)! } : {}) } // i18n-technical
     case 'simple-purchases':
       return { name: 'simple-purchases', ...(num(p.billId) ? { billId: num(p.billId)! } : {}) } // i18n-technical
+    case 'payroll':
+      return { name: 'payroll' } // i18n-technical
     case 'simple-person':
       return num(p.id) ? { name: 'simple-person', id: num(p.id)! } : null // i18n-technical
     case 'simple-bank':

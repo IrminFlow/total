@@ -58,6 +58,8 @@ const PHRASES: [RegExp, string][] = [
   [dv('बचा|बचे|बची'), 'bacha'],
   [dv('बैंक'), 'bank'],
   [dv('जीएसटी'), 'gst'],
+  [dv('टीडीएस'), 'tds'],
+  [dv('टीसीएस'), 'tcs'],
   [dv('इनवॉइस|इनवॉयस'), 'invoice'],
   [dv('नंबर|नम्बर'), 'number'],
   [dv('किसका|किसकी|किसके'), 'kiska'],
@@ -657,6 +659,13 @@ export function billOf(q: string, question = false): { number: string; side?: 's
   return { number, ...(side ? { side } : {}) }
 }
 
+// ---------------------------------------------------------------- TDS / TCS, payroll
+
+const TDS_Q = /\btds\b|\btax deducted\b/
+const TCS_Q = /\btcs\b|\btax collected\b/
+/** Pay words — English, Hinglish and the Hindi ones (kept as typed: EXPENSE_WORDS quotes them). */
+const PAYROLL_Q = /\b(?:salary|salaries|payroll|pay run|pay runs|wages|tankhwah|tankha|tankhah|pagar|vetan)\b|(?:^|\s)(?:तनख्वाह|तनख़्वाह|सैलरी|वेतन|पगार)(?=\s|$)/
+
 /** The intent of a question (or an entry request). */
 export function classify(text: string, today: string): AssistIntent {
   const n = normalise(text)
@@ -680,6 +689,13 @@ export function classify(text: string, today: string): AssistIntent {
   if (open && /^(?:please\s+)?(?:open|go to|goto|take me to|jump to|kholo|khol)\b|(?:kholo|khol do|kholiye|open karo|open)$/.test(q)) {
     const target = (open[1] ?? open[2] ?? '').replace(/^(?:the|my|a)\s+/, '').trim()
     if (target) return { kind: 'open', target }
+  }
+
+  // "TDS kitna dena hai" is the TDS figure, not what I owe suppliers; "TDS kya hai" stays a meaning.
+  if ((TDS_Q.test(q) || TCS_Q.test(q)) && !(meaning && !/\bhow much\b/.test(q))) return { kind: 'withholding', which: TDS_Q.test(q) ? 'tds' : 'tcs' }
+  if (PAYROLL_Q.test(q) && !/\d/.test(q) && !(meaning && !/\bhow much\b/.test(q))) {
+    const said = periodOf(q, today)
+    return { kind: 'payroll', period: said ?? defaultPeriod(today), periodSaid: !!said }
   }
 
   if (GST_Q.test(q) && (GST_DUE.test(q) || q === 'gst')) return { kind: 'gst' }

@@ -32,8 +32,10 @@ import { simpleTaxes } from '../services/simpleTaxes'
 import { stockList } from '../services/simpleStock'
 import { salesList } from '../services/simpleSell'
 import { purchasesList } from '../services/simpleBuy'
+import { listRuns } from '../services/payroll'
 import { search, SEARCH_MAX_LIMIT } from '../services/search'
 import type { VoucherResult } from '@shared/search'
+import { withholdingWhy } from '@shared/simple/explain'
 import { getFeatures } from '../services/config'
 import { companyLanguage } from '../i18n'
 import { classify, questionLanguage } from './classify'
@@ -419,6 +421,76 @@ function billAnswer(db: DB, intent: Extract<AssistIntent, { kind: 'bill' }>, inp
   return answer(intent, sentences, { figures, links: [{ label: t('assist.link.bill', { number }), target: to }] })
 }
 
+// ---------------------------------------------------------------- TDS / TCS, payroll
+
+function withholdingAnswer(db: DB, company: CompanyInfo, intent: Extract<AssistIntent, { kind: 'withholding' }>, input: AskInput, t: Translate): AssistAnswer {
+  const kind = intent.which
+  const features = getFeatures(db)
+  if (!features[kind]) return answer(intent, [t('assist.tds.off', { kind })], { links: [{ label: t('assist.link.features'), target: target('simple-features') }] })
+  // The Taxes screen's own withholding figures (assistants.withholdingFacts + the FIFO unpaid).
+  const w = simpleTaxes(db, company, {}, input.today).withholding.find((x) => x.kind === kind)
+  const taxes = target('simple-taxes')
+  if (!w) return answer(intent, [t('assist.tds.none', { kind })], { links: [{ label: t('assist.link.taxes'), target: taxes }] })
+  const src = screenSource('simple-taxes', t('assist.source.withholding'))
+  const sentences = [
+    t(kind === 'tds' ? 'simple.taxes.withholding.thisMonthTds' : 'simple.taxes.withholding.thisMonthTcs', { amount: money(w.thisMonth), date: toPlainDate(w.thisMonthDue, t.lang) }),
+    withholdingWhy(w, input.today, t)
+  ]
+  const figures: AssistFigure[] = [fig(w.thisMonth, src, taxes)]
+  if (w.totalUnpaid > 0) figures.push(fig(w.totalUnpaid, src, taxes))
+  if (w.lateUnpaid > 0) figures.push(fig(w.lateUnpaid, src, taxes))
+  return answer(intent, sentences, { figures, links: [{ label: t('assist.link.taxes'), target: taxes }] })
+}
+
+function payrollAnswer(db: DB, intent: Extract<AssistIntent, { kind: 'payroll' }>, input: AskInput, t: Translate): AssistAnswer {
+  const p = intent.period
+  const when = periodText(p, input.today, t)
+  if (!getFeatures(db).payroll) {
+    // Without payroll, salaries are paid through Money out to the salary account(s): the P&L's
+    // own figure for them in the period.
+    const ids = new Set((db.prepare("SELECT id FROM ledgers WHERE simple_category = 'salary'").all() as { id: number }[]).map((r) => r.id))
+    const links: AssistLink[] = [{ label: t('assist.link.features'), target: target('simple-features') }]
+    if (ids.size === 0) return answer(intent, [t('assist.payroll.off')], { links })
+    const pnl = profitAndLoss(db, p.from, p.to)
+    let amount = 0
+    const walk = (n: StatementNode): void => {
+      if (n.kind === 'ledger' && ids.has(n.id)) amount += n.amount
+      n.children.forEach(walk)
+    }
+    ;[...pnl.tradingExpenses, ...pnl.indirectExpenses].forEach(walk)
+    const src = screenSource('profit-loss', t('assist.source.pnl'), { from: p.from, to: p.to })
+    const sentences = [t('assist.payroll.salaryAccount', { amount: money(amount), period: when }), t('assist.payroll.off')]
+    if (!intent.periodSaid) sentences.push(t('assist.figure.periodAssumed'))
+    return answer(intent, sentences, { figures: [fig(amount, src, target('simple-reports', { report: 'doing' }))], links })
+  }
+  // The Payroll screen's posted runs (its Net pay / Gross columns), the months of the period.
+  const runs = listRuns(db)
+  const net = (r: (typeof runs)[number]): number => r.lines.reduce((s, l) => s + l.net, 0)
+  const gross = (r: (typeof runs)[number]): number => r.lines.reduce((s, l) => s + l.gross, 0)
+  const inPeriod = runs.filter((r) => r.month >= p.from.slice(0, 7) && r.month <= p.to.slice(0, 7))
+  const payroll = target('payroll')
+  const src = screenSource('payroll', t('assist.source.payroll'))
+  const links: AssistLink[] = [{ label: t('assist.link.payroll'), target: payroll }]
+  if (inPeriod.length === 0) {
+    const sentences = [t('assist.payroll.none', { period: when })]
+    const figures: AssistFigure[] = []
+    const last = runs.find((r) => r.month < p.from.slice(0, 7))
+    if (last) {
+      sentences.push(t('assist.payroll.last', { month: toMonthLabel(last.month, 'long', t.lang), net: money(net(last)) }))
+      figures.push(fig(net(last), src, payroll))
+    }
+    return answer(intent, sentences, { figures, links })
+  }
+  const n = inPeriod.reduce((s, r) => s + net(r), 0)
+  const g = inPeriod.reduce((s, r) => s + gross(r), 0)
+  const sentences =
+    inPeriod.length === 1
+      ? [t('assist.payroll.run', { month: toMonthLabel(inPeriod[0]!.month, 'long', t.lang), net: money(n), gross: money(g), count: inPeriod[0]!.lines.length })]
+      : [t('assist.payroll.runs', { period: when, net: money(n), gross: money(g), count: inPeriod.length })]
+  if (!intent.periodSaid) sentences.push(t('assist.figure.periodAssumed'))
+  return answer(intent, sentences, { figures: [fig(n, src, payroll), fig(g, src, payroll)], links })
+}
+
 // ---------------------------------------------------------------- open / how do I / meaning
 
 /** Places a person can ask to open, by the words they use → the simple screen (or the full one). */
@@ -650,6 +722,10 @@ export function askTotal(db: DB, company: CompanyInfo, input: AskInput, env: Ask
         return directionAnswer(intent, t)
       case 'bill':
         return billAnswer(db, intent, input, t)
+      case 'withholding':
+        return withholdingAnswer(db, company, intent, input, t)
+      case 'payroll':
+        return payrollAnswer(db, intent, input, t)
       case 'unknown':
         return unknownAnswer(intent, input.text, t, undefined, lang, gstRegular)
     }

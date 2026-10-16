@@ -63,6 +63,10 @@ export type AssistIntent =
    *  bill by its own number, a purchase by the supplier's bill no.; `side` only when the question
    *  says which (absent = both). The number is lower-case, as typed. */
   | { kind: 'bill'; number: string; side?: 'sale' | 'purchase' }
+  /** "TDS kitna dena hai", "how much TCS this month" — the Taxes screen's withholding figures. */
+  | { kind: 'withholding'; which: 'tds' | 'tcs' }
+  /** "salary kitni gayi is mahine", "payroll last month" — the Payroll screen's pay runs. */
+  | { kind: 'payroll'; period: AssistPeriod; periodSaid: boolean }
   | { kind: 'unknown' }
 
 export type AssistIntentKind = AssistIntent['kind']
