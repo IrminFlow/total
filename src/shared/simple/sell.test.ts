@@ -9,8 +9,8 @@ import { computeInvoice, emptyInvoiceState } from '../voucherEdit'
 import { mapIntent, normaliseIntent, type IntentContext, type IntentFacts, type IntentLedger } from './intents'
 import { bannedWordsIn } from './bannedWords'
 import {
-  billTitleKey, emptySellForm, lineRateMissing, offBillByReturns, exclusiveLines, paidChoicesFor, saleIntentFrom, salePreviewLine, saleStatus, sellFormErrors, sellTotals, shownRate, switchSellBasis,
-  type SellContext, type SellForm
+  billTitleKey, emptySellForm, lineRateMissing, offBillByReturns, exclusiveLines, paidChoicesFor, saleIntentFrom, salePreviewLine, saleStatus, sellFormErrors, sellTotals, shownRate, switchBasisRemembering, switchSellBasis,
+  type BasisMemo, type SellContext, type SellForm
 } from './sell'
 
 const t = (key: Parameters<typeof translate>[0], vars?: Parameters<typeof translate>[1]): string => translate(key, vars, 'en')
@@ -289,5 +289,39 @@ describe('"Prices include GST" switched with prices typed (to-do §4): every lin
     expect(switchSellBasis(form({ lines: [line(1, 1, '', 500_00)] }), c, true).lines[0]!.rate).toBe(500_00)
     const u = switchSellBasis(form({ lines: [line(1, 1, '2', 500_00)] }), ctxFor('unregistered'), true)
     expect([u.ratesIncludeGst, u.lines[0]!.rate]).toEqual([true, 500_00])
+  })
+})
+
+describe('review PR #119: switching the basis there and straight back gives the typed prices again', () => {
+  it('with GST → before GST → with GST (and the reverse) returns what was typed; the bill never moves', () => {
+    const c = ctxFor()
+    const sig = (f: SellForm) => { const x = sellTotals(f, c); return [x.taxable, x.tax, x.total] }
+    let plainDiffers = 0
+    for (const customerId of [10, 11]) for (const rate of [101_00, 200_00, 999_99, 1_234_00, 10_100]) for (const qtyText of ['1', '3', '2.5']) for (const discount of [null, 50_00]) for (const itemId of [1, 2]) for (const incl of [true, false]) {
+      const typed = form({ customerId, ratesIncludeGst: incl, lines: [line(1, itemId, qtyText, rate, discount)] })
+      const scope = String(customerId)
+      const there = switchBasisRemembering(typed, !incl, scope, null, (f) => switchSellBasis(f, c, !incl))
+      expect(sig(there.form)).toEqual(sig(typed))
+      const back = switchBasisRemembering(there.form, incl, scope, there.memo, (f) => switchSellBasis(f, c, incl))
+      expect(back.form.lines[0]).toMatchObject({ rate, discount })
+      expect(back.form.ratesIncludeGst).toBe(incl)
+      const plain = switchSellBasis(there.form, c, incl).lines[0]!
+      if (plain.rate !== rate || (plain.discount ?? null) !== discount) plainDiffers++
+    }
+    // (Without the memo some of these come back a paisa off with a paisa discount: ₹101 → ₹100.99.)
+    expect(plainDiffers).toBeGreaterThan(0)
+  })
+
+  it('a price changed after the switch, or a changed date / party, is converted afresh', () => {
+    const c = ctxFor()
+    const typed = form({ ratesIncludeGst: true, lines: [line(1, 1, '1', 101_00, null)] })
+    const there = switchBasisRemembering(typed, false, 'a', null, (f) => switchSellBasis(f, c, false))
+    const edited = { ...there.form, lines: [{ ...there.form.lines[0]!, rate: 50_00 }] }
+    const back1 = switchBasisRemembering(edited, true, 'a', there.memo, (f) => switchSellBasis(f, c, true))
+    expect(back1.form.lines[0]).toEqual(switchSellBasis(edited, c, true).lines[0])
+    const back2 = switchBasisRemembering(there.form, true, 'b', there.memo, (f) => switchSellBasis(f, c, true))
+    expect(back2.form.lines[0]).toEqual(switchSellBasis(there.form, c, true).lines[0])
+    const memo: BasisMemo | null = back2.memo
+    expect(memo?.to).toBe(true)
   })
 })

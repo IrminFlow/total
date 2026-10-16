@@ -35,6 +35,7 @@ import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
 import { useCanSave, ViewerNote } from '../ViewerNote'
+import { switchBasisRemembering, type BasisMemo } from '@shared/simple/sell'
 
 const INCL_KEY = 'total-buy-incl' // i18n-technical: localStorage key (per company)
 const PURCHASES_CATEGORY = 'purchases' as const // i18n-technical
@@ -281,6 +282,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
   const openFull = useAccountantView('simple-buy') // i18n-technical: screen name
   const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: savedIds?.[0] ?? null, always })
 
+  const basisMemo = useRef<BasisMemo | null>(null)
   const setIncl = (on: boolean): void => {
     try {
       localStorage.setItem(`${INCL_KEY}:${slug ?? '-'}`, on ? '1' : '0')
@@ -289,7 +291,11 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
     }
     // Prices already typed are converted so each line's total stays the same (switchBuyBasis —
     // the editor's own helpers).
-    update(ctx ? switchBuyBasis(form, ctx, on) : { ratesIncludeGst: on })
+    if (!ctx) return update({ ratesIncludeGst: on })
+    const scope = [form.date, form.supplierId, form.mode, form.gstRate, form.gstOnBill, form.categoryId].join('|') // i18n-technical
+    const { form: next, memo } = switchBasisRemembering(form, on, scope, basisMemo.current, (f) => switchBuyBasis(f, ctx, on))
+    basisMemo.current = memo
+    update(next)
   }
 
   const setMode = (mode: BuyMode): void => {

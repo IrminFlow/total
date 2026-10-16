@@ -7,8 +7,8 @@ import { toPlainDate } from '@shared/dates'
 import { mapError, type CaughtError } from '@shared/errors'
 import type { SimplePreview } from '@shared/simple/intents'
 import {
-  billTitleKey, emptySellForm, qtyMilliOf, saleIntentFrom, salePreviewLine, sellFormErrors, sellTotals, shownRate, switchSellBasis,
-  type SellContext, type SellField, type SellForm
+  billTitleKey, emptySellForm, qtyMilliOf, saleIntentFrom, salePreviewLine, sellFormErrors, sellTotals, shownRate, switchBasisRemembering, switchSellBasis,
+  type BasisMemo, type SellContext, type SellField, type SellForm
 } from '@shared/simple/sell'
 import { api } from '../../lib/client'
 import { pricingApi } from '../../lib/pricingClient'
@@ -297,6 +297,7 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
   const openFull = useAccountantView('simple-sell') // i18n-technical: screen name
   const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: savedIds?.[0] ?? null, always })
 
+  const basisMemo = useRef<BasisMemo | null>(null)
   const setIncl = (on: boolean): void => {
     try {
       localStorage.setItem(`${INCL_KEY}:${slug ?? '-'}`, on ? '1' : '0')
@@ -306,7 +307,9 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
     // Prices already typed are converted so each line's total stays the same (switchSellBasis —
     // the editor's own helpers); price-list ones are fetched again in the new basis.
     if (!ctx) return update({ ratesIncludeGst: on, lines: form.lines.map((l) => (l.auto ? { ...l, rate: null } : l)) })
-    const next = switchSellBasis(form, ctx, on)
+    const scope = [form.date, form.customerId, form.mode, form.gstRate].join('|') // i18n-technical
+    const { form: next, memo } = switchBasisRemembering(form, on, scope, basisMemo.current, (f) => switchSellBasis(f, ctx, on))
+    basisMemo.current = memo
     update({ ratesIncludeGst: on, amount: next.amount, lines: next.lines.map((l) => (l.auto ? { ...l, rate: null } : l)) })
   }
 

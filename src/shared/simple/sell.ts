@@ -452,3 +452,45 @@ export function switchSellBasis<F extends SellForm>(form: F, ctx: SellContext, i
   } as F
 }
 
+
+/** What the last basis switch changed (review, PR #119): the prices as typed before it and as
+ *  converted after it, so switching straight back gives the typed prices again — a with-GST price
+ *  converted to before GST and back can come out a paisa off with a paisa discount (₹101 → ₹96.19
+ *  → ₹100.99), the same money but not what was typed. `scope` = the answers the conversion
+ *  depended on (date, party, mode …); a changed one drops the memo. */
+export interface BasisMemo {
+  to: boolean
+  scope: string
+  amount: { before: number | null; after: number | null }
+  lines: Map<number, { before: BasisLineFields; after: BasisLineFields }>
+}
+interface BasisLineFields { itemId: number | null; qtyText: string; rate: number | null; discount: number | null }
+type BasisLine = BasisLineFields & { key: number }
+const lineFields = (l: BasisLineFields): BasisLineFields => ({ itemId: l.itemId, qtyText: l.qtyText, rate: l.rate, discount: l.discount ?? null })
+const sameLine = (a: BasisLineFields, b: BasisLineFields): boolean =>
+  a.itemId === b.itemId && a.qtyText === b.qtyText && a.rate === b.rate && (a.discount ?? null) === (b.discount ?? null)
+
+/** `convert` (switchSellBasis / switchBuyBasis), except that a line — or the amount — still holding
+ *  what the previous switch turned it into, with nothing in `scope` changed, gets back what was
+ *  typed before that switch. Returns the memo for the next switch. */
+export function switchBasisRemembering<L extends BasisLine, F extends { ratesIncludeGst: boolean; amount: number | null; lines: L[] }>(
+  form: F, incl: boolean, scope: string, memo: BasisMemo | null, convert: (f: F) => F
+): { form: F; memo: BasisMemo | null } {
+  if (form.ratesIncludeGst === incl) return { form, memo }
+  const converted = convert(form)
+  const back = memo != null && memo.to === form.ratesIncludeGst && memo.scope === scope
+  const lines = converted.lines.map((l, i) => {
+    const m = back ? memo!.lines.get(l.key) : undefined
+    const cur = form.lines[i]
+    return m && cur && cur.key === l.key && sameLine(lineFields(cur), m.after) ? { ...l, rate: m.before.rate, discount: m.before.discount } : l
+  })
+  const amount = back && form.amount === memo!.amount.after ? memo!.amount.before : converted.amount
+  const out = { ...converted, lines, amount }
+  const next: BasisMemo = {
+    to: incl,
+    scope,
+    amount: { before: form.amount, after: amount },
+    lines: new Map(form.lines.map((l, i) => [l.key, { before: lineFields(l), after: lineFields(lines[i] ?? l) }]))
+  }
+  return { form: out, memo: next }
+}

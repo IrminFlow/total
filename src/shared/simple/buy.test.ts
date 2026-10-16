@@ -12,6 +12,7 @@ import {
   buyFormErrors, buyGst, buyIntentLines, buyLineRateMissing, buyTotals, emptyBuyForm, purchaseIntentFrom, purchasePreviewLine, purchaseStatus, switchBuyBasis,
   type BuyContext, type BuyForm
 } from './buy'
+import { switchBasisRemembering } from './sell'
 
 const t = (key: Parameters<typeof translate>[0], vars?: Parameters<typeof translate>[1]): string => translate(key, vars, 'en')
 const DATE = '2026-10-13'
@@ -302,5 +303,23 @@ describe('"Prices include GST" switched with prices typed (to-do §4): every lin
     expect(switchBuyBasis(amt, cant, false).amount).toBe(1_000_00)
     const none = form({ gstOnBill: false, lines: [line(1, 1, '2', 500_00)] })
     expect(switchBuyBasis(none, c, true).lines[0]!.rate).toBe(500_00)
+  })
+})
+
+describe('review PR #119: a business that can’t claim switches there and straight back without a paisa moving', () => {
+  it('what was paid → before GST → what was paid gives the typed cost and its total back', () => {
+    for (const reg of ['composition', 'unregistered'] as const) {
+      const c = ctxFor(reg)
+      for (const rate of [1, 99, 1005, 1055, 12_345, 50_000, 99_999]) for (const qtyText of ['1', '3', '2.5', '7']) for (const discount of [null, 1, 500]) for (const itemId of [1, 2]) {
+        const typed = form({ ratesIncludeGst: true, lines: [line(1, itemId, qtyText, rate, discount)] })
+        const there = switchBasisRemembering(typed, false, reg, null, (f) => switchBuyBasis(f, c, false))
+        const back = switchBasisRemembering(there.form, true, reg, there.memo, (f) => switchBuyBasis(f, c, true))
+        expect(back.form.lines[0]).toMatchObject({ rate, discount })
+        expect(buyTotals(back.form, c).total).toBe(buyTotals(typed, c).total)
+      }
+      const amt = form({ mode: 'amount', ratesIncludeGst: true, amount: 1_000_01, gstRate: 18 })
+      const there = switchBasisRemembering(amt, false, reg, null, (f) => switchBuyBasis(f, c, false))
+      expect(switchBasisRemembering(there.form, true, reg, there.memo, (f) => switchBuyBasis(f, c, true)).form.amount).toBe(1_000_01)
+    }
   })
 })
