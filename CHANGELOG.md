@@ -132,7 +132,7 @@ what you typed, and a **Back to simple** button.
   can sign in to this computer can then open the books, so tick it only on a computer that only you
   use. In a business with people it is kept only once the owner signs in. "Remembered on this
   computer" shows in Lock and safety, beside the business in the list and on the screen lock, each
-  with Forget; taking the passphrase off forgets it too. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  with Forget; taking the passphrase off forgets it too. [#142](https://github.com/IrminFlow/total/pull/142)
 - **Updates ask first.** Total never downloads or installs an update without a click ("Download
   now", "Later", "Skip this version"; "Install when I quit" is a choice). Settings, "How Total
   looks" (in the full app: Settings, About), has "Check for updates automatically" (on by default);
@@ -432,7 +432,7 @@ Read these before filing from the next release.
   (the new one would lose to it from that start). Like BOMs themselves, the labour meta is not in
   the books export (a backup keeps both).
   [#141](https://github.com/IrminFlow/total/pull/141)
-- **Remember on this computer** (WP 7.2 follow-up), [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM):
+- **Remember on this computer** (WP 7.2 follow-up), [#142](https://github.com/IrminFlow/total/pull/142):
   `company:open` takes `remember` (stored at once without people, else on the first OWNER sign-in
   of that open; result `remember: 'saved' | 'pending' | 'unavailable'`, `openedWith`); the DATA KEY
   goes to the secret store (`company:<slug>` / `rememberedDataKey`, safeStorage), tried before the
