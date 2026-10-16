@@ -5,7 +5,7 @@
 // --simple, in simple mode (Home = SimpleHome). Prints launch → company list, click → Home idle,
 // and the total, per run.
 //
-// Usage: npm run build && node scripts/perf-launch.mjs --data <perf-seed dir> [--runs 3] [--simple] [--trace] [--boot] [--app <dir>]
+// Usage: npm run build && node scripts/perf-launch.mjs --data <perf-seed dir> [--runs 3] [--simple] [--trace] [--boot [--lang hi|hinglish]] [--app <dir>]
 // (run with `env -u ELECTRON_RUN_AS_NODE` from agent shells — see CLAUDE.md.)
 import { cpSync, existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { join, resolve } from 'node:path'
@@ -30,6 +30,10 @@ const trace = args.includes('--trace')
 // process is already up): reload → company list, and the page's DOMContentLoaded (the startup
 // bundle parsed and run). Far less noisy than a whole launch on a loaded machine.
 const boot = args.includes('--boot')
+// --lang hi|hinglish (with --boot): store that language app-wide before the measured reloads, so
+// they boot as a Hindi / Hinglish user does (the catalogue chunk is loaded before the first paint);
+// the `total:catalogues` measure (lib/i18n.ts preloadCatalogues) is printed too.
+const lang = flag('lang', null)
 // --app <dir>: another built checkout (e.g. the before build of an A/B); default this one.
 const appDir = resolve(flag('app', new URL('..', import.meta.url).pathname))
 
@@ -57,17 +61,23 @@ for (let r = 0; r < runs; r++) {
     let bootRow = null
     if (boot) {
       const firstDcl = await h.page.evaluate(() => Math.round(performance.getEntriesByType('navigation')[0].domContentLoadedEventEnd))
+      if (lang) {
+        await h.page.evaluate((l) => localStorage.setItem('total-language', l), lang)
+        await h.page.reload()
+        await h.waitScreen('company-select', 60_000)
+      }
       const reloads = []
       for (let k = 0; k < 5; k++) {
         const tr = performance.now()
         await h.page.reload()
         await h.waitScreen('company-select', 60_000)
         const dcl = await h.page.evaluate(() => performance.getEntriesByType('navigation')[0].domContentLoadedEventEnd)
-        reloads.push({ ms: performance.now() - tr, dcl })
+        const cat = await h.page.evaluate(() => performance.getEntriesByName('total:catalogues')[0]?.duration ?? 0)
+        reloads.push({ ms: performance.now() - tr, dcl, cat })
       }
       const mid = (k) => reloads.map((x) => x[k]).sort((a, b) => a - b)[2]
-      bootRow = { firstDcl, reload: mid('ms'), dcl: mid('dcl') }
-      console.log(`  renderer boot: first launch DOMContentLoaded ${firstDcl} ms; reload → company list ${mid('ms').toFixed(0)} ms, DOMContentLoaded ${mid('dcl').toFixed(0)} ms (median of 5 reloads)`)
+      bootRow = { firstDcl, reload: mid('ms'), dcl: mid('dcl'), cat: mid('cat') }
+      console.log(`  renderer boot${lang ? ` (${lang})` : ''}: first launch DOMContentLoaded ${firstDcl} ms; reload → company list ${mid('ms').toFixed(0)} ms, DOMContentLoaded ${mid('dcl').toFixed(0)} ms, catalogue wait ${mid('cat').toFixed(1)} ms (median of 5 reloads)`)
     }
     const tOpen = performance.now() // = tList unless --boot reloaded first
     await h.clickText('Perf Traders')
@@ -89,4 +99,4 @@ for (let r = 0; r < runs; r++) {
 }
 const med = (k) => rows.map((x) => x[k]).sort((a, b) => a - b)[Math.floor(rows.length / 2)]
 console.log(`median (${simple ? "simple Home" : "Gateway"}): launch → list ${med("list").toFixed(0)} ms, open → Home ${med("open").toFixed(0)} ms, total ${med("total").toFixed(0)} ms, company:open alone ${med("ipc").toFixed(0)} ms`)
-if (boot) console.log(`median renderer boot: first launch DOMContentLoaded ${med('firstDcl')} ms, reload → company list ${med('reload').toFixed(0)} ms, reload DOMContentLoaded ${med('dcl').toFixed(0)} ms`)
+if (boot) console.log(`median renderer boot: first launch DOMContentLoaded ${med('firstDcl')} ms, reload → company list ${med('reload').toFixed(0)} ms, reload DOMContentLoaded ${med('dcl').toFixed(0)} ms, catalogue wait ${med('cat').toFixed(1)} ms${lang ? ` (${lang})` : ''}`)

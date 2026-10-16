@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { hasStoredLanguage, osLanguage, useLanguage, useT } from '../lib/i18n'
+import { hasStoredLanguage, osLanguage, useLanguage, useLanguagePending, useT } from '../lib/i18n'
 import { Button, Segmented } from '../components/ui'
 import { LANGUAGES, languagePickerLabel, type Language } from '@shared/i18n'
 import { SimpleKitLabels } from './kitLabels'
@@ -41,6 +41,7 @@ export function SetupWizard({
   // WP 10.4: the language is asked FIRST (top of the first step) and applies at once — the
   // wizard re-renders in it. Nothing chosen on this Mac yet + a Hindi OS → Hindi to start with.
   const [language, setLanguage] = useLanguage()
+  const languagePending = useLanguagePending()
   useEffect(() => {
     if (hasStoredLanguage()) return
     const os = osLanguage()
@@ -163,6 +164,11 @@ export function SetupWizard({
             <p className="mb-1.5 text-body font-semibold text-ink">{t('simple.setup.language')}</p>
             <Segmented label={t('simple.setup.language')} options={LANGUAGES.map((value) => ({ value, label: languageName(value) }))} value={language} onChange={setLanguage} testId="setup-language" />
             <p className="mt-1.5 text-hint text-muted">{t('simple.setup.languageHint')}</p>
+            {languagePending && (
+              <p role="status" className="mt-1 text-hint text-muted" data-testid="language-loading">
+                {t('simple.looks.languageLoading')}
+              </p>
+            )}
           </div>
         )}
 

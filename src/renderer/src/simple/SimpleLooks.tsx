@@ -1,4 +1,4 @@
-import { useT } from '../lib/i18n'
+import { useLanguagePending, useT } from '../lib/i18n'
 import { useLanguageChoice } from '../lib/mode'
 import { useAppearance, useTheme, type Density, type ThemePref } from '../state/stores'
 import { Page } from '../components/ui'
@@ -32,6 +32,7 @@ export function SimpleLooks(): React.JSX.Element {
   const { pref, setPref } = useTheme()
   const { density, setDensity } = useAppearance()
   const { language, setLanguage, setsCompany } = useLanguageChoice()
+  const languagePending = useLanguagePending()
   const themeLabel = (v: ThemePref): string =>
     v === 'light' ? t('simple.looks.theme.light') : v === 'dark' ? t('simple.looks.theme.dark') : t('simple.looks.theme.system')
   const languageLabel = (v: (typeof LANGUAGES)[number]): string =>
@@ -68,6 +69,11 @@ export function SimpleLooks(): React.JSX.Element {
             onChange={setLanguage}
             testId="btn-language"
           />
+          {languagePending && (
+            <p role="status" className="mt-1.5 text-hint text-muted" data-testid="language-loading">
+              {t('simple.looks.languageLoading')}
+            </p>
+          )}
         </Row>
         <UpdatesSetting />
       </div>

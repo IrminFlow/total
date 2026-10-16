@@ -1560,6 +1560,7 @@ export const en = {
   'simple.looks.language': 'Language',
   'simple.looks.languageHint': 'Hindi and Hinglish are new and machine-drafted — a native speaker is still checking them.',
   'simple.looks.languageCompany': 'As the owner, this is also the language for what Total prints for this business.',
+  'simple.looks.languageLoading': 'Loading the language…',
   'simple.looks.lang.en': 'English',
   'simple.looks.lang.hi': 'हिन्दी',
   'simple.looks.lang.hinglish': 'Hinglish',
@@ -2816,6 +2817,7 @@ export const en = {
   'simple.ai.from.books': 'Your books',
   'settings.language.hinglish': 'Hinglish',
   'settings.language.companyNote': 'As the owner, your choice is also this business’s language for what Total prints.',
+  'settings.language.loading': 'Loading the language…',
   // ---------- WP 7.2 security: passphrase lock, screen lock, backup checks, permissions ----------
   'errors.security.locked': 'This business is locked with a passphrase. Type the passphrase to open it.',
   'errors.security.keyMismatch': 'This file could not be opened with this business’s key. It may belong to another business or be damaged.',

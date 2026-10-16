@@ -10,6 +10,8 @@
 // unit test runs without the native module.
 
 import { normalizeLanguage, translator, type Language, type Translate } from '@shared/i18n'
+// The renderer loads hi / hinglish on demand; main keeps both registered synchronously.
+import '@shared/i18n/all'
 
 export interface MetaReader {
   prepare(sql: string): { get(...params: unknown[]): unknown }

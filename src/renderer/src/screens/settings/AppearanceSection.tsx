@@ -4,7 +4,7 @@ import { useAppearance, useTheme, type Density, type ThemePref } from '../../sta
 import { LANGUAGES, languagePickerLabel } from '@shared/i18n'
 import { useLanguageChoice } from '../../lib/mode'
 import { ModeSetting } from '../../simple/ModeSetting'
-import { useT } from '../../lib/i18n'
+import { useLanguagePending, useT } from '../../lib/i18n'
 
 const THEMES: { value: ThemePref; label: string }[] = [
   { value: 'light', label: 'Light' },
@@ -38,6 +38,7 @@ export function AppearanceSection(): React.JSX.Element {
   const { pref, setPref } = useTheme()
   const { density, setDensity, reduceMotion, setReduceMotion } = useAppearance()
   const { language, setLanguage, setsCompany: canSetCompany } = useLanguageChoice()
+  const languagePending = useLanguagePending()
   const t = useT()
   const languages = LANGUAGES.map((value) => ({ value, label: languagePickerLabel(value, t(`settings.language.${value}` as const)) }))
   return (
@@ -56,6 +57,11 @@ export function AppearanceSection(): React.JSX.Element {
         </Row>
         <Row title={t('settings.language.title')} hint={canSetCompany ? `${t('settings.language.hint')} ${t('settings.language.companyNote')}` : t('settings.language.hint')}>
           <Segmented label={t('settings.language.title')} options={languages} value={language} onChange={setLanguage} testId="btn-language" />
+          {languagePending && (
+            <p role="status" className="mt-1 text-hint text-muted" data-testid="language-loading">
+              {t('settings.language.loading')}
+            </p>
+          )}
         </Row>
       </Panel>
       <p className="mt-2 text-hint text-muted">The mode is kept with this company (changing it never touches the books). Theme, density and motion apply to every company on this computer. Language is kept for each person — per company and user when someone signs in.</p>
