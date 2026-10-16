@@ -454,6 +454,31 @@ export function creditHoldOf(db: DB, ledgerId: number): { name: string; reason: 
   return r && r.hold ? { name: r.name, reason: r.reason, at: r.at } : null
 }
 
+function creditHoldError(hold: { name: string; reason: string | null }): AppError {
+  return new AppError('credit_hold', `${CREDIT_HOLD_PREFIX} ${hold.name} is on credit hold${hold.reason ? ` (${hold.reason})` : ''} — an owner can override with a reason`, { field: 'party', params: { name: hold.name } })
+}
+
+/** WP 4.2: the hold a STORED voucher runs into when it comes (back) into the books — a restore
+ *  from the bin or a post-dated one maturing. Only a real (non-optional) sales invoice or delivery
+ *  challan extends credit; receipts / payments (the cheques a PDC usually is) never do. */
+export function creditHoldOnEntry(db: DB, v: Voucher): { name: string; reason: string | null; at: string | null } | null {
+  if (v.isOptional || v.partyLedgerId == null) return null
+  if (!HOLD_KINDS.includes(getVoucherType(db, v.voucherTypeId).kind)) return null
+  return creditHoldOf(db, v.partyLedgerId)
+}
+
+/** Checks a voucher coming into the books against its party's hold: throws `credit_hold` unless
+ *  an override reason is given; returns the audit-writer for the override (or null). */
+function holdGate(db: DB, v: Voucher, override: { reason: string } | undefined, how: 'restore' | 'mature'): (() => void) | null {
+  const hold = creditHoldOnEntry(db, v)
+  if (!hold) return null
+  const reason = override?.reason.trim() || null
+  if (!reason) throw creditHoldError(hold)
+  return () => writeAudit(db, 'credit_override', v.id, 'create', null, {
+    voucherId: v.id, number: v.number, ledgerId: v.partyLedgerId, party: hold.name, holdReason: hold.reason, overrideReason: reason, [how]: true
+  })
+}
+
 export const MANUFACTURE_EDIT_ELSEWHERE = 'This is a manufacture voucher — alter it from the Manufacture screen'
 export const JOB_WORK_EDIT_ELSEWHERE = 'This is a job-work challan — alter it from the Stock journal screen (Send to job worker)'
 
@@ -630,9 +655,7 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     ? creditHoldOf(db, input.partyLedgerId)
     : null
   const holdOverride = hold ? hooks.creditHoldOverride?.reason.trim() || null : null
-  if (hold && !holdOverride) {
-    throw new AppError('credit_hold', `${CREDIT_HOLD_PREFIX} ${hold.name} is on credit hold${hold.reason ? ` (${hold.reason})` : ''} — an owner can override with a reason`, { field: 'party', params: { name: hold.name } })
-  }
+  if (hold && !holdOverride) throw creditHoldError(hold)
 
   const run = db.transaction((): number => {
     // WP 2.5: stable line uids + resolved link sources (refused here — before anything is
@@ -935,12 +958,14 @@ function assertInterestRestorable(db: DB, id: number): void {
 }
 
 /** Reinstate a binned voucher so it counts in reports again. */
-export function restoreVoucher(db: DB, id: number): void {
+export function restoreVoucher(db: DB, id: number, opts: { creditHoldOverride?: { reason: string } } = {}): void {
   const before = getVoucher(db, id)
   if (!before) throw new AppError('voucher_not_found', 'Voucher not found')
   if (!before.deletedAt) throw new AppError('not_in_bin', 'Voucher is not in the bin')
   const lock = getLockDate(db)
   if (lock && before.date <= lock) throw lockedError(lock)
+  // WP 4.2: restoring a sales invoice / challan to a party on hold creates credit, as a new save does.
+  const auditOverride = holdGate(db, before, opts.creditHoldOverride, 'restore')
   // WP 4.2: a restored interest debit note must not charge a bill-period that another live
   // note has charged since it was binned.
   assertInterestRestorable(db, id)
@@ -968,6 +993,7 @@ export function restoreVoucher(db: DB, id: number): void {
     rebuildItemSerials(db, before.inventory.map((l) => l.stockItemId))
     // Same transaction as the restore (see deleteVoucher).
     writeAudit(db, 'voucher', id, 'restore', before, { restored: true })
+    auditOverride?.()
   })()
 }
 
@@ -980,19 +1006,30 @@ export interface MaturePostDatedResult {
    *  deleteVoucher refuse to do — so they stay post-dated (visible in the PDC register) and are
    *  reported here for the caller to log/surface. Unlock the period to let them mature. */
   blockedByLock: number[]
+  /** WP 4.2: post-dated sales invoices / challans to a party on credit hold — maturing them would
+   *  create credit, so they stay post-dated (Mature now with an owner override, or release the
+   *  hold). Present only when there are some. Receipts / payments are never held back. */
+  blockedByHold?: number[]
 }
 
 /** Flip matured post-dated vouchers (date ≤ `today`) into the books. Runs on company open;
  *  each maturation is audit-logged individually. Vouchers dated inside the locked period are
  *  refused, not flipped (v0.3 review F3) — see MaturePostDatedResult.blockedByLock. */
 export function maturePostDated(db: DB, today: string): MaturePostDatedResult {
+  const held = hasCreditHold(db)
+    ? `(vt.kind IN (${HOLD_KINDS.map((k) => `'${k}'`).join(', ')}) AND v.is_optional = 0 AND COALESCE((SELECT credit_hold FROM ledgers WHERE id = v.party_ledger_id), 0) = 1)`
+    : '0'
   const rows = db
-    .prepare(`SELECT v.id, v.date FROM vouchers v WHERE v.post_dated = 1 AND v.date <= ? AND ${NOT_DELETED}`)
-    .all(today) as { id: number; date: string }[]
+    .prepare(`SELECT v.id, v.date, ${held} AS held FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.post_dated = 1 AND v.date <= ? AND ${NOT_DELETED}`)
+    .all(today) as { id: number; date: string; held: number }[]
   const lock = getLockDate(db)
-  const due = lock === null ? rows : rows.filter((r) => r.date > lock)
+  const open = lock === null ? rows : rows.filter((r) => r.date > lock)
   const blockedByLock = lock === null ? [] : rows.filter((r) => r.date <= lock).map((r) => r.id)
-  if (due.length === 0) return { matured: [], blockedByLock }
+  // WP 4.2: the same test as creditHoldOnEntry, in the query (one statement for every due row).
+  const blockedByHold = open.filter((r) => r.held).map((r) => r.id)
+  const due = open.filter((r) => !r.held)
+  const onHold = blockedByHold.length ? { blockedByHold } : {}
+  if (due.length === 0) return { matured: [], blockedByLock, ...onHold }
   const flip = db.prepare("UPDATE vouchers SET post_dated = 0, updated_at = datetime('now') WHERE id = ?")
   const run = db.transaction(() => {
     for (const { id } of due) {
@@ -1002,14 +1039,14 @@ export function maturePostDated(db: DB, today: string): MaturePostDatedResult {
     }
   })
   run()
-  return { matured: due.map((r) => r.id), blockedByLock }
+  return { matured: due.map((r) => r.id), blockedByLock, ...onHold }
 }
 
 /** Mature ONE post-dated voucher on demand (Banking → PDC register's "Mature now"), regardless
  *  of its date — the user is asserting the instrument has cleared early. Refuses vouchers dated
  *  inside the locked period, same as saveVoucher/deleteVoucher (v0.3 review F3). Audit-logged
  *  the same way maturePostDated logs automatic maturations. */
-export function maturePdcNow(db: DB, id: number): void {
+export function maturePdcNow(db: DB, id: number, opts: { creditHoldOverride?: { reason: string } } = {}): void {
   const before = getVoucher(db, id)
   if (!before) throw new Error('Voucher not found')
   if (before.deletedAt) throw new Error('Voucher is in the bin')
@@ -1018,9 +1055,11 @@ export function maturePdcNow(db: DB, id: number): void {
   if (lock && before.date <= lock) {
     throw new Error(`Books are locked up to ${lock} — this voucher (dated ${before.date}) cannot mature into the locked period`)
   }
+  const auditOverride = holdGate(db, before, opts.creditHoldOverride, 'mature')
   db.transaction(() => {
     db.prepare("UPDATE vouchers SET post_dated = 0, updated_at = datetime('now') WHERE id = ?").run(id)
     writeAudit(db, 'voucher', id, 'update', before, { ...before, postDated: false, matured: true })
+    auditOverride?.()
   })()
 }
 

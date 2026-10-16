@@ -1020,7 +1020,7 @@ export const api = {
   pdc: {
     list: () => call<PdcRow[]>('pdc:list'),
     /** Flip one post-dated voucher into the books now (early clearance). */
-    mature: (id: number) => call<null>('pdc:mature', { id })
+    mature: (id: number, creditHoldOverride?: { reason: string }) => call<null>('pdc:mature', { id, ...(creditHoldOverride ? { creditHoldOverride } : {}) })
   },
   vouchers: {
     list: (from: string, to: string, voucherTypeId?: number) =>
@@ -1045,7 +1045,7 @@ export const api = {
       call<{ voucherId: number; number: string; date: string }[]>('voucher:duplicates', { data, excludeId }),
     bin: () => call<BinRow[]>('voucher:bin'),
     /** A voucher undone with others (WP 8.5) restores with its whole group — `restored` lists them. */
-    restore: (id: number) => call<{ restored: number[] }>('voucher:restore', { id }),
+    restore: (id: number, creditHoldOverride?: { reason: string }) => call<{ restored: number[] }>('voucher:restore', { id, ...(creditHoldOverride ? { creditHoldOverride } : {}) }),
     /** WP 8.5 save card: bin the vouchers just saved as one undo group (refused once edited since). */
     undoSave: (voucherIds: number[]) => call<{ groupId: number; binned: number[] }>('voucher:undoSave', { voucherIds }),
     /** WP 8.5 save card figures (saved vouchers + the party's outstanding) and whether Undo still applies. */

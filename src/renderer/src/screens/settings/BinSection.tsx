@@ -6,6 +6,7 @@ import { useSession, useToasts } from '../../state/stores'
 import { Badge, Button, Modal, Panel, SectionTitle, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { todayISO, toDisplayDate } from '@shared/dates'
+import { withCreditHoldOverride } from '../../lib/creditHoldOverride'
 
 const BIN_COLUMNS = defineColumns<BinRow>([
   { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted', width: 104 },
@@ -51,7 +52,8 @@ export function BinSection(): React.JSX.Element {
   const restore = async (row: BinRow): Promise<void> => {
     try {
       // A restored voucher affects every report — invalidate everything, not just ['bin'].
-      const r = await api.vouchers.restore(row.id)
+      const r = await withCreditHoldOverride((o) => api.vouchers.restore(row.id, o), { canOverride: canPurge, what: 'The restore' })
+      if (r === null) return
       await queryClient.invalidateQueries()
       const n = r?.restored?.length ?? 1
       toast.push('success', n > 1 ? `Voucher ${row.number} restored with ${n - 1} more undone with it` : `Voucher ${row.number} restored`)

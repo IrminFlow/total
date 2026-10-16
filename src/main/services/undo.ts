@@ -178,10 +178,10 @@ export function undoGroupOf(db: DB, voucherId: number): { groupId: number; vouch
 
 /** voucher:restore — a voucher undone with others comes back with its whole group (all or
  *  nothing: one refusal rolls the others back); any other voucher restores as it always did. */
-export function restoreFromBin(db: DB, id: number): { restored: number[] } {
+export function restoreFromBin(db: DB, id: number, opts: { creditHoldOverride?: { reason: string } } = {}): { restored: number[] } {
   const group = undoGroupOf(db, id)
   if (!group) {
-    restoreVoucher(db, id)
+    restoreVoucher(db, id, opts)
     return { restored: [id] }
   }
   return db.transaction(() => {
@@ -190,7 +190,7 @@ export function restoreFromBin(db: DB, id: number): { restored: number[] } {
     for (const vid of [id, ...group.voucherIds.filter((v) => v !== id)]) {
       const row = db.prepare('SELECT deleted_at FROM vouchers WHERE id = ?').get(vid) as { deleted_at: string | null } | undefined
       if (!row?.deleted_at) continue // came back with a partner already
-      restoreVoucher(db, vid)
+      restoreVoucher(db, vid, opts)
       restored.push(vid)
     }
     db.prepare('DELETE FROM undo_groups WHERE id = ?').run(group.groupId)
