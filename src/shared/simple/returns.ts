@@ -68,6 +68,9 @@ export interface ReturnBill {
   rates: number[] | null
   /** The sales / purchase account it posts to (null = more than one). */
   accountId: number | null
+  /** The bill's own note (its narration), shown on the picked bill's card. Optional (absent /
+   *  null = none). */
+  narration?: string | null
   mode: 'items' | 'amount'
   lines: ReturnBillLine[]
   /** A bill without item lines: its value before GST, and what is still returnable of it. */

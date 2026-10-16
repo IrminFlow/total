@@ -6,7 +6,7 @@ import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession } from '../../state/stores'
 import { EmptyTeach } from '../help/EmptyTeach'
-import { TextInput } from '../../components/ui'
+import { Button, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 
 const LEFT_CLS: Record<ReturnBillRow['left'], string> = {
@@ -41,15 +41,25 @@ export function BillPicker({ side, onPick }: { side: ReturnSide; onPick: (billId
     const id = window.setTimeout(() => setQ(typed.trim()), 250)
     return () => window.clearTimeout(id)
   }, [typed])
+  // "Search older bills": every date, not only the last 12 months (no search words needed).
+  const [all, setAll] = useState(false)
   const { data, isLoading } = useQuery({
-    queryKey: ['simpleReturnBills', side, workingDate, q], // i18n-technical
-    queryFn: () => api.simple.returnBills(side, workingDate, q || undefined)
+    queryKey: ['simpleReturnBills', side, workingDate, q, all], // i18n-technical
+    queryFn: () => api.simple.returnBills(side, workingDate, q || undefined, all)
   })
   const rows = data ?? []
   const nav = useNav()
+  const noRecent = !isLoading && data != null && rows.length === 0 && !q && !typed.trim() && !all
+  // The last 12 months are empty: are there older bills? (Then say so, never "no bills yet".)
+  const { data: older } = useQuery({
+    queryKey: ['simpleReturnBills', side, workingDate, '', true], // i18n-technical: = the "all" list's key
+    queryFn: () => api.simple.returnBills(side, workingDate, undefined, true),
+    enabled: noRecent
+  })
+  const hasOlder = noRecent && (older?.length ?? 0) > 0
   // Nothing to return against yet (not a search that found nothing): teach, and offer the flow
   // that makes a bill.
-  const empty = !isLoading && data != null && rows.length === 0 && !q && !typed.trim()
+  const empty = noRecent && older != null && !hasOlder
   const columns = useMemo(
     () =>
       defineColumns<ReturnBillRow>([
@@ -91,7 +101,19 @@ export function BillPicker({ side, onPick }: { side: ReturnSide; onPick: (billId
           />
         </div>
       </div>
-      {empty ? (
+      {all && (
+        <p className="px-panel pb-2 text-small text-muted" data-testid="return-bills-all">
+          {t('simple.returns.showingOlder')}
+        </p>
+      )}
+      {hasOlder ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 px-panel pb-panel" data-testid="return-bills-older">
+          <p className="text-detail text-ink">{t('simple.returns.olderOnly')}</p>
+          <Button variant="primary" data-testid="btn-return-search-older" onClick={() => setAll(true)}>
+            {t('simple.returns.searchOlder')}
+          </Button>
+        </div>
+      ) : empty ? (
         <div className="px-panel pb-panel">
           <EmptyTeach
             testId="return-bills-empty"
@@ -111,7 +133,7 @@ export function BillPicker({ side, onPick }: { side: ReturnSide; onPick: (billId
         rows={rows}
         rowKey={(r) => r.voucherId}
         rowAttrs={(r) => ({ 'data-row-id': r.voucherId, 'data-left': r.left })}
-        loading={isLoading}
+        loading={isLoading || (noRecent && older == null)}
         totals={false}
         toolbarFeatures={{ quickFilter: false, columns: false, groupBy: false, density: false, views: false }}
         empty={{ title: q ? t('simple.returns.noMatch') : sale ? t('simple.returns.noBills') : t('simple.returns.noBillsBuy') }}

@@ -275,6 +275,21 @@ describe('stock and GST reverse exactly (= the accountant-entered note in a twin
   })
 })
 
+describe('the picker: the bill’s note and bills older than 12 months (review fix)', () => {
+  it('returnBill carries the bill’s narration; `all` lists bills the 12-month list leaves out', () => {
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '500', gstRate: 18 }, payment: { how: 'credit' }, narration: '  Diwali order  ' })
+    const id = sale.voucherIds[0]!
+    expect(returnBill(db, INFO, 'sale', id, TODAY)!.narration).toBe('Diwali order')
+    const plain = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '100', gstRate: 18 }, payment: { how: 'credit' } })
+    expect(returnBill(db, INFO, 'sale', plain.voucherIds[0]!, TODAY)!.narration).toBeNull()
+    // Fourteen months on: nothing in the last 12 months, both bills at any date.
+    const later = '2026-10-14'
+    expect(returnBills(db, INFO, 'sale', later)).toEqual([])
+    expect(returnBills(db, INFO, 'sale', later, undefined, { all: true }).map((r) => r.voucherId)).toEqual([plain.voucherIds[0], id])
+    expect(returnBills(db, INFO, 'sale', TODAY, undefined, { all: true })).toEqual(returnBills(db, INFO, 'sale', TODAY))
+  })
+})
+
 describe('s.34 after leaving GST: the return keeps the bill’s GST (= the accountant twin) (review)', () => {
   it('a sale of a GST-charging period returned after the business became unregistered: same rows, GSTR-1 and GSTR-3B as the editor’s note', () => {
     const left: CompanyInfo = { ...INFO, gstRegistrationType: 'unregistered', gstRegistrationSince: '2025-08-10', gstPreviousRegistrationType: 'regular' }
