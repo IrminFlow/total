@@ -29,7 +29,7 @@ import { listGroups, descendantIdsByName } from './masters'
 import { pendingOrders, pendingStockNotes } from './tradeReports'
 import { statutoryDues } from './payrollStatutory'
 import { dueInstalments } from './loans'
-import { IN_BOOKS } from './vouchers'
+import { IN_BOOKS, NOT_DELETED } from './vouchers'
 import { addDays } from './cashFinanceCommon'
 
 // ---------- known items ----------
@@ -83,6 +83,44 @@ export function openingCash(db: DB, asOn: string): { total: number; ledgers: For
     .filter((l) => cashIds.has(l.groupId) || bankIds.has(l.groupId))
     .map((l) => ({ ledgerId: l.id, name: l.name, kind: cashIds.has(l.groupId) ? ('cash' as const) : ('bank' as const), balance: bal.get(l.id) ?? 0 }))
   return { total: ledgers.reduce((s, l) => s + l.balance, 0), ledgers }
+}
+
+// ---------- pending post-dated cheques ----------
+
+/** Pending post-dated receipts / payments (not in the books yet, not binned, not optional): the
+ *  net on cash + bank is the cheque (Dr = received → in, Cr = issued → out), on the voucher's
+ *  date; the party is the voucher's party, else its largest other line. One statement. */
+export function pdcFlows(db: DB): ForecastFlow[] {
+  const groups = listGroups(db)
+  const cashBank = descendantIdSet(groups, ['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c'])
+  const ledgers = db.prepare('SELECT id, name, group_id AS groupId FROM ledgers').all() as { id: number; name: string; groupId: number }[]
+  const names = new Map(ledgers.map((l) => [l.id, l.name]))
+  const isCashBank = new Set(ledgers.filter((l) => cashBank.has(l.groupId)).map((l) => l.id))
+  const rows = db
+    .prepare(
+      `SELECT v.id AS voucherId, v.date, v.number, v.instrument_no AS instrumentNo, v.party_ledger_id AS partyId,
+              vl.ledger_id AS ledgerId, vl.dr_cr AS drCr, vl.amount
+       FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       JOIN voucher_lines vl ON vl.voucher_id = v.id
+       WHERE v.post_dated = 1 AND v.is_optional = 0 AND ${NOT_DELETED} AND vt.kind IN ('receipt', 'payment')
+       ORDER BY v.date, v.id, vl.line_order, vl.id`
+    )
+    .all() as { voucherId: number; date: string; number: string; instrumentNo: string | null; partyId: number | null; ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
+  const byVoucher = new Map<number, typeof rows>()
+  for (const r of rows) byVoucher.set(r.voucherId, [...(byVoucher.get(r.voucherId) ?? []), r])
+  const out: ForecastFlow[] = []
+  for (const lines of byVoucher.values()) {
+    const v = lines[0]!
+    const net = lines.filter((l) => isCashBank.has(l.ledgerId)).reduce((sum, l) => sum + (l.drCr === 'dr' ? l.amount : -l.amount), 0)
+    if (net === 0) continue
+    const other = lines.filter((l) => !isCashBank.has(l.ledgerId)).sort((a, b) => b.amount - a.amount)[0]
+    const party = v.partyId ?? other?.ledgerId ?? null
+    out.push({
+      source: 'pdc', direction: net > 0 ? 'in' : 'out', date: v.date, amount: Math.abs(net), probabilityBp: 10_000,
+      label: `${party != null ? `${names.get(party) ?? ''} · ` : ''}cheque ${v.instrumentNo ?? v.number}`, ledgerId: party, voucherId: v.voucherId
+    })
+  }
+  return out
 }
 
 // ---------- collection history ----------
@@ -291,6 +329,8 @@ export function forecastBase(db: DB, company: CompanyInfo, asOn: string, to: str
   attempt('Unbilled challans and GRNs', () => flows.push(...unbilledNoteFlows(db, asOn, profile)))
   attempt('Known items', () => flows.push(...itemFlows(listForecastItems(db), asOn, to)))
   attempt('Statutory dues', () => flows.push(...statutoryFlows(db, company, asOn)))
+  // Read always, counted only when the screen turns them on (buildForecast's includePdc).
+  attempt('Post-dated cheques', () => flows.push(...pdcFlows(db)))
   attempt('Loan EMIs', () => {
     for (const e of dueInstalments(db, '0000-01-01', to)) {
       flows.push({ source: 'emi', direction: 'out', date: e.dueDate, amount: e.payment, probabilityBp: 10_000, label: `${e.loanName} · EMI`, loanId: e.loanId })

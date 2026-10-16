@@ -86,6 +86,39 @@ describe('cash-flow forecast base', () => {
   })
 })
 
+describe('cash-flow forecast — pending post-dated cheques', () => {
+  it('reads pending PDCs as pdc flows, ignored by default, netted against the party\'s bill when on', () => {
+    const { db, bank, sales } = company()
+    const cust = ledger(db, 'Acme Buyer', 'Sundry Debtors', { creditDays: 30 })
+    const supp = ledger(db, 'Steel Supplier', 'Sundry Creditors')
+    const purchases = ledger(db, 'Purchases', 'Purchase Accounts')
+    post(db, 'journal', '2026-05-10', [dr(cust, 1_00_000_00), cr(sales, 1_00_000_00)], { partyLedgerId: cust })
+    post(db, 'journal', '2026-05-12', [dr(purchases, 40_000_00), cr(supp, 40_000_00)], { partyLedgerId: supp })
+    const before = forecastBase(db, TEST_INFO, '2026-06-01', '2026-08-31')
+    const plain = buildForecast({ asOn: before.asOn, unit: 'week', count: 13, openingCash: before.openingCash, flows: before.flows, scenario: SCENARIO_PRESETS.expected })
+    const received = post(db, 'receipt', '2026-06-20', [dr(bank, 60_000_00), cr(cust, 60_000_00)], { partyLedgerId: cust, postDated: true, instrumentNo: '000123' })
+    const issued = post(db, 'payment', '2026-06-25', [dr(supp, 40_000_00), cr(bank, 40_000_00)], { partyLedgerId: supp, postDated: true })
+    const binned = post(db, 'receipt', '2026-06-21', [dr(bank, 1_000_00), cr(cust, 1_000_00)], { partyLedgerId: cust, postDated: true })
+    deleteVoucher(db, binned)
+    const base = forecastBase(db, TEST_INFO, '2026-06-01', '2026-08-31')
+    expect(base.flows.filter((f) => f.source === 'pdc')).toEqual([
+      expect.objectContaining({ direction: 'in', date: '2026-06-20', amount: 60_000_00, ledgerId: cust, voucherId: received, label: 'Acme Buyer · cheque 000123' }),
+      expect.objectContaining({ direction: 'out', date: '2026-06-25', amount: 40_000_00, ledgerId: supp, voucherId: issued })
+    ])
+    // The PDCs are not in the books: the bills are still open, every other flow is as before.
+    expect(base.flows.filter((f) => f.source !== 'pdc')).toEqual(before.flows)
+    // Default: the forecast is unchanged by the cheques.
+    const dflt = buildForecast({ asOn: base.asOn, unit: 'week', count: 13, openingCash: base.openingCash, flows: base.flows, scenario: SCENARIO_PRESETS.expected })
+    expect(dflt.totals).toEqual(plain.totals)
+    // On: the ₹60,000 cheque replaces ₹60,000 of the ₹1,00,000 bill; the ₹40,000 cheque the whole payable.
+    const on = buildForecast({ asOn: base.asOn, unit: 'week', count: 13, openingCash: base.openingCash, flows: base.flows, scenario: SCENARIO_PRESETS.expected, includePdc: true })
+    const rec = on.contributions.filter((c) => c.source === 'receivable')
+    expect(rec.map((c) => c.amount)).toEqual([40_000_00])
+    expect(on.contributions.some((c) => c.source === 'payable')).toBe(false)
+    expect(on.contributions.filter((c) => c.source === 'pdc').map((c) => [c.effectiveDate, c.weighted])).toEqual([['2026-06-20', 60_000_00], ['2026-06-25', 40_000_00]])
+  })
+})
+
 describe('loans and EMI', () => {
   function withLoan() {
     const c = company()

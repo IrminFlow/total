@@ -59,7 +59,9 @@ const DEFAULT_OPTIONS = {
   orders: true,
   statutory: true,
   emis: true,
-  items: true
+  items: true,
+  /** Pending post-dated cheques (off by default: the figures stay as they always were). */
+  pdc: false
 }
 type Options = typeof DEFAULT_OPTIONS
 
@@ -68,22 +70,33 @@ export function scenarioFrom(o: Options, name: ScenarioName): ForecastScenario {
   return { collectionPct: o[`${name}Collection`], orderPct: o[`${name}Orders`], delayDays: o[`${name}Delay`] }
 }
 
-/** One table row: a period with its flows split for display ("other" = known items + adjustments). */
+/** One table row: a period with its flows split for display ("other" = known items + adjustments;
+ *  post-dated cheques split by direction). */
 export interface PeriodView extends ForecastPeriodRow {
   otherIn: number
   otherOut: number
+  pdcIn: number
+  pdcOut: number
 }
 
 export function periodViews(periods: ForecastPeriodRow[], contributions: ForecastContribution[]): PeriodView[] {
   return periods.map((p) => {
     let otherIn = 0
     let otherOut = 0
+    let pdcIn = 0
+    let pdcOut = 0
     for (const c of contributions) {
-      if (c.periodKey !== p.key || (c.source !== 'item' && c.source !== 'adjustment')) continue
+      if (c.periodKey !== p.key) continue
+      if (c.source === 'pdc') {
+        if (c.direction === 'in') pdcIn += c.weighted
+        else pdcOut += c.weighted
+        continue
+      }
+      if (c.source !== 'item' && c.source !== 'adjustment') continue
       if (c.direction === 'in') otherIn += c.weighted
       else otherOut += c.weighted
     }
-    return { ...p, otherIn, otherOut }
+    return { ...p, otherIn, otherOut, pdcIn, pdcOut }
   })
 }
 
@@ -102,11 +115,13 @@ const PERIOD_COLUMNS = defineColumns<PeriodView>([
   { id: 'opening', header: 'Opening', kind: 'money', value: (r) => r.opening, width: 120, className: 'text-muted', defaultHidden: true },
   moneyCol('receivable', 'Receivables', (r) => r.bySource.receivable, 'Inflows'),
   moneyCol('salesOrders', 'Sales orders', (r) => r.bySource.sales_order, 'Inflows'),
+  moneyCol('pdcIn', 'Post-dated cheques', (r) => r.pdcIn, 'Inflows'),
   moneyCol('otherIn', 'Other', (r) => r.otherIn, 'Inflows'),
   moneyCol('payable', 'Payables', (r) => r.bySource.payable, 'Outflows'),
   moneyCol('purchaseOrders', 'Purchase orders', (r) => r.bySource.purchase_order, 'Outflows'),
   moneyCol('statutory', 'Statutory', (r) => r.bySource.statutory, 'Outflows'),
   moneyCol('emi', 'Loan EMIs', (r) => r.bySource.emi, 'Outflows'),
+  moneyCol('pdcOut', 'Post-dated cheques', (r) => r.pdcOut, 'Outflows'),
   moneyCol('otherOut', 'Other', (r) => r.otherOut, 'Outflows'),
   { id: 'net', header: 'Net', kind: 'money', value: (r) => r.net, aggregate: 'sum', width: 112, cell: (r) => (r.net === 0 ? <span className="num text-muted">–</span> : <span className={`num ${r.net < 0 ? 'text-cr' : 'text-dr'}`}>{formatPaise(r.net)}</span>) },
   {
@@ -114,6 +129,9 @@ const PERIOD_COLUMNS = defineColumns<PeriodView>([
     cell: (r) => <span className={`num font-medium ${r.shortfall ? 'text-danger' : 'text-ink'}`}>{formatPaise(r.closing)}</span>
   }
 ])
+
+/** The PDC columns show only while post-dated cheques are included. */
+const PERIOD_COLUMNS_NO_PDC = PERIOD_COLUMNS.filter((c) => c.id !== 'pdcIn' && c.id !== 'pdcOut')
 
 const SOURCE_OPTIONS = (Object.keys(SOURCE_LABELS) as ForecastSource[]).map((s) => ({ value: s, label: SOURCE_LABELS[s] }))
 
@@ -193,13 +211,15 @@ export function CashForecastScreen(): React.JSX.Element {
                 <OptionToggle label="Statutory dues (GST, TDS, TCS, PF, ESI, PT)" checked={o.statutory} onChange={(v) => opts.set('statutory', v)} testId="input-forecast-statutory-on" />
                 <OptionToggle label="Loan EMIs" checked={o.emis} onChange={(v) => opts.set('emis', v)} testId="input-forecast-emis-on" />
                 <OptionToggle label="Known items and adjustments" checked={o.items} onChange={(v) => opts.set('items', v)} testId="input-forecast-items-on" />
+                <OptionToggle label="Pending post-dated cheques (in place of the bills they settle)" checked={o.pdc} onChange={(v) => opts.set('pdc', v)} testId="input-forecast-pdc-on" />
               </DrawerSection>
               <OptionsTable area="cash-forecast" label="Forecast table" />
               <DrawerSection title="How it works">
                 <p className="text-hint text-muted">
                   Each receipt and payment is weighted by its probability: receivables by the collection rate the company’s own
                   history shows for their ageing bucket, orders by the conversion slider, everything else at 100 %. Overdue items
-                  are expected now. Amounts are taxable values for orders (GST nets out against output tax).
+                  are expected now. Amounts are taxable values for orders (GST nets out against output tax). Pending post-dated
+                  cheques, when included, count on their date at 100 % and take their amount off the same party’s open bills.
                 </p>
               </DrawerSection>
             </>
@@ -253,9 +273,9 @@ function ForecastTab({ options: o, set }: { options: Options; set: ReturnType<ty
     ...(o.items ? [] : (['item', 'adjustment'] as const))
   ]
   const result = useMemo(
-    () => (base ? buildForecast({ asOn, unit: def.unit, count: def.count, openingCash: base.openingCash, flows: base.flows, scenario, minBalance: o.minBalance, exclude }) : null),
+    () => (base ? buildForecast({ asOn, unit: def.unit, count: def.count, openingCash: base.openingCash, flows: base.flows, scenario, minBalance: o.minBalance, exclude, includePdc: o.pdc }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [base, def.unit, def.count, scenario.collectionPct, scenario.orderPct, scenario.delayDays, o.minBalance, exclude.join()]
+    [base, def.unit, def.count, scenario.collectionPct, scenario.orderPct, scenario.delayDays, o.minBalance, exclude.join(), o.pdc]
   )
   const rows = useMemo(() => (result ? periodViews(result.periods, result.contributions) : []), [result])
   const categories: ChartCategory[] = rows.map((r) => ({ key: r.key, label: def.unit === 'week' ? r.label.split(' · ')[1]! : r.label.slice(0, 3), long: r.label }))
@@ -327,7 +347,7 @@ function ForecastTab({ options: o, set }: { options: Options; set: ReturnType<ty
           viewId="cash-forecast"
           testId="cash-forecast"
           ariaLabel="Cash-flow forecast by period"
-          columns={PERIOD_COLUMNS}
+          columns={o.pdc ? PERIOD_COLUMNS : PERIOD_COLUMNS_NO_PDC}
           rows={rows}
           rowKey={(r) => r.key}
           rowAttrs={(r) => ({ 'data-period': r.key, 'data-shortfall': r.shortfall ? 'true' : undefined })}
