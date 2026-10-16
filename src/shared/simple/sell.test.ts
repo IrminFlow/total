@@ -9,7 +9,7 @@ import { computeInvoice, emptyInvoiceState } from '../voucherEdit'
 import { mapIntent, normaliseIntent, type IntentContext, type IntentFacts, type IntentLedger } from './intents'
 import { bannedWordsIn } from './bannedWords'
 import {
-  billTitleKey, emptySellForm, lineRateMissing, offBillByReturns, exclusiveLines, paidChoicesFor, saleIntentFrom, salePreviewLine, saleStatus, sellFormErrors, sellTotals, shownRate,
+  billTitleKey, emptySellForm, lineRateMissing, offBillByReturns, exclusiveLines, paidChoicesFor, saleIntentFrom, salePreviewLine, saleStatus, sellFormErrors, sellTotals, shownRate, switchSellBasis,
   type SellContext, type SellForm
 } from './sell'
 
@@ -233,5 +233,61 @@ describe('WP 10.8: a product without a GST rate on a GST bill', () => {
     expect(lineRateMissing(3, form(), ctxFor('unregistered'))).toBe(false)
     const rated: SellContext = { ...c, invoice: { ...c.invoice, ledgers: new Map([...c.invoice.ledgers, [20, { stateCode: null, gstRate: 5 }]]) } }
     expect(lineRateMissing(3, form(), rated)).toBe(false)
+  })
+})
+
+describe('"Prices include GST" switched with prices typed (to-do §4): every line keeps its total', () => {
+  const sig = (f: SellForm, c: SellContext) => {
+    const x = sellTotals(f, c)
+    return [x.taxable, x.tax, x.total, x.rounding]
+  }
+  it('before GST ↔ with GST, item lines (intra / inter, discounts, part quantities): the same bill', () => {
+    const c = ctxFor()
+    const rates = [1, 99, 1005, 1055, 12_345, 50_000, 99_999]
+    const qtys = ['1', '3', '2.5', '0.333', '100', '7']
+    let n = 0
+    for (const customerId of [10, 11]) {
+      for (const rate of rates) {
+        for (const qtyText of qtys) {
+          for (const discount of [null, 1, 500]) {
+            for (const itemId of [1, 2]) {
+              const ex = form({ customerId, lines: [line(1, itemId, qtyText, rate, discount)] })
+              const inc = switchSellBasis(ex, c, true)
+              expect(inc.ratesIncludeGst).toBe(true)
+              expect(sig(inc, c)).toEqual(sig(ex, c))
+              const back = switchSellBasis(inc, c, false)
+              expect(sig(back, c)).toEqual(sig(ex, c))
+              // Typed WITH GST first, then switched to before GST.
+              const typedIncl = form({ customerId, ratesIncludeGst: true, lines: [line(1, itemId, qtyText, rate, discount)] })
+              expect(sig(switchSellBasis(typedIncl, c, false), c)).toEqual(sig(typedIncl, c))
+              n++
+            }
+          }
+        }
+      }
+    }
+    expect(n).toBeGreaterThan(400)
+  })
+
+  it('₹100 + 18 % → ₹118 a unit (no discount appears); ₹118 with GST → ₹100 before', () => {
+    const c = ctxFor()
+    const inc = switchSellBasis(form({ lines: [line(1, 1, '3', 100_00)] }), c, true)
+    expect(inc.lines[0]).toMatchObject({ rate: 118_00, discount: null })
+    const ex = switchSellBasis(form({ ratesIncludeGst: true, lines: [line(1, 1, '3', 118_00)] }), c, false)
+    expect(ex.lines[0]).toMatchObject({ rate: 100_00, discount: null })
+  })
+
+  it('"just an amount" converts too; 0 % lines, incomplete lines and a bill without GST keep their numbers', () => {
+    const c = ctxFor()
+    const amt = form({ mode: 'amount', amount: 1_000_00, gstRate: 18 })
+    const a = switchSellBasis(amt, c, true)
+    expect(a.amount).toBe(1_180_00)
+    expect(sig(a, c)).toEqual(sig(amt, c))
+    expect(switchSellBasis(a, c, false).amount).toBe(1_000_00)
+    const zero = { ...ctxFor(), invoice: { ...ctxFor().invoice, items: new Map([[1, { gstRate: 0, cessRate: null }]]) } }
+    expect(switchSellBasis(form({ lines: [line(1, 1, '2', 500_00)] }), zero, true).lines[0]!.rate).toBe(500_00)
+    expect(switchSellBasis(form({ lines: [line(1, 1, '', 500_00)] }), c, true).lines[0]!.rate).toBe(500_00)
+    const u = switchSellBasis(form({ lines: [line(1, 1, '2', 500_00)] }), ctxFor('unregistered'), true)
+    expect([u.ratesIncludeGst, u.lines[0]!.rate]).toEqual([true, 500_00])
   })
 })

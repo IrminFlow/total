@@ -13,7 +13,8 @@ import { formatPaise, roundToRupee } from '../money'
 import { toPlainDate } from '../dates'
 import { addBreakups, computeGst, supplyTypeFor, type SupplyType } from '../gst/calc'
 import { chargesGstOn, registrationOn, type GstRegistrationFacts, type GstRegistrationType } from '../gst/registration'
-import { inclusiveLine, solveTaxable } from '../pricing'
+import { inclusiveLine, lineGross, solveTaxable } from '../pricing'
+import { rateForCost } from '../capture/nonClaimable'
 import { computeInvoice, emptyInvoiceState, type InvoiceContext } from '../voucherEdit'
 import { qtyText } from '../voucherEdit/payload'
 import { readQty, type IntentFacts, type MoneyHow, type SimpleIntentInput } from './intents'
@@ -388,3 +389,66 @@ export function lineRateMissing(itemId: number, form: SellForm, ctx: SellContext
   const account = ctx.salesAccountId != null ? ctx.invoice.ledgers.get(ctx.salesAccountId) : undefined
   return ctx.invoice.items.get(itemId)?.gstRate == null && account?.gstRate == null
 }
+
+// ---------- "Prices include GST" switched with prices already typed (to-do §4, shots-86) ----------
+// Each typed price is re-expressed in the other basis so the line (and the bill) comes to the same
+// money: the editor's own helpers only — computeGst / inclusiveLine / solveTaxable (pricing.ts)
+// and capture's rateForCost — never new arithmetic on money.
+
+/** A line typed BEFORE GST (rate + discount, exclusive) as a price WITH GST + a discount on that
+ *  gross, so that inclusiveLine gives back the same taxable value (hence the same GST and total).
+ *  The unit price is one unit with its GST (shownRate's rule); whatever that leaves over (the
+ *  discount, a paisa of rounding) is the discount — or, when one unit's GST rounds under the
+ *  line's, the line's own total spread by rateForCost. */
+export function lineToInclusive(
+  ratePaise: number, qtyMilli: number, discountPaise: number, gstRate: number, cessRate: number, supply: SupplyType
+): { rate: number; discount: number | null } {
+  const taxable = Math.max(0, lineGross(qtyMilli, ratePaise) - discountPaise)
+  const target = computeGst(taxable, gstRate, supply, cessRate).total
+  const unit = computeGst(ratePaise, gstRate, supply, cessRate).total
+  const left = lineGross(qtyMilli, unit) - target
+  if (left >= 0) return { rate: unit, discount: left || null }
+  const spread = rateForCost(target, qtyMilli)
+  return { rate: spread.ratePaise, discount: spread.discountPaise || null }
+}
+
+/** A line typed WITH GST as the editor holds it before GST — inclusiveLine's own rate + discount
+ *  (exactly what the intent sends, so the totals cannot move). */
+export function lineToExclusive(
+  unitInclusivePaise: number, qtyMilli: number, discountPaise: number, gstRate: number, cessRate: number, supply: SupplyType
+): { rate: number; discount: number | null } {
+  const x = inclusiveLine(unitInclusivePaise, qtyMilli, discountPaise, gstRate, cessRate, supply)
+  return { rate: x.ratePaise, discount: x.discountPaise || null }
+}
+
+/** "Just an amount" in the other basis: before GST → with its GST (computeGst), with GST → the
+ *  taxable value solveTaxable finds (the one amountTaxable posts). */
+export const amountToBasis = (amount: number, gstRate: number, supply: SupplyType, incl: boolean): number =>
+  incl ? computeGst(amount, gstRate, supply).total : solveTaxable(amount, gstRate, 0, supply).taxablePaise
+
+/** The Make a bill form with "Prices include GST" set to `incl`, every typed price (and "just an
+ *  amount") converted so each line's total — and the bill's — stays what it was. Lines at 0 %, or
+ *  a bill whose date charges no GST, keep their numbers (the basis means nothing there). */
+export function switchSellBasis<F extends SellForm>(form: F, ctx: SellContext, incl: boolean): F {
+  if (form.ratesIncludeGst === incl) return form
+  const charges = chargesGstOn(ctx.invoice, form.date)
+  const next = { ...form, ratesIncludeGst: incl }
+  if (!charges) return next
+  const supply = supplyFor(form, ctx)
+  if (form.mode === 'amount') {
+    const rate = amountRate(form, ctx)
+    return form.amount != null && form.amount > 0 && rate > 0 ? { ...next, amount: amountToBasis(form.amount, rate, supply, incl) } : next
+  }
+  return {
+    ...next,
+    lines: form.lines.map((l) => {
+      const qtyMilli = qtyMilliOf(l.qtyText)
+      if (l.itemId == null || l.rate == null || qtyMilli == null || qtyMilli <= 0) return l
+      const { rate, cess } = itemRate(ctx, l.itemId, charges)
+      if (rate + cess <= 0) return l
+      const x = (incl ? lineToInclusive : lineToExclusive)(l.rate, qtyMilli, l.discount ?? 0, rate, cess, supply)
+      return { ...l, rate: x.rate, discount: x.discount }
+    })
+  } as F
+}
+

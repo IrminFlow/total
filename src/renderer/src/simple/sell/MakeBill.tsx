@@ -7,7 +7,7 @@ import { toPlainDate } from '@shared/dates'
 import { mapError, type CaughtError } from '@shared/errors'
 import type { SimplePreview } from '@shared/simple/intents'
 import {
-  billTitleKey, emptySellForm, qtyMilliOf, saleIntentFrom, salePreviewLine, sellFormErrors, sellTotals, shownRate,
+  billTitleKey, emptySellForm, qtyMilliOf, saleIntentFrom, salePreviewLine, sellFormErrors, sellTotals, shownRate, switchSellBasis,
   type SellContext, type SellField, type SellForm
 } from '@shared/simple/sell'
 import { api } from '../../lib/client'
@@ -303,7 +303,11 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
     } catch {
       /* the choice still applies to this bill */
     }
-    update({ ratesIncludeGst: on, lines: form.lines.map((l) => (l.auto ? { ...l, rate: null } : l)) })
+    // Prices already typed are converted so each line's total stays the same (switchSellBasis —
+    // the editor's own helpers); price-list ones are fetched again in the new basis.
+    if (!ctx) return update({ ratesIncludeGst: on, lines: form.lines.map((l) => (l.auto ? { ...l, rate: null } : l)) })
+    const next = switchSellBasis(form, ctx, on)
+    update({ ratesIncludeGst: on, amount: next.amount, lines: next.lines.map((l) => (l.auto ? { ...l, rate: null } : l)) })
   }
 
   const customerOptions = useMemo(() => (setup?.customers ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.phone ? { sub: c.phone } : {}) })), [setup?.customers])

@@ -9,7 +9,7 @@ import type { SimplePreview } from '@shared/simple/intents'
 import { CATEGORIES } from '@shared/simple/categories'
 import { categoriesFor } from '@shared/simple/accountKinds'
 import {
-  asksAmountRate, BUY_MODES, buyFormErrors, buyGst, buyTotals, emptyBuyForm, productsNeedGst, purchaseIntentFrom, purchasePreviewLine, showsPriceBasis,
+  asksAmountRate, BUY_MODES, buyFormErrors, buyGst, buyTotals, emptyBuyForm, productsNeedGst, purchaseIntentFrom, purchasePreviewLine, showsPriceBasis, switchBuyBasis,
   type BuyContext, type BuyField, type BuyForm, type BuyLine, type BuyMode
 } from '@shared/simple/buy'
 import type { MessageKey } from '@shared/i18n'
@@ -287,7 +287,9 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
     } catch {
       /* the choice still applies to this bill */
     }
-    update({ ratesIncludeGst: on })
+    // Prices already typed are converted so each line's total stays the same (switchBuyBasis —
+    // the editor's own helpers).
+    update(ctx ? switchBuyBasis(form, ctx, on) : { ratesIncludeGst: on })
   }
 
   const setMode = (mode: BuyMode): void => {

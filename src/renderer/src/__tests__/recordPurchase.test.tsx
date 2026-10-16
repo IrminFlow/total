@@ -153,6 +153,38 @@ describe('Record a purchase (WP 9.3)', () => {
     })
   })
 
+  it('to-do §4: "Prices include GST" with prices typed converts them — the bill stays the same', async () => {
+    renderUi()
+    await ready()
+    await pick('picker-buy-supplier', 'Bharat')
+    await pick('picker-buy-item-0', 'Steel bolt')
+    typeIn('input-buy-qty-0', '10')
+    typeIn('input-buy-rate-0', '100')
+    await waitFor(() => expect(screen.getByTestId('buy-total').getAttribute('data-paise')).toBe('118000'))
+    click('buy-prices-incl')
+    await waitFor(() => expect((screen.getByTestId('input-buy-rate-0') as HTMLInputElement).value).toMatch(/^118(\.00)?$/))
+    expect(screen.getByTestId('buy-total').getAttribute('data-paise')).toBe('118000')
+    expect(screen.getByTestId('buy-tax').getAttribute('data-paise')).toBe('18000')
+    click('buy-prices-excl')
+    await waitFor(() => expect((screen.getByTestId('input-buy-rate-0') as HTMLInputElement).value).toMatch(/^100(\.00)?$/))
+    expect(screen.getByTestId('buy-total').getAttribute('data-paise')).toBe('118000')
+  })
+
+  it('to-do §4: a business that can’t claim — what was paid ↔ before GST keeps the cost', async () => {
+    act(() => useSession.setState({ info: info('unregistered') }))
+    renderUi()
+    await ready()
+    await pick('picker-buy-supplier', 'Bharat')
+    await pick('picker-buy-item-0', 'Rice')
+    typeIn('input-buy-qty-0', '2')
+    typeIn('input-buy-rate-0', '262.50')
+    await waitFor(() => expect(screen.getByTestId('buy-total').getAttribute('data-paise')).toBe('52500'))
+    click('buy-prices-excl')
+    await waitFor(() => expect((screen.getByTestId('input-buy-rate-0') as HTMLInputElement).value).toMatch(/^250(\.00)?$/))
+    expect(screen.getByTestId('buy-total').getAttribute('data-paise')).toBe('52500')
+    expect(screen.getByTestId('buy-folded').getAttribute('data-paise')).toBe('2500')
+  })
+
   it('products on a bill without GST: refused under the GST question, with "Record it as just an amount"', async () => {
     renderUi()
     await ready()
