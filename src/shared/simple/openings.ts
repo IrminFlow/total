@@ -14,9 +14,33 @@
 //   confirms it and it goes to the capital account — never to a suspense account.
 import { z } from 'zod'
 import { isoDate } from '../schemas'
+import { slabsOn } from '../gst/rateTable'
 
 export const OPENING_STEPS = ['money', 'customers', 'suppliers', 'stock', 'confirm'] as const
 export type OpeningStep = (typeof OPENING_STEPS)[number]
+
+/**
+ * The GST rates a NEW opening product is offered (to-do §4, PR #111 leftover): the slabs in force
+ * on the WORKING date — the rate is what the product's next bill charges — never the books-begin
+ * date's (books begun before 22 Sep 2025 offered 12 % / 28 %). A rate only the books-begin date
+ * lists (`earlier`) is reachable behind "Custom rate (check with your CA)", like the product
+ * dialog. Same order as `slabsOn` (common first). rateTable.ts is unchanged.
+ */
+export function openingGstChoices(workingDate: string, booksBegin: string): { offered: number[]; earlier: number[] } {
+  const offered = slabsOn(workingDate).map((s) => s.rate)
+  const earlier = slabsOn(booksBegin)
+    .map((s) => s.rate)
+    .filter((r) => !offered.includes(r))
+  return { offered, earlier }
+}
+
+/** A custom opening GST rate as typed: 0–100 with at most two decimals, else null. */
+export function readCustomGstRate(text: string): number | null {
+  const v = text.trim()
+  if (!/^\d{1,3}(\.\d{1,2})?$/.test(v)) return null
+  const n = Number(v)
+  return n >= 0 && n <= 100 ? n : null
+}
 
 /** The steps a company sees (stock only while stock is on). */
 export function openingSteps(stockOn: boolean): OpeningStep[] {
