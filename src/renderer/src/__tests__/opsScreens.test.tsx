@@ -226,6 +226,32 @@ describe('Stock ageing runs to today, not the FY end', () => {
       vi.useRealTimers()
     }
   })
+
+  it('the Stock summary panel says its own as-on date, and when it differs from the summary', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(2026, 9, 14, 12, 0, 0))
+    try {
+      const asked: string[] = []
+      handlers['stock:summary'] = () => STOCK
+      handlers['report:stockAgeing'] = (p) => {
+        asked.push((p as { asOn: string }).asOn)
+        return [{ stockItemId: 1, name: 'Bolt M6', unitSymbol: 'pcs', decimals: 0, closingQtyMilli: 12_000, buckets: [12_000, 0, 0, 0], lastOutwardDate: null, slowMoving: false, reorderLevelMilli: null, belowReorder: false }]
+      }
+      renderScreen(<StockSummaryScreen />)
+      await waitFor(() => expect(screen.getByTestId('stock-summary-analysis-as-on').textContent).toBe(
+        'As on 14-Oct-26. Ageing runs to today; the summary above runs to 31-Mar-27, so entries dated after today are not in this panel.'
+      ))
+      expect(asked).toEqual(['2026-10-14'])
+      cleanup()
+      asked.length = 0
+      act(() => useSession.setState({ to: '2026-06-30' }))
+      renderScreen(<StockSummaryScreen />)
+      await waitFor(() => expect(screen.getByTestId('stock-summary-analysis-as-on').textContent).toBe('As on 30-Jun-26.'))
+      expect(asked).toEqual(['2026-06-30'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })
 
 // ---------------------------------------------------------------- cost centres

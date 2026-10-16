@@ -9,6 +9,7 @@ import {
   cashFlow, dashboard, ledgerStatement, trialBalance, profitAndLoss, balanceSheet,
   stockAgeing, itemProfitability, exceptions
 } from './reports'
+import { stockSummary } from './stockAnalysis'
 
 const LEDGER_DEFAULTS = {
   gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null,
@@ -242,6 +243,50 @@ describe('stock ageing + reorder (#58)', () => {
     expect(g.buckets).toEqual([0, 0, 45000, 0])
     // A count write-down is a correction, not a consumption — it must not reset staleness.
     expect(g.lastOutwardDate).toBeNull()
+  })
+})
+
+describe('stock analysis panel vs the Stock summary (to-do §4)', () => {
+  it('as on the same date the panel holds exactly the Stock summary closing quantity of every item', () => {
+    const db = seededDb()
+    const cash = (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    const purchases = createLedger(db, { ...LEDGER_DEFAULTS, name: 'Purchases', groupId: groupId(db, 'Purchase Accounts'), openingBalance: 0 }).id
+    const sales = createLedger(db, { ...LEDGER_DEFAULTS, name: 'Sales Local', groupId: groupId(db, 'Sales Accounts'), openingBalance: 0 }).id
+    const psVt = (db.prepare("SELECT id FROM voucher_types WHERE kind = 'physical_stock'").get() as { id: number }).id
+    const buy = (item: number, date: string, qty: number): void => {
+      postLines(db, 'purchase', date, [{ ledgerId: purchases, drCr: 'dr', amount: qty * 10 }, { ledgerId: cash, drCr: 'cr', amount: qty * 10 }], null,
+        [{ stockItemId: item, qtyMilli: qty, ratePaise: 10000, amount: qty * 10, direction: 'in' }])
+    }
+    const sell = (item: number, date: string, qty: number): void => {
+      postLines(db, 'sales', date, [{ ledgerId: cash, drCr: 'dr', amount: qty * 20 }, { ledgerId: sales, drCr: 'cr', amount: qty * 20 }], null,
+        [{ stockItemId: item, qtyMilli: qty, ratePaise: 20000, amount: qty * 20, direction: 'out' }])
+    }
+    const widget = makeItem(db, 'Widget', 5000, 50000, 4000)
+    const gasket = makeItem(db, 'Gasket', 0, 0)
+    buy(widget, '2025-04-10', 20000)
+    sell(widget, '2025-05-02', 12000)
+    buy(gasket, '2025-05-20', 9000)
+    saveVoucher(db, {
+      voucherTypeId: psVt, date: '2025-06-15', partyLedgerId: null, narration: null, reference: null,
+      instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null,
+      transportDistanceKm: null, currencyCode: null, exchangeRate: null, lines: [],
+      inventory: [{ stockItemId: gasket, godownId: null, qtyMilli: 7000, ratePaise: 0, amount: 0, direction: 'in', isAbsolute: true }],
+      billRefs: [], tds: null
+    } as VoucherInput)
+    sell(widget, '2025-08-01', 3000) // after the June dates below — a "post-dated" entry for them
+
+    const closing = (rows: { stockItemId: number; closingQtyMilli: number }[]): Map<number, number> =>
+      new Map(rows.map((r) => [r.stockItemId, r.closingQtyMilli]))
+    for (const asOn of ['2025-04-30', '2025-05-31', '2025-06-30', '2026-03-31']) {
+      expect(closing(stockAgeing(db, asOn)), asOn).toEqual(closing(stockSummary(db, asOn)))
+    }
+    // Hand-worked: Widget 5 + 20 − 12 = 13 on 30 Jun, 10 after the August sale; Gasket counted to 7.
+    expect(closing(stockAgeing(db, '2025-06-30')).get(widget)).toBe(13000)
+    expect(closing(stockSummary(db, '2026-03-31')).get(widget)).toBe(10000)
+    expect(closing(stockAgeing(db, '2025-06-30')).get(gasket)).toBe(7000)
+    // So a panel run to a later period end than its as-on date would show other quantities —
+    // the screen keeps the panel as on today (ageing) and labels that date instead.
+    expect(closing(stockAgeing(db, '2025-06-30')).get(widget)).not.toBe(closing(stockSummary(db, '2026-03-31')).get(widget))
   })
 })
 
