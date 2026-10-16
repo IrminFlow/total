@@ -401,7 +401,8 @@ export interface MoneySetup {
   tds: boolean
   payroll: boolean
   /** Customers holding credit with us as on today (the Outstandings allocation's unapplied
-   *  credit, largest first) — Money out's "A customer (refund)". Absent = none. */
+   *  credit, largest first) — Money out's "A customer (refund)". Only with
+   *  `simple:money:setup { customerCredits: true }` (Money out asks; Money in / Move don't). */
   customerCredits?: { id: number; name: string; credit: number }[]
 }
 

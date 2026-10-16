@@ -754,7 +754,10 @@ export function registerIpc(): void {
   // suppliers, cash / bank accounts and their defaults (WP 5.6 memory, else the counter's), a
   // party's open bills (the Outstandings allocation), the money list and one entry's view.
   // Writing goes through simple:post only.
-  handle('simple:money:setup', () => simpleMoney.moneySetup(requireCompany().db), 'viewer')
+  handle('simple:money:setup', (payload) => {
+    const opts = z.object({ customerCredits: z.boolean().optional() }).strict().optional().parse(payload)
+    return simpleMoney.moneySetup(requireCompany().db, opts ?? {})
+  }, 'viewer')
   handle('simple:money:bills', (payload) => {
     const { partyId, date } = z.object({ partyId: z.number().int().positive(), date: isoDate }).strict().parse(payload)
     return simpleMoney.moneyBills(requireCompany().db, partyId, date)

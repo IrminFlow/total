@@ -76,7 +76,7 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
   const { info, workingDate } = useSession()
   const ledgers = useLedgers()
   const groups = useGroups()
-  const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup'], queryFn: api.simpleMoney.setup }) // i18n-technical
+  const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup', 'out'], queryFn: () => api.simpleMoney.setup({ customerCredits: true }) }) // i18n-technical
   const blank = (): MoneyOutForm => emptyMoneyOutForm(workingDate)
   const [form, setForm] = useKeptForm<MoneyOutForm>(() => {
     const f = emptyMoneyOutForm(date ?? workingDate, { supplierId: party ?? null, amount: amount ?? null, bill: bill ?? null, bankId: bankId ?? null, reference: reference ?? null, note: note ?? null })

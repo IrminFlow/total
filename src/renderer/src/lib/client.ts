@@ -743,7 +743,8 @@ export const api = {
   /** WP 9.4: the simple Money screens' reads (writing is simple:post). */
   simpleMoney: {
     /** Customers, suppliers, cash / bank accounts and their defaults, owner / loan accounts. */
-    setup: () => call<MoneySetup>('simple:money:setup'),
+    /** `customerCredits: true` adds the customers holding credit (Money out's refund; one receivables allocation). */
+    setup: (opts?: { customerCredits?: boolean }) => call<MoneySetup>('simple:money:setup', opts),
     /** A party's open bills, oldest first, as on `date` (the Outstandings allocation). */
     bills: (partyId: number, date: string) => call<MoneyOpenBill[]>('simple:money:bills', { partyId, date }),
     /** Receipts, payments and moves dated from…to, newest first; rows after `today` (the working

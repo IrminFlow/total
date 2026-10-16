@@ -35,6 +35,18 @@ import { previewIntent, postIntent } from './simplePost'
 import { moneyBills, moneyEntry, moneyList, moneySetup } from './simpleMoney'
 import { createMemory } from '../ai/memory'
 
+// Review follow-up (#139): counts the receivables allocations moneySetup runs (the real function).
+const allocationRuns = vi.hoisted(() => ({ receivable: 0 }))
+vi.mock('./analysis', async (importOriginal) => {
+  const m = await importOriginal<typeof import('./analysis')>()
+  return {
+    ...m,
+    outstandingsWithAdvances: (...args: Parameters<typeof m.outstandingsWithAdvances>) => {
+      if (args[1] === 'receivable') allocationRuns.receivable++
+      return m.outstandingsWithAdvances(...args)
+    }
+  }
+})
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<{ ok: boolean; data?: unknown; error?: string; code?: string }>>()
 vi.mock('electron', () => ({
   app: { getVersion: () => '0.12.0-test', getPath: () => tmpdir(), isPackaged: false, on: () => {} },
@@ -430,7 +442,7 @@ describe('Money out: a refund to a customer', () => {
     const adv = moneyIn({ customerId: L('Ramesh'), amount: 50_000, advance: true }).out
     const advName = getVoucher(db, adv.voucherIds[0]!)!.number
     expect(allocation('Ramesh')).toEqual({ bills: {}, credit: 50_000 })
-    expect(moneySetup(db).customerCredits).toEqual([{ id: L('Ramesh'), name: 'Ramesh', credit: 50_000 }])
+    expect(moneySetup(db, { customerCredits: true }).customerCredits).toEqual([{ id: L('Ramesh'), name: 'Ramesh', credit: 50_000 }])
     const { out } = moneyOut({ who: 'refund', customerId: L('Ramesh'), amount: 30_000, how: 'bank' })
     const v = getVoucher(db, out.voucherIds[0]!)!
     expect(v.billRefs.map((x) => [x.kind, x.name, x.amount])).toEqual([['against', advName, 30_000]])
@@ -462,16 +474,30 @@ describe('Money out: a refund to a customer', () => {
     twoBills()
     post({ kind: 'money_in', customerId: L('Ramesh'), amount: 190_000, into: { how: 'cash' } })
     expect(allocation('Ramesh')).toEqual({ bills: {}, credit: 30_000 })
-    expect(moneySetup(db).customerCredits).toEqual([{ id: L('Ramesh'), name: 'Ramesh', credit: 30_000 }])
+    expect(moneySetup(db, { customerCredits: true }).customerCredits).toEqual([{ id: L('Ramesh'), name: 'Ramesh', credit: 30_000 }])
     const { out } = moneyOut({ who: 'refund', customerId: L('Ramesh'), amount: 30_000, how: 'cash' })
     expect(getVoucher(db, out.voucherIds[0]!)!.billRefs).toEqual([])
     expect(allocation('Ramesh')).toEqual({ bills: {}, credit: 0 })
     expect(out.facts).toMatchObject({ side: 'customer', balance: 0 })
   })
 
+  it('only Money out asks for the credits: the plain setup (Money in / Move money) runs no receivables allocation', () => {
+    moneyIn({ customerId: L('Ramesh'), amount: 50_000, advance: true })
+    const before = allocationRuns.receivable
+    const plain = moneySetup(db)
+    expect(allocationRuns.receivable).toBe(before)
+    expect(plain.customerCredits).toBeUndefined()
+    const out = moneySetup(db, { customerCredits: true })
+    expect(allocationRuns.receivable).toBe(before + 1)
+    expect(out.customerCredits).toEqual([{ id: L('Ramesh'), name: 'Ramesh', credit: 50_000 }])
+    // everything else is the same answer
+    const { customerCredits: _c, ...rest } = out
+    expect(rest).toEqual(plain)
+  })
+
   it('a customer holding no credit: refused on the customer, no trace; not offered by the setup', () => {
     twoBills()
-    expect(moneySetup(db).customerCredits).toEqual([])
+    expect(moneySetup(db, { customerCredits: true }).customerCredits).toEqual([])
     const before = trace()
     expect(() => post({ kind: 'money_out', customerId: L('Ramesh'), amount: 1_000, from: { how: 'cash' } })).toThrow(expect.objectContaining({ code: 'simple_customer_no_credit', field: 'party' }))
     expect(trace()).toEqual(before)
@@ -580,7 +606,10 @@ describe('refusals leave no trace', () => {
     const viewer = await ok<{ id: number }>('users:save', { data: { name: 'Vik', role: 'viewer', pin: '2222' } })
     await ok('auth:logout')
     await ok('auth:login', { userId: viewer.id, pin: '2222' })
-    const setup = await ok<{ moneyAccounts: { id: number; kind: string }[] }>('simple:money:setup')
+    const setup = await ok<{ moneyAccounts: { id: number; kind: string }[]; customerCredits?: unknown }>('simple:money:setup')
+    expect(setup.customerCredits).toBeUndefined()
+    expect((await ok<{ customerCredits?: unknown }>('simple:money:setup', { customerCredits: true })).customerCredits).toEqual([])
+    expect(await call('simple:money:setup', { side: 'out' })).toMatchObject({ ok: false }) // strict
     const cash = setup.moneyAccounts.find((a) => a.kind === 'cash')!.id
     const before = await ok<unknown[]>('simple:money:list', { from: '2025-04-01', to: '2026-03-31' })
     const res = await call('simple:post', { intent: { clientId: 'viewer-0001', kind: 'move_money', amount: 100, fromId: cash, toId: cash + 999 }, today: TODAY })
