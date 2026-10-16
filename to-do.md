@@ -75,9 +75,10 @@ done on main were dropped. One line each; the pointer says where to look.
 - Hand-off: edits in the full editor aren't carried back; a "paid now" payment / refund isn't in the handed-off editor; ~~People / Reports / Taxes have no Accountant-view button~~ DONE — PR #122 — PR #96
 - Hand-off review: ~~refused answers → blank editor after a discard prompt; Cancel returns to an EMPTY simple form; walk-in hand-off leaves the customer empty; missing GST / round-off accounts show empty rows; Reports / Taxes Accountant-view lack the "Always" menu; palette search results still titled "Ledgers" / "Vouchers"~~ DONE — PR #122; ~~switching company with unsaved editor changes keeps the old stack~~ DONE — PR #130 (the question comes first; any company change resets the stack to Home) — shots-96
 - ~~Taxes: after "I've filed", Home's GST tile and the Gateway 3B chip still show the period's amount / date~~ DONE — PR #119 (the tile moves on to the running period) — PR #94
-- Taxes: quarterly (QRMP) file preparation and the PMT-06 amount are full-app only — PR #94
+- ~~Outstandings (full app) ageing table 8 px too wide at 1280 px — 1030 vs the 1022 px panel (#130 review)~~ DONE — PR #134 (party on the 152 px name floor, actions 160 px: 1002 px)
+- Taxes: ~~quarterly (QRMP) file preparation~~ DONE — PR #134 (the quarter's three monthly files in one folder, from step 3). Still open: the PMT-06 amount is full-app only — PR #94
 - ~~Home: "entries added for an earlier, closed date" also fires for ordinary entries 30 days late~~ DONE — PR #128 (only entries into a closed / locked period after it was closed / locked). Still open: one-column profit "Purchases" includes direct expenses (freight, wages) — PR #94
-- ~~Why?: no link on composition / PMT-06 dates; no Why on Bills to pay "due this week"; one Why per by-month chart~~ DONE — Home's composition / PMT-06 Why opens Taxes, Bills to pay tiles and each month explained — PR #120. Still open: advance tax has no link (Total doesn't work it out); quarterly filers' GSTR-1 / 3B links open the quarter's first month; the Taxes screen's own CMP-08 / GSTR-4 / PMT-06 Whys have no link (it would open the same screen) — PR #99
+- ~~Why?: no link on composition / PMT-06 dates; no Why on Bills to pay "due this week"; one Why per by-month chart~~ DONE — Home's composition / PMT-06 Why opens Taxes, Bills to pay tiles and each month explained — PR #120. Still open: advance tax has no link (Total doesn't work it out); ~~quarterly filers' GSTR-1 / 3B links open the quarter's first month~~ DONE — PR #134 (they open its last month, `gstReturnMonth`); the Taxes screen's own CMP-08 / GSTR-4 / PMT-06 Whys have no link (it would open the same screen) — PR #99
 - Ask Total: ~~drafts stay open until discarded in Settings → AI drafts~~; "5000 Ramesh" (no verb) gets "try these" instead of asking in / out (fixed in WP 10.8, the `direction` intent); ~~payroll / TDS amount / bill-by-number questions not understood; an Ask Total draft opened from Settings opens the accountant editor~~ DONE — PR #125 — PR #98
 - ~~Tour card can cover part of Home under its anchor~~ DONE — PR #128; ~~help-link params (`filter=`, `tab=`) aren't validated per screen~~ DONE — `SCREEN_LINK_PARAMS`, unknown ones dropped (PR #121) — PR #100
 - ~~Viewer sees Sell / Buy forms and Save, then a generic "no permission"; sidebar "Back up now" shown to a viewer~~ DONE — PR #119 (note at the top of each form, no Create / Add-account buttons, a note instead of Back up now) — shots-86 / PR #111
@@ -194,7 +195,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - ~~WP 8.x: no schema-version guard against downgrade~~ DONE — PR #116
 - WP 9.1: TDS / TCS, place-of-supply override and the owner's credit-hold override aren't part of simple intents — PR #85
 - WP 9.4: TDS shown as a hint only, deducting stays in the accountant view — PR #88
-- WP 9.9: quarterly file preparation in simple mode; opening gst.gov.in from the app — PR #94
+- WP 9.9: ~~quarterly file preparation in simple mode~~ DONE — PR #134; opening gst.gov.in from the app — PR #94
 - ~~WP 10.1: Ask Total corpus ~30 questions; extend (payroll, TDS, a bill by number)~~ DONE — PR #125 (+40 phrasings) — PR #98
 - WP 10.3: help is simple-mode only; the full app keeps its shortcut list — PR #100
 - WP 10.4: accountant screens stay English; full-app button names glossed in Hindi help — PR #105
@@ -213,7 +214,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - ~~e2e 32 / 33 make 100- and 40-day-old bills in books that begin this FY; around April they fall in the previous FY (unverified)~~ DONE — PR #128 (`TOTAL_E2E_TODAY` fakes the app's date; 33 did fail on 5 April) — PR #110
 - ~~e2e 57 / 59 move the "40 days ago" sale to the FY start, so overdue checks can fail 1 April – mid May~~ DONE — PR #128 (already on `pickSetupStart`; proven with `TOTAL_E2E_TODAY`) — shots-92
 - ~~e2e harness can lose a failed scenario's result line on macOS (process.exit while writing to a pipe; exit code still fails)~~ DONE — PR #128 (also closing over an unsaved form crashed / hung the harness) — PR #110
-- ~~e2e 63 uses `page.focus()` twice~~ DONE — PR #128. Still open: e2e 12 "mid-fade" flake diagnosis unproven — PR #103
+- ~~e2e 63 uses `page.focus()` twice~~ DONE — PR #128. ~~e2e 12 "mid-fade" flake diagnosis unproven~~ DONE — PR #134: `node scripts/run-e2e.mjs 12 --repeat 5` on 16–17 Oct 2026, 5 / 5 passed (124 / 171 / 190 / 255 / 233 s, no flaky run), and again on the PR's build; no code change — PR #103
 - Plain AI drawer a11y and the escalated drawer checked in renderer tests only (needs `TOTAL_AI_MOCK` in e2e) — PR #103
 - No live-model run of AI evals, capture or Ask Total escalation — PR #98 / #101
 - No live NIC sandbox scenario — WP 3.5, `docs/e2e-coverage.md`
