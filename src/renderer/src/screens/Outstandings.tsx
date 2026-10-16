@@ -20,6 +20,9 @@ import { StatementModal } from '../components/receivables/StatementModal'
 
 const bucket = (i: 0 | 1 | 2 | 3) => (p: OutstandingParty) => p.buckets[i]
 
+/** The actions cell (Ledger · SOA · Remind). */
+export const OUTSTANDING_TRAILING_WIDTH = 160
+
 export const OUTSTANDING_COLUMNS = defineColumns<OutstandingParty>([
   {
     id: 'party',
@@ -28,7 +31,11 @@ export const OUTSTANDING_COLUMNS = defineColumns<OutstandingParty>([
     value: (p) => p.name,
     hideable: false,
     groupable: false,
-    minWidth: 170, // 170 + 4 × 122 + 136 + chevron + 170 actions = the 1022px panel at 1440 wide
+    // No minWidth: the name column's 152px floor (NAME_MIN_WIDTH). 152 + 4 × 122 + 136 + chevron 32
+    // + tick box 34 + 160 actions = 1002px, inside the 1022px panel of a standard page (1280 wide
+    // and up) with room for a 17px classic scrollbar; the party name takes what is spare. It was
+    // 170 + … + 170 = 1030px once the tick-box column came, so the table scrolled sideways
+    // (outstandingsLayout.test.ts).
     // The row expands its bills; the party NAME opens the ledger's edit window.
     cell: (p) => <LedgerLink ledgerId={p.ledgerId} name={p.name} />
   },
@@ -400,7 +407,7 @@ export function OutstandingsScreen({ initialSide = 'receivable' }: { initialSide
               )}
             </span>
           )}
-          trailingWidth={170}
+          trailingWidth={OUTSTANDING_TRAILING_WIDTH}
           maxHeight="70vh"
           exportOptions={{ title: `${title} · ageing`, periodLabel, filename: `outstandings-${side}` }}
         />
