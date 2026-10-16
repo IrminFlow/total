@@ -103,6 +103,30 @@ export interface PrintLabels {
   amount: string
   /** Amount in words in the document's language. */
   words: (paise: number) => string
+  /** The PDF footer "Page N of M" (drawn by printToPDF, see `pageFooterTemplate`). */
+  page: PageLabel
+}
+
+/** The words around the page number and the page count in the PDF footer. */
+export interface PageLabel {
+  before: string
+  between: string
+  after: string
+}
+
+export const ENGLISH_PAGE_LABEL: PageLabel = { before: 'Page ', between: ' of ', after: '' }
+
+const escapeFooter = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/** printToPDF's footerTemplate. Without a label (or with the English one) it is EXACTLY the
+ *  footer every PDF always had; a localised print passes its `labels.page`. The footer is drawn
+ *  outside the page's HTML, so the bundled Devanagari face isn't there — the system's Devanagari
+ *  font draws it (macOS / Windows ship one). */
+export function pageFooterTemplate(label: PageLabel = ENGLISH_PAGE_LABEL): string {
+  return (
+    '<div style="width:100%;text-align:center;font-size:9px;font-family:Helvetica,Arial,sans-serif;color:#555">' +
+    `${escapeFooter(label.before)}<span class="pageNumber"></span>${escapeFooter(label.between)}<span class="totalPages"></span>${escapeFooter(label.after)}</div>`
+  )
 }
 
 export const ENGLISH_PRINT_LABELS: PrintLabels = {
@@ -177,10 +201,20 @@ export const ENGLISH_PRINT_LABELS: PrintLabels = {
   chequeUtr: 'Cheque/UTR',
   note: 'Narration',
   amount: 'Amount',
-  words: (paise) => amountInWords(paise)
+  words: (paise) => amountInWords(paise),
+  page: ENGLISH_PAGE_LABEL
 }
 
 const MARK = '\u0000'
+const MARK2 = '\u0001'
+
+/** "पृष्ठ {n} / {total}" → the words before, between and after the two numbers. */
+function pageLabel(text: string): PageLabel {
+  const i = text.indexOf(MARK)
+  const j = text.indexOf(MARK2)
+  if (i < 0 || j < i) return ENGLISH_PAGE_LABEL
+  return { before: text.slice(0, i), between: text.slice(i + 1, j), after: text.slice(j + 1) }
+}
 /** A message with one `{name}` / `{date}` slot → what comes before and after the value. */
 function around(text: string): Around {
   const i = text.indexOf(MARK)
@@ -269,7 +303,8 @@ export function printLabelsFor(t: Translate): PrintLabels {
     chequeUtr: t('simple.print.chequeUtr'),
     note: t('simple.print.note'),
     amount: t('simple.print.amount'),
-    words: (paise) => amountInWords(paise, lang)
+    words: (paise) => amountInWords(paise, lang),
+    page: pageLabel(t('simple.print.page', { n: MARK, total: MARK2 }))
   }
 }
 

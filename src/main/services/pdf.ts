@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { writeFileSync } from 'fs'
 import { join } from 'path'
+import { pageFooterTemplate, type PageLabel } from '@shared/print/labels'
 import { companyExportsDir } from '../paths'
 
 export interface HtmlToPdfOptions {
@@ -22,6 +23,8 @@ export interface HtmlToPdfOptions {
   /** "Page N of M" centered in the footer of every page. Chromium ignores CSS @page margin-box
    *  counters, so page numbers ride on printToPDF's native footerTemplate instead. */
   pageNumbers?: boolean
+  /** The footer's words in a localised print (printLocale's `labels.page`). Absent = "Page N of M". */
+  pageLabel?: PageLabel
 }
 
 /** One hidden render window shared by every PDF job (task Q2 #98). Recreated lazily after any
@@ -65,9 +68,7 @@ async function renderPdf(html: string, opts: HtmlToPdfOptions): Promise<Buffer> 
   if (opts.pageNumbers) {
     printOpts.displayHeaderFooter = true
     printOpts.headerTemplate = '<span></span>'
-    printOpts.footerTemplate =
-      '<div style="width:100%;text-align:center;font-size:9px;font-family:Helvetica,Arial,sans-serif;color:#555">' +
-      'Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>'
+    printOpts.footerTemplate = pageFooterTemplate(opts.pageLabel)
   }
   return await win.webContents.printToPDF(printOpts)
 }

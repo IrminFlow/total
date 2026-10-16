@@ -105,6 +105,22 @@ describe('mapError', () => {
     expect(mapError(err, { simple: false, t, fields: ['date'] }).fields.date).toBe('The bill is dated 01-Aug-25')
   })
 
+  it('Hindi leftovers: the lock date and the openings books-begin date travel as ISO and read in the reader\'s language', () => {
+    // lockedError (vouchers.ts) sends the lock date as ISO; the accountant text is unchanged.
+    const lock = new AppError('books_locked', 'Books are locked up to 2026-06-30', { field: 'date', params: { date: '2026-06-30' } })
+    expect(mapError(lock, { simple: false, t, fields: ['date'] }).fields.date).toBe('Books are locked up to 2026-06-30')
+    expect(mapError(lock, { simple: true, t, fields: ['date'] }).fields.date).toBe('Entries up to 30 Jun 2026 are locked. Pick a later date or ask the owner to unlock.')
+    expect(mapError(lock, { simple: true, t: translator('hi'), fields: ['date'] }).fields.date).toContain('30 जून 2026')
+    expect(mapError(lock, { simple: true, t: translator('hinglish'), fields: ['date'] }).fields.date).toContain('30 Jun 2026')
+    const open = new AppError('openings_date_after_start', 'A bill dated 2026-05-02 is after the day the books begin (2026-04-01)', { field: 'customers.0.bills.0.date', params: { date: '2026-04-01' } })
+    expect(mapError(open, { simple: false, t }).fields['customers.0.bills.0.date']).toBe('A bill dated 2026-05-02 is after the day the books begin (2026-04-01)')
+    expect(mapError(open, { simple: true, t }).fields['customers.0.bills.0.date']).toBe('This date is after the first day you record (1 Apr 2026). Use that day or an earlier one.')
+    expect(mapError(open, { simple: true, t: translator('hi') }).fields['customers.0.bills.0.date']).toContain('1 अप्रैल 2026')
+    // No params (an older main) → the date-free sentence.
+    const bare = new AppError('openings_date_after_start', 'x', { field: 'date' })
+    expect(mapError(bare, { simple: true, t }).fields.date).toBe(t('errors.openings.dateAfterStart'))
+  })
+
   it('a plain Error (no code): accountant keeps it, simple says the generic sentence', () => {
     const err = new Error('SQLITE_BUSY: database is locked')
     expect(mapError(err, { simple: false, t })).toMatchObject({ fields: {}, general: 'SQLITE_BUSY: database is locked' })

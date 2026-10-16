@@ -151,6 +151,12 @@ what you typed, and a **Back to simple** button.
   and offers "Search older bills". Money in and out also lists entries dated up to 30 days ahead,
   with a "Dated ahead" label. Help links that point to a screen view that doesn't exist now just
   open the screen. [#121](https://github.com/IrminFlow/total/pull/121)
+- **More of Total in Hindi.** The setup wizard lists the states by their Hindi names. A Hindi
+  bill, statement or reminder says "पृष्ठ 1 / 1" at the foot of the page (Hinglish: "Page 1 / 1").
+  "Entries up to … are locked" and "this date is after the first day you record" write their date
+  in your language, and on the Bank screen "already recorded on …" follows the language you picked,
+  not the business's. Prints in English and every full-app screen are unchanged.
+  [#123](https://github.com/IrminFlow/total/pull/123)
 
 ### For accountants (figures that changed)
 

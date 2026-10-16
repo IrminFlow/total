@@ -2,7 +2,7 @@ import { useId, type ReactNode } from 'react'
 import { useT } from '../lib/i18n'
 import type { MessageKey } from '@shared/i18n'
 import { DateInput, Field, Select, TextInput } from '../components/ui'
-import { GST_STATE_LIST } from '@shared/gst/states'
+import { stateListIn } from '@shared/gst/stateNames'
 import { toPlainDate, fyOf, fyFromStartYear } from '@shared/dates'
 import { BUSINESS_TYPES, type BusinessType } from '@shared/simple/presets'
 import type { GstAnswer, SetupDraft, SetupErrorKey, StartChoice } from '@shared/simple/setup'
@@ -96,7 +96,7 @@ export function BusinessStep({ draft, set, errors }: StepProps): React.JSX.Eleme
       </Field>
       <Field label={t('simple.setup.state')} hint={t('simple.setup.stateHint')}>
         <Select data-testid="setup-state" value={draft.stateCode} onChange={(e) => set({ stateCode: e.target.value })}>
-          {GST_STATE_LIST.map(([code, label]) => (
+          {stateListIn(t.lang).map(([code, label]) => (
             <option key={code} value={code}>
               {`${code} · ${label}`}
             </option>

@@ -1,7 +1,7 @@
 import { Checkbox, Panel, SectionTitle } from '../../components/ui'
 import { Segmented } from '../../components/kit/Segmented'
 import { useAppearance, useTheme, type Density, type ThemePref } from '../../state/stores'
-import { LANGUAGES } from '@shared/i18n'
+import { LANGUAGES, languagePickerLabel } from '@shared/i18n'
 import { useLanguageChoice } from '../../lib/mode'
 import { ModeSetting } from '../../simple/ModeSetting'
 import { useT } from '../../lib/i18n'
@@ -39,7 +39,7 @@ export function AppearanceSection(): React.JSX.Element {
   const { density, setDensity, reduceMotion, setReduceMotion } = useAppearance()
   const { language, setLanguage, setsCompany: canSetCompany } = useLanguageChoice()
   const t = useT()
-  const languages = LANGUAGES.map((value) => ({ value, label: t(`settings.language.${value}` as const) }))
+  const languages = LANGUAGES.map((value) => ({ value, label: languagePickerLabel(value, t(`settings.language.${value}` as const)) }))
   return (
     <div>
       <SectionTitle>How Total looks</SectionTitle>

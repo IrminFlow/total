@@ -3,7 +3,7 @@ import { useLanguageChoice } from '../lib/mode'
 import { useAppearance, useTheme, type Density, type ThemePref } from '../state/stores'
 import { Page } from '../components/ui'
 import { Segmented } from '../components/kit/Segmented'
-import { LANGUAGES } from '@shared/i18n'
+import { LANGUAGES, languagePickerLabel } from '@shared/i18n'
 import { ModeSetting } from './ModeSetting'
 import { UpdatesSetting } from './UpdatesSetting'
 
@@ -35,7 +35,7 @@ export function SimpleLooks(): React.JSX.Element {
   const themeLabel = (v: ThemePref): string =>
     v === 'light' ? t('simple.looks.theme.light') : v === 'dark' ? t('simple.looks.theme.dark') : t('simple.looks.theme.system')
   const languageLabel = (v: (typeof LANGUAGES)[number]): string =>
-    v === 'en' ? t('simple.looks.lang.en') : v === 'hi' ? t('simple.looks.lang.hi') : t('simple.looks.lang.hinglish')
+    languagePickerLabel(v, v === 'en' ? t('simple.looks.lang.en') : v === 'hi' ? t('simple.looks.lang.hi') : t('simple.looks.lang.hinglish'))
 
   return (
     <Page width="narrow" data-testid="simple-looks">

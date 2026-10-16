@@ -6,6 +6,7 @@ import { tmpdir } from 'os'
 import { join, basename } from 'path'
 import { decodeTextFile } from '@shared/textFiles'
 import { z } from 'zod'
+import { LANGUAGES } from '@shared/i18n'
 import { forgetFolderKey, isEncryptedFile, keyForPath, keyOfHandle, openDb, plainCopy, rekeyFile, removeDbFiles, rememberFolderKey } from './db/encryption'
 import { DEFAULT_SCRYPT, newDataKey, unwrapKeyAsync, wrapKeyAsync, WrongPassphraseError, type ScryptParams } from './db/keyEnvelope'
 import { insecureTestCipherAllowed } from './services/secrets'
@@ -747,8 +748,11 @@ export function registerIpc(): void {
   // existing bankImport:pickFile / preview / commit channels.
   handle('simple:bank:setup', () => simpleBank.bankSetup(requireCompany().db), 'viewer')
   handle('simple:bank:lines', (payload) => {
-    const { bankLedgerId, today } = z.object({ bankLedgerId: z.number().int().positive(), today: isoDate.optional() }).strict().parse(payload)
-    return simpleBank.bankView(requireCompany().db, bankLedgerId, homeAsOn(today, todayISO()))
+    const { bankLedgerId, today, lang } = z
+      .object({ bankLedgerId: z.number().int().positive(), today: isoDate.optional(), lang: z.enum(LANGUAGES).optional() })
+      .strict()
+      .parse(payload)
+    return simpleBank.bankView(requireCompany().db, bankLedgerId, homeAsOn(today, todayISO()), lang)
   }, 'viewer')
   handle('simple:bank:accept', (payload) => {
     const { bankLedgerId, items, today } = bankAcceptSchema.extend({ today: isoDate.optional() }).strict().parse(payload)

@@ -10,7 +10,7 @@ import type { VoucherListRow } from '@shared/reports'
 import { sumCredits, sumDebits, validateVoucher, type LedgerFacts } from '@shared/posting'
 import { formatPaise } from '@shared/money'
 import { AppError, isErrorCode } from '@shared/errors'
-import { fyOf, toDisplayDate } from '@shared/dates'
+import { fyOf } from '@shared/dates'
 import { nextSeriesNumber } from './numbering'
 import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
@@ -42,7 +42,7 @@ interface VoucherRow {
 
 /** The lock-date refusal — same wording everywhere, with the date for a plain message (WP 8.5). */
 export function lockedError(lock: string): AppError {
-  return new AppError('books_locked', `Books are locked up to ${lock}`, { field: 'date', params: { date: toDisplayDate(lock) } })
+  return new AppError('books_locked', `Books are locked up to ${lock}`, { field: 'date', params: { date: lock } }) // ISO: mapError writes it in the reader's language
 }
 
 /** Greppable filter for every query joining `vouchers` as `v` that must exclude binned vouchers. */

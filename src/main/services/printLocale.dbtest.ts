@@ -9,6 +9,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import type { CompanyInfo } from '@shared/domain'
 import { renderDocument } from '@shared/print/render'
+import { pageFooterTemplate } from '@shared/print/labels'
 import { seededDb, TEST_INFO } from '../db/testdb'
 import { ensureCompanyTree } from '../paths'
 import { createLedger } from './masters'
@@ -83,6 +84,26 @@ describe('prints in the company language (WP 10.4)', () => {
     expect(html).toContain('एक लाख इकतालीस हज़ार छह सौ रुपये मात्र')
     expect(html).toContain('TAX INVOICE') // the legal title stays
     expect(html).not.toContain('Amount in words')
+  })
+
+  it('Hindi leftovers: the PDF footer says "पृष्ठ N / M" only in a localised print', () => {
+    const english = pageFooterTemplate()
+    // The footer every PDF always had, byte for byte.
+    expect(english).toBe(
+      '<div style="width:100%;text-align:center;font-size:9px;font-family:Helvetica,Arial,sans-serif;color:#555">' +
+        'Page <span class="pageNumber"></span> of <span class="totalPages"></span></div>'
+    )
+    for (const ui of [null, { mode: 'accountant', language: 'hi' }, { mode: 'simple', language: 'en' }]) {
+      const { db, voucherId } = setup(ui)
+      expect(pt.documentHtml(db, INFO, voucherId).pageLabel, JSON.stringify(ui)).toBeUndefined()
+      expect(printLocale(db).opts.labels?.page).toBeUndefined()
+    }
+    const hi = setup({ mode: 'simple', language: 'hi' })
+    const label = pt.documentHtml(hi.db, INFO, hi.voucherId).pageLabel
+    expect(label).toEqual({ before: 'पृष्ठ ', between: ' / ', after: '' })
+    expect(pageFooterTemplate(label)).toContain('पृष्ठ <span class="pageNumber"></span> / <span class="totalPages"></span>')
+    const hg = setup({ mode: 'simple', language: 'hinglish' })
+    expect(pageFooterTemplate(pt.documentHtml(hg.db, INFO, hg.voucherId).pageLabel)).toContain('Page <span class="pageNumber"></span> / <span class="totalPages"></span>')
   })
 
   it('a Hinglish simple company prints Latin-script labels and no Devanagari face', () => {

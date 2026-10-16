@@ -1,7 +1,7 @@
 // WP 8.2: t() (interpolation, plurals, select, fallback), catalogue key parity across en / hi /
 // hinglish, and the banned-word lint over the simple-mode namespaces.
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest'
-import { CATALOGUES, LANGUAGES, configureI18n, en, normalizeLanguage, t, translator, type MessageKey } from './index'
+import { CATALOGUES, HINGLISH_BETA_LABEL, LANGUAGES, configureI18n, languagePickerLabel, en, normalizeLanguage, t, translator, type MessageKey } from './index'
 import { MessageSyntaxError, formatMessage, messageVariables, parseMessage } from './format'
 import { bannedWordsIn } from '../simple/bannedWords'
 
@@ -239,5 +239,28 @@ describe('catalogues', () => {
     expect(en['palette.placeholder']).toBe('Type a command, or search the books — name, number, GSTIN, amount…')
     expect(en['palette.searching']).toBe('Searching…')
     expect(en['palette.empty']).toBe('No commands or matches')
+  })
+})
+
+describe('Hinglish beta label (owner D6 proposal, off by default)', () => {
+  it('is off: every picker label is the catalogue name', () => {
+    expect(HINGLISH_BETA_LABEL).toBe(false)
+    for (const lang of LANGUAGES) expect(languagePickerLabel(lang, 'Name')).toBe('Name')
+  })
+
+  it('when turned on only Hinglish gets "(beta)"', () => {
+    expect(languagePickerLabel('hinglish', 'Hinglish', true)).toBe('Hinglish (beta)')
+    expect(languagePickerLabel('hi', 'हिन्दी', true)).toBe('हिन्दी')
+    expect(languagePickerLabel('en', 'English', true)).toBe('English')
+  })
+
+  it('the "machine-drafted, pending review" note is in every language on both How Total looks screens', () => {
+    for (const lang of LANGUAGES) {
+      for (const key of ['simple.looks.languageHint', 'settings.language.hint'] as const) {
+        const text = CATALOGUES[lang][key]
+        expect(text, `${lang} ${key}`).toBeTruthy()
+        expect(text, `${lang} ${key}`).toMatch(/machine|मशीन/i)
+      }
+    }
   })
 })

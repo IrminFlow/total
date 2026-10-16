@@ -40,6 +40,7 @@ import { NOT_DELETED } from './vouchers'
 import { writeAudit } from './audit'
 import { htmlToPdf, writeExportPdf } from './pdf'
 import { plexFontFaceCss } from './printFonts'
+import type { PageLabel } from '@shared/print/labels'
 import { printLocale } from './printLocale'
 import { companyExportsDir } from '../paths'
 
@@ -384,7 +385,7 @@ export function documentHtml(
   company: CompanyInfo,
   voucherId: number,
   templateOverride?: PrintTemplate
-): { html: string; number: string; kind: PrintDocKind; template: PrintTemplate; itemCount: number } {
+): { html: string; number: string; kind: PrintDocKind; template: PrintTemplate; itemCount: number; pageLabel?: PageLabel } {
   const head = voucherHead(db, voucherId)
   const kind = printKindForVoucherKind(head.kind)
   if (!kind) throw new Error('This voucher type has no printed form')
@@ -393,7 +394,9 @@ export function documentHtml(
   const itemCount = doc.shape === 'invoice' ? doc.invoice.items.length : doc.voucher.lines.length
   // WP 10.4: a simple company in Hindi / Hinglish prints in its language (identity otherwise).
   const locale = printLocale(db)
-  return { html: renderDocument(locale.template(template), doc, locale.opts), number: head.number, kind, template, itemCount }
+  const html = renderDocument(locale.template(template), doc, locale.opts)
+  // A localised print's PDF footer says "पृष्ठ 1 / 1"; an English one keeps "Page 1 of 1".
+  return { html, number: head.number, kind, template, itemCount, ...(locale.opts.labels ? { pageLabel: locale.opts.labels.page } : {}) }
 }
 
 export const pdfFileName = (kind: PrintDocKind, number: string, voucherId?: number): string => {
@@ -403,19 +406,19 @@ export const pdfFileName = (kind: PrintDocKind, number: string, voucherId?: numb
 }
 
 export async function documentPdf(db: DB, company: CompanyInfo, slug: string, voucherId: number): Promise<string> {
-  const { html, number, kind, template, itemCount } = documentHtml(db, company, voucherId)
-  return writeExportPdf(slug, pdfFileName(kind, number), html, pdfOptionsFor(template, { itemCount }))
+  const { html, number, kind, template, itemCount, pageLabel } = documentHtml(db, company, voucherId)
+  return writeExportPdf(slug, pdfFileName(kind, number), html, { ...pdfOptionsFor(template, { itemCount }), pageLabel })
 }
 
 /** WP 2.6 counter billing: the voucher printed with a chosen template (the thermal receipt or A4). */
 export async function documentPdfWith(db: DB, company: CompanyInfo, slug: string, voucherId: number, templateId: string): Promise<string> {
-  const { html, number, kind, template, itemCount } = documentHtml(db, company, voucherId, getTemplate(db, templateId))
-  return writeExportPdf(slug, pdfFileName(kind, `${number}-${template.id}`), html, pdfOptionsFor(template, { itemCount }))
+  const { html, number, kind, template, itemCount, pageLabel } = documentHtml(db, company, voucherId, getTemplate(db, templateId))
+  return writeExportPdf(slug, pdfFileName(kind, `${number}-${template.id}`), html, { ...pdfOptionsFor(template, { itemCount }), pageLabel })
 }
 
 export async function documentPdfBuffer(db: DB, company: CompanyInfo, voucherId: number): Promise<{ pdf: Buffer; number: string; kind: PrintDocKind }> {
-  const { html, number, kind, template, itemCount } = documentHtml(db, company, voucherId)
-  return { pdf: await htmlToPdf(html, pdfOptionsFor(template, { itemCount })), number, kind }
+  const { html, number, kind, template, itemCount, pageLabel } = documentHtml(db, company, voucherId)
+  return { pdf: await htmlToPdf(html, { ...pdfOptionsFor(template, { itemCount }), pageLabel }), number, kind }
 }
 
 // ---------------------------------------------------------------- quotations / orders (WP 2.5c)

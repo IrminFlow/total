@@ -24,6 +24,17 @@ export const LANGUAGES = ['en', 'hi', 'hinglish'] as const
 export type Language = (typeof LANGUAGES)[number]
 export const DEFAULT_LANGUAGE: Language = 'en'
 
+/** Owner's D6 proposal (plan §D6, PR #105): until a native speaker has reviewed the Hinglish text,
+ *  the language pickers could call it "Hinglish (beta)". OFF — the owner decides when (and
+ *  whether) to turn it on; nothing else changes with it. */
+export const HINGLISH_BETA_LABEL: boolean = false
+
+/** A language picker's label for `lang` (`name` = its catalogue name), with " (beta)" after
+ *  Hinglish only while `beta` (default `HINGLISH_BETA_LABEL`) is on. */
+export function languagePickerLabel(lang: Language, name: string, beta: boolean = HINGLISH_BETA_LABEL): string {
+  return beta && lang === 'hinglish' ? `${name} (beta)` : name
+}
+
 export const CATALOGUES: Record<Language, Partial<Record<MessageKey, string>>> = { en, hi, hinglish }
 
 export function isLanguage(value: unknown): value is Language {

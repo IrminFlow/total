@@ -252,7 +252,7 @@ function writeParties(ctx: RunCtx, input: SimpleOpenings, side: 'customers' | 's
   input[side].forEach((p, i) => {
     p.bills.forEach((b, j) => {
       if (b.date && b.date > ctx.booksBegin) {
-        throw new AppError('openings_date_after_start', `A bill dated ${b.date} is after the day the books begin (${ctx.booksBegin})`, { field: `${side}.${i}.bills.${j}.date` })
+        throw new AppError('openings_date_after_start', `A bill dated ${b.date} is after the day the books begin (${ctx.booksBegin})`, { field: `${side}.${i}.bills.${j}.date`, params: { date: ctx.booksBegin } }) // ISO: mapError writes it in the reader's language
       }
     })
     const total = p.bills.reduce((s, b) => s + b.amount, 0)
