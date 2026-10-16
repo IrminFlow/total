@@ -208,7 +208,7 @@ function localisedStatementRows(db: DB, partyId: number, rows: StatementRow[], t
 
 async function writePdf(dir: string, file: string, html: string, db: DB, kind: 'statement' | 'reminder'): Promise<string> {
   mkdirSync(dir, { recursive: true })
-  const pdf = await htmlToPdf(html, pdfOptionsFor(resolveTemplate(db, kind)))
+  const pdf = await htmlToPdf(html, { ...pdfOptionsFor(resolveTemplate(db, kind)), pageLabel: printLocale(db).opts.labels?.page })
   const path = join(dir, file)
   writeFileSync(path, pdf)
   return path

@@ -2383,6 +2383,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.print.chequeUtr': 'Cheque / UTR',
   'simple.print.note': 'Note',
   'simple.print.amount': 'Amount',
+  'simple.print.page': 'Page {n} / {total}',
   'simple.print.col.sl': '#',
   'simple.print.col.item': 'Item',
   'simple.print.col.description': 'Details',

@@ -2495,6 +2495,7 @@ export const en = {
   'simple.print.chequeUtr': 'Cheque / UTR',
   'simple.print.note': 'Note',
   'simple.print.amount': 'Amount',
+  'simple.print.page': 'Page {n} of {total}',
   'simple.print.col.sl': '#',
   'simple.print.col.item': 'Item',
   'simple.print.col.description': 'Details',

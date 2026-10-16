@@ -2388,6 +2388,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.print.chequeUtr': 'चेक / UTR',
   'simple.print.note': 'नोट',
   'simple.print.amount': 'रकम',
+  'simple.print.page': 'पृष्ठ {n} / {total}',
   'simple.print.col.sl': '#',
   'simple.print.col.item': 'सामान',
   'simple.print.col.description': 'विवरण',
