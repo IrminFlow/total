@@ -44,6 +44,28 @@ export interface MarkRow {
   fingerprint: string | null
 }
 
+
+/** When a GST return's file was prepared — its JSON exported (gstAnnual's `gst.exported.*`
+ *  snapshot). `lastMonth` ('YYYY-MM') names the return; a quarterly filer's quarter-end month
+ *  counts once all three months of the quarter were exported (the earliest of their times), as
+ *  the simple Taxes screen's quarterly export writes them. Null = not prepared. */
+export function gstPreparedAt(db: DB, form: 'gstr1' | 'gstr3b', lastMonth: string, quarterly: boolean): string | null {
+  const months = quarterly && Number(lastMonth.slice(5, 7)) % 3 === 0 ? [addMonths(lastMonth, -2), addMonths(lastMonth, -1), lastMonth] : [lastMonth]
+  const times: string[] = []
+  for (const m of months) {
+    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(`gst.exported.${form}.${gstPeriodOf(`${m}-01`)}`) as { value: string } | undefined
+    let at: string | null = null
+    try {
+      at = row ? ((JSON.parse(row.value) as { at?: string }).at ?? null) : null
+    } catch {
+      at = null
+    }
+    if (!at) return null
+    times.push(at)
+  }
+  return times.sort()[0]!
+}
+
 export function listMarks(db: DB, assistant: AssistantKind, scope: string): Map<string, MarkRow> {
   const rows = db
     .prepare('SELECT item_key AS k, status, note, fingerprint, user_name AS by, at FROM assistant_marks WHERE assistant = ? AND scope = ?')
@@ -209,17 +231,14 @@ export function closeFacts(db: DB, company: CompanyInfo, period: string, today: 
   }
   overdue.sort((a, b) => b.overdueDays - a.overdueDays || b.pending - a.pending)
 
-  // GST: a return counts as prepared once its JSON was exported (gstAnnual snapshot meta keys).
-  const snapAt = (form: 'gstr1' | 'gstr3b'): string | null => {
-    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(`gst.exported.${form}.${gstPeriodOf(from)}`) as { value: string } | undefined
-    try {
-      return row ? ((JSON.parse(row.value) as { at?: string }).at ?? null) : null
-    } catch {
-      return null
-    }
-  }
   // WP 8.3: the filing frequency decides which months have returns due (QRMP: quarter ends only).
-  const gst = company.gstRegistrationType === 'regular' && company.gstin ? { gstr1ExportedAt: snapAt('gstr1'), gstr3bExportedAt: snapAt('gstr3b'), filing: getGstProfile(db).filing, stateCode: company.stateCode } : null
+  // GST: a return counts as prepared once its JSON was exported (gstAnnual snapshot meta keys) — a
+  // quarterly filer's quarter once all three of its months were (the same rule as simple Taxes).
+  const filing = getGstProfile(db).filing
+  const quarterly = filing === 'quarterly'
+  const gst = company.gstRegistrationType === 'regular' && company.gstin
+    ? { gstr1ExportedAt: gstPreparedAt(db, 'gstr1', from.slice(0, 7), quarterly), gstr3bExportedAt: gstPreparedAt(db, 'gstr3b', from.slice(0, 7), quarterly), filing, stateCode: company.stateCode }
+    : null
 
   // TDS / TCS: per tagged payable ledger, what was deducted each month (credits, by voucher date)
   // up to TODAY — the check reports the months up to this one — and everything paid out of it

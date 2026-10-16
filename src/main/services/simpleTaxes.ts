@@ -13,7 +13,10 @@
 //   step 5             meta `gstFiled` (shared/simple/taxes.ts says why not assistant_marks);
 //                      `simple:taxes:filed` writes it, audited as a company update
 //   TDS / TCS          assistants.withholdingFacts + closeChecklist.withholdingUnpaid (FIFO)
+import { copyFileSync, mkdirSync } from 'fs'
+import { basename, join } from 'path'
 import type { DB } from '../db/connection'
+import { companyExportsDir } from '../paths'
 import type { CompanyInfo } from '@shared/domain'
 import { AppError } from '@shared/errors'
 import { gstPeriodOf, todayISO } from '@shared/dates'
@@ -29,22 +32,32 @@ import {
 import { getFeatures, getGstProfile } from './config'
 import { dashGst, gst3bFigures } from './dashboard'
 import { gstCredit, readGstFiled } from './simpleHome'
-import { closeChecklist, getStatement, gst2bMismatches, withholdingFacts } from './assistants'
+import { closeChecklist, getStatement, gst2bMismatches, gstPreparedAt, withholdingFacts } from './assistants'
 import { listLedgers } from './masters'
 import { writeAudit } from './audit'
 
 const META_KEY = GST_FILED_META_KEY
 export { readGstFiled }
 
-/** When the GSTR-1 / 3B file for a return month was last prepared (gstAnnual's export snapshot). */
-function preparedAt(db: DB, form: GstForm, lastMonth: string): string | null {
-  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(`gst.exported.${form}.${gstPeriodOf(`${lastMonth}-01`)}`) as { value: string } | undefined
-  if (!row) return null
-  try {
-    return (JSON.parse(row.value) as { at?: string }).at ?? null
-  } catch {
-    return null
-  }
+/** A period's files are prepared once every month of it is (a quarter: its three months — the
+ *  quarterly export writes them month by month); the close checklist uses the same rule. */
+const preparedAt = (db: DB, form: GstForm, period: GstPeriod): string | null => gstPreparedAt(db, form, period.period, period.quarterly)
+
+/**
+ * The quarterly bundle (step 3 for a quarterly filer): the files the full app's month-by-month
+ * exports wrote for the quarter's three months, copied — byte for byte — into one folder,
+ * `<exports>/<form>-<MMYYYY of the quarter's last month>-quarter/`. The monthly files stay where
+ * they are (GSTR-9 keeps its monthly snapshots unchanged). Returns the folder and the copies.
+ */
+export function bundleQuarterFiles(slug: string, form: GstForm, period: string, files: readonly string[]): { folder: string; files: string[] } {
+  const folder = join(companyExportsDir(slug), `${form}-${period}-quarter`)
+  mkdirSync(folder, { recursive: true })
+  const out = files.map((f) => {
+    const dest = join(folder, basename(f))
+    copyFileSync(f, dest)
+    return dest
+  })
+  return { folder, files: out }
 }
 
 /** TDS / TCS while the feature is on: this month's deductions and what is still unpaid (FIFO). */
@@ -162,7 +175,7 @@ export function simpleTaxes(db: DB, company: CompanyInfo, q: { period?: string }
       },
       missing: MISSING_BILL_CHECKS.filter((k) => missing.has(k)).map((key) => ({ key, count: missing.get(key)! })),
       supplierBills,
-      prepared: { gstr1: preparedAt(db, 'gstr1', period.period), gstr3b: preparedAt(db, 'gstr3b', period.period) },
+      prepared: { gstr1: preparedAt(db, 'gstr1', period), gstr3b: preparedAt(db, 'gstr3b', period) },
       filesMonthly: period.quarterly,
       filed,
       withholding

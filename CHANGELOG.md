@@ -211,6 +211,13 @@ what you typed, and a **Back to simple** button.
   old copy (its books are older) and warns at start if it finds itself opening one. Owner only where the
   business has sign-ins. [#133](https://github.com/IrminFlow/total/pull/133)
 
+- **Quarterly GST filers prepare their files on the Taxes screen.** If you file GST every
+  quarter, step 3 no longer sends you to the full app: "Prepare the GSTR-1 files for the quarter"
+  (and GSTR-3B) makes the quarter's three monthly files — the same files the full app makes month
+  by month — and puts them in one folder. Check with your CA how to upload them for your quarterly
+  return. The "Open GSTR-1 / GSTR-3B" links of a quarter now open its last month (the month the
+  return is filed for) and say so, not its first. No figure changed. [#134](https://github.com/IrminFlow/total/pull/134)
+
 ### For accountants (figures that changed)
 
 Read these before filing from the next release.
@@ -325,6 +332,17 @@ Read these before filing from the next release.
   `--t-save-bar-h` / `--t-docked-w` (`kit/toastClearance.ts`); the full app's toasts are unchanged.
   `switchCompany(close)` in stores.ts asks the unsaved question before closing, and any slug change
   resets the nav stack to `gateway`. [#130](https://github.com/IrminFlow/total/pull/130)
+- **Quarterly GST export, Outstandings width.** `gst:exportGstr1` / `gst:exportGstr3b` take an
+  optional `quarter: true` (from / to = the whole quarter, period = its last month's MMYYYY): every
+  month's export gate is checked, then the full app's monthly export runs for each month (factored
+  out of the handlers, unchanged: JSON, GSTR-1 summary CSV, GSTR-9 snapshot, one export audit row
+  per month) and the files are copied into `<exports>/<form>-<MMYYYY>-quarter/`
+  (`simpleTaxes.bundleQuarterFiles`, `shared/simple/taxes.ts` `quarterExportMonths`); without the
+  flag the output is byte-identical. Taxes' "prepared" for a quarter = all three months exported.
+  `gstReturnMonth` is the one rule for the month a GSTR-1 / 3B link opens (a period's last month; a
+  running one, the month it has reached). Outstandings: party column on the 152 px name floor,
+  actions 160 px — the table is 1002 px in the 1022 px panel (was 1030 px with the tick-box column).
+  e2e 12 ran 5 / 5 green (16 Oct 2026), so the #103 "mid-fade" note stands as its diagnosis. [#134](https://github.com/IrminFlow/total/pull/134)
 - **Migrations.** Two more migrations are appended after 050, each the last in its turn (numbered
   by position): migration 051, WP 7.1's six covering indexes (`CREATE INDEX IF NOT EXISTS` only,
   [#104](https://github.com/IrminFlow/total/pull/104)) and migration 052, WP 7.2's `backup_runs` table plus

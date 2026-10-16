@@ -248,17 +248,37 @@ describe('Reports: every line and figure has a "Why?" (WP 10.2)', () => {
 describe('Taxes: the three figures, each date and TDS have a "Why?" (WP 10.2)', () => {
   it('figures open GSTR-3B for the period; the dates open their return; TDS opens TDS', async () => {
     renderUi(<TaxesScreen />)
-    const g3b = { label: 'Open GSTR-3B in the full app', target: { name: 'gstr3b', month: '2026-07' } }
+    // A quarterly filer (Jul–Sep): every GSTR link opens the quarter's LAST month (the return's
+    // period), never its first, and says so.
+    const g3b = { label: 'Open GSTR-3B in the full app on Sep 2026, the quarter’s last month', target: { name: 'gstr3b', month: '2026-09' } }
     // the three figures keep WP 9.9's link (the screen's Accountant view: GSTR-3B for the period)
     const fig = { label: t('simple.taxes.accountant3b'), target: g3b.target }
     await why('why-gst-collected', collectedWhy(TAXES, t), fig)
     await why('why-gst-purchases', onPurchasesWhy(TAXES, t), fig)
     await why('why-gst-to-pay', toPayPartsWhy(TAXES, t), fig)
     expect(toPayPartsWhy(TAXES, t)).toContain('₹6,000.00 is left; with ₹500.00 under reverse charge, always paid in cash, that makes ₹6,500.00')
-    await why('why-due-gstr1', dueWhy('gstr1', TAXES, t), { label: 'Open GSTR-1 in the full app', target: { name: 'gstr1', month: '2026-07' } })
+    await why('why-due-gstr1', dueWhy('gstr1', TAXES, t), { label: 'Open GSTR-1 in the full app on Sep 2026, the quarter’s last month', target: { name: 'gstr1', month: '2026-09' } })
     await why('why-due-gstr3b', dueWhy('gstr3b', TAXES, t), g3b)
     await why('why-due-pmt06', dueWhy('pmt06', TAXES, t))
     await why('why-tds', withholdingWhy(TDS, TODAY, t), { label: 'Open TDS in the full app', target: { name: 'tds' } })
+  })
+
+  it('a monthly filer: the GSTR links open the month itself', async () => {
+    const monthly: Regular = { ...TAXES, filing: 'monthly', period: { period: '2026-09', from: '2026-09-01', to: '2026-09-30', quarterly: false, soFar: false }, periods: [{ period: '2026-09', from: '2026-09-01', to: '2026-09-30', quarterly: false, soFar: false }], due: { ...TAXES.due, gstr1: '2026-10-11', gstr3b: '2026-10-20', pmt06: [] }, filesMonthly: false }
+    replies.set('simple:taxes', monthly)
+    renderUi(<TaxesScreen />)
+    await why('why-due-gstr1', dueWhy('gstr1', monthly, t), { label: 'Open GSTR-1 in the full app', target: { name: 'gstr1', month: '2026-09' } })
+    await why('why-due-gstr3b', dueWhy('gstr3b', monthly, t), { label: 'Open GSTR-3B in the full app', target: { name: 'gstr3b', month: '2026-09' } })
+    await why('why-gst-to-pay', toPayPartsWhy(monthly, t), { label: t('simple.taxes.accountant3b'), target: { name: 'gstr3b', month: '2026-09' } })
+  })
+
+  it('a running quarter: the GSTR links open the month it has reached and say so (not "the quarter’s last month")', async () => {
+    const p = { period: '2026-12', from: '2026-10-01', to: '2026-10-17', quarterly: true, soFar: true }
+    const running: Regular = { ...TAXES, period: p, periods: [p] }
+    replies.set('simple:taxes', running)
+    renderUi(<TaxesScreen />)
+    await why('why-due-gstr1', dueWhy('gstr1', running, t), { label: 'Open GSTR-1 in the full app on Oct 2026, the month the quarter has reached', target: { name: 'gstr1', month: '2026-10' } })
+    await why('why-due-gstr3b', dueWhy('gstr3b', running, t), { label: 'Open GSTR-3B in the full app on Oct 2026, the month the quarter has reached', target: { name: 'gstr3b', month: '2026-10' } })
   })
 
   it('composition: each date explained', async () => {

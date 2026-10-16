@@ -1090,6 +1090,10 @@ export const api = {
       call<{ jsonPath: string; csvPath: string }>('gst:exportGstr1', { from, to, period }),
     exportGstr3b: (from: string, to: string, period: string) =>
       call<{ jsonPath: string }>('gst:exportGstr3b', { from, to, period }),
+    /** A quarterly filer's quarter (from / to = the whole quarter, period = its last month's
+     *  MMYYYY): the three monthly exports, copied into one folder. */
+    exportQuarter: (form: 'gstr1' | 'gstr3b', from: string, to: string, period: string) =>
+      call<{ folder: string; files: string[] }>(form === 'gstr1' ? 'gst:exportGstr1' : 'gst:exportGstr3b', { from, to, period, quarter: true }),
     recon2b: (jsonText: string, from: string, to: string) =>
       call<{ result: Recon2bResult; errors: string[]; period: string | null }>('gst:recon2b', { jsonText, from, to }),
     recon2bPickFile: () => call<{ jsonText: string; fileName: string } | null>('gst:recon2bPickFile'),
