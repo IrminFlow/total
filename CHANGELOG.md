@@ -132,7 +132,7 @@ what you typed, and a **Back to simple** button.
   can sign in to this computer can then open the books, so tick it only on a computer that only you
   use. In a business with people it is kept only once the owner signs in. "Remembered on this
   computer" shows in Lock and safety, beside the business in the list and on the screen lock, each
-  with Forget; taking the passphrase off forgets it too. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  with Forget; taking the passphrase off forgets it too. [#142](https://github.com/IrminFlow/total/pull/142)
 - **Updates ask first.** Total never downloads or installs an update without a click ("Download
   now", "Later", "Skip this version"; "Install when I quit" is a choice). Settings, "How Total
   looks" (in the full app: Settings, About), has "Check for updates automatically" (on by default);
@@ -400,6 +400,17 @@ Read these before filing from the next release.
   (`services/gst.ts einvoicingOn`). `CashFlowRow` gained optional `parts` (ledger id, name, cash
   effect — they add up to the line) and `voucherIds`; the `daybook` screen takes optional
   `voucherIds` + `source`. [#140](https://github.com/IrminFlow/total/pull/140)
+- Review follow-ups. `receivables:statementsBulk`, `payroll:ecr`, `payroll:esi` and `bulkPay:export`
+  are in `EXPORT_CHANNELS` (`canExport`); every channel audited as an export must be in it or in
+  `NOT_EXPORTS` (prints, templates — capabilities.ts, checked by securityReview.dbtest). E-invoicing
+  is an explicit company setting, meta `einvoicing: { enabled }`: until the owner chooses, #140's
+  heuristic (`einvoicingFromHistory`) answers live — a read never stores. The new channel `einvoicing:set` is owner-only
+  and audited as a company update. `gst:einvoicing` now returns `{ enabled }`, and Company details has
+  the checkbox. `simple:money:setup` takes `{ customerCredits: true }` (Zod-strict) and runs the
+  receivables allocation only then (Money out). `GroupRunResult.lockedMembers` (optional) drives the
+  consolidation screen's "Unlock <member> for this run" prompt, which re-runs with
+  `memberPassphrases`; the passphrase is held in memory only. encryption-at-rest.md says prints are
+  not exports. [#144](https://github.com/IrminFlow/total/pull/144)
 - **Locked businesses from `total-cli`, MCP and consolidation.** Every `--company` command
   (including `mcp` and `inbox`) opens a business locked with a passphrase from the environment
   variable `TOTAL_PASSPHRASE` — never a flag (command lines are visible in `ps`) — through the app's
@@ -421,7 +432,7 @@ Read these before filing from the next release.
   (the new one would lose to it from that start). Like BOMs themselves, the labour meta is not in
   the books export (a backup keeps both).
   [#141](https://github.com/IrminFlow/total/pull/141)
-- **Remember on this computer** (WP 7.2 follow-up), [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM):
+- **Remember on this computer** (WP 7.2 follow-up), [#142](https://github.com/IrminFlow/total/pull/142):
   `company:open` takes `remember` (stored at once without people, else on the first OWNER sign-in
   of that open; result `remember: 'saved' | 'pending' | 'unavailable'`, `openedWith`); the DATA KEY
   goes to the secret store (`company:<slug>` / `rememberedDataKey`, safeStorage), tried before the

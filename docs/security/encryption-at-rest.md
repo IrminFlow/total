@@ -135,7 +135,14 @@ C was rejected because of its asynchronous API.
   statements, registers, the books export, the voucher mirrors) — one side of the P&L at a time is
   allowed by design, so the profit stays derivable by anyone who may read every voucher. The renderer hides
   or disables export / Save / AI-settings buttons only for a flag set to false, so owners and
-  unflagged users see what they always did.
+  unflagged users see what they always did. `canExport` covers `EXPORT_CHANNELS` (capabilities.ts:
+  files of the books or a report of them, party statements included — `receivables:statementPdf`,
+  `receivables:statementsBulk` — and the statutory / bank upload files, `payroll:ecr` / `payroll:esi`
+  / `payroll:ptCsv`, `bulkPay:export`); prints are not exports and stay ungated by decision — the
+  invoice PDF (`invoice:pdf` / `invoice:pdfBatch`), the labels PDF (`stock:labelsPdf`), counter /
+  trade-document / payslip / cheque prints and blank import templates (`NOT_EXPORTS`, each with its
+  reason) follow their role only. Every channel
+  audited as an export is in one of the two lists (securityReview.dbtest).
 
 ## Remember on this computer
 

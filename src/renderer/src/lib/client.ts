@@ -743,7 +743,8 @@ export const api = {
   /** WP 9.4: the simple Money screens' reads (writing is simple:post). */
   simpleMoney: {
     /** Customers, suppliers, cash / bank accounts and their defaults, owner / loan accounts. */
-    setup: () => call<MoneySetup>('simple:money:setup'),
+    /** `customerCredits: true` adds the customers holding credit (Money out's refund; one receivables allocation). */
+    setup: (opts?: { customerCredits?: boolean }) => call<MoneySetup>('simple:money:setup', opts),
     /** A party's open bills, oldest first, as on `date` (the Outstandings allocation). */
     bills: (partyId: number, date: string) => call<MoneyOpenBill[]>('simple:money:bills', { partyId, date }),
     /** Receipts, payments and moves dated from…to, newest first; rows after `today` (the working
@@ -1116,8 +1117,10 @@ export const api = {
         issues: GstIssue[]
         roundOff: { voucherId: number; number: string; roundOff: number; lines: string[] }[]
       }>('gst:validate', { from, to }),
-    /** Does the company e-invoice (services/gst.ts einvoicingOn)? */
-    einvoicing: () => call<boolean>('gst:einvoicing'),
+    /** The company's e-invoicing switch (meta `einvoicing`; services/gst.ts getEinvoicing — unset =
+     *  the books' history, read live; nothing is stored on a read). `setEinvoicing` is owner-only, audited. */
+    einvoicing: () => call<{ enabled: boolean }>('gst:einvoicing'),
+    setEinvoicing: (enabled: boolean) => call<{ enabled: boolean }>('einvoicing:set', { enabled }),
     get3bManual: (period: string) => call<Gst3bManualInput>('gst:3bManualGet', { period }),
     set3bManual: (period: string, data: Gst3bManualInput) =>
       call<Gst3bManualInput>('gst:3bManualSet', { period, data }),

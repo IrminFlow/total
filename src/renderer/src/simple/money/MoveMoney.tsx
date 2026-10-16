@@ -31,7 +31,7 @@ export function MoveMoney(): React.JSX.Element {
   const mayAdd = useCanSave()
   const nav = useNav()
   const workingDate = useSession((s) => s.workingDate)
-  const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup'], queryFn: api.simpleMoney.setup }) // i18n-technical
+  const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup'], queryFn: () => api.simpleMoney.setup() }) // i18n-technical
   const accounts = setup?.moneyAccounts ?? []
   const queryClient = useQueryClient()
   const [addingBank, setAddingBank] = useState(false)

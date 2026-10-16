@@ -69,7 +69,7 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
   const workingDate = useSession((s) => s.workingDate)
   const ledgers = useLedgers()
   const groups = useGroups()
-  const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup'], queryFn: api.simpleMoney.setup }) // i18n-technical
+  const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup'], queryFn: () => api.simpleMoney.setup() }) // i18n-technical
   const blank = (): MoneyInForm => emptyMoneyInForm(workingDate)
   const [form, setForm] = useKeptForm<MoneyInForm>(() => {
     const f = emptyMoneyInForm(date ?? workingDate, { customerId: party ?? null, amount: amount ?? null, bill: bill ?? null, bankId: bankId ?? null, reference: reference ?? null, note: note ?? null })

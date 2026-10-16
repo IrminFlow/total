@@ -156,6 +156,10 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'config:features:set': a('company'),
   'gstProfile:get': QUERY,
   'gstProfile:set': a('company'),
+  // Review follow-up: the e-invoicing switch (meta `einvoicing`) — a pure read (unset = the books'
+  // history, never stored on a read); only einvoicing:set writes it, audited.
+  'gst:einvoicing': r('reads the e-invoicing switch (unset = the books\' history)'),
+  'einvoicing:set': a('company'),
   'config:invoice:set': a('company'),
   'config:audit:set': a('company'),
   'config:audit:required': a('company'),

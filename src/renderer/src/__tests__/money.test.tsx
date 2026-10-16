@@ -7,6 +7,7 @@
 // To; the list shows who / in or out / how and chips. No banned word on any of it.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { CompanyInfo, Group, Ledger } from '@shared/domain'
 import { DEFAULT_FEATURES } from '@shared/features'
@@ -15,7 +16,7 @@ import type { MoneyOpenBill, MoneyRow, MoneySetup } from '@shared/simple/money'
 import { bannedWordsIn } from '@shared/simple/bannedWords'
 import { useNav, useSession } from '../state/stores'
 import { useDialogs } from '../lib/dialogs'
-import { hasUnsavedChanges } from '../lib/useUnsavedGuard'
+import { hasUnsavedChanges, useUnsavedGuard } from '../lib/useUnsavedGuard'
 import { MoneyIn } from '../simple/money/MoneyIn'
 import { MoneyOut } from '../simple/money/MoneyOut'
 import { MoveMoney } from '../simple/money/MoveMoney'
@@ -467,9 +468,33 @@ describe('opened from a bank line ("Pick the bills yourself")', () => {
     } finally {
       watch.disconnect()
     }
-    expect(guardHeld).toEqual([true]) // the window this test is about really was open
+    // PR #144 review: wait for the FINAL state (the exact stack, no dialog) — whether the click
+    // landed inside the window depends on when React flushes the passive effect (a loaded machine
+    // can flush it first), so that is not asserted here; the next test holds the guard on purpose.
+    await waitFor(() => {
+      expect(useNav.getState().stack).toEqual([{ name: 'simple-bank', bankId: 32 }])
+      expect(useDialogs.getState().queue).toEqual([])
+    })
+  })
+  it('"Back to Bank" goes back without asking even while an unsaved guard is still held (the window, deterministically)', async () => {
+    let hold: (on: boolean) => void = () => {}
+    function StillDirty(): null {
+      const [on, setOn] = useState(false)
+      hold = (v) => act(() => setOn(v))
+      useUnsavedGuard(on)
+      return null
+    }
+    act(() => useNav.setState({ stack: [{ name: 'simple-bank' }, { name: 'simple-money-in', ...FROM_LINE }] }))
+    renderUi(<><MoneyIn {...FROM_LINE} /><StillDirty /></>)
+    await ready()
+    click('btn-money-save')
+    await waitFor(() => expect(screen.getByTestId('btn-money-back-to-bank')).toBeTruthy())
+    hold(true)
+    expect(hasUnsavedChanges()).toBe(true)
+    click('btn-money-back-to-bank')
     expect(useNav.getState().stack).toEqual([{ name: 'simple-bank', bankId: 32 }])
     expect(useDialogs.getState().queue).toEqual([])
+    hold(false)
   })
   it('Esc → discard goes back to the Bank on that bank too; with no Bank below it opens one', async () => {
     act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-money-out', ...FROM_LINE, party: 20 }] }))

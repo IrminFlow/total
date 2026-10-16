@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { GstFilingFrequency } from '@shared/gst/filing'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Button, DateInput, Field, Page, PageHeader, Panel, SectionTitle, Select, TextInput } from '../components/ui'
+import { Button, Checkbox, DateInput, Field, Page, PageHeader, Panel, SectionTitle, Select, TextInput } from '../components/ui'
 import { todayISO, toDisplayDate } from '@shared/dates'
 import { GST_STATE_LIST } from '@shared/gst/states'
 import { gstinErrorMessage } from '../lib/gstinError'
@@ -24,6 +24,12 @@ export function CompanyInfoScreen(): React.JSX.Element {
   const savedFiling: GstFilingFrequency = gstProfile?.filing ?? 'monthly'
   const [filing, setFiling] = useState<GstFilingFrequency>(savedFiling)
   useEffect(() => setFiling(savedFiling), [savedFiling])
+  // Review follow-up: the e-invoicing switch (meta einvoicing) — saved with the form, owner only,
+  // regular registrations only (unset, main answers from the books' history; only a save stores it).
+  const { data: einvoicingSetting } = useQuery({ queryKey: ['einvoicing'], queryFn: api.gst.einvoicing, enabled: showFiling })
+  const savedEinvoicing = einvoicingSetting?.enabled ?? false
+  const [einvoicing, setEinvoicing] = useState(savedEinvoicing)
+  useEffect(() => setEinvoicing(savedEinvoicing), [savedEinvoicing])
   const toast = useToasts()
   const nav = useNav()
   const [name, setName] = useState(info?.name ?? '')
@@ -64,7 +70,8 @@ export function CompanyInfoScreen(): React.JSX.Element {
     phone !== (info?.phone ?? '') ||
     pan !== (info?.pan ?? '') ||
     tan !== (info?.tan ?? '') ||
-    (showFiling && filing !== savedFiling)
+    (showFiling && filing !== savedFiling) ||
+    (showFiling && einvoicingSetting !== undefined && einvoicing !== savedEinvoicing)
   useUnsavedGuard(dirty)
 
   const gstinError = gstinErrorMessage(gstin, stateCode)
@@ -97,6 +104,10 @@ export function CompanyInfoScreen(): React.JSX.Element {
         await api.gstProfile.set({ filing })
         await queryClient.invalidateQueries({ queryKey: ['gstProfile'] })
         await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+      }
+      if (showFiling && updated.gstRegistrationType === 'regular' && einvoicingSetting !== undefined && einvoicing !== savedEinvoicing) {
+        await api.gst.setEinvoicing(einvoicing)
+        await queryClient.invalidateQueries({ queryKey: ['einvoicing'] })
       }
       toast.push('success', 'Company details saved')
     } catch (err) {
@@ -152,6 +163,15 @@ export function CompanyInfoScreen(): React.JSX.Element {
               <option value="quarterly">Quarterly (QRMP)</option>
             </Select>
           </Field>
+        )}
+        {showFiling && einvoicingSetting !== undefined && (
+          <Checkbox
+            testId="input-company-einvoicing"
+            label="This business issues e-invoices (IRN)"
+            hint="Turns on the e-invoice checks — e.g. a sales number the IRP would refuse. Saved with the details."
+            checked={einvoicing}
+            onChange={setEinvoicing}
+          />
         )}
         {regChanged ? (
           <Field label={`${REG_LABEL[effectiveRegType]} from`} hint={`Bills dated before this stay ${REG_LABEL[info!.gstRegistrationType].toLowerCase()} — their GST and returns don't change`}>

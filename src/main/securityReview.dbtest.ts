@@ -456,6 +456,70 @@ describe('canSeeProfit: false covers every way to the profit (PR #112 follow-up)
   })
 })
 
+describe('canExport: false refuses every export channel (review follow-up)', () => {
+  it('an accountant without canExport is refused each EXPORT_CHANNELS channel before its payload is read; the statements folder included', async () => {
+    const { slug } = await ok<{ slug: string }>('company:create', company('Export Gate Co'))
+    await ok('company:open', { slug })
+    const owner = await ok<{ id: number }>('users:save', { data: { name: 'Owner', role: 'owner', pin: '1111' } })
+    const acct = await ok<{ id: number }>('users:save', { data: { name: 'Esha', role: 'accountant', pin: '2222', capabilities: { canExport: false } } })
+    await ok('auth:login', { userId: acct.id, pin: '2222' })
+    // every channel the gate maps to canExport (ipc's own map, not a list kept here), each registered
+    const exportChannels = [...ipc.channelCapabilityMap()].filter(([, cap]) => cap === 'canExport').map(([ch]) => ch)
+    expect(exportChannels).toEqual(expect.arrayContaining(['receivables:statementsBulk', 'payroll:ecr', 'payroll:esi', 'bulkPay:export']))
+    const leaked: string[] = []
+    for (const ch of exportChannels) {
+      expect(ipc.CHANNEL_ROLES.has(ch), ch).toBe(true)
+      if ((await call(ch, undefined)).code !== 'not_permitted') leaked.push(ch)
+    }
+    expect(leaked).toEqual([])
+    const fy = { from: '2026-04-01', to: '2027-03-31' }
+    expect((await call('receivables:statementsBulk', fy)).code).toBe('not_permitted')
+    // the role alone (no flag) still lets an accountant write them; the owner always
+    await ok('auth:login', { userId: owner.id, pin: '1111' })
+    expect((await call('receivables:statementsBulk', fy)).ok).toBe(true)
+    await ok('users:save', { id: acct.id, data: { name: 'Esha', role: 'accountant', capabilities: { canExport: true } } })
+    await ok('auth:login', { userId: acct.id, pin: '2222' })
+    expect((await call('receivables:statementsBulk', fy)).ok).toBe(true)
+    await ok('auth:login', { userId: owner.id, pin: '1111' })
+  })
+})
+
+describe('every export-audited channel is gated by canExport unless it is a print (PR #144 review)', () => {
+  it('AUDIT_COVERAGE entries auditing an export are in EXPORT_CHANNELS or NOT_EXPORTS (with a reason), never both', async () => {
+    const { AUDIT_COVERAGE } = await import('./auditCoverage')
+    const map = ipc.channelCapabilityMap()
+    const missed: string[] = []
+    for (const [ch, cov] of Object.entries(AUDIT_COVERAGE)) {
+      if (!('audit' in cov) || !cov.audit.includes('export')) continue
+      if (ch in caps.NOT_EXPORTS) {
+        expect(caps.EXPORT_CHANNELS.includes(ch), ch).toBe(false)
+        continue
+      }
+      if (map.get(ch) !== 'canExport' && map.get(ch) !== 'canPost') missed.push(ch)
+    }
+    expect(missed).toEqual([])
+    for (const ch of Object.keys(caps.NOT_EXPORTS)) expect(ipc.CHANNEL_ROLES.has(ch), ch).toBe(true)
+  })
+})
+
+describe('the e-invoicing switch is owner-only (review follow-up)', () => {
+  it('einvoicing:set refuses an accountant; the owner sets it (audited); gst:einvoicing returns the setting to a viewer', async () => {
+    const { slug } = await ok<{ slug: string }>('company:create', { ...company('Einvoice Switch Co'), gstin: '27AAPFU0939F1ZV' })
+    await ok('company:open', { slug })
+    const owner = await ok<{ id: number }>('users:save', { data: { name: 'Owner', role: 'owner', pin: '1111' } })
+    const acct = await ok<{ id: number }>('users:save', { data: { name: 'Asha', role: 'accountant', pin: '2222' } })
+    const viewer = await ok<{ id: number }>('users:save', { data: { name: 'Vikram', role: 'viewer', pin: '3333' } })
+    await ok('auth:login', { userId: acct.id, pin: '2222' })
+    expect((await call('einvoicing:set', { enabled: true })).code).toBe('not_permitted')
+    await ok('auth:login', { userId: owner.id, pin: '1111' })
+    expect((await call('einvoicing:set', { enabled: true, extra: 1 })).ok).toBe(false) // strict
+    expect(await ok('einvoicing:set', { enabled: true })).toEqual({ enabled: true })
+    await ok('auth:login', { userId: viewer.id, pin: '3333' })
+    expect(await ok('gst:einvoicing')).toEqual({ enabled: true })
+    await ok('auth:login', { userId: owner.id, pin: '1111' })
+  })
+})
+
 describe('consolidation member passphrases (PR #132) leave no trace', () => {
   const PASS = 'member passphrase zq7-unique'
   /** Every file under the data root that holds the passphrase bytes (logs, audit, WAL, JSON …). */

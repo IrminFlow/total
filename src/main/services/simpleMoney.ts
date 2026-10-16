@@ -33,7 +33,9 @@ function byCategory(db: DB, key: string): number | null {
   return (db.prepare('SELECT id FROM ledgers WHERE simple_category = ? ORDER BY id LIMIT 1').get(key) as { id: number } | undefined)?.id ?? null
 }
 
-export function moneySetup(db: DB): MoneySetup {
+/** `customerCredits` (Money out's "A customer (refund)") runs the receivables allocation, so only
+ *  the caller that shows it asks (`{ customerCredits: true }`); Money in / Move money don't. */
+export function moneySetup(db: DB, opts: { customerCredits?: boolean } = {}): MoneySetup {
   const cls = ledgerClassifier(db)
   const byCategoryOf = (id: number): string | null => (db.prepare('SELECT simple_category AS c FROM ledgers WHERE id = ?').get(id) as { c: string | null } | undefined)?.c ?? null
   const all = db.prepare('SELECT id, name, group_id AS groupId, state_code AS stateCode, phone FROM ledgers ORDER BY name COLLATE NOCASE').all() as {
@@ -77,12 +79,15 @@ export function moneySetup(db: DB): MoneySetup {
   const loans = all.filter((l) => loanGroups.has(l.groupId) && cls.cls(l.id) === 'other').map((l) => ({ id: l.id, name: l.name }))
   const features = getFeatures(db)
   // Customers whose money we hold (advances, returns kept for the next bill) — the Outstandings
-  // allocation as on today, one run (simple People's `ahead`).
-  const held = outstandingsWithAdvances(db, 'receivable', todayISO()).advanceByParty
-  const customerCredits = customers
-    .filter((c) => (held.get(c.id) ?? 0) > 0)
-    .map((c) => ({ id: c.id, name: c.name, credit: held.get(c.id)! }))
-    .sort((a, b) => b.credit - a.credit || a.name.localeCompare(b.name))
+  // allocation as on today, one run (simple People's `ahead`) — only when asked.
+  let customerCredits: MoneySetup['customerCredits']
+  if (opts.customerCredits) {
+    const held = outstandingsWithAdvances(db, 'receivable', todayISO()).advanceByParty
+    customerCredits = customers
+      .filter((c) => (held.get(c.id) ?? 0) > 0)
+      .map((c) => ({ id: c.id, name: c.name, credit: held.get(c.id)! }))
+      .sort((a, b) => b.credit - a.credit || a.name.localeCompare(b.name))
+  }
   return {
     customers,
     suppliers,
@@ -96,7 +101,7 @@ export function moneySetup(db: DB): MoneySetup {
     loans,
     tds: features.tds,
     payroll: features.payroll,
-    customerCredits
+    ...(customerCredits ? { customerCredits } : {})
   }
 }
 
