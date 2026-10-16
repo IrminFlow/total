@@ -202,6 +202,14 @@ what you typed, and a **Back to simple** button.
   for an earlier, closed date" now counts only entries that really went into a closed month or the
   locked period after you closed or locked it, not every entry you typed in a few weeks late.
   [#128](https://github.com/IrminFlow/total/pull/128)
+- **Move your books to another folder** (useful when Windows keeps Documents in OneDrive). Settings →
+  Backups (and the full app's Settings → About) shows where Total keeps your books, warns in plain
+  words when that folder is in OneDrive or another cloud-sync folder, and has **Move to another
+  folder…**: pick an empty folder, and Total copies your books, backups and settings there, checks
+  the copy, and restarts. The old folder is never deleted; it keeps a note saying where the books
+  went. Picking a folder that already has Total books opens those instead. Total never switches back to that
+  old copy (its books are older) and warns at start if it finds itself opening one. Owner only where the
+  business has sign-ins. [#133](https://github.com/IrminFlow/total/pull/133)
 
 ### For accountants (figures that changed)
 
@@ -444,6 +452,14 @@ Read these before filing from the next release.
   20 000-character tail. `placeTourCard` (help/tour.ts) and `isEntryIntoClosedPeriod`
   (anomalies.ts) are new pure helpers; the two `homeAttention` report-equality hashes moved on
   purpose (the old rule still reproduced the old ones). [#128](https://github.com/IrminFlow/total/pull/128)
+- **Data folder pointer.** The data root is resolved once at startup (`src/main/dataRootResolve.ts`):
+  `TOTAL_DATA_DIR` (unchanged, wins) → `<userData>/data-root.json` `{ path }` (followed only while
+  the folder exists; otherwise the default opens with a warning and the pointer is kept) →
+  Documents/total. IPC `app:dataRoot:get` (viewer) / `:pick` (owner, main-side dialog) / `:move`
+  (owner, must name the picked folder; closes the company, copies + fsyncs + verifies, writes the
+  pointer, relaunches) in `ipcDataRoot.ts`; copy / check / rollback in `services/dataRootMove.ts`;
+  codes `data_folder_*` in ERROR_MAP; `isOneDrivePath` in `shared/windowsPaths.ts`. `total-cli` / MCP
+  do not read the pointer yet. [#133](https://github.com/IrminFlow/total/pull/133)
 
 ## [0.11.0] - 2026-10-13
 

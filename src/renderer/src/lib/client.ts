@@ -665,6 +665,7 @@ import type { Capability, CapabilityFlags } from '@shared/capabilities'
 import type { OpeningsResult, OpeningsState, SimpleOpeningsInput } from '@shared/simple/openings'
 import type { GstProfile } from '@shared/gst/filing'
 import type { UpdateAction, UpdateCheckResult, UpdateNotice, UpdatesView } from '@shared/updates'
+import type { DataFolderMoved, DataFolderPick, DataFolderView } from '@shared/dataFolder'
 /** A failed IPC call (WP 8.5): `message` is the service's wording, unchanged; the structured
  *  fields (shared/errors) let a form put a plain message under the field (`useFormErrors`). */
 export class IpcError extends Error implements CaughtError {
@@ -1474,6 +1475,10 @@ export const api = {
     updates: () => call<UpdatesView>('app:updates:get'),
     setAutoCheck: (autoCheck: boolean) => call<UpdatesView>('app:updates:set', { autoCheck }),
     updateAction: (action: UpdateAction) => call<UpdatesView>('app:updates:act', { action }),
+    // Settings → "Where Total keeps your books": the folder in use, pick another (main's dialog), move.
+    dataRoot: () => call<DataFolderView>('app:dataRoot:get'),
+    pickDataRoot: () => call<DataFolderPick | null>('app:dataRoot:pick'),
+    moveDataRoot: (path: string) => call<DataFolderMoved>('app:dataRoot:move', { path }),
     notifyDeadlines: (items: { title: string; body: string }[]) =>
       call<null>('app:notifyDeadlines', { items })
   }

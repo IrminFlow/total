@@ -55,3 +55,13 @@ export function chooseWindowsDocumentsDir(
   if (known && !known.includes('\uFFFD') && /^([a-z]:[\\/]|\\\\)/i.test(known) && exists(known)) return known
   return fromReg.includes('\uFFFD') ? `${home.replace(/[\\/]+$/, '')}\\Documents` : fromReg
 }
+
+/**
+ * Whether a path lies in a OneDrive-synced folder: a `OneDrive` or `OneDrive - <organisation>`
+ * folder anywhere in it (OneDrive's folder backup moves Documents there on many Windows 11
+ * machines; on a Mac the client keeps `~/Library/CloudStorage/OneDrive-…`). Either separator,
+ * any case. Total's books are a live SQLite file, which a sync client can copy half-written.
+ */
+export function isOneDrivePath(path: string): boolean {
+  return path.split(/[\\/]+/).some((part) => /^onedrive(\s*-\s*.+|-.+)?$/i.test(part.trim()))
+}

@@ -7,6 +7,7 @@ import { Button, DateInput, Field, Modal, Panel, SectionTitle } from '../../comp
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { TotalLogo } from '../../components/TotalLogo'
 import { dataFolder } from '../../lib/platform'
+import { DataFolderSetting } from '../../simple/DataFolderSetting'
 
 const PLATFORM_LABELS: Record<string, string> = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }
 
@@ -74,6 +75,7 @@ export function AboutSection(): React.JSX.Element {
         </p>
         <p className="mt-2 text-caption text-muted">© Irmin Labs — proprietary</p>
       </Panel>
+      <DataFolderSetting />
       <PeriodLockCard />
     </div>
   )

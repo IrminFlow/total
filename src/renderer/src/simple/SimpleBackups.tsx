@@ -7,6 +7,7 @@ import { useT } from '../lib/i18n'
 import { useNav, useToasts } from '../state/stores'
 import { Button, Page } from '../components/ui'
 import { useCanWrite, ViewerNote } from './ViewerNote'
+import { DataFolderSetting } from './DataFolderSetting'
 
 const BACKUPS_KEY = ['backups'] as const // i18n-technical: query key
 /** The full Settings → Backups tab (every backup, restore, encrypted copies). */
@@ -109,6 +110,7 @@ export function SimpleBackups(): React.JSX.Element {
           {t('simple.backups.all')}
         </Button>
       </section>
+      <DataFolderSetting />
     </Page>
   )
 }

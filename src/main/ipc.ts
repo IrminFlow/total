@@ -27,7 +27,7 @@ import * as attachments from './services/attachments'
 import { embedAttachments, restoreAttachmentFiles, restoreAttachmentFilesAt, type RestoreFilesResult, type StashResult } from './db/attachmentBackup'
 import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheckAsync, type BackupInfo } from './db/backup'
 import { checkIntegrity, checkIntegrityAsync, QUICK_CHECK_TIMED_OUT } from './db/integrity'
-import { stopChecks } from './db/checkHost'
+import { stopAllChecks, stopChecks } from './db/checkHost'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
@@ -132,6 +132,7 @@ import { registerPayablesIpc } from './ipcPayables'
 import { registerBankingIpc } from './ipcBanking'
 import { registerCashFinanceIpc } from './ipcCashFinance'
 import { registerWorkspaceIpc } from './ipcWorkspace'
+import { registerDataRootIpc } from './ipcDataRoot'
 import { registerDataImportIpc, clearLoadedImports } from './ipcDataImport'
 import { rememberSalePrices } from './services/pricing'
 import { importTallyXml, dryRunTallyXml } from './services/tallyImport'
@@ -605,6 +606,15 @@ export function registerIpc(): void {
   registerCashFinanceIpc(handle, () => requireCompany())
   // ---------- bulk edit, attachments, party notes (WP 6.4) — channels live in ipcWorkspace.ts ----------
   registerWorkspaceIpc(handle, () => requireCompany())
+  // Settings → "Where Total keeps your books" (app-level, owner where the company has users).
+  registerDataRootIpc(handle, {
+    closeCompany: async () => {
+      closeCurrentCompany()
+      // Every background check, not only the company file's: backup checks read files in the folder too.
+      await stopAllChecks()
+    },
+    who: () => sessionUser?.name ?? null
+  })
   // ---------- Excel export, import wizard, books workbook (WP 6.3) — ipcDataImport.ts ----------
   registerDataImportIpc(handle, () => requireCompany(), { canChangeCompanyInfo, userName: () => sessionUser?.name ?? null })
 

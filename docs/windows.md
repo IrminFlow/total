@@ -30,6 +30,7 @@ and `release-win` in `release.yml` on tags. "Unit" = a vitest test that runs on 
 | Bank statements (CSV / TXT / MT940 / CAMT.053 / Excel "Unicode Text") with BOM + CRLF | Unit (same file) |
 | Reserved names (CON, NUL, COM1 …), invalid characters, MAX_PATH | Unit (`src/shared/fileNames.test.ts`) |
 | CLI's Documents folder (registry known folder, OneDrive redirect) | Unit (`src/shared/windowsPaths.test.ts`) |
+| Data folder move (pointer order, OneDrive detection, copy + check + rollback, secrets after the copy) | Unit (`src/main/dataRootResolve.test.ts`), dbtest (`src/main/services/dataRootMove.dbtest.ts`), renderer (`__tests__/dataFolder.test.tsx`) |
 | Temp-file rename retry (EPERM / EACCES / EBUSY) | Unit (`src/main/fsRetry.test.ts`, injected) |
 | Shortcut labels Ctrl / Alt | Unit (`src/shared/shortcutLabels.test.ts`, `src/renderer/src/lib/platform.test.ts`) |
 | Updater platform facts (`Documents\total`, `/api/download?platform=win`, `TOTAL_NO_UPDATE_CHECK`) | Unit (`src/shared/updateText.test.ts`) |
@@ -91,6 +92,20 @@ the build default (better-sqlite3's SQLITE_DEFAULT_WAL_SYNCHRONOUS=1: NORMAL in 
 - **Data folder**: `app.getPath('documents')\total`. With OneDrive folder backup (default on many
   Windows 11 machines) that is `…\OneDrive\Documents\total` and the sync-folder warning shows at
   start. The CLI reads the Documents known folder from the registry so it opens the same books.
+  **Moving it**: Settings → About (full app) / Settings → Backups (simple) → "Where Total keeps
+  your books" → "Move to another folder…" (`ipcDataRoot.ts`, `services/dataRootMove.ts`). The
+  folder (empty, or already a Total data root — then Total just switches to it) is picked in main;
+  the open company is closed, every file is copied and fsynced, the copy is checked (same files and
+  sizes, SHA-256 of every `.db` / `.json` / `.jsonl`), and only then the pointer
+  `<userData>\data-root.json` (`%APPDATA%\Total\data-root.json`) is written and the app relaunches.
+  A failed copy or pointer write removes the copy; the old folder is never deleted (it gets
+  `MOVED-TO.txt`). Startup order (`dataRootResolve.ts`): `TOTAL_DATA_DIR` → the pointer (followed
+  only while its folder exists — an unplugged drive opens the default folder with a warning and
+  keeps the pointer) → Documents\total. With `TOTAL_DATA_DIR` set the setting is read-only. A
+  folder in OneDrive (`isOneDrivePath`, shared/windowsPaths.ts) or another sync folder gets a plain
+  warning in that section (en / hi / hinglish). **Not yet**: `total-cli` / the MCP server still
+  open Documents\total — they do not read the pointer (follow-up; set `TOTAL_DATA_DIR` to the
+  moved folder meanwhile).
 - **Installer**: per-user (`perMachine: false`), no administrator rights, no file associations.
   Unsigned, so SmartScreen warns on first run ("More info → Run anyway"); the help article "Total on Windows" says so (the update notices are in-app since the consent updater).
 - **Updates**: electron-updater installs in place on quit (no `publisherName`, so no signature

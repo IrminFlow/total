@@ -204,6 +204,21 @@ export const ERROR_MAP = {
   security_already_locked: e('errors.security.alreadyLocked'),
   security_not_locked: e('errors.security.notLocked'),
   security_verify_failed: e('errors.security.verifyFailed'),
+  // Settings → "Where Total keeps your books" (services/dataRootMove.ts, ipcDataRoot.ts).
+  data_folder_same: e('errors.dataFolder.same'),
+  data_folder_inside_current: e('errors.dataFolder.insideCurrent'),
+  data_folder_contains_current: e('errors.dataFolder.containsCurrent'),
+  data_folder_not_empty: e('errors.dataFolder.notEmpty'),
+  data_folder_not_a_folder: e('errors.dataFolder.notAFolder'),
+  data_folder_not_writable: e('errors.dataFolder.notWritable'),
+  data_folder_no_space: e('errors.dataFolder.noSpace'),
+  data_folder_old_copy: e('errors.dataFolder.oldCopy'),
+  data_folder_env: e('errors.dataFolder.env'),
+  data_folder_not_picked: e('errors.dataFolder.notPicked'),
+  data_folder_busy: e('errors.dataFolder.busy'),
+  data_folder_link: e('errors.dataFolder.link'),
+  data_folder_copy_failed: e('errors.dataFolder.copyFailed'),
+  data_folder_pointer_failed: e('errors.dataFolder.pointerFailed'),
   /** No longer thrown since a business without people can lock its screen (a privacy screen); kept
    *  for an older main's answer, in the new words. */
   lock_needs_people: e('errors.security.lockPrivacyOnly'),
