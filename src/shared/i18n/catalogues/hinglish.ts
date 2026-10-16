@@ -1998,6 +1998,8 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'errors.undoClosedYear': 'Iske save hone ke baad saal band ho gaya, isliye ise undo nahi kiya ja sakta. Iski jagah ise edit karein.',
   'errors.undoLinked': 'Doosri entries iska istemaal kar rahi hain — iske against payment, bank match ya juda bill — isliye yahan undo nahi ho sakta. Iski jagah ise edit karein.',
   'errors.undoExpired': 'Undo sirf save ke ek din baad tak milta hai. Iski jagah ise edit karein, ya Accountant view se bin mein daalein.',
+  'errors.undoNegativeStock': 'Ise undo karne se {name} ka stock zero se neeche chala jaayega — tab se isme se kuch bika ya istemaal hua hai. Iski jagah ise edit karein.',
+  'errors.undoNegativeStockPlain': 'Ise undo karne se kisi product ka stock zero se neeche chala jaayega — tab se isme se kuch bika ya istemaal hua hai. Iski jagah ise edit karein.',
   'errors.undoNothing': 'Undo karne ko kuch nahi bacha — yeh pehle se bin mein hai.',
   'errors.typeMissing': 'Accounts ki yeh kism ab nahi hai. Koi doosri kism chunein.',
   'errors.builtInType': 'Accounts ki yeh kism Total ki apni hai — ise badla ya hataya nahi ja sakta.',

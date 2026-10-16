@@ -2104,6 +2104,8 @@ export const en = {
   'errors.undoClosedYear': 'The year was closed after this was saved, so it can’t be undone. Edit it instead.',
   'errors.undoLinked': 'Other entries already use this one — a payment against it, a bank match or a linked bill — so it can’t be undone here. Edit it instead.',
   'errors.undoExpired': 'Undo is only offered for a day after saving. Edit it instead, or move it to the bin from the accountant view.',
+  'errors.undoNegativeStock': 'Undoing this would leave {name} below zero in stock — some of it was sold or used since. Edit it instead.',
+  'errors.undoNegativeStockPlain': 'Undoing this would leave a product below zero in stock — some of it was sold or used since. Edit it instead.',
   'errors.undoNothing': 'There is nothing left to undo — it is already in the bin.',
   'errors.typeMissing': 'This kind of account no longer exists. Pick another kind.',
   'errors.builtInType': 'This built-in kind of account can’t be changed or deleted.',

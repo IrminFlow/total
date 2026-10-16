@@ -249,6 +249,44 @@ describe('A saved count reopened shows the difference the engine recorded (PR #9
   })
 })
 
+describe('Undo never leaves stock below zero (PR #91 to-do)', () => {
+  const blank = { partyLedgerId: null, narration: null, reference: null, instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null, transportDistanceKm: null, posOverride: null, currencyCode: null, exchangeRate: null }
+  const useUp = (item: number, qtyMilli: number, date = TODAY) =>
+    saveVoucher(db, { ...blank, voucherTypeId: typeId(db, 'stock_journal'), date, lines: [], inventory: [
+      { stockItemId: item, godownId: null, batchId: null, qtyMilli, ratePaise: 0, amount: 0, direction: 'out' }
+    ] } as Parameters<typeof saveVoucher>[1])
+  const code = (fn: () => unknown): unknown => {
+    try {
+      fn()
+    } catch (err) {
+      return { code: (err as { code?: string }).code, field: (err as { field?: string }).field, params: (err as { params?: unknown }).params }
+    }
+    return null
+  }
+
+  it('a count after which more was used than the books had without it: Undo refused, nothing binned, no audit row', () => {
+    const out = post(countIntentFrom({ date: DAY, counted: { [I('Box')]: '60' } }))
+    useUp(I('Box'), 55_000) // 60 − 55 = 5 left; without the count 50 − 55 = −5
+    const before = trace()
+    expect(code(() => undoSave(db, out.voucherIds))).toEqual({ code: 'simple_undo_negative_stock', field: undefined, params: { name: 'Box' } })
+    expect(trace()).toEqual(before)
+    expect(getVoucher(db, out.voucherIds[0]!)!.deletedAt).toBeNull()
+    expect(listOf(db, TODAY).find((r) => r.itemId === I('Box'))!.qtyMilli).toBe(5000)
+  })
+
+  it('a batch made whose goods were used since: refused; with enough left it undoes as before', () => {
+    const made = post(makeIntentFrom({ ...emptyMakeForm(DAY), itemId: I('Bread'), qtyText: '4', price: 5000 }))
+    useUp(I('Bread'), 3000)
+    expect(code(() => undoSave(db, made.voucherIds))).toMatchObject({ code: 'simple_undo_negative_stock', params: { name: 'Bread' } })
+    expect(getVoucher(db, made.voucherIds[0]!)!.deletedAt).toBeNull()
+    // A count that only some later use rests on — still ≥ 0 without it — undoes as before.
+    const count = post(countIntentFrom({ date: DAY, counted: { [I('Flour')]: '90' } }))
+    useUp(I('Flour'), 10_000)
+    undoSave(db, count.voucherIds)
+    expect(getVoucher(db, count.voucherIds[0]!)!.deletedAt).not.toBeNull()
+  })
+})
+
 describe('Made goods = the hand-entered manufacture', () => {
   const make = (f: Partial<MakeForm>, d: DB = db) => post(makeIntentFrom({ ...emptyMakeForm(DAY), itemId: I('Bread', d), qtyText: '10', price: 5000, ...f }), d)
 
