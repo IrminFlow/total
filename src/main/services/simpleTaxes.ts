@@ -13,7 +13,10 @@
 //   step 5             meta `gstFiled` (shared/simple/taxes.ts says why not assistant_marks);
 //                      `simple:taxes:filed` writes it, audited as a company update
 //   TDS / TCS          assistants.withholdingFacts + closeChecklist.withholdingUnpaid (FIFO)
+import { copyFileSync, mkdirSync } from 'fs'
+import { basename, join } from 'path'
 import type { DB } from '../db/connection'
+import { companyExportsDir } from '../paths'
 import type { CompanyInfo } from '@shared/domain'
 import { AppError } from '@shared/errors'
 import { gstPeriodOf, todayISO } from '@shared/dates'
@@ -23,7 +26,7 @@ import { depositDueDate } from '@shared/tdsInterest'
 import { tcsDepositDueDate } from '@shared/tcs'
 import { cmp08DueDate, gstr1DueDate, gstr3bDueDate, gstr4DueDate, pmt06DueDate } from '@shared/gst/filing'
 import {
-  GST_FILED_META_KEY, MISSING_BILL_CHECKS, creditParts, gstPeriodChoices, gstPeriodEnd, gstPeriodFor, gstStartsOn, nextCompositionDue, normalizeArn, normalizeGstFiled,
+  GST_FILED_META_KEY, MISSING_BILL_CHECKS, creditParts, gstPeriodChoices, quarterStart, gstPeriodEnd, gstPeriodFor, gstStartsOn, nextCompositionDue, normalizeArn, normalizeGstFiled,
   type GstFiledInput, type GstFiledMeta, type GstFiledPeriod, type GstForm, type GstPeriod, type MissingBillsItem, type SimpleTaxes, type SupplierBillsMonth, type TaxesWithholding
 } from '@shared/simple/taxes'
 import { getFeatures, getGstProfile } from './config'
@@ -37,7 +40,7 @@ const META_KEY = GST_FILED_META_KEY
 export { readGstFiled }
 
 /** When the GSTR-1 / 3B file for a return month was last prepared (gstAnnual's export snapshot). */
-function preparedAt(db: DB, form: GstForm, lastMonth: string): string | null {
+function monthPreparedAt(db: DB, form: GstForm, lastMonth: string): string | null {
   const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(`gst.exported.${form}.${gstPeriodOf(`${lastMonth}-01`)}`) as { value: string } | undefined
   if (!row) return null
   try {
@@ -45,6 +48,31 @@ function preparedAt(db: DB, form: GstForm, lastMonth: string): string | null {
   } catch {
     return null
   }
+}
+
+/** A period's files are prepared once every month of it is (a quarter: its three months, prepared
+ *  month by month — the oldest of their times); a month: its own snapshot. */
+function preparedAt(db: DB, form: GstForm, period: GstPeriod): string | null {
+  const months = period.quarterly ? monthRange(quarterStart(period.period), period.period) : [period.period]
+  const times = months.map((m) => monthPreparedAt(db, form, m))
+  return times.every((x): x is string => x != null) ? times.sort()[0]! : null
+}
+
+/**
+ * The quarterly bundle (step 3 for a quarterly filer): the files the full app's month-by-month
+ * exports wrote for the quarter's three months, copied — byte for byte — into one folder,
+ * `<exports>/<form>-<MMYYYY of the quarter's last month>-quarter/`. The monthly files stay where
+ * they are (GSTR-9 keeps its monthly snapshots unchanged). Returns the folder and the copies.
+ */
+export function bundleQuarterFiles(slug: string, form: GstForm, period: string, files: readonly string[]): { folder: string; files: string[] } {
+  const folder = join(companyExportsDir(slug), `${form}-${period}-quarter`)
+  mkdirSync(folder, { recursive: true })
+  const out = files.map((f) => {
+    const dest = join(folder, basename(f))
+    copyFileSync(f, dest)
+    return dest
+  })
+  return { folder, files: out }
 }
 
 /** TDS / TCS while the feature is on: this month's deductions and what is still unpaid (FIFO). */
@@ -162,7 +190,7 @@ export function simpleTaxes(db: DB, company: CompanyInfo, q: { period?: string }
       },
       missing: MISSING_BILL_CHECKS.filter((k) => missing.has(k)).map((key) => ({ key, count: missing.get(key)! })),
       supplierBills,
-      prepared: { gstr1: preparedAt(db, 'gstr1', period.period), gstr3b: preparedAt(db, 'gstr3b', period.period) },
+      prepared: { gstr1: preparedAt(db, 'gstr1', period), gstr3b: preparedAt(db, 'gstr3b', period) },
       filesMonthly: period.quarterly,
       filed,
       withholding

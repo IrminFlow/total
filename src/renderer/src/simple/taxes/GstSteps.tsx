@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { gstPeriodOf, toMonthLabel, toPlainDate } from '@shared/dates'
 import { mapError, type CaughtError } from '@shared/errors'
-import { gstPeriodEnd, stepsDone, type GstForm, type MissingBillsItem, type SimpleTaxes } from '@shared/simple/taxes'
+import { gstPeriodEnd, quarterStart, stepsDone, type GstForm, type MissingBillsItem, type SimpleTaxes } from '@shared/simple/taxes'
 import type { HomeAttentionItem } from '@shared/simple/home'
 import { attentionText, money } from '@shared/simple/explain'
 import { api } from '../../lib/client'
@@ -156,7 +156,9 @@ export function GstSteps({ x }: { x: Regular }): React.JSX.Element {
   )
 }
 
-/** Step 3: the existing GSTR-1 / GSTR-3B exports for the period (monthly filers, once it is over). */
+/** Step 3: the existing GSTR-1 / GSTR-3B exports for the period, once it is over. A quarterly
+ *  filer's quarter is prepared month by month (the full app's monthly exports, which GSTR-9
+ *  compares) and the three months' files are put in one folder. */
 function PrepareFiles({ x }: { x: Regular }): React.JSX.Element {
   const t = useT()
   const nav = useNav()
@@ -164,25 +166,17 @@ function PrepareFiles({ x }: { x: Regular }): React.JSX.Element {
   const queryClient = useQueryClient()
   const [busy, setBusy] = useState<GstForm | null>(null)
   const [error, setError] = useState<{ text: string; details: string } | null>(null)
-  if (x.filesMonthly) {
-    return (
-      <>
-        <p data-testid="taxes-files-quarterly">{t('simple.taxes.step3.quarterly')}</p>
-        <Button className="mt-2" size="sm" data-testid="taxes-files-open-full" onClick={() => nav.go(GSTR1)}>
-          {t('simple.taxes.step3.openFull')}
-        </Button>
-      </>
-    )
-  }
+  const quarterly = x.period.quarterly
   if (x.period.soFar) return <p data-testid="taxes-files-wait">{t('simple.taxes.step3.wait', { date: toPlainDate(gstPeriodEnd(x.period), t.lang) })}</p>
   const prepare = async (form: GstForm): Promise<void> => {
     setBusy(form)
     setError(null)
     const args = [x.period.from, x.period.to, gstPeriodOf(`${x.period.period}-01`)] as const
     try {
-      if (form === 'gstr1') await api.gst.exportGstr1(...args)
+      if (quarterly) await api.gst.exportQuarter(form, `${quarterStart(x.period.period)}-01`, gstPeriodEnd(x.period), args[2])
+      else if (form === 'gstr1') await api.gst.exportGstr1(...args)
       else await api.gst.exportGstr3b(...args)
-      push('success', t('simple.taxes.step3.saved'))
+      push('success', quarterly ? t('simple.taxes.step3.savedQuarter') : t('simple.taxes.step3.saved'))
       void queryClient.invalidateQueries({ queryKey: ['simpleTaxes'] }) // i18n-technical
     } catch (err) {
       const m = mapError(err as CaughtError, { simple: true, t })
@@ -191,13 +185,22 @@ function PrepareFiles({ x }: { x: Regular }): React.JSX.Element {
       setBusy(null)
     }
   }
+  const label = (form: GstForm): string =>
+    quarterly
+      ? form === 'gstr1' ? t('simple.taxes.step3.prepare1Quarter') : t('simple.taxes.step3.prepare3bQuarter')
+      : form === 'gstr1' ? t('simple.taxes.step3.prepare1') : t('simple.taxes.step3.prepare3b')
   return (
     <>
+      {quarterly && (
+        <p className="mb-2" data-testid="taxes-files-quarterly">
+          {t('simple.taxes.step3.quarterly')}
+        </p>
+      )}
       <ul className="flex flex-col gap-2">
         {FORMS.map((form) => (
           <li key={form} className="flex flex-wrap items-center gap-3">
             <Button size="sm" variant={!x.prepared[form] && FORMS.find((f) => !x.prepared[f]) === form ? 'primary' : 'secondary'} loading={busy === form} disabled={busy !== null} data-testid={`taxes-prepare-${form}`} onClick={() => void prepare(form)}>
-              {form === 'gstr1' ? t('simple.taxes.step3.prepare1') : t('simple.taxes.step3.prepare3b')}
+              {label(form)}
             </Button>
             <span className="text-small text-muted" data-testid={`taxes-prepared-${form}`}>
               {x.prepared[form] ? t('simple.taxes.gst.prepared', { date: localDay(x.prepared[form]!, t.lang) }) : t('simple.taxes.step3.notYet')}

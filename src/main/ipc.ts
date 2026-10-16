@@ -161,7 +161,7 @@ import * as simpleStock from './services/simpleStock'
 import * as simpleReports from './services/simpleReports'
 import * as simpleTaxes from './services/simpleTaxes'
 import { doingQuerySchema, owedQuerySchema } from '@shared/simple/reports'
-import { gstFiledInputSchema, taxesQuerySchema } from '@shared/simple/taxes'
+import { gstFiledInputSchema, quarterExportMonths, taxesQuerySchema } from '@shared/simple/taxes'
 import { simpleIntentSchema } from '@shared/simple/intents'
 import { peopleListSchema, personRemindedSchema, personUpdateSchema, personViewSchema } from '@shared/simple/people'
 import { bankAcceptSchema } from '@shared/simple/bank'
@@ -1861,18 +1861,49 @@ export function registerIpc(): void {
     const c = requireCompany()
     return gst.gstr3b(c.db, c.info, from, to, period)
   }, 'viewer')
-  handle('gst:exportGstr1', (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
-    const c = requireCompany()
-    // Server-side export gate (G7): blocking validation issues refuse the export outright —
-    // the renderer disables the button too, but the gate must hold for any caller.
-    gst.assertExportable(c.db, c.info, from, to)
+  // One month's GSTR-1 export (the full app's month-by-month export, unchanged): the JSON, the
+  // summary CSV, the GSTR-9 "as filed" snapshot and one export audit row.
+  const exportGstr1Month = (c: OpenCompany, from: string, to: string, period: string): { jsonPath: string; csvPath: string } => {
     const result = gst.gstr1(c.db, c.info, from, to, period)
     const jsonPath = gst.exportReturnJson(c.slug, 'gstr1', period, result.json)
     const csvPath = gst.exportGstr1Csv(c.slug, result)
     // WP 3.4: what was exported is the "as filed" side of the GSTR-9 comparison.
     gstAnnual.recordGstr1Export(c.db, period, result.json)
     auditExport(c.db, 'gstr1', { period, path: jsonPath })
+    return { jsonPath, csvPath }
+  }
+  const exportGstr3bMonth = (c: OpenCompany, from: string, to: string, period: string): { jsonPath: string } => {
+    const result = gst.gstr3b(c.db, c.info, from, to, period)
+    const jsonPath = gst.exportReturnJson(c.slug, 'gstr3b', period, result.json)
+    gstAnnual.recordGstr3bExport(c.db, period, result)
+    auditExport(c.db, 'gstr3b', { period, path: jsonPath })
+    return { jsonPath }
+  }
+  // A quarterly filer's export (`quarter: true`, from / to = the whole quarter, period = its last
+  // month): the three monthly exports above, exactly as the full app writes them (every month's
+  // gate checked before anything is written), then copied into one folder.
+  const exportGstQuarter = (c: OpenCompany, form: 'gstr1' | 'gstr3b', from: string, to: string, period: string): { folder: string; files: string[] } => {
+    const months = quarterExportMonths(from, to, period)
+    if (!months) throw new AppError('invalid_input', 'A quarterly export covers a whole quarter, named by its last month.', { field: 'period' })
+    for (const m of months) gst.assertExportable(c.db, c.info, m.from, m.to)
+    const files = months.flatMap((m) => {
+      if (form === 'gstr3b') return [exportGstr3bMonth(c, m.from, m.to, m.period).jsonPath]
+      const r = exportGstr1Month(c, m.from, m.to, m.period)
+      return [r.jsonPath, r.csvPath]
+    })
+    const bundle = simpleTaxes.bundleQuarterFiles(c.slug, form, period, files)
+    shell.showItemInFolder(bundle.files[0] ?? bundle.folder)
+    return bundle
+  }
+  const gstExportInput = gstPeriodInput.extend({ quarter: z.literal(true).optional() })
+  handle('gst:exportGstr1', (p) => {
+    const { from, to, period, quarter } = gstExportInput.parse(p)
+    const c = requireCompany()
+    if (quarter) return exportGstQuarter(c, 'gstr1', from, to, period)
+    // Server-side export gate (G7): blocking validation issues refuse the export outright —
+    // the renderer disables the button too, but the gate must hold for any caller.
+    gst.assertExportable(c.db, c.info, from, to)
+    const { jsonPath, csvPath } = exportGstr1Month(c, from, to, period)
     shell.showItemInFolder(jsonPath)
     return { jsonPath, csvPath }
   })
@@ -1893,15 +1924,13 @@ export function registerIpc(): void {
     return configSvc.setGst3bManual(requireCompany().db, period, data)
   })
   handle('gst:exportGstr3b', (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
+    const { from, to, period, quarter } = gstExportInput.parse(p)
     const c = requireCompany()
+    if (quarter) return exportGstQuarter(c, 'gstr3b', from, to, period)
     // Same server-side gate as gst:exportGstr1 — 3B is computed from the same extracted
     // documents, so a period with blocking validation issues must not export either return.
     gst.assertExportable(c.db, c.info, from, to)
-    const result = gst.gstr3b(c.db, c.info, from, to, period)
-    const jsonPath = gst.exportReturnJson(c.slug, 'gstr3b', period, result.json)
-    gstAnnual.recordGstr3bExport(c.db, period, result)
-    auditExport(c.db, 'gstr3b', { period, path: jsonPath })
+    const { jsonPath } = exportGstr3bMonth(c, from, to, period)
     shell.showItemInFolder(jsonPath)
     return { jsonPath }
   })

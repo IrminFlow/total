@@ -6,7 +6,7 @@ import { translator } from '../i18n'
 import { bannedWordsIn } from './bannedWords'
 import { cmp08DueDate, gstr1DueDate, gstr3bDueDate, gstr4DueDate, pmt06DueDate, qrmp3bDay } from '../gst/filing'
 import { upcomingDeadlines } from '../compliance'
-import { creditParts, gstPeriodChoices, gstPeriodEnd, gstPeriodFor, gstReturnMonth, gstStartsOn, nextCompositionDue, normalizeArn, normalizeGstFiled, stepsDone, type SimpleTaxes } from './taxes'
+import { creditParts, gstPeriodChoices, gstPeriodEnd, gstPeriodFor, gstReturnMonth, quarterExportMonths, gstStartsOn, nextCompositionDue, normalizeArn, normalizeGstFiled, stepsDone, type SimpleTaxes } from './taxes'
 import { applySetOff } from '../gst/returns'
 import { collectedWhy, creditStatus, onPurchasesWhy, taxesPeriodLabel, toPayWhy, withholdingUnpaidText } from './explain'
 import { GST_STATES } from '../gst/states'
@@ -181,5 +181,22 @@ describe('gstReturnMonth: the month a GSTR-1 / GSTR-3B link opens', () => {
     const running = gstPeriodFor('2026-10', 'quarterly', today)!
     expect([running.period, running.soFar]).toEqual(['2026-12', true])
     expect(gstReturnMonth(running)).toBe('2026-10')
+  })
+})
+
+describe('quarterExportMonths: a quarter as the full app exports it, month by month', () => {
+  it('a whole quarter named by its last month → its three months (1st to month end, MMYYYY)', () => {
+    expect(quarterExportMonths('2026-07-01', '2026-09-30', '092026')).toEqual([
+      { from: '2026-07-01', to: '2026-07-31', period: '072026' },
+      { from: '2026-08-01', to: '2026-08-31', period: '082026' },
+      { from: '2026-09-01', to: '2026-09-30', period: '092026' }
+    ])
+    expect(quarterExportMonths('2027-01-01', '2027-03-31', '032027')!.map((m) => m.to)).toEqual(['2027-01-31', '2027-02-28', '2027-03-31'])
+  })
+  it('anything else → null', () => {
+    expect(quarterExportMonths('2026-08-01', '2026-09-30', '092026')).toBeNull() // not from the quarter's 1st
+    expect(quarterExportMonths('2026-07-01', '2026-09-17', '092026')).toBeNull() // not to its end
+    expect(quarterExportMonths('2026-07-01', '2026-09-30', '082026')).toBeNull() // named by a middle month
+    expect(quarterExportMonths('2026-07-01', '2026-09-30', '2026-09')).toBeNull()
   })
 })

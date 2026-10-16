@@ -163,14 +163,20 @@ describe('Taxes — regular GST (WP 9.9)', () => {
     expect(await screen.findByTestId('taxes-empty')).toBeTruthy()
   })
 
-  it('a quarterly filer: the quarter, PMT-06 dates, files month by month in the full app', async () => {
+  it('a quarterly filer: the quarter, PMT-06 dates, the quarter’s files prepared month by month in one folder', async () => {
     const q = { period: '2026-09', from: '2026-07-01', to: '2026-09-30', quarterly: true, soFar: false }
     reply = { ...REGULAR, filing: 'quarterly', period: q, periods: [q], filesMonthly: true, due: { gstr1: '2026-10-13', gstr3b: '2026-10-22', gstr3bUnverified: false, pmt06: ['2026-08-25', '2026-09-25'] } }
     renderUi(<TaxesScreen />)
     expect((await screen.findByTestId('taxes-filing')).textContent).toBe('You file GST every quarter.')
     expect(screen.getByTestId('taxes-period').textContent).toContain('Jul – Sep 2026')
     expect(screen.getByTestId('taxes-pmt06').textContent).toContain('25 Aug, 25 Sep')
-    expect(screen.getByTestId('taxes-files-quarterly')).toBeTruthy()
+    expect(screen.getByTestId('taxes-files-quarterly').textContent).toContain('one file per month, the three of them in one folder')
+    expect(screen.getByTestId('taxes-prepare-gstr1').textContent).toBe('Prepare the GSTR-1 files for the quarter')
+    fireEvent.click(screen.getByTestId('taxes-prepare-gstr1'))
+    await waitFor(() => expect(calls('gst:exportGstr1')).toEqual([{ from: '2026-07-01', to: '2026-09-30', period: '092026', quarter: true }]))
+    await waitFor(() => expect(screen.getByTestId('taxes-prepare-gstr3b').hasAttribute('disabled')).toBe(false))
+    fireEvent.click(screen.getByTestId('taxes-prepare-gstr3b'))
+    await waitFor(() => expect(calls('gst:exportGstr3b')).toEqual([{ from: '2026-07-01', to: '2026-09-30', period: '092026', quarter: true }]))
   })
 
   it('a viewer sees the steps but can’t note a filing', async () => {

@@ -24,6 +24,7 @@ import { z } from 'zod'
 import type { CloseCheckKey } from '../closeChecklist'
 import type { MismatchCategory } from '../gst/mismatch2b'
 import type { GstFilingFrequency } from '../gst/filing'
+import { gstPeriodOf } from '../dates'
 
 const iso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const ym = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/)
@@ -238,6 +239,31 @@ export function gstPeriodFor(last: string, filing: GstFilingFrequency, today: st
  *  period still running opens the month it has reached (`to` = today), as the full app lists no
  *  later month. The ONE rule every link uses (Taxes, its Whys, its Accountant view). Pure. */
 export const gstReturnMonth = (p: Pick<GstPeriod, 'period' | 'to' | 'soFar'>): string => (p.soFar ? p.to.slice(0, 7) : p.period)
+
+/** One month of a quarterly export: the dates and the return period (MMYYYY) the full app's
+ *  month-by-month GSTR-1 / GSTR-3B export uses for it. */
+export interface QuarterExportMonth {
+  from: string
+  to: string
+  period: string
+}
+
+/**
+ * The three months a quarterly filer's export covers, each exactly as the full app exports a
+ * month (1st to month end, period MMYYYY) — or null when `from` / `to` / `period` are not a whole
+ * quarter named by its last month (`period` = that month's MMYYYY). Pure.
+ */
+export function quarterExportMonths(from: string, to: string, period: string): QuarterExportMonth[] | null {
+  if (!/^\d{6}$/.test(period)) return null
+  const last = `${period.slice(2)}-${period.slice(0, 2)}`
+  if (Number(last.slice(5, 7)) % 3 !== 0) return null
+  const first = quarterStart(last)
+  if (from !== `${first}-01` || to !== monthEnd(last)) return null
+  return [0, 1, 2].map((i) => {
+    const m = addMonths(first, i)
+    return { from: `${m}-01`, to: monthEnd(m), period: gstPeriodOf(`${m}-01`) }
+  })
+}
 
 /** WP 10.8: the last day of a period (its month / quarter end), even while it is running. */
 export const gstPeriodEnd = (p: Pick<GstPeriod, 'period'>): string => monthEnd(p.period)
