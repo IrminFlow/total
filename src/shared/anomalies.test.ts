@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bpOf, findAnomalies, isEntryIntoClosedPeriod, isqrt, normaliseBillNo, rateText, rupeeText, sigmaText, zScoreMilli, type AnomalyInput, type AnomalyVoucher, type LedgerRole } from './anomalies'
+import { anomalyRef, bpOf, findAnomalies, resolveAnomalyRef, isEntryIntoClosedPeriod, isqrt, normaliseBillNo, rateText, rupeeText, sigmaText, zScoreMilli, type AnomalyInput, type AnomalyVoucher, type LedgerRole } from './anomalies'
 
 const L = new Map<number, { name: string; role: LedgerRole }>([
   [1, { name: 'Cash', role: 'cashBank' }],
@@ -244,5 +244,24 @@ describe('WP 5.5 review fixes', () => {
     const k1 = findAnomalies(input([a])).find((x) => x.kind === 'round_amount')!.key
     const k2 = findAnomalies(input([{ ...a, amount: 6_00_000_00 }])).find((x) => x.kind === 'round_amount')!.key
     expect(k1).not.toBe(k2)
+  })
+})
+
+describe('anomaly refs (to-do §4)', () => {
+  it('a ref is ten letters, stable, and differs between keys', () => {
+    const keys = Array.from({ length: 5000 }, (_, i) => `amount_outlier:${i}:${i * 100}`)
+    const refs = keys.map(anomalyRef)
+    for (const r of refs) expect(r).toMatch(/^[a-z]{10}$/)
+    expect(new Set(refs).size).toBe(keys.length)
+    expect(anomalyRef('duplicate_party_amount:5:6:2500000')).toBe(anomalyRef('duplicate_party_amount:5:6:2500000'))
+    // A changed amount is a different finding, so a different ref (the key carries the amount).
+    expect(anomalyRef('round_amount:5:2500000')).not.toBe(anomalyRef('round_amount:5:2500100'))
+  })
+  it('resolves a ref back to its key (case-insensitive); none or two candidates = null', () => {
+    const keys = ['round_amount:5:2500000', 'amount_outlier:6:900000']
+    expect(resolveAnomalyRef(anomalyRef(keys[1]!), keys)).toBe(keys[1])
+    expect(resolveAnomalyRef(anomalyRef(keys[1]!).toUpperCase(), keys)).toBe(keys[1])
+    expect(resolveAnomalyRef('abcdefghij', keys)).toBeNull()
+    expect(resolveAnomalyRef(anomalyRef(keys[0]!), [keys[0]!, keys[0]!])).toBe(keys[0])
   })
 })

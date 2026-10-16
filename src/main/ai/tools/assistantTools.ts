@@ -8,7 +8,7 @@
 import { z } from 'zod'
 import { formatQtyMilli } from '@shared/money'
 import type { AiSource } from '@shared/ai'
-import { ANOMALY_LABELS, type AnomalyKind } from '@shared/anomalies'
+import { ANOMALY_LABELS, anomalyRef, type AnomalyKind } from '@shared/anomalies'
 import { MISMATCH_LABELS, type MismatchCategory } from '@shared/gst/mismatch2b'
 import { reportRequestSchema, requestToModel, type NameKind, type NameLookup } from '@shared/reportBuilder/nl'
 import type { ReportResult } from '@shared/reportBuilder/model'
@@ -177,19 +177,23 @@ const ANOMALY_KINDS = Object.keys(ANOMALY_LABELS) as [AnomalyKind, ...AnomalyKin
 export const findAnomaliesTool = defineTool({
   name: 'find_anomalies',
   description:
-    'Unusual entries in a period: possible duplicates (same party and amount within days, same bill number, same narration and amount), large round amounts, ledger pairings never used before, amounts far above a party’s or ledger’s usual (z-score), weekend / holiday dates, back-dated entries, GST charged unlike the item rates and items of one HSN at different rates. Dismissed findings are left out.',
+    'Unusual entries in a period: possible duplicates (same party and amount within days, same bill number, same narration and amount), large round amounts, ledger pairings never used before, amounts far above a party’s or ledger’s usual (z-score), weekend / holiday dates, back-dated entries, GST charged unlike the item rates and items of one HSN at different rates. Dismissed findings are left out. Each finding has a short letters-only `ref`: quote it to refer to a finding, and pass `refs` to look at just those findings again.',
   input: z.object({
     from: iso.optional().describe('First day (YYYY-MM-DD); omit for the working period'),
     to: iso.optional().describe('Last day (YYYY-MM-DD)'),
-    kinds: z.array(z.enum(ANOMALY_KINDS)).max(11).optional().describe('Only these kinds')
+    kinds: z.array(z.enum(ANOMALY_KINDS)).max(11).optional().describe('Only these kinds'),
+    refs: z.array(z.string().trim().regex(/^[a-zA-Z]{10}$/)).max(50).optional().describe('Only the findings with these refs (from an earlier find_anomalies result)')
   }),
   kind: 'read',
   minRole: 'viewer',
-  handler: ({ from, to, kinds }, ctx) => {
+  handler: ({ from, to, kinds, refs }, ctx) => {
     const f = from ?? ctx.screen?.from ?? ctx.period.from
     const t = to ?? ctx.screen?.to ?? ctx.period.to
     const r = anomalies(ctx.db, f, t)
-    const rows = kinds?.length ? r.rows.filter((a) => kinds.includes(a.kind)) : r.rows
+    // to-do §4: the stored keys carry digit runs masking may rewrite, so the model refers back to a
+    // finding by its letters-only ref; resolved here against the keys (never stored).
+    const wanted = refs?.length ? new Set(refs.map((x) => x.toLowerCase())) : null
+    const rows = r.rows.filter((a) => (!kinds?.length || kinds.includes(a.kind)) && (!wanted || wanted.has(anomalyRef(a.key))))
     const cap = capRows(rows, ASSISTANT_CAPS.anomalies, 'ask for one kind or a shorter period')
     return {
       data: {
@@ -199,6 +203,7 @@ export const findAnomaliesTool = defineTool({
         bySeverity: r.counts,
         truncated: cap.truncated,
         anomalies: cap.rows.map((a) => ({
+          ref: anomalyRef(a.key),
           key: a.key,
           kind: ANOMALY_LABELS[a.kind],
           severity: a.severity,

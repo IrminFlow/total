@@ -461,7 +461,28 @@ function edocCompany(company: CompanyInfo): EdocCompany {
   }
 }
 
-export function exportEInvoices(db: DB, company: CompanyInfo, slug: string, from: string, to: string, period: string): { path: string; count: number } {
+/** The e-invoice JSON's file name inside exports/ (also the save dialog's default name). A
+ *  range inside the period adds its dates (`einvoice-<period>-<from>_<to>.json`). */
+export const eInvoiceFileName = (period: string, range?: { from: string; to: string }): string =>
+  range ? `einvoice-${period}-${range.from}_${range.to}.json` : `einvoice-${period}.json`
+
+/** `opts.path` = the file chosen in the save dialog; absent = `<company>/exports/einvoice-<period>.json` as before.
+ *  `opts.range` = only the documents dated within it (it must lie inside [from, to]); absent = the whole period. */
+export function exportEInvoices(
+  db: DB,
+  company: CompanyInfo,
+  slug: string,
+  periodFrom: string,
+  periodTo: string,
+  period: string,
+  opts: { path?: string; range?: { from: string; to: string } } = {}
+): { path: string; count: number } {
+  const r = opts.range
+  if (r && (r.from > r.to || r.from < periodFrom || r.to > periodTo)) {
+    throw new Error(`The dates must lie within the period ${periodFrom} to ${periodTo}, the first on or before the last`)
+  }
+  const from = r?.from ?? periodFrom
+  const to = r?.to ?? periodTo
   // Purchase-side debit notes (goods returned to a supplier) are NOT outward documents —
   // e-invoicing one would register a spurious IRN and auto-populate portal GSTR-1 with
   // output tax the books don't contain. Same outwardDebitNoteIds split as every sibling
@@ -475,7 +496,7 @@ export function exportEInvoices(db: DB, company: CompanyInfo, slug: string, from
       (i.partyGstin || i.supTyp === 'EXPWP' || i.supTyp === 'EXPWOP')
   )
   const json = buildEInvoiceJson(invoices, edocCompany(company))
-  const path = join(companyExportsDir(slug), `einvoice-${period}.json`)
+  const path = opts.path ?? join(companyExportsDir(slug), eInvoiceFileName(period, r))
   writeFileSync(path, JSON.stringify(json, null, 2))
   return { path, count: invoices.length }
 }

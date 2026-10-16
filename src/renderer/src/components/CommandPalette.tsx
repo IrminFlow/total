@@ -142,7 +142,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
           try {
             const { from, to } = useSession.getState()
             const r = await api.exporter.caPack(from, to)
-            toast.push('success', `Saved to ${r.path}`)
+            if (!r.cancelled) toast.push('success', `Saved to ${r.path}`)
           } catch (err) {
             toast.push('error', (err as Error).message)
           }

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { Badge, Banner, Button, DrawerSection, Modal, Page, PageHeader, Panel, Select, TabBar } from '../components/ui'
+import { Badge, Banner, Button, DateInput, DrawerSection, Modal, Page, PageHeader, Panel, Select, TabBar } from '../components/ui'
 import { SelfInvoiceOptions, SelfInvoicesTab } from './gst/SelfInvoicesTab'
 import { OptionsExport, OptionsPeriod, OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
@@ -213,9 +213,19 @@ function EdocsDocuments(): React.JSX.Element {
   const period = gstPeriodOf(to)
   const live = nicStatus?.configured ?? false
 
+  // to-do §4: the e-invoice JSON for part of the period (blank = the period's own first / last day).
+  const [einvFrom, setEinvFrom] = useState('')
+  const [einvTo, setEinvTo] = useState('')
+  const einvRange = einvFrom || einvTo ? { from: einvFrom || from, to: einvTo || to } : undefined
+  const einvRangeBad = !!einvRange && (einvRange.from > einvRange.to || einvRange.from < from || einvRange.to > to)
   const exportEinv = async (): Promise<void> => {
+    if (einvRangeBad) {
+      toast.push('error', `The e-invoice dates must lie within ${toDisplayDate(from)} → ${toDisplayDate(to)}, the first on or before the last`)
+      return
+    }
     try {
-      const r = await api.edoc.exportEInvoice(from, to, period)
+      const r = await api.edoc.exportEInvoice(from, to, period, einvRange)
+      if (r.cancelled) return
       toast.push(r.count ? 'success' : 'warning', r.count ? `${r.count} B2B invoice${r.count > 1 ? 's' : ''} written for IRN generation` : 'No B2B invoices (parties need GSTINs) in this period')
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -346,6 +356,21 @@ function EdocsDocuments(): React.JSX.Element {
           Add the company GSTIN under Company details to enable exports.
         </Banner>
       )}
+
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-detail" data-testid="edocs-einvoice-range">
+        <span className="text-muted">e-Invoice JSON for</span>
+        <DateInput value={einvFrom} context={from} onChange={setEinvFrom} allowEmpty placeholder={toDisplayDate(from)} ariaLabel="e-Invoice JSON from" testId="input-edocs-einvoice-from" className="w-32" />
+        <span className="text-muted">to</span>
+        <DateInput value={einvTo} context={to} onChange={setEinvTo} allowEmpty placeholder={toDisplayDate(to)} ariaLabel="e-Invoice JSON to" testId="input-edocs-einvoice-to" className="w-32" />
+        {einvRange ? (
+          <button type="button" className="text-small text-blue hover:underline" onClick={() => { setEinvFrom(''); setEinvTo('') }} data-testid="btn-edocs-einvoice-range-clear">
+            Whole period
+          </button>
+        ) : (
+          <span className="text-hint text-muted">blank = the whole period</span>
+        )}
+        {einvRangeBad && <span className="text-hint text-danger">Dates must lie within the period</span>}
+      </div>
 
       <Panel>
         <DataTable

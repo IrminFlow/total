@@ -105,8 +105,12 @@ export async function writeExportPdf(
   html: string,
   opts?: HtmlToPdfOptions
 ): Promise<string> {
+  return writePdfFile(join(companyExportsDir(slug), filename), html, opts)
+}
+
+/** htmlToPdf + write to a chosen path (an export's save dialog — main/exportTarget.ts). */
+export async function writePdfFile(path: string, html: string, opts?: HtmlToPdfOptions): Promise<string> {
   const pdf = await htmlToPdf(html, opts)
-  const path = join(companyExportsDir(slug), filename)
   writeFileSync(path, pdf)
   return path
 }

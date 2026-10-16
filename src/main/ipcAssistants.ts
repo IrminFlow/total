@@ -6,7 +6,7 @@
 import type { DB } from './db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import type { Role } from './services/roles'
-import { todayISO } from '@shared/dates'
+import { fyOf, todayISO } from '@shared/dates'
 import {
   anomalyDismissSchema, anomalyQuerySchema, assistantSettingsSchema, closeMarkSchema, closeQuerySchema, gst2bDraftSchema, gst2bQuerySchema, gst2bResolveSchema,
   gst2bStoreSchema, nlReportSchema
@@ -41,7 +41,11 @@ export function registerAssistantsIpc(handle: Handle, company: () => Company, us
   }, 'viewer')
   handle('assist:anomaly:dismiss', (p) => {
     const d = anomalyDismissSchema.parse(p)
-    return assist.dismissAnomaly(db(), d.key, d.dismissed, d.note ?? null, userName())
+    // A ref (the AI assistant's letters-only alias) is resolved to the stored key here; the mark
+    // is keyed by the key as before.
+    const today = todayISO()
+    const key = d.key ?? assist.anomalyKeyForRef(db(), d.ref!, d.from ?? fyOf(today).from, d.to ?? today)
+    return assist.dismissAnomaly(db(), key, d.dismissed, d.note ?? null, userName())
   })
   handle('assist:settings:get', () => assist.getAssistantSettings(db()), 'viewer')
   handle('assist:settings:set', (p) => assist.setAssistantSettings(db(), assistantSettingsSchema.parse(p)), 'owner')

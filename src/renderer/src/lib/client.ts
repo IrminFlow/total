@@ -981,7 +981,8 @@ export const api = {
     reorder: (from: string, to: string, onlyBelow = true) => call<ReorderRow[]>('stock:reorder', { from, to, onlyBelow }),
     expiryReport: (asOn: string, withinDays: number) => call<ExpiryReportRow[]>('stock:expiryReport', { asOn, withinDays }),
     labelsHtml: (q: StockLabelsQuery) => call<{ html: string }>('stock:labelsHtml', q),
-    labelsPdf: (q: StockLabelsQuery) => call<{ path: string }>('stock:labelsPdf', q)
+    /** `cancelled` = the user closed the save dialog (nothing written). */
+    labelsPdf: (q: StockLabelsQuery) => call<{ path: string; cancelled?: boolean }>('stock:labelsPdf', q)
   },
   serials: {
     list: (q: { stockItemId?: number; status?: SerialStatus } = {}) => call<SerialListRow[]>('serials:list', q),
@@ -1265,8 +1266,9 @@ export const api = {
   },
   edoc: {
     list: (from: string, to: string) => call<EdocListRow[]>('edoc:list', { from, to }),
-    exportEInvoice: (from: string, to: string, period: string) =>
-      call<{ path: string; count: number }>('edoc:exportEInvoice', { from, to, period }),
+    /** `range` = only the documents dated within it (inside from–to); absent = the whole period. */
+    exportEInvoice: (from: string, to: string, period: string, range?: { from: string; to: string }) =>
+      call<{ path: string; count: number; cancelled?: boolean }>('edoc:exportEInvoice', { from, to, period, ...(range ? { range } : {}) }),
     exportEwb: (from: string, to: string, period: string, opts?: { voucherIds?: number[]; includeBelowThreshold?: boolean }) =>
       call<{ path: string; dir: string; count: number; skipped: { number: string; reason: string }[] }>(
         'edoc:exportEwb',
@@ -1396,7 +1398,7 @@ export const api = {
     template: (kind: ImportKind) => call<{ path: string }>('import:template', { kind })
   },
   exporter: {
-    caPack: (from: string, to: string) => call<{ path: string }>('export:caPack', { from, to }),
+    caPack: (from: string, to: string) => call<{ path: string; cancelled?: boolean }>('export:caPack', { from, to }),
     tallyXml: (from: string, to: string) => call<{ path: string }>('export:tallyXml', { from, to })
   },
   exportReport: {

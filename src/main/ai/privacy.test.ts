@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { assignAliases, createPseudonymiser, maskIdentifiers, mapStrings, outboundText, inboundText, aliasFor } from './privacy'
+import { anomalyRef } from '@shared/anomalies'
+import { maskFreeText } from '../mcp/mask'
 
 describe('maskIdentifiers', () => {
   it('masks GSTINs, keeping only the last three characters', () => {
@@ -27,6 +29,22 @@ describe('maskIdentifiers', () => {
     expect(maskIdentifiers('a/c 12345678')).toBe('a/c [A/c …5678]')
     expect(maskIdentifiers('a/c 5010 0123 4567 89 at HDFC')).toBe('a/c [A/c …6789] at HDFC')
     expect(maskIdentifiers('dated 2025-07-31 and 2025 07')).toBe('dated 2025-07-31 and 2025 07')
+  })
+
+  it('leaves anomaly refs alone (to-do §4) while the keys they stand for are rewritten', () => {
+    // Keys carry voucher ids + paise; long runs read as account numbers.
+    const keys = ['amount_outlier:812:1250000000', 'duplicate_party_amount:12:13:2500000', 'gst_rate_deviation:99:450000:2500000', 'hsn_rate_mismatch:7:1800', 'round_amount:123456789:100000000']
+    expect(maskIdentifiers(keys[0]!)).not.toBe(keys[0])
+    for (let i = 0; i < 2000; i++) keys.push(`amount_outlier:${i}:${(i * 7919 + 13) * 100}`)
+    for (const k of keys) {
+      const ref = anomalyRef(k)
+      expect(ref).toMatch(/^[a-z]{10}$/)
+      expect(maskIdentifiers(ref)).toBe(ref)
+      expect(maskIdentifiers(`ref ${ref.toUpperCase()},`)).toBe(`ref ${ref.toUpperCase()},`)
+      expect(maskFreeText(ref)).toBe(ref)
+    }
+    const result = { anomalies: keys.slice(0, 5).map((k) => ({ ref: anomalyRef(k), key: k })) }
+    expect(mapStrings(result, maskIdentifiers).anomalies.map((a) => a.ref)).toEqual(result.anomalies.map((a) => a.ref))
   })
 
   it('applies inside JSON-like values via mapStrings, leaving keys and numbers', () => {

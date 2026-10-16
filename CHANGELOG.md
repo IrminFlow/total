@@ -317,6 +317,20 @@ Read these before filing from the next release.
     Indicative, never posted; what it assumes is listed as UNVERIFIED in `shared/tdsInterest.ts`.
   - The Cash forecast can include pending post-dated cheques (Options → Include, off by default),
     in place of the bills they settle.
+- **Exports ask where to save; e-invoice dates; fresh item lists; anomaly refs — no figure changed**
+  [#137](https://github.com/IrminFlow/total/pull/137):
+  - Barcode labels (PDF), the CA pack and the e-invoice JSON open a save dialog that starts in the
+    company's `exports/` folder with the name they always had; Cancel writes nothing. The CA pack
+    is still a folder (the name you give is the folder's).
+  - The e-Invoice screen has From / To dates for the e-invoice JSON: only the documents dated
+    within them are written (they must lie inside the period). Blank = the whole period, the same
+    file as before.
+  - A stock item, ledger, unit, godown, group or price list created or changed elsewhere (another
+    screen, an import, the MCP inbox) shows up in an open screen's lists, such as the Barcode
+    labels tab, without reopening it.
+  - The AI assistant's `find_anomalies` gives every finding a short letters-only ref that masking
+    leaves alone, so it can name a finding again (and look it up by ref). The stored keys and
+    dismissals are unchanged.
 - The UNVERIFIED items listed under 0.11.0 (QRMP details, GSTR-1 amendment notifications, the
   2025/2026 slab sources) still apply.
 
@@ -492,6 +506,19 @@ Read these before filing from the next release.
   pointer, relaunches) in `ipcDataRoot.ts`; copy / check / rollback in `services/dataRootMove.ts`;
   codes `data_folder_*` in ERROR_MAP; `isOneDrivePath` in `shared/windowsPaths.ts`. `total-cli` / MCP
   read the same pointer (`cli/dataRoot.ts`; a missing folder warns on stderr, then the default). [#133](https://github.com/IrminFlow/total/pull/133), [#138](https://github.com/IrminFlow/total/pull/138)
+
+- **Export targets, master events, anomaly refs** [#137](https://github.com/IrminFlow/total/pull/137):
+  `main/exportTarget.ts` (`chooseExportPath`, pure, dialog injected) — `stock:labelsPdf`,
+  `export:caPack`, `edoc:exportEInvoice` show `dialog.showSaveDialog` and return `cancelled: true`
+  on cancel; with `TOTAL_DATA_DIR` set (smoke / e2e / dbtests / CLI) the dialog is skipped and the
+  file goes to `exports/` exactly as before. `edoc:exportEInvoice` takes an optional `range`
+  (`{ from, to }`, Zod-refined inside the period; file `einvoice-<period>-<from>_<to>.json`).
+  `main/masterEvents.ts`: after a successful handler whose `AUDIT_COVERAGE` names a master entity,
+  main sends `total:masters:changed` `{ entities }` (preload `onMastersChanged`); renderer
+  `lib/masterEvents.ts` invalidates the matching query keys (bound in main.tsx).
+  `shared/anomalies.ts` `anomalyRef` / `resolveAnomalyRef` (10 letters, FNV-1a base 26 of the key);
+  `find_anomalies` returns `ref` and takes `refs`; `assist:anomaly:dismiss` takes `ref` (+ optional
+  `from` / `to`) instead of `key` (`anomalyKeyForRef`). New eval case `acc.anomaly-ref-followup`.
 
 ## [0.11.0] - 2026-10-13
 

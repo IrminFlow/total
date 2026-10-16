@@ -19,6 +19,8 @@ declare global {
       /** WP 7.2: main locked the session (⌘L / idle auto-lock). */
       onSessionLocked?: (listener: (event: { reason: 'manual' | 'idle'; kind?: 'pin' | 'passphrase' | 'privacy' }) => void) => () => void
       onUpdateEvent?: (listener: (notice: unknown) => void) => () => void
+      /** to-do §4: masters changed by a write (main/masterEvents.ts); refetch those cached lists. */
+      onMastersChanged?: (listener: (event: { entities: string[] }) => void) => () => void
     }
   }
 }

@@ -145,7 +145,9 @@ import {
 } from '@shared/schemas'
 import * as consolidated from './services/consolidated'
 import * as caPack from './services/caPack'
-import { writeExportPdf } from './services/pdf'
+import { writeExportPdf, writePdfFile } from './services/pdf'
+import { chooseExportPath, hermeticRun, type ExportTargetRequest } from './exportTarget'
+import { MASTERS_CHANGED_EVENT, masterEntitiesOf } from './masterEvents'
 import { reportHtml } from './services/reportHtml'
 import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
@@ -468,6 +470,20 @@ export function ipcStructuredError(err: unknown): Partial<StructuredError> {
  *  scripts/perf-launch.mjs reads it to say where opening a big company goes. Channel names only. */
 const TRACE_IPC = process.env.TOTAL_IPC_TRACE === '1' && !!process.env.TOTAL_DATA_DIR
 
+/** to-do §4: after a write that can change masters, every window refetches those cached lists
+ *  (masterEvents.ts) — so a screen sees an item created elsewhere without being reopened. */
+function notifyMastersChanged(channel: string): void {
+  const entities = masterEntitiesOf(channel)
+  if (!entities.length) return
+  // The write has committed: a window that is going away must never turn it into a failed call
+  // (the renderer would show an error for a saved change and a retry would save it twice).
+  try {
+    for (const w of BrowserWindow.getAllWindows?.() ?? []) if (!w.isDestroyed()) w.webContents.send(MASTERS_CHANGED_EVENT, { entities })
+  } catch (err) {
+    log('warn', 'masters-changed', { channel, error: err instanceof Error ? err.message : String(err) })
+  }
+}
+
 function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): void {
   CHANNEL_ROLES.set(channel, minRole)
   ipcMain.handle(`total:${channel}`, async (_event, payload: unknown) => {
@@ -503,6 +519,7 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
         }
       }
       const data = await fn(payload)
+      notifyMastersChanged(channel)
       if (TRACE_IPC) console.log(`[ipc] ${channel} ${(performance.now() - t0).toFixed(0)} ms`)
       return { ok: true, data }
     } catch (err) {
@@ -530,6 +547,20 @@ const withIdSchema = <T extends z.ZodTypeAny>(schema: T) => z.object({ id: z.num
 /** [lane-Q audit] one-line summary audit row for every file-export handler (task Q1 #90). */
 const auditExport = (db: DB, kind: string, detail: Record<string, unknown>): void =>
   writeAudit(db, 'export', 0, 'export', null, { kind, ...detail })
+
+/** to-do §4: the labels PDF, CA pack and e-invoice JSON ask where to save (a native dialog that
+ *  starts in `<company>/exports/` with the export's own name); hermetic runs skip it (exportTarget.ts). */
+const pickExportPath = (slug: string, req: Omit<ExportTargetRequest, 'exportsDir'>): Promise<string | null> =>
+  chooseExportPath(
+    { ...req, exportsDir: companyExportsDir(slug) },
+    {
+      hermetic: () => hermeticRun(process.env, app?.isPackaged ?? null),
+      showSaveDialog: (opts) => {
+        const win = BrowserWindow.getFocusedWindow?.()
+        return win ? dialog.showSaveDialog(win, opts) : dialog.showSaveDialog(opts)
+      }
+    }
+  )
 
 export function registerIpc(): void {
   // WP 3.8 user attribution: the signed-in user (id + name). With no session the writer falls back
@@ -1562,7 +1593,9 @@ export function registerIpc(): void {
     const q = stockLabelsSchema.parse(p)
     const c = requireCompany()
     const html = stockAnalysis.labelsHtml(c.db, { ...q, caption: c.info.name })
-    const path = await writeExportPdf(c.slug, `barcode-labels-${q.date}.pdf`, html, { pageSize: 'A4', margins: 'none' })
+    const target = await pickExportPath(c.slug, { defaultName: `barcode-labels-${q.date}.pdf`, title: 'Save barcode labels', filters: [{ name: 'PDF', extensions: ['pdf'] }] })
+    if (!target) return { path: '', cancelled: true }
+    const path = await writePdfFile(target, html, { pageSize: 'A4', margins: 'none' })
     auditExport(c.db, 'barcode_labels', { items: q.items.length, path })
     shell.openPath(path)
     return { path }
@@ -2429,11 +2462,20 @@ export function registerIpc(): void {
     const c = requireCompany()
     return edocs.listSalesInvoices(c.db, from, to, c.info)
   }, 'viewer')
-  handle('edoc:exportEInvoice', (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
+  handle('edoc:exportEInvoice', async (p) => {
+    // to-do §4: an optional range inside the period (absent = the whole period, as before).
+    const { from, to, period, range } = gstPeriodInput
+      .extend({ range: z.object({ from: isoDate, to: isoDate }).optional() })
+      .refine((q) => !q.range || (q.range.from <= q.range.to && q.range.from >= q.from && q.range.to <= q.to), {
+        message: 'The dates must lie within the period, the first on or before the last',
+        path: ['range']
+      })
+      .parse(p)
     const c = requireCompany()
-    const r = edocs.exportEInvoices(c.db, c.info, c.slug, from, to, period)
-    auditExport(c.db, 'einvoice', { period, path: r.path, count: r.count })
+    const target = await pickExportPath(c.slug, { defaultName: edocs.eInvoiceFileName(period, range), title: 'Save e-invoice JSON', filters: [{ name: 'JSON', extensions: ['json'] }] })
+    if (!target) return { path: '', count: 0, cancelled: true }
+    const r = edocs.exportEInvoices(c.db, c.info, c.slug, from, to, period, { path: target, range })
+    auditExport(c.db, 'einvoice', { period, ...(range ? { range } : {}), path: r.path, count: r.count })
     shell.showItemInFolder(r.path)
     return r
   })
@@ -2768,13 +2810,15 @@ export function registerIpc(): void {
   }, 'viewer')
 
   // ---------- CA export pack + Tally XML export ----------
-  handle('export:caPack', (p) => {
+  handle('export:caPack', async (p) => {
     const { from, to } = periodSchema.parse(p)
     const c = requireCompany()
     // PR #127 review: the pack holds profit-and-loss.csv and balance-sheet.csv — canExport alone
     // must not hand them to a sign-in that may not see profit.
     if (!canSeeProfitNow()) throw new AppError('not_permitted', 'The CA pack includes the profit and loss and the balance sheet, which are not shown to your account')
-    const r = caPack.exportCaPack(c.db, c.info, c.slug, from, to)
+    const target = await pickExportPath(c.slug, { defaultName: caPack.caPackFolderName(from, to), title: 'Save the CA pack (a folder)', kind: 'folder' })
+    if (!target) return { path: '', cancelled: true }
+    const r = caPack.exportCaPack(c.db, c.info, c.slug, from, to, target)
     auditExport(c.db, 'ca_pack', { from, to, path: r.path })
     shell.showItemInFolder(r.path)
     return r

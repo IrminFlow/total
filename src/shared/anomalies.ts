@@ -573,3 +573,43 @@ export function findAnomalies(input: AnomalyInput, opts: Partial<AnomalyOptions>
     .filter((a) => (seen.has(a.key) ? false : (seen.add(a.key), true)))
     .sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity] || (a.date ?? '').localeCompare(b.date ?? '') || a.key.localeCompare(b.key))
 }
+
+/** Length of an anomaly's `ref` (26^10 ≈ 1.4 × 10^14 — a clash among one period's findings is
+ *  vanishingly unlikely, and a clash is refused rather than guessed: `resolveAnomalyRef`). */
+export const ANOMALY_REF_LENGTH = 10
+export const ANOMALY_REF_RE = /^[a-z]{10}$/
+
+/**
+ * A short, letters-only alias for an anomaly key, for the AI assistant (to-do §4). The stored
+ * keys stay exactly as they are (dismissals in assistant_marks are keyed by them), but they carry
+ * long digit runs — `amount_outlier:812:1250000` — that outbound masking (BANK_ACCOUNT_RE) can
+ * rewrite on the way to the model, so the model could not quote a key back. A ref has no digit,
+ * no GSTIN / PAN / IFSC shape, so no masking rule touches it; it is derived from the key alone
+ * (FNV-1a 64-bit, base 26 — the same scheme as the GSTR-2B portal keys), so it is as stable as
+ * the key and needs no storage.
+ */
+export function anomalyRef(key: string): string {
+  let h = 0xcbf29ce484222325n
+  for (let i = 0; i < key.length; i++) {
+    h ^= BigInt(key.charCodeAt(i))
+    h = (h * 0x100000001b3n) & 0xffffffffffffffffn
+  }
+  let out = ''
+  for (let i = 0; i < ANOMALY_REF_LENGTH; i++) {
+    out += String.fromCharCode(97 + Number(h % 26n))
+    h /= 26n
+  }
+  return out
+}
+
+/** The key among `keys` whose ref is `ref` (case-insensitive); null when none — or more than one — has it. */
+export function resolveAnomalyRef(ref: string, keys: Iterable<string>): string | null {
+  const want = ref.trim().toLowerCase()
+  let hit: string | null = null
+  for (const k of new Set(keys)) {
+    if (anomalyRef(k) !== want) continue
+    if (hit !== null) return null
+    hit = k
+  }
+  return hit
+}

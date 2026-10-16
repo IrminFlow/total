@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import { applyStoredAppearance } from './state/stores'
 import { bindQueryCacheToCompany } from './lib/companyCache'
+import { bindMasterEvents } from './lib/masterEvents'
 import { configureI18n } from '@shared/i18n'
 import './app.css'
 import { installPcShortcutLabels } from './lib/platform'
@@ -19,6 +20,8 @@ const queryClient = new QueryClient({
   }
 })
 bindQueryCacheToCompany(queryClient)
+// to-do §4: a master created or changed elsewhere refreshes the cached lists (Labels tab, pickers).
+bindMasterEvents(queryClient)
 // WP 7.3: ⌘K / ⌥A labels read Ctrl+K / Alt+A on Windows (the handlers accept Ctrl already).
 installPcShortcutLabels()
 

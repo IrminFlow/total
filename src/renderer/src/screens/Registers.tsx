@@ -136,7 +136,7 @@ export function RegistersScreen({ tab: requestedTab, from: askedFrom, to: askedT
     setBusy(which)
     try {
       const r = which === 'caPack' ? await api.exporter.caPack(from, to) : await api.exporter.tallyXml(from, to)
-      toast.push('success', `Saved to ${r.path}`)
+      if (!('cancelled' in r && r.cancelled)) toast.push('success', `Saved to ${r.path}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
