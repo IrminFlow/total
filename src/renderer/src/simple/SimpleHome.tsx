@@ -10,6 +10,7 @@ import { useNav } from '../state/stores'
 import { Page } from '../components/ui'
 import { Button, SkeletonTiles, Why } from '../components/kit'
 import { OpeningsHomeCard } from './OpeningsHomeCard'
+import { useCanSave, ViewerBackupNote } from './ViewerNote'
 import { HomeTour } from './help/Tour'
 import { HOME_TASKS, accountScreen, attentionScreen, deadlineScreen, homeReportScreen, type HomeReport } from './homeTasks'
 import { onboardingFromDashSetup, type OnboardingChecklist, type OnboardingStepId } from '@shared/onboarding'
@@ -151,6 +152,7 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
     gst: link('gst', gstRegular ? gstLinkLabel(gstRegular, t) : '') // i18n-technical
   }
   const empty = isEmptyHome(home)
+  const canSave = useCanSave()
   const backupsScreen = homeReportScreen('backups', home) // i18n-technical
 
   return (
@@ -279,9 +281,15 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
             <span aria-hidden="true" className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-cr" />
             {t('simple.home.backupCheckFailed')}
           </p>
-          <Button className="mt-2" size="sm" variant="secondary" onClick={() => nav.go(backupsScreen)}>
-            {t('simple.home.backupNow')}
-          </Button>
+          {canSave ? (
+            <Button className="mt-2" size="sm" variant="secondary" onClick={() => nav.go(backupsScreen)}>
+              {t('simple.home.backupNow')}
+            </Button>
+          ) : (
+            <div className="mt-2">
+              <ViewerBackupNote />
+            </div>
+          )}
         </section>
       )}
 
@@ -316,9 +324,13 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
           {home.backup.nudge && home.backup.days != null && (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-md bg-panel2 px-3 py-2" data-testid="simple-home-backup-nudge">
               <p className="text-detail text-ink">{t('simple.home.backupNudge', { days: home.backup.days })}</p>
-              <Button size="sm" variant="secondary" onClick={() => nav.go(backupsScreen)}>
-                {t('simple.home.backupNow')}
-              </Button>
+              {canSave ? (
+                <Button size="sm" variant="secondary" data-testid="btn-home-backup-now" onClick={() => nav.go(backupsScreen)}>
+                  {t('simple.home.backupNow')}
+                </Button>
+              ) : (
+                <ViewerBackupNote />
+              )}
             </div>
           )}
         </section>

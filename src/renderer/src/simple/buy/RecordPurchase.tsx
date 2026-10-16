@@ -34,7 +34,7 @@ import { PaidNow } from './PaidNow'
 import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
-import { useCanSave } from '../ViewerNote'
+import { useCanSave, ViewerNote } from '../ViewerNote'
 
 const INCL_KEY = 'total-buy-incl' // i18n-technical: localStorage key (per company)
 const PURCHASES_CATEGORY = 'purchases' as const // i18n-technical
@@ -344,13 +344,16 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
           <AccountantViewButton testId="btn-buy-accountant-view" title={t('simple.buy.accountantHint')} onOpen={accountantView} />
         </div>
       </div>
+      {!canSave && <ViewerNote top />}
 
       {noPurchaseAccount && !savedIds && (
         <section role="status" className="mb-4 rounded-lg border border-amber/60 bg-amberbar/10 px-4 py-3" data-testid="buy-no-purchase-account">
           <p className="text-body text-ink">{t('simple.buy.noPurchaseAccount')}</p>
-          <Button className="mt-2" variant="primary" disabled={addingAccount} data-testid="btn-buy-add-purchase-account" onClick={() => void addPurchaseAccount()}>
-            {t('simple.buy.addPurchaseAccount')}
-          </Button>
+          {canSave && (
+            <Button className="mt-2" variant="primary" disabled={addingAccount} data-testid="btn-buy-add-purchase-account" onClick={() => void addPurchaseAccount()}>
+              {t('simple.buy.addPurchaseAccount')}
+            </Button>
+          )}
         </section>
       )}
       {savedIds ? (
@@ -372,7 +375,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
                   value={form.supplierId}
                   onPick={(id) => update({ supplierId: id })}
                   placeholder={t('simple.buy.supplierPlaceholder')}
-                  onCreate={(name) => setCreating({ what: 'supplier', name })} // i18n-technical
+                  onCreate={canSave ? (name) => setCreating({ what: 'supplier', name }) : undefined} // i18n-technical
                   testId="picker-buy-supplier"
                   autoFocus
                 />
@@ -463,7 +466,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
                   error={errors.get(F.items)}
                   onChange={(lines) => update({ lines })}
                   onAdd={() => update({ lines: [...form.lines, newLine()] })}
-                  onCreate={(name, lineKey) => setCreating({ what: 'product', name, lineKey })} // i18n-technical
+                  onCreate={canSave ? (name, lineKey) => setCreating({ what: 'product', name, lineKey }) : undefined} // i18n-technical
                 />
                 {!showDiscount && (
                   <button type="button" className="mt-3 text-detail text-blue hover:underline" data-testid="btn-buy-add-discount" onClick={() => setShowDiscount(true)}>

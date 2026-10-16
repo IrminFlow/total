@@ -330,3 +330,15 @@ describe('the purchase bill view starts a return; the purchase list carries the 
     expect((await screen.findByTestId('purchase-returned')).textContent).toBe('Returned ₹236.00')
   })
 })
+
+describe('to-do §4: a viewer is told up front (Returns)', () => {
+  it('Return a sale: the note at the top before a bill is picked', async () => {
+    act(() => useSession.setState({ user: { id: 2, name: 'Vee', role: 'viewer' } as never }))
+    try {
+      renderUi(<ReturnSale />)
+      expect((await screen.findByTestId('viewer-note-top')).textContent).toContain('can’t save entries')
+    } finally {
+      act(() => useSession.setState({ user: null }))
+    }
+  })
+})

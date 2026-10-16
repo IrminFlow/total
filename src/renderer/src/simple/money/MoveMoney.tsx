@@ -5,6 +5,7 @@ import { toPlainDate } from '@shared/dates'
 import { emptyMoveForm, moveErrors, moveIntentFrom, type MoveField, type MoveForm } from '@shared/simple/money'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
+import { useCanSave } from '../ViewerNote'
 import { useNav, useSession } from '../../state/stores'
 import { AmountInput, Button, DateInput, Field, Page, Select, TextInput, useFormErrors } from '../../components/ui'
 import { NewAccountDialog } from '../NewAccountDialog'
@@ -26,6 +27,8 @@ const isDirty = (f: MoveForm): boolean => f.amount != null || f.fromId != null |
  */
 export function MoveMoney(): React.JSX.Element {
   const t = useT()
+  // A viewer can't add accounts (main refuses it): no button that only says "not allowed".
+  const mayAdd = useCanSave()
   const nav = useNav()
   const workingDate = useSession((s) => s.workingDate)
   const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup'], queryFn: api.simpleMoney.setup }) // i18n-technical
@@ -69,9 +72,11 @@ export function MoveMoney(): React.JSX.Element {
             {noBank && (
               <div className="mb-4 flex flex-wrap items-center gap-3" data-testid="money-move-no-bank">
                 <p className="text-small text-ink">{t('simple.money.moveNoBank')}</p>
-                <Button data-testid="btn-money-add-bank" onClick={() => setAddingBank(true)}>
-                  {t('simple.money.addBank')}
-                </Button>
+                {mayAdd && (
+                  <Button data-testid="btn-money-add-bank" onClick={() => setAddingBank(true)}>
+                    {t('simple.money.addBank')}
+                  </Button>
+                )}
               </div>
             )}
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

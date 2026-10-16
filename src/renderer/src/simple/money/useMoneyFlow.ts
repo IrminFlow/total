@@ -56,6 +56,8 @@ export function useMoneyFlow<F extends string>(opts: {
   save: () => Promise<void>
   startNew: () => void
   askDiscard: () => Promise<boolean>
+  /** WP 10.8: false for a viewer (no Save, no "Create …" rows). */
+  canSave: boolean
 } {
   const t = useT()
   const canSave = useCanSave()
@@ -172,5 +174,5 @@ export function useMoneyFlow<F extends string>(opts: {
     return () => window.removeEventListener('keydown', h, true)
   }, [])
 
-  return { preview, previewing, saving, savedIds, general, save, startNew, askDiscard }
+  return { preview, previewing, saving, savedIds, general, save, startNew, askDiscard, canSave }
 }

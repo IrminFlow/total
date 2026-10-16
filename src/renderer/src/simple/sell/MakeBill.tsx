@@ -31,7 +31,7 @@ import { PaidHow } from './PaidHow'
 import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
-import { useCanSave } from '../ViewerNote'
+import { useCanSave, ViewerNote } from '../ViewerNote'
 
 const INCL_KEY = 'total-sell-incl' // i18n-technical: localStorage key (per company)
 const SALES_KIND = 'sales' as const // i18n-technical
@@ -348,13 +348,16 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
         </div>
         <AccountantViewButton testId="btn-sell-accountant-view" title={t('simple.sell.accountantHint')} onOpen={accountantView} />
       </div>
+      {!canSave && <ViewerNote top />}
 
       {noSalesAccount && !savedIds && (
         <section role="status" className="mb-4 rounded-lg border border-amber/60 bg-amberbar/10 px-4 py-3" data-testid="sell-no-sales-account">
           <p className="text-body text-ink">{t('simple.sell.noSalesAccount')}</p>
-          <Button className="mt-2" variant="primary" disabled={addingSales} data-testid="btn-sell-add-sales-account" onClick={() => void addSalesAccount()}>
-            {t('simple.sell.addSalesAccount')}
-          </Button>
+          {canSave && (
+            <Button className="mt-2" variant="primary" disabled={addingSales} data-testid="btn-sell-add-sales-account" onClick={() => void addSalesAccount()}>
+              {t('simple.sell.addSalesAccount')}
+            </Button>
+          )}
         </section>
       )}
       {savedIds ? (
@@ -377,7 +380,7 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
                   value={form.customerId}
                   onPick={pickCustomer}
                   placeholder={t('simple.sell.customerPlaceholder')}
-                  onCreate={(name) => setCreating({ what: 'customer', name })} // i18n-technical
+                  onCreate={canSave ? (name) => setCreating({ what: 'customer', name }) : undefined} // i18n-technical
                   testId="picker-sell-customer"
                   autoFocus
                 />
@@ -431,7 +434,7 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
                 error={errors.get(F.items)}
                 onChange={(lines) => update({ lines })}
                 onAdd={() => update({ lines: [...form.lines, newLine()] })}
-                onCreate={(name, lineKey) => setCreating({ what: 'product', name, lineKey })} // i18n-technical
+                onCreate={canSave ? (name, lineKey) => setCreating({ what: 'product', name, lineKey }) : undefined} // i18n-technical
               />
             ) : (
               <AmountLine form={form} regular={regular} charges={charges} amountError={errors.get(F.amount)} rateError={errors.get(F.gstRate)} onChange={update} />

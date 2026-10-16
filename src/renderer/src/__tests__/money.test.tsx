@@ -316,3 +316,23 @@ describe('Move money and the list (WP 9.4)', () => {
     expect(bannedWordsIn(visible())).toEqual([])
   })
 })
+
+describe('to-do §4: a viewer is told up front (Money in / out / move)', () => {
+  it.each([
+    ['Money in', <MoneyIn key="in" />],
+    ['Money out', <MoneyOut key="out" />],
+    ['Move money', <MoveMoney key="move" />]
+  ])('%s: the note at the top and in place of Save; no Create row, no "Add a bank account"', async (_name, ui) => {
+    act(() => useSession.setState({ user: { id: 2, name: 'Vee', role: 'viewer' } as never }))
+    try {
+      renderUi(ui)
+      expect((await screen.findByTestId('viewer-note-top')).textContent).toContain('can’t save entries')
+      expect(screen.getByTestId('viewer-note')).toBeTruthy()
+      expect(screen.queryByTestId('btn-money-save')).toBeNull()
+      expect(screen.queryByTestId('btn-money-add-bank')).toBeNull()
+      expect(document.querySelector('[data-create="true"]')).toBeNull()
+    } finally {
+      act(() => useSession.setState({ user: null }))
+    }
+  })
+})

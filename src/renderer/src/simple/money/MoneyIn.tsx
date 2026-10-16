@@ -157,7 +157,7 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
                       value={form.customerId}
                       onPick={(id) => update({ customerId: id, ticks: null, advance: false })}
                       placeholder={t('simple.money.customerPlaceholder')}
-                      onCreate={(name) => setCreating({ what: 'customer', name })} // i18n-technical
+                      onCreate={flow.canSave ? (name) => setCreating({ what: 'customer', name }) : undefined} // i18n-technical
                       testId="picker-money-customer"
                       autoFocus
                     />

@@ -365,3 +365,20 @@ describe('Record a purchase (WP 9.3)', () => {
     expect(recordSupplierPaymentScreen({ partyId: 10, due: 0 }, 30)).toEqual({ name: 'simple-money-out', party: 10 })
   })
 })
+
+describe('to-do §4: a viewer is told up front (Record a purchase)', () => {
+  it('the note at the top and in place of Save; typing a new supplier offers no Create row', async () => {
+    act(() => useSession.setState({ user: { id: 2, name: 'Vee', role: 'viewer' } as never }))
+    try {
+      renderUi()
+      expect((await screen.findByTestId('viewer-note-top')).textContent).toContain('can’t save entries')
+      expect(screen.getByTestId('viewer-note')).toBeTruthy()
+      expect(screen.queryByTestId('btn-buy-save')).toBeNull()
+      fireEvent.change(screen.getByTestId('picker-buy-supplier'), { target: { value: 'Brand new mill' } })
+      await new Promise((r) => setTimeout(r, 20))
+      expect(document.querySelector('[data-create="true"]')).toBeNull()
+    } finally {
+      act(() => useSession.setState({ user: null }))
+    }
+  })
+})
