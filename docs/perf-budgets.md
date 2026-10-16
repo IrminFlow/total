@@ -30,7 +30,7 @@ npm run perf -- --data /tmp/perf100k          # measure an existing seed
 npm run perf -- --vouchers 500000             # the manual 500k run (~30 min of seeding)
 npm run perf -- --data <dir> --profile home   # one case, statement by statement, with query plans
 npm run perf -- --data <dir> --open-steps     # the company:open sequence, step by step
-npm run build && node scripts/perf-launch.mjs --data /tmp/perf100k [--simple] [--trace]
+npm run build && node scripts/perf-launch.mjs --data /tmp/perf100k [--simple] [--trace] [--boot]
 ```
 
 The perf commands never touch `~/Documents/total` (they refuse it).
@@ -58,7 +58,7 @@ noisy by ±20 %; the A/B tables below interleave before / after runs on copies o
 | Save: sales invoice with 5 lines; receipt against 3 bills | `vouchers.saveVoucher` | 300 ms | 300 ms |
 | Company open: integrity check | `checkIntegrity` | 1 s | 3 s |
 | Backup (online snapshot + quick_check of the copy) | `snapshotTo` + `quickCheckOk` | 3 s | 10 s |
-| **launch**: app launch → Home interactive (built app, Playwright, 100k) | `scripts/perf-launch.mjs` | 2 s target, not met — see Launch | — |
+| **launch**: app launch → Home interactive (built app, Playwright, 100k) | `scripts/perf-launch.mjs` | 2 s target, not met — see Launch (renderer boot after lazy screens, PR #135: startup bundle 5.7 → 2.7 MB, DOMContentLoaded 0.90 → 0.67 s) | — |
 
 Why the budgets differ from the proposal (100k ≤ 1 s per report, ≤ 300 ms save, ≤ 200 ms search;
 500k ≤ 3 s per report):
@@ -226,6 +226,46 @@ quick_check and the weekly `PRAGMA integrity_check` ran on the main thread (now 
 weekly check, which only logs, no longer holds the open); the open backup and the integrity check ran
 one after the other (now together, both still before the reply); the Gateway's P&L valued stock twice
 and listed the whole FY to show 8 recent entries.
+
+### Lazy screens (PR #135)
+
+Before, the renderer was one 5.7 MB script with every screen in it, parsed and run before the
+company list could draw. Now every screen App.tsx renders is its own chunk (`lazyScreens.ts`,
+loaded on first visit by `lib/lazyScreen.tsx`; while a chunk is on its way `<main data-loading>`
+says "true", so the e2e harness waits for it as for a query), except what the first paint needs —
+CompanySelect + the setup wizard, Gateway, simple Home, Shell, the lock screens. Once Home is idle,
+the sidebar's screens are loaded one per idle slot (`components/HomePrefetch.tsx`; a simple company
+only its simple screens — ~26, the full-app hand-offs load on first visit), so a first click
+renders at once. React, React Query, zustand and zod are one `vendor` chunk (`manualChunks` in
+`electron.vite.config.ts`). Not React.lazy: React holds back Suspense content until 300 ms after a
+fallback was shown, which would have cost up to 0.3 s on each first visit.
+
+`out/renderer/assets`: 1 JS file (5,745 kB) → 146 — the entry 1,955 kB + vendor 748 kB load at
+startup (2.7 MB); screens are 1–217 kB (median chunk 11 kB; Settings 217 kB, VoucherEntry 182 kB,
+Banking 160 kB, Masters 119 kB). What is left in the entry: react-dom (553 kB, vendor), the three
+i18n catalogues (en 200 kB, hi 195 kB, hinglish 209 kB — `t()` is synchronous, so the Hindi and
+Hinglish ones could only move with an async language switch), zod, the registry, DataTable, the
+AI panel, the palette.
+
+Measured on 17 Oct 2026 on a 20k Perf Traders seed (the renderer's work does not depend on the
+size of the books), before (origin/main built the same way) and after alternated, 3 runs of each
+mode each; the laptop was heavily loaded (load average 21–60 from other work), so whole launches
+are noisy and roughly 3× an idle machine. `--boot` adds five page reloads at the company list per
+run (main already up — the renderer alone):
+
+| launch (20k, loaded laptop) | Before | After |
+|---|---:|---:|
+| Renderer: first launch DOMContentLoaded (median of 6) | 0.90 s | 0.67 s |
+| Renderer: reload → company list (median of 6 × 5) | 0.27 s | 0.21 s |
+| Renderer: reload DOMContentLoaded | 0.15 s | 0.10 s |
+| Gateway: launch → company list | 5.9 s | 5.9 s |
+| **Gateway: launch → Home interactive** | **8.4 s** | **8.7 s** |
+| Simple Home: launch → company list | 5.5 s | 4.2 s |
+| **Simple Home: launch → Home interactive** | **8.5 s** | **7.2 s** |
+
+The renderer's own part is a quarter to a third shorter; the whole-launch figures move within the
+noise of this machine (the Gateway pair is ±1.5 s run to run) — most of a loaded launch is Electron
+and the main process starting, which this does not touch. Click → Home is unchanged (Home is eager).
 
 ## CI
 

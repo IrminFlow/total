@@ -5,9 +5,13 @@ import { useEffect, useRef } from 'react'
 import { useDrill, ledgerForShortcut, openLedgerEdit, openLedgerStatement } from '../lib/drill'
 import { useSession } from '../state/stores'
 import { LedgerFormModal } from './LedgerFormModal'
-import { ItemFormModal } from '../screens/Masters'
+import { lazyScreen } from '../lib/lazyScreen'
 import { useStockItems } from './pickers'
 import { Modal, isAnyModalOpen } from './ui'
+import { ErrorBoundary } from './ErrorBoundary'
+
+// The item form lives in the Masters screen's chunk; loaded the first time an item is edited from a drill.
+const ItemFormModal = lazyScreen(() => import('../screens/Masters'), 'ItemFormModal')
 
 export function DrillHost(): React.JSX.Element {
   const ledgerEditId = useDrill((s) => s.ledgerEditId)
@@ -47,7 +51,13 @@ export function DrillHost(): React.JSX.Element {
 function ItemById({ itemId, onClose }: { itemId: number; onClose: () => void }): React.JSX.Element {
   const items = useStockItems()
   const item = items.find((i) => i.id === itemId)
-  if (item) return <ItemFormModal item={item} onClose={onClose} />
+  // Lazy: a chunk that fails to load stops at this boundary instead of blanking the whole app.
+  if (item)
+    return (
+      <ErrorBoundary screen="item-edit">
+        <ItemFormModal item={item} onClose={onClose} />
+      </ErrorBoundary>
+    )
   return (
     <Modal title="Edit item" onClose={onClose}>
       <p className="text-detail text-muted">{items.length ? 'Item not found — it may have been deleted.' : 'Loading item…'}</p>

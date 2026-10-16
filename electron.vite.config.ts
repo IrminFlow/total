@@ -34,6 +34,19 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react(), tailwindcss()],
+    build: {
+      rollupOptions: {
+        output: {
+          // Screens are dynamic imports (src/renderer/src/lazyScreens.ts), so each is its own chunk and
+          // code several screens share lands in shared chunks. The libraries every screen needs (React,
+          // React Query, zustand, zod) are one vendor chunk, loaded with the entry and cached apart from it.
+          manualChunks(id) {
+            if (/[\\/]node_modules[\\/](react|react-dom|scheduler|@tanstack|zustand|zod)[\\/]/.test(id)) return 'vendor'
+            return undefined
+          }
+        }
+      }
+    },
     resolve: {
       alias: {
         '@shared': resolve(__dirname, 'src/shared'),

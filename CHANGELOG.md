@@ -210,6 +210,13 @@ what you typed, and a **Back to simple** button.
   went. Picking a folder that already has Total books opens those instead. Total never switches back to that
   old copy (its books are older) and warns at start if it finds itself opening one. Owner only where the
   business has sign-ins. [#133](https://github.com/IrminFlow/total/pull/133)
+- **Total starts drawing sooner.** Total used to load every screen it has before showing the list
+  of businesses. Now it loads only what the first screen needs (the start code went from 5.7 MB to
+  2.7 MB) and fetches each other screen the first time you open it — after Home has loaded, it
+  quietly gets the screens in the sidebar ready, so clicking them is as quick as before. Measured on
+  a busy laptop, the window's own start-up went from 0.90 s to 0.67 s (a reload from 0.27 s to
+  0.21 s); the rest of starting Total (the app itself starting up) is unchanged. Nothing you see
+  changed. [#135](https://github.com/IrminFlow/total/pull/135)
 
 - **Quarterly GST filers prepare their files on the Taxes screen.** If you file GST every
   quarter, step 3 no longer sends you to the full app: "Prepare the GSTR-1 files for the quarter"
@@ -369,6 +376,13 @@ Read these before filing from the next release.
   `report:dashboardPromised`, which stay) used by the accountant Gateway; PERF_CASE `gatewayAll`
   (2 s at 100k); the deferred backup restore check waits for 2 s without IPC (`quietWait.ts`, at
   most 60 s). [#131](https://github.com/IrminFlow/total/pull/131)
+- Lazy screens: every screen App.tsx renders except CompanySelect / the setup wizard, Gateway,
+  SimpleHome, Shell and the lock screens is a dynamic import (`src/renderer/src/lazyScreens.ts`,
+  `lib/lazyScreen.tsx` — not React.lazy, whose Suspense reveal throttle costs up to 300 ms per first
+  visit); `<main data-loading>` stays "true" while a chunk loads (`lib/chunkLoading.ts`); the
+  sidebar's chunks are prefetched once Home is idle (`components/HomePrefetch.tsx`; simple companies only their simple screens); `vendor`
+  chunk via `manualChunks`; `scripts/perf-launch.mjs --boot` times the renderer alone.
+  `FOCUS_SEARCH_EVENT` moved to `lib/searchEvents.ts` (re-exported). [#135](https://github.com/IrminFlow/total/pull/135)
 - "I've filed" lives in company meta `gstFiled`, not in `assistant_marks` (which has no room for an
   ARN). [#94](https://github.com/IrminFlow/total/pull/94)
 - i18n: `Translate.lang`, `toPlainDate(d, lang)`, `amountInWords(paise, lang)`; the glossary is

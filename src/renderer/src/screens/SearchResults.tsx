@@ -14,8 +14,9 @@ import { ItemLink, LedgerLink } from '../components/links'
 import { LINKABLE_VOUCHER_KINDS, openLinkedDocs } from '../components/LinkedDocs'
 import { useFeatures } from '../lib/useFeatures'
 
+import { FOCUS_SEARCH_EVENT } from '../lib/searchEvents'
 /** Window event App.tsx fires on ⌘⇧F while this screen is already open — refocus the query box. */
-export const FOCUS_SEARCH_EVENT = 'total:focus-search'
+export { FOCUS_SEARCH_EVENT }
 
 /** Rows per kind on the All tab (overview; "See all" opens the kind's tab). */
 const OVERVIEW = 20
