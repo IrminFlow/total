@@ -19,6 +19,7 @@ import { effectiveCapabilities, type Capability, type CapabilityFlags } from '@s
 import type { BackupCheck } from '@shared/backupCheck'
 import type { SecurityView } from '@shared/security'
 import { redactDashboard, redactDashboardSeries, redactHome } from '@shared/profitRedaction'
+import { quietWaitMs } from './quietWait'
 import type { DB } from './db/connection'
 import { backupCompany, closeCompanyDb, openCompanyDb, stashBackupAttachments } from './db/connection'
 import { assertNotNewer } from './db/migrate'
@@ -264,19 +265,48 @@ function lockSession(reason: 'manual' | 'idle'): void {
   for (const w of BrowserWindow.getAllWindows?.() ?? []) if (!w.isDestroyed()) w.webContents.send('total:session:locked', { reason, kind: 'pin' })
 }
 
+/** IPC calls running now, and when the last one started or ended (Date.now()) — the deferred
+ *  backup check waits for a quiet moment (see scheduleBackupCheck). */
+let ipcInFlight = 0
+let lastIpcAt = 0
+/** The open's restore check copies, migrates and verifies the whole file on the main thread
+ *  (~1–2 s at 100k on a fast machine, far more on a loaded one): it waits until no IPC call has
+ *  run for this long, so the screen that just opened (Home) gets its reads answered first. */
+export const BACKUP_CHECK_QUIET_MS = 2_000
+/** …but never longer than this after the backup, however busy the app is. */
+export const BACKUP_CHECK_LATEST_MS = 60_000
+
 /** WP 7.2: the automatic restore check of a backup that was just written — deferred a few
- *  seconds so it never delays the reply that triggered the backup; skipped when not due (at most
- *  daily for automatic backups) or when the company was closed meanwhile. */
+ *  seconds so it never delays the reply that triggered the backup, then (launch to Home) until
+ *  the app is quiet — no IPC call for BACKUP_CHECK_QUIET_MS — or BACKUP_CHECK_LATEST_MS have
+ *  passed, so Home's reads are not queued behind it; skipped when not due (at most daily for
+ *  automatic backups) or when the company was closed meanwhile. What it checks is unchanged. */
 export function scheduleBackupCheck(db: DB, dest: string, tag: string): void {
-  const t = setTimeout(() => {
+  const scheduledAt = Date.now()
+  const later = (ms: number): void => {
+    const t = setTimeout(tick, ms)
+    t.unref?.()
+  }
+  const tick = (): void => {
+    const wait = quietWaitMs({
+      now: Date.now(), scheduledAt, inFlight: ipcInFlight, lastActivityAt: lastIpcAt,
+      quietMs: BACKUP_CHECK_QUIET_MS, latestMs: BACKUP_CHECK_LATEST_MS
+    })
+    if (wait > 0) later(wait)
+    else run()
+  }
+  const run = (): void => {
+    const t0 = performance.now()
     try {
       const check = runAsAuditUser(SYSTEM_AUDIT_USER, () => checkBackupIfDue(db, dest, tag, todayISO()))
       if (check && !check.ok) log('warn', 'backup-check-failed', { file: check.file, error: check.error })
     } catch (err) {
       log('warn', 'backup-check-error', { error: err instanceof Error ? err.message : String(err) })
     }
-  }, 3_000)
-  t.unref?.()
+    // Not an IPC handler, but it holds the main thread like one — the launch trace shows it.
+    if (TRACE_IPC) console.log(`[ipc] (timer) backup check ${(performance.now() - t0).toFixed(0)} ms`)
+  }
+  later(3_000)
 }
 
 /** The signed-in user's view of themselves (auth:login / auth:current): role, flags and the
@@ -443,6 +473,8 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
   CHANNEL_ROLES.set(channel, minRole)
   ipcMain.handle(`total:${channel}`, async (_event, payload: unknown) => {
     const t0 = TRACE_IPC ? performance.now() : 0
+    ipcInFlight++
+    lastIpcAt = Date.now()
     try {
       // Role gating is a no-op until a company is open AND that company has at least one user
       // (usersExist is cached on `current` — see OpenCompany — to avoid a COUNT query per call).
@@ -486,6 +518,9 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
       // WP 8.5: the structured part (code / field / params / issues) rides next to the message
       // so a screen can show a plain message under the field; `error` is unchanged.
       return { ok: false, error: message, ...ipcStructuredError(err) }
+    } finally {
+      ipcInFlight--
+      lastIpcAt = Date.now()
     }
   })
 }
@@ -1772,6 +1807,25 @@ export function registerIpc(): void {
     const backups = listBackupsIn(companyBackupsDir(c.slug))
     const d = dashboard.dashboardSeries(c.db, c.info, { today, from, to, backups })
     return canSeeProfitNow() ? d : redactDashboardSeries(d)
+  }, 'viewer')
+  // Launch to Home: the accountant Gateway's four reads (report:dashboardSeries, report:dashboard,
+  // payables:msmeDue, report:dashboardPromised) in ONE round trip and one read transaction — each
+  // part exactly its channel's output (same redaction), a failing part fails only its card. The
+  // four channels stay for their other callers.
+  handle('dashboard:all', (p) => {
+    const { today, from, to, parties } = z
+      .object({ today: isoDate, from: isoDate, to: isoDate, parties: z.boolean().optional() })
+      .strict()
+      .refine((v) => v.from <= v.to, 'from must be on or before to')
+      .parse(p)
+    const c = requireCompany()
+    const all = dashboard.dashboardAll(c.db, c.info, { today, from, to, parties, backups: listBackupsIn(companyBackupsDir(c.slug)) })
+    if (canSeeProfitNow()) return all
+    return {
+      ...all,
+      series: all.series.ok ? { ok: true as const, data: redactDashboardSeries(all.series.data) } : all.series,
+      dashboard: all.dashboard.ok ? { ok: true as const, data: redactDashboard(all.dashboard.data) } : all.dashboard
+    }
   }, 'viewer')
   // WP 8.6: the simple Home in one round trip — every figure as on today, from the services the
   // accountant screens use (services/simpleHome.ts). Read-only, any role. The as-on date is

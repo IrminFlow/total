@@ -98,6 +98,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'ui:get': QUERY,
   'ui:mode:set': a('company'),
   // WP 8.6: the simple Home (every figure computed at query time).
+  // Launch to Home: the accountant Gateway's four reads in one round trip.
+  'dashboard:all': QUERY,
   'simple:home': QUERY,
   // WP 10.3: opens an allow-listed GST portal / CBIC page in the system browser.
   'help:openLink': r('opens an allow-listed government web page in the browser; writes nothing'),

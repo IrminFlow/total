@@ -15,7 +15,7 @@ import { outstandings, outstandingsWithAdvances } from '../services/analysis'
 import { stockSummary } from '../services/stockAnalysis'
 import { gstr1, gstr3b } from '../services/gst'
 import { simpleHome, simpleHomeAttention } from '../services/simpleHome'
-import { dashboardSeries } from '../services/dashboard'
+import { dashboardAll, dashboardSeries } from '../services/dashboard'
 import { businessDoing } from '../services/simpleReports'
 import { simpleTaxes } from '../services/simpleTaxes'
 import { peopleList } from '../services/simplePeople'
@@ -60,6 +60,9 @@ export interface PerfCase {
   budget: { k100: number; k500: number }
   /** Writes (saves, backups) — never part of the output-equality check. */
   writes?: boolean
+  /** A bundle of other cases' outputs (dashboard:all): not hashed itself — the output-equality
+   *  check asserts each named part equals the case it names, which IS hashed. */
+  partsOf?: Record<string, string>
   run: (ctx: PerfContext) => unknown
 }
 
@@ -92,6 +95,9 @@ export const PERF_CASES: PerfCase[] = [
   { id: 'gstr3b', label: 'GSTR-3B (this month)', group: 'report', budget: REPORT, run: (c) => gstr3b(c.db, c.info, c.month.from, c.month.to, c.month.period) },
   { id: 'gateway', label: 'Gateway (report:dashboardSeries)', group: 'report', budget: REPORT, run: (c) => dashboardSeries(c.db, c.info, { today: c.today, from: c.fy.from, to: c.fy.to, backups: [] }) },
   { id: 'gatewayRecent', label: 'Gateway (report:dashboard)', group: 'report', budget: REPORT, run: (c) => reports.dashboard(c.db, c.today, c.fy.from) },
+  // Launch to Home: the Gateway's four reads in one round trip — its budget is the series' and
+  // report:dashboard's together (the MSME / promised chips are ~0.2 s each at 100k, inside it).
+  { id: 'gatewayAll', label: 'Gateway (dashboard:all, one round trip)', group: 'report', budget: { k100: 2000, k500: 6000 }, partsOf: { series: 'gateway', dashboard: 'gatewayRecent' }, run: (c) => dashboardAll(c.db, c.info, { today: c.today, from: c.fy.from, to: c.fy.to, backups: [] }) },
   // The floor is the valuation pass + Outstandings on both sides + three P&L periods in one round
   // trip (simpleHome.perf.dbtest keeps its 500 ms bound on its lighter raw-insert fixture).
   { id: 'home', label: 'simple:home', group: 'report', budget: { k100: 600, k500: 3000 }, run: (c) => simpleHome(c.db, c.info, { today: c.today, backups: [] }) },

@@ -137,7 +137,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Real-provider escalation, key rejection and capture never run against a live model (mock only) — PR #98 / #101
 
 ### Performance
-- Launch to Home 6.5 s vs the 2 s target (Electron + renderer ~1.9 s; the Gateway's four reads could be one) — PR #104
+- Launch to Home 6.5 s vs the 2 s target (Electron + renderer ~1.9 s; ~~the Gateway's four reads could be one~~ DONE — one `dashboard:all` round trip, and the open's backup restore check now waits until Home has loaded — PR #131; left: lazy-load renderer screens, the restore check in a worker) — PR #104
 - At 500k vouchers many reports take > 3 s on this laptop: stream stock lines into the valuation pass, share one pass / one Outstandings run per request, re-measure on a machine with more RAM — PR #104
 - Voucher text search needs a full-text index (FTS5 + triggers); search budget 600 ms at 500k — PR #104
 - ~~No timeout on the company-open quick_check worker~~ DONE — 60 s, then "not checked (timed out)" — PR #118

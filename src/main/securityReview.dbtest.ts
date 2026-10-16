@@ -10,6 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { PROFIT_HIDDEN_MESSAGE } from '@shared/profitRedaction'
 
 type Result = { ok: boolean; data?: unknown; error?: string; code?: string; field?: string }
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<Result>>()
@@ -242,6 +243,27 @@ describe('canSeeProfit: false covers every way to the profit (PR #112 follow-up)
     expect(tb.rows.some((r) => r.ledgerName === 'Counter Sales' || r.ledgerName === 'Rent')).toBe(false)
     expect(tb.rows.some((r) => r.ledgerName === 'Cash')).toBe(true)
     expect([tb.totalDebit, tb.totalCredit]).toEqual([0, 0])
+  })
+
+  it('dashboard:all (PR #131): each part is exactly its own channel for the owner and for the flagged user (redacted the same)', async () => {
+    const args = { today: '2026-09-01', from: '2026-04-01', to: '2026-09-01' }
+    type Section = { ok: boolean; data?: unknown; error?: string }
+    const same = async (): Promise<{ series: Section; dashboard: Section }> => {
+      const all = await ok<{ series: Section; dashboard: Section; msmeDue: Section | null; promised: Section | null }>('dashboard:all', args)
+      expect(all.series).toEqual({ ok: true, data: await ok('report:dashboardSeries', args) })
+      expect(all.dashboard).toEqual({ ok: true, data: await ok('report:dashboard', { today: args.today, fyFrom: args.from }) })
+      expect(all.msmeDue).toEqual({ ok: true, data: await ok('payables:msmeDue', { asOn: args.today }) })
+      expect(all.promised).toEqual({ ok: true, data: await ok('report:dashboardPromised', { today: args.today }) })
+      return all
+    }
+    await login(ids.owner, PIN.owner)
+    const owner = await same()
+    expect((owner.series.data as { trade: { ok: boolean } }).trade.ok).toBe(true)
+
+    await login(ids.acct, PIN.acct)
+    const hidden = await same()
+    expect((hidden.series.data as { trade: { ok: boolean; error?: string } }).trade).toEqual({ ok: false, error: PROFIT_HIDDEN_MESSAGE })
+    expect((hidden.dashboard.data as { ratios: { grossMarginPct: number | null; netMarginPct: number | null } }).ratios).toMatchObject({ grossMarginPct: null, netMarginPct: null })
   })
 
   it('report builder: a profit measure or an income + expense model is refused; one side alone runs', async () => {
