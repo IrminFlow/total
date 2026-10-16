@@ -183,6 +183,53 @@ describe('interest on overdue bills', () => {
   })
 })
 
+describe('interest on an amount-only bill at the GST rate it posted (PR #93, to-do §8)', () => {
+  it('a ledger-line sale on a rate-less account that posts 18% tax gets interest GST at 18%', () => {
+    const f = fixture()
+    // "Sales (plain)" has no GST rate (NULL — not a declared 0), so only the posted tax says 18%.
+    const plain = createLedger(f.db, { name: 'Sales (plain)', groupId: groupId(f.db, 'Sales Accounts') }).id
+    expect((f.db.prepare('SELECT gst_rate FROM ledgers WHERE id = ?').get(plain) as { gst_rate: number | null }).gst_rate).toBeNull()
+    // ₹1,000 taxable + CGST ₹90 + SGST ₹90 = ₹1,180, dated 1 Apr 2026; 30 credit days → due 1 May.
+    const inv = saveVoucher(f.db, {
+      voucherTypeId: vtId(f.db, 'sales'), date: '2026-04-01', number: 'AMT-1', partyLedgerId: f.party,
+      lines: [
+        { ledgerId: f.party, drCr: 'dr', amount: 118_000 },
+        { ledgerId: plain, drCr: 'cr', amount: 100_000 },
+        { ledgerId: f.cgst, drCr: 'cr', amount: 9_000 },
+        { ledgerId: f.sgst, drCr: 'cr', amount: 9_000 }
+      ]
+    }).id
+    // The returns read the bill at 18% (the #93 posted-rate rule).
+    const bill = extractOutwardDocs(f.db, COMPANY, '2026-04-01', '2026-04-30').find((d) => d.voucherId === inv)!
+    expect(bill.items.map((i) => [i.rate, i.taxable, i.cgst, i.sgst])).toEqual([[18, 100_000, 9_000, 9_000]])
+
+    // Grace 5 days → interest from 7 May; as on 5 June = 30 days (7 May – 5 June inclusive).
+    // 18% p.a. on ₹1,180 for 30 / 365 days = 118,000 × 0.18 × 30 / 365 = 1,745.75 paise → ₹17.46.
+    // GST on it at the bill's 18%, intra-state: 9% of ₹17.46 = ₹1.5714 → ₹1.57 CGST + ₹1.57 SGST.
+    const rows = rx.interestPreview(f.db, COMPANY, '2026-06-05')
+    expect(rows).toHaveLength(1)
+    const r = rows[0]!
+    expect([r.billVoucherId, r.billRef, r.from, r.to, r.days]).toEqual([inv, 'AMT-1', '2026-05-07', '2026-06-05', 30])
+    expect(r.interestPaise).toBe(1_746)
+    expect(r.gst).toEqual([{ rate: 18, interestPaise: 1_746, cessRate: 0, cgst: 157, sgst: 157, igst: 0, cess: 0 }])
+    expect(r.gstPaise).toBe(314)
+
+    // The posted debit note: Dr party ₹20.60 = Cr interest @ 18% ₹17.46 + CGST ₹1.57 + SGST ₹1.57.
+    const posted = rx.postInterest(f.db, COMPANY, { asOn: '2026-06-05', ledgerId: f.party })
+    expect([posted.interestPaise, posted.gstPaise]).toEqual([1_746, 314])
+    const v = getVoucher(f.db, posted.voucherId)!
+    const income = f.db.prepare("SELECT id, gst_rate FROM ledgers WHERE name = 'Interest on Overdue Bills @ 18%'").get() as { id: number; gst_rate: number }
+    expect(income.gst_rate).toBe(18)
+    expect(v.lines.map((l) => [l.ledgerId, l.drCr, l.amount]).sort()).toEqual(
+      [[f.party, 'dr', 2_060], [income.id, 'cr', 1_746], [f.cgst, 'cr', 157], [f.sgst, 'cr', 157]].sort()
+    )
+    // GSTR-1 reads the note as an outward debit note in the same 18% class, with the same tax.
+    const note = extractOutwardDocs(f.db, COMPANY, '2026-06-01', '2026-06-30').find((d) => d.voucherId === posted.voucherId)!
+    expect(note.kind).toBe('debit_note')
+    expect(note.items.map((i) => [i.rate, i.taxable, i.cgst, i.sgst])).toEqual([[18, 1_746, 157, 157]])
+  })
+})
+
 function pick(g: { cgst: number; sgst: number; igst: number; cess: number }): { cessRate: number; cgst: number; sgst: number; igst: number; cess: number } {
   return { cessRate: 0, cgst: g.cgst, sgst: g.sgst, igst: g.igst, cess: g.cess }
 }
