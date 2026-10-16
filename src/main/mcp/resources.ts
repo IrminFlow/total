@@ -105,12 +105,13 @@ function chartOfAccounts(db: DB): ChartNode[] {
 }
 
 /** Read one resource. Throws for an unknown URI. */
-export function readMcpResource(db: DB, slug: string, uri: string, privacy: PrivacyOptions, today = todayISO()): { mimeType: string; text: string } {
-  const r = readRaw(db, slug, uri, privacy, today)
+/** `canSeeProfit`: the verified user's WP 7.2 flag (PR #127) — false redacts the trial balance mirror. */
+export function readMcpResource(db: DB, slug: string, uri: string, privacy: PrivacyOptions, today = todayISO(), canSeeProfit = true): { mimeType: string; text: string } {
+  const r = readRaw(db, slug, uri, privacy, today, canSeeProfit)
   return { mimeType: r.mimeType, text: fitResource(r.mimeType, r.text) }
 }
 
-function readRaw(db: DB, slug: string, uri: string, privacy: PrivacyOptions, today: string): { mimeType: string; text: string } {
+function readRaw(db: DB, slug: string, uri: string, privacy: PrivacyOptions, today: string, canSeeProfit: boolean): { mimeType: string; text: string } {
   const json = (v: unknown): { mimeType: string; text: string } => ({ mimeType: 'application/json', text: JSON.stringify(mcpMaskValue(v, privacy), null, 2) })
   const text = (s: string, key: string | null): string => mcpMaskString(s, key, privacy)
   if (uri === MCP_RESOURCES.company) {
@@ -139,7 +140,7 @@ function readRaw(db: DB, slug: string, uri: string, privacy: PrivacyOptions, tod
       opts = { what: 'vouchers', format: 'json', from: range.from, to: range.to }
     }
     if (opts) {
-      const found = buildMirrorFiles(db, slug, opts, text).find((f) => f.name === file)
+      const found = buildMirrorFiles(db, slug, { ...opts, canSeeProfit }, text).find((f) => f.name === file)
       if (found) return { mimeType: found.mimeType, text: found.content }
       if (fy) throw new Error(`No vouchers in FY ${file.slice(9, 16)}`)
     }

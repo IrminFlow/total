@@ -370,6 +370,26 @@ describe('MCP kill switch and identity', () => {
 })
 
 describe('MCP resources — computed from the books at read time', () => {
+  it('the trial balance mirror follows the verified user’s canSeeProfit flag (PR #127)', async () => {
+    saveUser(db, { name: 'Owner', role: 'owner', pin: '9999' })
+    saveUser(db, { name: 'Asha', role: 'accountant', pin: '4321', capabilities: { canSeeProfit: false } })
+    const { client } = await connect(resolveMcpIdentity(db, { role: 'accountant', user: 'Asha', pin: '4321' }), { maskIds: false, pseudonymiseParties: false })
+    const tb = JSON.parse(((await client.readResource({ uri: 'total://mirror/trial-balance.json' })).contents[0] as { text: string }).text) as {
+      profitHidden?: boolean; rows: { ledgerName: string }[]; totalDebit: number
+    }
+    expect(tb.profitHidden).toBe(true)
+    expect(tb.rows.some((r) => r.ledgerName === 'Sales')).toBe(false)
+    expect(tb.totalDebit).toBe(0)
+    // the profit tool refuses as in the app
+    const pnl = await call(client, 'profit_and_loss', { from: '2025-04-01', to: '2026-03-31' })
+    expect(pnl.isError).toBe(true)
+    expect(pnl.text).toMatch(/Profit figures are not shown/)
+    // the owner reads it whole
+    const { client: owner } = await connect(resolveMcpIdentity(db, { role: 'owner', user: 'Owner', pin: '9999' }), { maskIds: false, pseudonymiseParties: false })
+    const whole = JSON.parse(((await owner.readResource({ uri: 'total://mirror/trial-balance.json' })).contents[0] as { text: string }).text) as { profitHidden?: boolean }
+    expect(whole.profitHidden).toBeUndefined()
+  })
+
   it('lists company, chart of accounts and the mirrors (one vouchers file per FY) and reads them', async () => {
     const { client } = await connect({}, { maskIds: false, pseudonymiseParties: false })
     const uris = (await client.listResources()).resources.map((r) => r.uri)

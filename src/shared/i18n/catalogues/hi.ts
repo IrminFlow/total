@@ -2670,7 +2670,6 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'errors.security.alreadyLocked': 'यह बिज़नेस पहले से पासफ़्रेज़ से लॉक है।',
   'errors.security.notLocked': 'यह बिज़नेस पासफ़्रेज़ से लॉक नहीं है।',
   'errors.security.verifyFailed': 'Total लॉक की हुई कॉपी को जाँच नहीं पाया, इसलिए कुछ नहीं बदला। आपका हिसाब पहले जैसा है।',
-  'errors.security.lockNeedsPeople': 'स्क्रीन लॉक करने के लिए पहले ‘यूज़र और उनके अधिकार’ में अपना PIN बनाएँ।',
   'errors.upgrade.newer': 'यह बिज़नेस पिछली बार Total के नए संस्करण से खोला गया था। इसे खोलने के लिए Total अपडेट करें।',
   'errors.upgrade.copyFailed': 'हिसाब अपग्रेड करने से पहले Total सुरक्षित कॉपी नहीं बना सका; डिस्क में थोड़ी जगह खाली करें और फिर से कोशिश करें।',
   'simple.settings.security': 'लॉक और सुरक्षा',

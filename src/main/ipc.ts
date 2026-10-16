@@ -2677,6 +2677,9 @@ export function registerIpc(): void {
   handle('export:caPack', (p) => {
     const { from, to } = periodSchema.parse(p)
     const c = requireCompany()
+    // PR #127 review: the pack holds profit-and-loss.csv and balance-sheet.csv — canExport alone
+    // must not hand them to a sign-in that may not see profit.
+    if (!canSeeProfitNow()) throw new AppError('not_permitted', 'The CA pack includes the profit and loss and the balance sheet, which are not shown to your account')
     const r = caPack.exportCaPack(c.db, c.info, c.slug, from, to)
     auditExport(c.db, 'ca_pack', { from, to, path: r.path })
     shell.showItemInFolder(r.path)
@@ -3090,7 +3093,7 @@ export function registerIpc(): void {
   handle('agent:exportMirror', (p) => {
     const input = agentExportSchema.parse(p ?? {})
     const c = requireCompany()
-    const r = agentBridge.exportMirror(c.db, c.slug, input)
+    const r = agentBridge.exportMirror(c.db, c.slug, { ...input, canSeeProfit: canSeeProfitNow() })
     auditExport(c.db, 'agent_mirror', { dir: r.dir, files: r.files.length })
     return r
   })

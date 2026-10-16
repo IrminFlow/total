@@ -128,7 +128,11 @@ C was rejected because of its asynchronous API.
 - **Capability flags** (PR #112, gaps closed in PR #127): main enforces every flag; `canSeeProfit:
   false` also redacts the trial balance (income / expense ledgers, the computed P&L row and the
   totals left out), refuses report-builder models and AI tools that show the profit, skips profit
-  reports in report packs and answers Ask Total's profit questions with a note. The renderer hides
+  reports in report packs and answers Ask Total's profit questions with a note; the year-end
+  close preview, consolidation runs, the CA pack and the agent mirror's trial balance (app export
+  and MCP resource) follow the flag too. Deliberately not covered: the raw books (day book, ledger
+  statements, registers, the books export, the voucher mirrors) — one side of the P&L at a time is
+  allowed by design, so the profit stays derivable by anyone who may read every voucher. The renderer hides
   or disables export / Save / AI-settings buttons only for a flag set to false, so owners and
   unflagged users see what they always did.
 

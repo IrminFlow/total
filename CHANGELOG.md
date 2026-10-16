@@ -324,7 +324,12 @@ Read these before filing from the next release.
   backups). Screen lock without users: new ungated `session:unlock` (`{ passphrase? }`, throttled,
   audited `user` login), `company:current` / `session:lock` / the lock event carry `lockKind`
   (`pin` / `passphrase` / `privacy`); `lock_needs_people` is no longer thrown, new code
-  `unlock_needs_pin`.
+  `unlock_needs_pin`. Review: `yearend:preview` (the net profit to transfer), `consol:run` /
+  `consolGroup:run` (a consolidated P&L / TB over the open business) join `PROFIT_CHANNELS`;
+  `export:caPack` (profit-and-loss.csv, balance-sheet.csv) also checks `canSeeProfit` in its
+  handler; the agent mirror's `trial-balance.json` (`agent:exportMirror`, the MCP resource) is
+  redacted for a flagged caller (`MirrorOptions.canSeeProfit`); `manufacture:save`'s audit coverage
+  now lists `voucher`, so `canPost: false` refuses it like every other posting channel.
 - **Updater consent**, [#108](https://github.com/IrminFlow/total/pull/108): `autoDownload` and
   `autoInstallOnAppQuit` are off; the app-level setting `updates` lives in
   `<dataRoot>/app-settings.json`; channels `app:updates:get|set|act`; electron-updater's per-install

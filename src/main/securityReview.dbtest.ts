@@ -328,4 +328,43 @@ describe('canSeeProfit: false covers every way to the profit (PR #112 follow-up)
     const owner = await ok<{ sentences: string[] }>('assist:ask', { text: 'profit this month', lang: 'en' })
     expect(owner.sentences.join(' ')).not.toMatch(/not shown/)
   })
+
+  it('the other doors to the profit are shut too: year-end preview, consolidation, the CA pack, the mirror; owners unchanged', async () => {
+    await login(ids.acct, PIN.acct)
+    const c = ipc.getCurrentCompany()!
+    const fy = { from: '2026-04-01', to: '2027-03-31' }
+    // the year-end close preview IS the net profit to transfer
+    expect((await call('yearend:preview', { fyStartYear: 2026 })).code).toBe('not_permitted')
+    // a consolidated P&L / trial balance over this business (every member includes the open one)
+    expect((await call('consol:run', { slugs: [c.slug], kind: 'pnl', ...fy })).code).toBe('not_permitted')
+    expect((await call('consol:run', { slugs: [c.slug], kind: 'tb', ...fy })).code).toBe('not_permitted')
+    expect((await call('consolGroup:run', { groupId: 1, ...fy })).code).toBe('not_permitted')
+    // the CA pack writes profit-and-loss.csv / balance-sheet.csv (canExport alone let it through)
+    expect((await call('export:caPack', fy)).code).toBe('not_permitted')
+    // the agent mirror's trial balance follows the flag like the screen's
+    const mirror = await ok<{ dir: string; files: string[] }>('agent:exportMirror', { what: 'reports', format: 'json' })
+    const tb = JSON.parse(readFileSync(join(mirror.dir, 'trial-balance.json'), 'utf8')) as { rows: { ledgerName: string }[]; profitHidden?: boolean }
+    expect(tb.profitHidden).toBe(true)
+    expect(tb.rows.some((r) => r.ledgerName === 'Counter Sales' || r.ledgerName === 'Rent')).toBe(false)
+
+    await login(ids.owner, PIN.owner)
+    expect((await ok<{ netProfit: number }>('yearend:preview', { fyStartYear: 2026 })).netProfit).toBe(30_000_00)
+    expect((await call('consol:run', { slugs: [c.slug], kind: 'pnl', ...fy })).ok).toBe(true)
+    expect((await call('export:caPack', fy)).ok).toBe(true)
+    const full = await ok<{ dir: string }>('agent:exportMirror', { what: 'reports', format: 'json' })
+    const fullTb = JSON.parse(readFileSync(join(full.dir, 'trial-balance.json'), 'utf8')) as { rows: { ledgerName: string }[]; profitHidden?: boolean }
+    expect(fullTb.profitHidden).toBeUndefined()
+    expect(fullTb.rows.some((r) => r.ledgerName === 'Counter Sales')).toBe(true)
+  })
+
+  it('canPost: false refuses manufacture:save too (it posts a stock journal through saveVoucher)', async () => {
+    expect(ipc.channelCapabilityMap().get('manufacture:save')).toBe('canPost')
+    await login(ids.owner, PIN.owner)
+    const np = await ok<{ id: number }>('users:save', { data: { name: 'Nina', role: 'accountant', pin: '3333', capabilities: { canPost: false } } })
+    await login(np.id, '3333')
+    // the gate runs before the payload is read: not_permitted, never invalid_input
+    expect((await call('manufacture:save', {})).code).toBe('not_permitted')
+    expect((await call('voucher:save', {})).code).toBe('not_permitted')
+    await login(ids.owner, PIN.owner)
+  })
 })

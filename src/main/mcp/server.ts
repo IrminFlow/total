@@ -230,7 +230,7 @@ export function createMcpServer(o: McpServerOptions): McpServerHandle {
     gate('resources/read', uri, t0)
     const p = privacy()
     try {
-      const r = readMcpResource(o.db, o.slug, uri, p, today())
+      const r = readMcpResource(o.db, o.slug, uri, p, today(), mcpCanSeeProfit(o.db, o.identity.userId))
       log({ method: 'resources/read', target: uri, ok: true, response: r.text, t0 })
       return { contents: [{ uri, mimeType: r.mimeType, text: r.text }] }
     } catch (err) {

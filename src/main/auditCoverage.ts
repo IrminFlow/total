@@ -258,7 +258,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'voucher:duplicates': QUERY,
   'pdc:mature': a('voucher'),
   'yearend:close': a('year_end', 'voucher', 'ledger', 'company'),
-  'manufacture:save': a('manufacture', 'ai_draft'),
+  // The stock journal goes through saveVoucher (a 'voucher' row) — listed so canPost covers it.
+  'manufacture:save': a('manufacture', 'voucher', 'ai_draft'),
   'jobWork:saveChallan': a('job_work'),
 
   // ---------- trade cycle ----------
