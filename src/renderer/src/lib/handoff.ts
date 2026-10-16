@@ -73,6 +73,13 @@ export function fullCounterpart(screen: Screen): Screen | null {
       }
     case 'simple-taxes':
       return screen.period ? { name: 'gstr3b', month: screen.period } : { name: 'gstr3b' }
+    // People: the party masters; its Bills to pay tab, the payables Outstandings.
+    case 'simple-people':
+      return screen.tab === 'bills' ? { name: 'outstandings', side: 'payable' } : { name: 'masters', tab: 'ledgers', parties: true }
+    // The Reports page: the Trial balance (its "For your CA" group's first report), whose Back
+    // to simple lands on this page again.
+    case 'simple-section':
+      return screen.section === 'reports' ? { name: 'trial-balance' } : null
     default:
       return null
   }
@@ -82,6 +89,7 @@ export function fullCounterpart(screen: Screen): Screen | null {
  *  report (the Reports registry screen holds several), else the screen's own name. */
 export function alwaysKey(screen: Screen): Name {
   if (screen.name === 'simple-reports') return `simple-reports:${screen.report ?? 'doing'}` as Name // i18n-technical
+  if (screen.name === 'simple-section') return `simple-section:${screen.section}` as Name // i18n-technical
   return screen.name
 }
 
@@ -207,6 +215,7 @@ export function backToSimpleClears(screen: Screen, target: Screen): Name[] {
   if (screen.name === 'stock-summary' || screen.name === 'stock-movements') out.add('simple-stock')
   if (screen.name === 'banking') out.add('simple-bank')
   if (screen.name === 'registers') out.add(alwaysKey({ name: 'simple-reports', report: 'by-month' }))
+  if (screen.name === 'outstandings' && screen.side === 'payable') out.add('simple-people')
   return [...out]
 }
 

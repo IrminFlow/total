@@ -10,6 +10,8 @@ import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession } from '../../state/stores'
 import { Button, Page, Segmented, TabBar } from '../../components/ui'
+import { useAccountantView } from '../../lib/handoff'
+import { AccountantViewButton } from '../AccountantViewButton'
 import { EmptyTeach } from '../help/EmptyTeach'
 import { DataTable, defineColumns } from '../../components/table'
 import { useGroups } from '../../components/pickers'
@@ -45,15 +47,20 @@ export function PeopleList({ tab = 'people', filter: startFilter = 'all' }: { ta
   const t = useT()
   const nav = useNav()
   const workingDate = useSession((s) => s.workingDate)
+  const openFull = useAccountantView({ name: 'simple-people', tab }) // i18n-technical: screen name
   const tabs: { id: Tab; label: string }[] = [
     { id: 'people', label: t('simple.people.tab.people') }, // i18n-technical: tab id
     { id: 'bills', label: t('simple.people.billsToPay') } // i18n-technical: tab id
   ]
   return (
     <Page data-testid="simple-people" data-tab={tab}>
-      <div className="mb-3">
-        <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.people.title')}</h1>
-        <p className="mt-1 text-detail text-muted">{t('simple.people.asOn', { date: toPlainDate(workingDate, t.lang) })}</p>
+      <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.people.title')}</h1>
+          <p className="mt-1 text-detail text-muted">{t('simple.people.asOn', { date: toPlainDate(workingDate, t.lang) })}</p>
+        </div>
+        {/* WP 9.10: the party masters — or, on Bills to pay, the payables Outstandings. */}
+        <AccountantViewButton testId="btn-people-accountant-view" title={t('simple.shell.accountantViewHint')} onOpen={(always) => void openFull({ intent: null, always })} />
       </div>
       <TabBar
         screen={SCREEN}

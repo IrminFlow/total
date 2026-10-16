@@ -4,6 +4,8 @@ import { screenDef, simpleEntriesOf, simpleEntryVisible, SIMPLE_SECTIONS, type R
 import { useFeatures } from '../lib/useFeatures'
 import { useNav, useSession } from '../state/stores'
 import { Page } from '../components/ui'
+import { useAccountantView } from '../lib/handoff'
+import { AccountantViewButton } from './AccountantViewButton'
 import type { SimpleSectionId } from '@shared/simple/uiMode'
 
 /** Entries a section shows for this company: features on, the GST returns (GSTR-1 / 3B / 2B) only
@@ -27,6 +29,7 @@ export function SimpleSection({ section }: { section: SimpleSectionId }): React.
   const entries = useVisibleEntries(section)
   const gstType = useSession((s) => s.info?.gstRegistrationType ?? null)
   const nav = useNav()
+  const openFull = useAccountantView({ name: 'simple-section', section })
   const meta = SIMPLE_SECTIONS.find((s) => s.id === section)
   const title = meta ? t(meta.label) : '' // i18n-technical: registry key (simple.nav.*)
   const main = entries.filter((e) => e.group === null)
@@ -34,7 +37,15 @@ export function SimpleSection({ section }: { section: SimpleSectionId }): React.
 
   return (
     <Page data-testid={`simple-section-${section}`}>
-      <h1 className="mb-5 font-serif text-heading font-semibold tracking-tight text-ink">{title}</h1>
+      {section === 'reports' ? (
+        <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+          <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{title}</h1>
+          {/* WP 9.10: the accountant reports (the Trial balance first). */}
+          <AccountantViewButton testId="btn-reports-accountant-view" title={t('simple.shell.accountantViewHint')} onOpen={(always) => void openFull({ intent: null, always })} />
+        </div>
+      ) : (
+        <h1 className="mb-5 font-serif text-heading font-semibold tracking-tight text-ink">{title}</h1>
+      )}
       {section === 'taxes' && gstType === 'unregistered' && (
         <p className="mb-4 text-detail text-muted" data-testid="simple-taxes-unregistered">
           {t('simple.taxes.gst.unregistered')}

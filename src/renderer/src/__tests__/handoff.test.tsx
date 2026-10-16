@@ -127,7 +127,12 @@ describe('the full → simple table', () => {
     expect(fullCounterpart({ name: 'simple-return-purchase' })).toEqual({ name: 'voucher-entry', kindHint: 'debit_note' })
     expect(fullCounterpart({ name: 'simple-stock-count' })).toEqual({ name: 'voucher-entry', kindHint: 'physical_stock' })
     expect(fullCounterpart({ name: 'simple-made-goods' })).toEqual({ name: 'manufacture' })
-    expect(fullCounterpart({ name: 'simple-people' })).toBeNull()
+    expect(fullCounterpart({ name: 'simple-people' })).toEqual({ name: 'masters', tab: 'ledgers', parties: true })
+    expect(fullCounterpart({ name: 'simple-people', tab: 'bills' })).toEqual({ name: 'outstandings', side: 'payable' })
+    expect(fullCounterpart({ name: 'simple-section', section: 'reports' })).toEqual({ name: 'trial-balance' })
+    expect(fullCounterpart({ name: 'simple-section', section: 'sell' })).toBeNull()
+    expect(fullCounterpart({ name: 'simple-reports', report: 'owed', side: 'payable' })).toEqual({ name: 'outstandings', side: 'payable' })
+    expect(fullCounterpart({ name: 'simple-taxes' })).toEqual({ name: 'gstr3b' })
   })
 
   it('the hand-off never points at a ledger the rehearsal created; the bill name follows the number again', () => {
@@ -330,6 +335,33 @@ describe('the remembered choice', () => {
     renderHook(() => useAlwaysFullRedirect(), { wrapper: ({ children }) => withClient(<>{children}</>) })
     await new Promise((r) => setTimeout(r, 20))
     expect(top()).toEqual({ name: 'simple-taxes' })
+  })
+
+  it('People and the Reports page have an Accountant view of their own (party masters / payables / Trial balance); Back to simple returns', async () => {
+    setSession({ mode: 'simple' })
+    const people: Screen = { name: 'simple-people' }
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, people] }))
+    const wrapper = ({ children }: { children: React.ReactNode }): React.JSX.Element => withClient(<>{children}</>)
+    const p = renderHook(() => useAccountantView(people), { wrapper })
+    await act(async () => p.result.current({ intent: null }))
+    expect(top()).toEqual({ name: 'masters', tab: 'ledgers', parties: true })
+    expect(simpleTargetFor(top(), null)).toEqual({ name: 'simple-people' })
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-people', tab: 'bills' }] }))
+    const b = renderHook(() => useAccountantView({ name: 'simple-people', tab: 'bills' }), { wrapper })
+    await act(async () => b.result.current({ intent: null, always: true }))
+    expect(top()).toEqual({ name: 'outstandings', side: 'payable' })
+    expect(localStorage.getItem(KEY('simple-people'))).toBe('accountant')
+    expect(backToSimpleClears(top(), simpleTargetFor(top(), null))).toContain('simple-people')
+
+    const hub: Screen = { name: 'simple-section', section: 'reports' }
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, hub] }))
+    const r = renderHook(() => useAccountantView(hub), { wrapper })
+    await act(async () => r.result.current({ intent: null, always: true }))
+    expect(top()).toEqual({ name: 'trial-balance' })
+    expect(localStorage.getItem(KEY('simple-section:reports' as Screen['name']))).toBe('accountant')
+    expect(localStorage.getItem(KEY('simple-section'))).toBeNull()
+    expect(simpleTargetFor(top(), null)).toEqual(hub)
+    expect(backToSimpleClears(top(), simpleTargetFor(top(), null))).toEqual(['simple-section:reports'])
   })
 
   it('the voucher a simple-mode editor just saved is what Back to simple means', async () => {
