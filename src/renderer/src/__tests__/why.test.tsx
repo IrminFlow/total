@@ -272,6 +272,15 @@ describe('Taxes: the three figures, each date and TDS have a "Why?" (WP 10.2)', 
     await why('why-gst-to-pay', toPayPartsWhy(monthly, t), { label: t('simple.taxes.accountant3b'), target: { name: 'gstr3b', month: '2026-09' } })
   })
 
+  it('a running quarter: the GSTR links open the month it has reached and say so (not "the quarter’s last month")', async () => {
+    const p = { period: '2026-12', from: '2026-10-01', to: '2026-10-17', quarterly: true, soFar: true }
+    const running: Regular = { ...TAXES, period: p, periods: [p] }
+    replies.set('simple:taxes', running)
+    renderUi(<TaxesScreen />)
+    await why('why-due-gstr1', dueWhy('gstr1', running, t), { label: 'Open GSTR-1 in the full app on Oct 2026, the month the quarter has reached', target: { name: 'gstr1', month: '2026-10' } })
+    await why('why-due-gstr3b', dueWhy('gstr3b', running, t), { label: 'Open GSTR-3B in the full app on Oct 2026, the month the quarter has reached', target: { name: 'gstr3b', month: '2026-10' } })
+  })
+
   it('composition: each date explained', async () => {
     replies.set('simple:taxes', { kind: 'composition', today: TODAY, composition: { cmp08: { from: '2026-07-01', to: '2026-09-30', due: '2026-10-18' }, gstr4: { fyLabel: '2026-27', due: '2027-06-30' } }, withholding: [] })
     renderUi(<TaxesScreen />)

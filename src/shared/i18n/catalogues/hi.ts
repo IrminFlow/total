@@ -1254,6 +1254,8 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.why.link.gstr3b': 'पूरे ऐप में GSTR-3B खोलें',
   'simple.why.link.gstr1Quarter': 'पूरे ऐप में {month} का GSTR-1 खोलें, तिमाही का आख़िरी महीना',
   'simple.why.link.gstr3bQuarter': 'पूरे ऐप में {month} का GSTR-3B खोलें, तिमाही का आख़िरी महीना',
+  'simple.why.link.gstr1QuarterSoFar': 'पूरे ऐप में {month} का GSTR-1 खोलें, तिमाही का अब तक का महीना',
+  'simple.why.link.gstr3bQuarterSoFar': 'पूरे ऐप में {month} का GSTR-3B खोलें, तिमाही का अब तक का महीना',
   'simple.why.link.tds': 'पूरे ऐप में TDS खोलें',
   'simple.why.link.tcs': 'पूरे ऐप में TCS खोलें',
   'simple.why.link.payroll': 'पूरे ऐप में पेरोल खोलें',

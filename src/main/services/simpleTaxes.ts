@@ -26,37 +26,22 @@ import { depositDueDate } from '@shared/tdsInterest'
 import { tcsDepositDueDate } from '@shared/tcs'
 import { cmp08DueDate, gstr1DueDate, gstr3bDueDate, gstr4DueDate, pmt06DueDate } from '@shared/gst/filing'
 import {
-  GST_FILED_META_KEY, MISSING_BILL_CHECKS, creditParts, gstPeriodChoices, quarterStart, gstPeriodEnd, gstPeriodFor, gstStartsOn, nextCompositionDue, normalizeArn, normalizeGstFiled,
+  GST_FILED_META_KEY, MISSING_BILL_CHECKS, creditParts, gstPeriodChoices, gstPeriodEnd, gstPeriodFor, gstStartsOn, nextCompositionDue, normalizeArn, normalizeGstFiled,
   type GstFiledInput, type GstFiledMeta, type GstFiledPeriod, type GstForm, type GstPeriod, type MissingBillsItem, type SimpleTaxes, type SupplierBillsMonth, type TaxesWithholding
 } from '@shared/simple/taxes'
 import { getFeatures, getGstProfile } from './config'
 import { dashGst, gst3bFigures } from './dashboard'
 import { gstCredit, readGstFiled } from './simpleHome'
-import { closeChecklist, getStatement, gst2bMismatches, withholdingFacts } from './assistants'
+import { closeChecklist, getStatement, gst2bMismatches, gstPreparedAt, withholdingFacts } from './assistants'
 import { listLedgers } from './masters'
 import { writeAudit } from './audit'
 
 const META_KEY = GST_FILED_META_KEY
 export { readGstFiled }
 
-/** When the GSTR-1 / 3B file for a return month was last prepared (gstAnnual's export snapshot). */
-function monthPreparedAt(db: DB, form: GstForm, lastMonth: string): string | null {
-  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(`gst.exported.${form}.${gstPeriodOf(`${lastMonth}-01`)}`) as { value: string } | undefined
-  if (!row) return null
-  try {
-    return (JSON.parse(row.value) as { at?: string }).at ?? null
-  } catch {
-    return null
-  }
-}
-
-/** A period's files are prepared once every month of it is (a quarter: its three months, prepared
- *  month by month — the oldest of their times); a month: its own snapshot. */
-function preparedAt(db: DB, form: GstForm, period: GstPeriod): string | null {
-  const months = period.quarterly ? monthRange(quarterStart(period.period), period.period) : [period.period]
-  const times = months.map((m) => monthPreparedAt(db, form, m))
-  return times.every((x): x is string => x != null) ? times.sort()[0]! : null
-}
+/** A period's files are prepared once every month of it is (a quarter: its three months — the
+ *  quarterly export writes them month by month); the close checklist uses the same rule. */
+const preparedAt = (db: DB, form: GstForm, period: GstPeriod): string | null => gstPreparedAt(db, form, period.period, period.quarterly)
 
 /**
  * The quarterly bundle (step 3 for a quarterly filer): the files the full app's month-by-month

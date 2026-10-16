@@ -33,6 +33,7 @@ export function normalizeGstProfile(raw: unknown): GstProfile {
 export const GST_FILING_UNVERIFIED: readonly string[] = [
   'Amendments to Notification 83/2020-CT (12/2021, 17/2021, 09/2024-CT, state-specific provisos) and one-off extensions (e.g. the 15 Jan 2025 date for Oct–Dec 2024) were not read and are not modelled',
   'The invoice furnishing facility (IFF) for the first two months of a quarter is not modelled',
+  'A quarterly filer’s GSTR-1 / GSTR-3B files are prepared month by month (each file’s return period = its own month, as the monthly export writes it) and the three are put in one folder; whether the GST portal’s offline tools accept these for a quarterly (QRMP) return, or need ONE file for the quarter named by its last month, was not checked — the simple Taxes screen says to ask the CA how to upload them',
   'Quarterly GSTR-3B is the 22nd or 24th by the state of the principal place of business (rule 61(1)(ii), read 2026-10-14); a state code in neither entry of the Table (97 Other Territory, a missing state) is listed on the earlier 22nd and flagged',
   'The monthly PMT-06 payment under QRMP (rule 61(3), by the 25th) is named but its amount is not worked out',
   'Due-date extensions notified for a particular month or state (after portal outages, floods …) are not modelled — the dates are the rules’ own'

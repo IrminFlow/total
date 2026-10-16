@@ -79,9 +79,17 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
   const link = { label: t('simple.taxes.accountant3b'), screen: gstr3bScreen(month) }
   // A quarterly filer's link says which month it opens (the full app shows one month at a time).
   const monthName = toMonthLabel(month, 'long', t.lang) // i18n-technical
+  // A running quarter opens the month it has reached, which is not (yet) its last month.
+  const reached = x.period.quarterly && month !== x.period.period
   const dueLink = {
-    gstr1: { label: x.period.quarterly ? t('simple.why.link.gstr1Quarter', { month: monthName }) : t('simple.why.link.gstr1'), screen: gstr1Screen(month) },
-    gstr3b: { label: x.period.quarterly ? t('simple.why.link.gstr3bQuarter', { month: monthName }) : t('simple.why.link.gstr3b'), screen: gstr3bScreen(month) }
+    gstr1: {
+      label: !x.period.quarterly ? t('simple.why.link.gstr1') : reached ? t('simple.why.link.gstr1QuarterSoFar', { month: monthName }) : t('simple.why.link.gstr1Quarter', { month: monthName }),
+      screen: gstr1Screen(month)
+    },
+    gstr3b: {
+      label: !x.period.quarterly ? t('simple.why.link.gstr3b') : reached ? t('simple.why.link.gstr3bQuarterSoFar', { month: monthName }) : t('simple.why.link.gstr3bQuarter', { month: monthName }),
+      screen: gstr3bScreen(month)
+    }
   }
   return (
     <>

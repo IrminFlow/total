@@ -8,7 +8,7 @@
 //   - "I've filed" round-trips through meta gstFiled with one audit row (none when unchanged),
 //     refuses a bad ARN / date on their fields; a viewer reads but can't note a filing.
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, readFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import Database from 'better-sqlite3-multiple-ciphers'
@@ -233,13 +233,34 @@ describe('simple:taxes — a quarterly filer prepares the quarter (WP 9.9 deferr
     expect(await call('gst:exportGstr1', { from: `${months[1]}-01`, to: monthEndOf(q.period), period: gstPeriodOf(`${q.period}-01`), quarter: true })).toMatchObject({ ok: false, code: 'invalid_input', field: 'period' })
     expect(exportsRows()).toBe(a0)
 
+    // A failure part-way (here: the bundle folder can't be made) leaves no month's snapshot or
+    // audit row — the quarter is never half "prepared".
+    const blocker = join(DATA_DIR, 'companies', slug, 'exports', `gstr3b-${gstPeriodOf(`${q.period}-01`)}-quarter`)
+    mkdirSync(join(DATA_DIR, 'companies', slug, 'exports'), { recursive: true })
+    writeFileSync(blocker, 'not a folder')
+    expect(await call('gst:exportGstr3b', { from: first, to: monthEndOf(q.period), period: gstPeriodOf(`${q.period}-01`), quarter: true })).toMatchObject({ ok: false })
+    expect(exportsRows()).toBe(a0)
+    expect(monthArgs.map((m) => snap('gstr3b', m.period))).toEqual([undefined, undefined, undefined])
+    rmSync(blocker)
+
+    // The quarter's last month exported alone (the full app's monthly export) is not the quarter:
+    // neither simple Taxes nor the close checklist counts it as prepared.
+    const gstReturns = async (): Promise<string> => (await ok<{ checks: { key: string; summary: string }[] }>('assist:close', { period: q.period })).checks.find((c) => c.key === 'gst_returns')!.summary
+    expect(await gstReturns()).toContain('GSTR-1 (quarter) and GSTR-3B (quarter) not prepared')
+    await ok('gst:exportGstr1', monthArgs[2])
+    expect((await ok<Regular>('simple:taxes', { period: q.period, today: TODAY })).prepared.gstr1).toBeNull()
+    expect(await gstReturns()).toContain('GSTR-1 (quarter) and GSTR-3B (quarter) not prepared')
+    const a1 = exportsRows()
+    expect(a1).toBe(a0 + 1)
+
     const b1 = await ok<{ folder: string; files: string[] }>('gst:exportGstr1', { from: first, to: monthEndOf(q.period), period: gstPeriodOf(`${q.period}-01`), quarter: true })
     const b3 = await ok<{ folder: string; files: string[] }>('gst:exportGstr3b', { from: first, to: monthEndOf(q.period), period: gstPeriodOf(`${q.period}-01`), quarter: true })
     expect(b1.folder).toMatch(new RegExp(`gstr1-${gstPeriodOf(`${q.period}-01`)}-quarter$`))
     expect(b1.files.map((f) => f.split(/[\\/]/).pop())).toEqual(monthArgs.flatMap((m) => [`gstr1-${m.period}.json`, `gstr1-${m.period}-summary.csv`]))
     expect(b3.files.map((f) => f.split(/[\\/]/).pop())).toEqual(monthArgs.map((m) => `gstr3b-${m.period}.json`))
     // One export audit row per month and form, as the monthly exports write.
-    expect(exportsRows()).toBe(a0 + 6)
+    expect(exportsRows()).toBe(a1 + 6)
+    expect(await gstReturns()).toBe('Both returns prepared.')
     const quarterSnaps = monthArgs.map((m) => [snap('gstr1', m.period), snap('gstr3b', m.period)])
     expect(quarterSnaps.every(([g1, g3]) => g1 !== undefined && g3 !== undefined)).toBe(true)
     // Prepared once all three months are.
@@ -261,7 +282,7 @@ describe('simple:taxes — a quarterly filer prepares the quarter (WP 9.9 deferr
     expect(bundle1).toEqual(monthly1)
     expect(bundle3).toEqual(monthly3)
     expect(monthArgs.map((m) => [snap('gstr1', m.period), snap('gstr3b', m.period)])).toEqual(quarterSnaps)
-    expect(exportsRows()).toBe(a0 + 12)
+    expect(exportsRows()).toBe(a1 + 12)
     ro.close()
   })
 })

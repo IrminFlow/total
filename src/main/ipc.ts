@@ -1886,12 +1886,17 @@ export function registerIpc(): void {
     const months = quarterExportMonths(from, to, period)
     if (!months) throw new AppError('invalid_input', 'A quarterly export covers a whole quarter, named by its last month.', { field: 'period' })
     for (const m of months) gst.assertExportable(c.db, c.info, m.from, m.to)
-    const files = months.flatMap((m) => {
-      if (form === 'gstr3b') return [exportGstr3bMonth(c, m.from, m.to, m.period).jsonPath]
-      const r = exportGstr1Month(c, m.from, m.to, m.period)
-      return [r.jsonPath, r.csvPath]
-    })
-    const bundle = simpleTaxes.bundleQuarterFiles(c.slug, form, period, files)
+    // One transaction: a failure on a later month (or while copying) leaves no month's GSTR-9
+    // snapshot or audit row behind, so the quarter is never half "prepared". Files already written
+    // are the monthly exports' own (a re-export rewrites them).
+    const bundle = c.db.transaction(() => {
+      const files = months.flatMap((m) => {
+        if (form === 'gstr3b') return [exportGstr3bMonth(c, m.from, m.to, m.period).jsonPath]
+        const r = exportGstr1Month(c, m.from, m.to, m.period)
+        return [r.jsonPath, r.csvPath]
+      })
+      return simpleTaxes.bundleQuarterFiles(c.slug, form, period, files)
+    })()
     shell.showItemInFolder(bundle.files[0] ?? bundle.folder)
     return bundle
   }

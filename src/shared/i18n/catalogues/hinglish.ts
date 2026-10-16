@@ -1249,6 +1249,8 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.why.link.gstr3b': 'Full app mein GSTR-3B kholein',
   'simple.why.link.gstr1Quarter': 'Full app mein {month} ka GSTR-1 kholein, quarter ka aakhri mahina',
   'simple.why.link.gstr3bQuarter': 'Full app mein {month} ka GSTR-3B kholein, quarter ka aakhri mahina',
+  'simple.why.link.gstr1QuarterSoFar': 'Full app mein {month} ka GSTR-1 kholein, quarter ka ab tak ka mahina',
+  'simple.why.link.gstr3bQuarterSoFar': 'Full app mein {month} ka GSTR-3B kholein, quarter ka ab tak ka mahina',
   'simple.why.link.tds': 'Full app mein TDS kholein',
   'simple.why.link.tcs': 'Full app mein TCS kholein',
   'simple.why.link.payroll': 'Full app mein payroll kholein',

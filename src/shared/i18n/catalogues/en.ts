@@ -1324,6 +1324,8 @@ export const en = {
   'simple.why.link.gstr3b': 'Open GSTR-3B in the full app',
   'simple.why.link.gstr1Quarter': 'Open GSTR-1 in the full app on {month}, the quarter’s last month',
   'simple.why.link.gstr3bQuarter': 'Open GSTR-3B in the full app on {month}, the quarter’s last month',
+  'simple.why.link.gstr1QuarterSoFar': 'Open GSTR-1 in the full app on {month}, the month the quarter has reached',
+  'simple.why.link.gstr3bQuarterSoFar': 'Open GSTR-3B in the full app on {month}, the month the quarter has reached',
   'simple.why.link.tds': 'Open TDS in the full app',
   'simple.why.link.tcs': 'Open TCS in the full app',
   'simple.why.link.payroll': 'Open payroll in the full app',
