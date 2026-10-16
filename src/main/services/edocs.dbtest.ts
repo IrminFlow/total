@@ -231,6 +231,42 @@ describe('edocs service — transport, per-bill EWB, service invoices, preceding
     expect(docs.filter((d) => d.DocDtls.Typ === 'DBN')).toHaveLength(1)
   })
 
+  it('to-do §4: an optional range inside the period; absent = the whole period, byte for byte', () => {
+    const s = setup()
+    const sale = (date: string, amt: number) => s.post('sales', date, s.buyer, [
+      { ledgerId: s.buyer, drCr: 'dr', amount: amt + 2 * Math.round(amt * 0.09) },
+      { ledgerId: s.sales, drCr: 'cr', amount: amt },
+      { ledgerId: s.cgstL, drCr: 'cr', amount: Math.round(amt * 0.09) },
+      { ledgerId: s.sgstL, drCr: 'cr', amount: Math.round(amt * 0.09) }
+    ])
+    const early = sale('2026-07-03', 100000)
+    const mid = sale('2026-07-15', 200000)
+    const late = sale('2026-07-28', 300000)
+
+    const whole = exportEInvoices(s.db, INFO, SLUG, '2026-07-01', '2026-07-31', '072026')
+    const wholeBytes = readFileSync(whole.path)
+    expect(whole.path.endsWith('einvoice-072026.json')).toBe(true)
+    expect(whole.count).toBe(3)
+    // Absent range = the old whole-period export: the same bytes as the builder over the period.
+    const again = exportEInvoices(s.db, INFO, SLUG, '2026-07-01', '2026-07-31', '072026', {})
+    expect(readFileSync(again.path).equals(wholeBytes)).toBe(true)
+    // A range equal to the period gives the same documents (its own file name).
+    const full = exportEInvoices(s.db, INFO, SLUG, '2026-07-01', '2026-07-31', '072026', { range: { from: '2026-07-01', to: '2026-07-31' } })
+    expect(readFileSync(full.path, 'utf8')).toBe(wholeBytes.toString('utf8'))
+    expect(full.path.endsWith('einvoice-072026-2026-07-01_2026-07-31.json')).toBe(true)
+
+    const part = exportEInvoices(s.db, INFO, SLUG, '2026-07-01', '2026-07-31', '072026', { range: { from: '2026-07-10', to: '2026-07-28' } })
+    expect(part.count).toBe(2)
+    const nos = (JSON.parse(readFileSync(part.path, 'utf8')) as any[]).map((d) => d.DocDtls.No)
+    expect(nos).toEqual([mid.number, late.number])
+    expect(nos).not.toContain(early.number)
+    // The whole-period file is untouched by a range export.
+    expect(readFileSync(whole.path).equals(wholeBytes)).toBe(true)
+
+    expect(() => exportEInvoices(s.db, INFO, SLUG, '2026-07-01', '2026-07-31', '072026', { range: { from: '2026-06-30', to: '2026-07-10' } })).toThrow(/within the period/)
+    expect(() => exportEInvoices(s.db, INFO, SLUG, '2026-07-01', '2026-07-31', '072026', { range: { from: '2026-07-20', to: '2026-07-10' } })).toThrow(/within the period/)
+  })
+
   it('same-state SEZ buyers get IGST (sec 7(5)(b) IGST Act), never CGST/SGST, in the e-doc payload', () => {
     const s = setup()
     const groupId = (name: string): number =>

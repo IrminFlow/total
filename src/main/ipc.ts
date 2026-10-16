@@ -2447,12 +2447,19 @@ export function registerIpc(): void {
     return edocs.listSalesInvoices(c.db, from, to, c.info)
   }, 'viewer')
   handle('edoc:exportEInvoice', async (p) => {
-    const { from, to, period } = gstPeriodInput.parse(p)
+    // to-do §4: an optional range inside the period (absent = the whole period, as before).
+    const { from, to, period, range } = gstPeriodInput
+      .extend({ range: z.object({ from: isoDate, to: isoDate }).optional() })
+      .refine((q) => !q.range || (q.range.from <= q.range.to && q.range.from >= q.from && q.range.to <= q.to), {
+        message: 'The dates must lie within the period, the first on or before the last',
+        path: ['range']
+      })
+      .parse(p)
     const c = requireCompany()
-    const target = await pickExportPath(c.slug, { defaultName: edocs.eInvoiceFileName(period), title: 'Save e-invoice JSON', filters: [{ name: 'JSON', extensions: ['json'] }] })
+    const target = await pickExportPath(c.slug, { defaultName: edocs.eInvoiceFileName(period, range), title: 'Save e-invoice JSON', filters: [{ name: 'JSON', extensions: ['json'] }] })
     if (!target) return { path: '', count: 0, cancelled: true }
-    const r = edocs.exportEInvoices(c.db, c.info, c.slug, from, to, period, { path: target })
-    auditExport(c.db, 'einvoice', { period, path: r.path, count: r.count })
+    const r = edocs.exportEInvoices(c.db, c.info, c.slug, from, to, period, { path: target, range })
+    auditExport(c.db, 'einvoice', { period, ...(range ? { range } : {}), path: r.path, count: r.count })
     shell.showItemInFolder(r.path)
     return r
   })

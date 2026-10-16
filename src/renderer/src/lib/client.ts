@@ -1266,8 +1266,9 @@ export const api = {
   },
   edoc: {
     list: (from: string, to: string) => call<EdocListRow[]>('edoc:list', { from, to }),
-    exportEInvoice: (from: string, to: string, period: string) =>
-      call<{ path: string; count: number; cancelled?: boolean }>('edoc:exportEInvoice', { from, to, period }),
+    /** `range` = only the documents dated within it (inside from–to); absent = the whole period. */
+    exportEInvoice: (from: string, to: string, period: string, range?: { from: string; to: string }) =>
+      call<{ path: string; count: number; cancelled?: boolean }>('edoc:exportEInvoice', { from, to, period, ...(range ? { range } : {}) }),
     exportEwb: (from: string, to: string, period: string, opts?: { voucherIds?: number[]; includeBelowThreshold?: boolean }) =>
       call<{ path: string; dir: string; count: number; skipped: { number: string; reason: string }[] }>(
         'edoc:exportEwb',
