@@ -105,6 +105,19 @@ export interface StockRecipe {
   lines: { itemId: number; name: string; unit: string; qtyMilliPerUnit: number; scrapPctBp: number | null }[]
 }
 
+/** A saved stock count reopened (simple:stock:count): per product, what Total showed just
+ *  before it, what was counted and the value the difference changed stock by — the valuation
+ *  engine's figures (stockAnalysis.countLineEffects). `inBooks` false = binned (or not counting):
+ *  `beforeMilli` / `valueChange` are null then. */
+export interface SavedCountView {
+  voucherId: number
+  number: string
+  date: string
+  narration: string | null
+  inBooks: boolean
+  lines: { lineId: number; itemId: number; name: string; unit: string; countedMilli: number; beforeMilli: number | null; valueChange: number | null }[]
+}
+
 export interface StockProductView {
   itemId: number
   name: string

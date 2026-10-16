@@ -42,7 +42,8 @@ const ENTRY_VIEWS: ReadonlySet<Screen['name']> = new Set(['simple-sales', 'simpl
 
 /** A History row → its entry: the simple view of the same entry where there is one (WP 9.10's
  *  full → simple table, `simpleTargetFor` — a sale's bill view, a purchase's, a return on its
- *  original bill), else the entry in the full app (counts, stock journals, made goods). */
+ *  original bill; a count reopens as the saved count), else the entry in the full app (stock
+ *  journals, made goods). */
 export async function historyTarget(voucherId: number): Promise<Screen> {
   let facts: HandoffFacts | null = null
   try {
@@ -50,6 +51,9 @@ export async function historyTarget(voucherId: number): Promise<Screen> {
   } catch {
     facts = null
   }
+  // A stock count reopens as the count it was (SavedCount — the difference the engine recorded),
+  // with "Edit in the full app" there.
+  if (facts?.voucher?.kind === 'physical_stock') return { name: 'simple-stock-count', voucherId } // i18n-technical
   const target = simpleTargetFor(entryScreen(voucherId), facts)
   return ENTRY_VIEWS.has(target.name) ? target : entryScreen(voucherId)
 }

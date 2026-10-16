@@ -10,7 +10,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { CompanyInfo } from '@shared/domain'
 import { DEFAULT_FEATURES, type CompanyFeatures } from '@shared/features'
 import type { IntentFacts, SimplePostResult } from '@shared/simple/intents'
-import type { MadeGoodsSetup, StockList as StockListData, StockProductView } from '@shared/simple/stock'
+import type { MadeGoodsSetup, SavedCountView, StockList as StockListData, StockProductView } from '@shared/simple/stock'
 import { bannedWordsIn } from '@shared/simple/bannedWords'
 import { useNav, useSession } from '../state/stores'
 import { useExplain } from '../lib/explain'
@@ -18,6 +18,7 @@ import { useDialogs } from '../lib/dialogs'
 import { StockList } from '../simple/stock/StockList'
 import { StockCount } from '../simple/stock/StockCount'
 import { MadeGoods } from '../simple/stock/MadeGoods'
+import { SavedCount } from '../simple/stock/SavedCount'
 
 const invoke = vi.fn()
 const LIST: StockListData = {
@@ -172,11 +173,12 @@ describe('History rows open the entry (PR #91 to-do)', () => {
         { voucherId: 11, date: '2026-10-01', what: 'sold', party: 'Ramesh', inMilli: 0, outMilli: 5000, balanceMilli: 95_000 },
         { voucherId: 12, date: '2026-10-02', what: 'returnedIn', party: 'Ramesh', inMilli: 1000, outMilli: 0, balanceMilli: 96_000 },
         { voucherId: 14, date: '2026-10-03', what: 'bought', party: 'Shiv Mills', inMilli: 4000, outMilli: 0, balanceMilli: 100_000 },
-        { voucherId: 13, date: '2026-10-04', what: 'adjusted', party: null, inMilli: 0, outMilli: 2000, balanceMilli: 98_000 }
+        { voucherId: 13, date: '2026-10-04', what: 'adjusted', party: null, inMilli: 0, outMilli: 2000, balanceMilli: 98_000 },
+        { voucherId: 9, date: '2026-10-10', what: 'counted', party: null, inMilli: 0, outMilli: 2000, balanceMilli: 96_000 }
       ]
     }
   }
-  const KINDS: Record<number, { kind: string; originalId: number | null }> = { 11: { kind: 'sales', originalId: null }, 12: { kind: 'credit_note', originalId: 11 }, 13: { kind: 'stock_journal', originalId: null }, 14: { kind: 'purchase', originalId: null } }
+  const KINDS: Record<number, { kind: string; originalId: number | null }> = { 11: { kind: 'sales', originalId: null }, 12: { kind: 'credit_note', originalId: 11 }, 13: { kind: 'stock_journal', originalId: null }, 9: { kind: 'physical_stock', originalId: null }, 14: { kind: 'purchase', originalId: null } }
 
   it('a sale → its bill view, a return → Returns on the original bill, a purchase → its bill view, a stock journal → the full app (simpleTargetFor)', async () => {
     const base = invoke.getMockImplementation()!
@@ -199,6 +201,32 @@ describe('History rows open the entry (PR #91 to-do)', () => {
     await opens(1, { name: 'simple-return-sale', billId: 11 })
     await opens(2, { name: 'simple-purchases', billId: 14 })
     await opens(3, { name: 'voucher-entry', voucherId: 13 })
+    await opens(4, { name: 'simple-stock-count', voucherId: 9 })
+  })
+})
+
+describe('A saved count reopened (PR #91 to-do)', () => {
+  const SAVED: SavedCountView = {
+    voucherId: 9, number: 'PS-1', date: '2026-10-10', narration: null, inBooks: true,
+    lines: [
+      { lineId: 1, itemId: 1, name: 'Flour', unit: 'Kg', countedMilli: 98_000, beforeMilli: 100_000, valueChange: -8000 },
+      { lineId: 2, itemId: 2, name: 'Box', unit: 'Nos', countedMilli: 52_000, beforeMilli: 50_000, valueChange: 2000 },
+      { lineId: 3, itemId: 3, name: 'Bread', unit: 'Nos', countedMilli: 0, beforeMilli: 0, valueChange: 0 }
+    ]
+  }
+  it('shows what Total showed before, what was counted and the engine’s difference — never "Matches" for a real difference; Edit opens the full app', async () => {
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload: unknown) => (channel === 'simple:stock:count' ? { ok: true, data: SAVED } : base(channel, payload)))
+    renderUi(<SavedCount voucherId={9} />)
+    await waitFor(() => expect(screen.getByTestId('saved-count-rows')).toBeTruthy())
+    expect(calls('simple:stock:count')).toEqual([{ voucherId: 9 }])
+    expect(text('saved-count-diff-1')).toBe('2 Kg short — stock worth ₹80.00 less')
+    expect(text('saved-count-diff-2')).toBe('2 Nos more than Total showed — stock worth ₹20.00 more')
+    expect(text('saved-count-diff-3')).toBe('Matches')
+    expect(text('saved-count-row-1')).toContain('Total showed 100 Kg')
+    click('btn-saved-count-edit')
+    await waitFor(() => expect(lastScreen()).toEqual({ name: 'voucher-entry', voucherId: 9 }))
+    expect(bannedWordsIn(visible())).toEqual([])
   })
 })
 

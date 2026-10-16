@@ -33,7 +33,7 @@ import { postClose } from './yearEnd'
 import { undoSave } from './undo'
 import { pricingLoader } from './pricing'
 import { previewIntent, postIntent } from './simplePost'
-import { madeGoodsSetup, setSellingPrice, stockList, stockProduct } from './simpleStock'
+import { madeGoodsSetup, savedCount, setSellingPrice, stockList, stockProduct } from './simpleStock'
 import { simpleHomeAttention } from './simpleHome'
 import { createDemoCompany } from './demo'
 
@@ -212,6 +212,40 @@ describe('Count your stock = the hand-entered physical stock entry', () => {
     undoSave(db, a.voucherIds)
     expect(getVoucher(db, a.voucherIds[0]!)!.deletedAt).not.toBeNull()
     expect(listOf(db, TODAY).find((r) => r.itemId === I('Box'))!.qtyMilli).toBe(50_000)
+  })
+})
+
+describe('A saved count reopened shows the difference the engine recorded (PR #91 to-do)', () => {
+  it('before = the Stock summary the day before, counted − before (never 0 because the total includes it), the value = the summary’s change', () => {
+    const out = post(countIntentFrom({ date: DAY, counted: { [I('Flour')]: '98', [I('Box')]: '52' } }))
+    // Later movements must not change what the count recorded.
+    post(countIntentFrom({ date: '2025-08-12', counted: { [I('Flour')]: '90' } }))
+    const view = savedCount(db, out.voucherIds[0]!)!
+    const before = new Map(summaryOf(db, '2025-08-09').map((r) => [r.itemId, r]))
+    const after = new Map(summaryOf(db, DAY).map((r) => [r.itemId, r]))
+    expect(view.inBooks).toBe(true)
+    expect(view.lines.map((l) => [l.name, l.beforeMilli, l.countedMilli, l.countedMilli - l.beforeMilli!, l.valueChange])).toEqual([
+      ['Flour', 100_000, 98_000, -2000, -8000],
+      ['Box', 50_000, 52_000, 2000, 2000]
+    ])
+    for (const l of view.lines) {
+      expect(l.beforeMilli).toBe(before.get(l.itemId)!.qtyMilli)
+      expect(l.countedMilli).toBe(after.get(l.itemId)!.qtyMilli)
+      expect(l.valueChange).toBe(after.get(l.itemId)!.value - before.get(l.itemId)!.value)
+    }
+    // The entry itself, as the Physical Stock editor would show it, holds 98 / 52 — the books
+    // total on the day includes it, so "counted − total" would read 0.
+    expect(stockSummary(db, DAY).find((r) => r.stockItemId === I('Flour'))!.closingQtyMilli).toBe(98_000)
+  })
+
+  it('a binned count says so (no figures); anything that is not a count is null', () => {
+    const out = post(countIntentFrom({ date: DAY, counted: { [I('Box')]: '45' } }))
+    undoSave(db, out.voucherIds)
+    const view = savedCount(db, out.voucherIds[0]!)!
+    expect(view).toMatchObject({ inBooks: false, lines: [{ name: 'Box', countedMilli: 45_000, beforeMilli: null, valueChange: null }] })
+    const made = post(makeIntentFrom({ ...emptyMakeForm(DAY), itemId: I('Bread'), qtyText: '1', price: 5000 }))
+    expect(savedCount(db, made.voucherIds[0]!)).toBeNull()
+    expect(savedCount(db, 999_999)).toBeNull()
   })
 })
 
@@ -394,5 +428,6 @@ describe('roles', () => {
     const soap = (await ok<{ id: number; reorderLevelMilli: number | null }[]>('master:stockItems:list')).find((i) => i.id === item.id)!
     expect(await call('master:stockItems:update', { id: item.id, data: { ...soap, reorderLevelMilli: 2000 } })).toMatchObject({ ok: false, code: 'not_permitted' })
     expect(await ok('simple:stock:list', { today: TODAY })).toEqual(before)
+    expect(await call('simple:stock:count', { voucherId: 1 })).toMatchObject({ ok: true })
   })
 })

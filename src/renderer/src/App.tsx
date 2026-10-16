@@ -30,6 +30,7 @@ import { PeopleList } from './simple/people/PeopleList'
 import { PersonView } from './simple/people/PersonView'
 import { StockList } from './simple/stock/StockList'
 import { StockCount } from './simple/stock/StockCount'
+import { SavedCount } from './simple/stock/SavedCount'
 import { MadeGoods } from './simple/stock/MadeGoods'
 import { ReportsScreen } from './simple/reports/ReportsScreen'
 import { TaxesScreen } from './simple/taxes/TaxesScreen'
@@ -237,7 +238,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-people' && <PeopleList key={`${screen.tab ?? 'people'}|${screen.filter ?? 'all'}`} tab={screen.tab} filter={screen.filter} />}
           {screen.name === 'simple-person' && <PersonView key={screen.id} id={screen.id} />}
           {screen.name === 'simple-stock' && <StockList key={`${screen.itemId ?? 'list'}-${screen.filter ?? 'all'}`} filter={screen.filter} itemId={screen.itemId} />}
-          {screen.name === 'simple-stock-count' && <StockCount />}
+          {screen.name === 'simple-stock-count' && (screen.voucherId != null ? <SavedCount key={screen.voucherId} voucherId={screen.voucherId} /> : <StockCount />)}
           {screen.name === 'simple-made-goods' && <MadeGoods key={screen.itemId ?? 'new'} itemId={screen.itemId} />}
           {screen.name === 'simple-reports' && <ReportsScreen key={`${screen.report ?? 'doing'}-${screen.side ?? ''}`} report={screen.report} side={screen.side} />}
           {screen.name === 'simple-taxes' && <TaxesScreen key={screen.period ?? 'default'} period={screen.period} />}

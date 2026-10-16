@@ -118,7 +118,7 @@ export type Screen =
   // WP 9.7: Stock — the product list (`filter: 'low'` = only what is running low; `itemId` = that
   // product's simple view), Count your stock, Made goods (`itemId` = that product picked).
   | { name: 'simple-stock'; filter?: 'low'; itemId?: number }
-  | { name: 'simple-stock-count' }
+  | { name: 'simple-stock-count'; voucherId?: number }
   | { name: 'simple-made-goods'; itemId?: number }
   // WP 9.9: Reports — one plain report (`report`, default 'doing'; `side` for who owes whom) —
   // and Taxes (`period` = the GST period's last month, default the Home tile's).

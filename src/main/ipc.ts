@@ -658,6 +658,11 @@ export function registerIpc(): void {
     const { id, today } = z.object({ id: z.number().int().positive(), today: isoDate.optional() }).strict().parse(payload)
     return simpleStock.stockProduct(requireCompany().db, id, homeAsOn(today, todayISO()))
   }, 'viewer')
+  // A saved stock count reopened, with the difference the valuation engine recorded.
+  handle('simple:stock:count', (payload) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).strict().parse(payload)
+    return simpleStock.savedCount(requireCompany().db, voucherId)
+  }, 'viewer')
   handle('simple:stock:madeSetup', (payload) => {
     const { date } = z.object({ date: isoDate }).strict().parse(payload)
     return simpleStock.madeGoodsSetup(requireCompany().db, date)

@@ -18,7 +18,7 @@ import type { BillsToPay, PeopleList, PersonUpdate, PersonView, ReminderVia } fr
 import type { SaleRow, SaleView, SellSetup } from '@shared/simple/sell'
 import type { ReturnBill, ReturnBillRow, ReturnSide as SimpleReturnSide } from '@shared/simple/returns'
 import type { BuySetup, PurchaseRow, PurchaseView } from '@shared/simple/buy'
-import type { MadeGoodsSetup, StockList, StockProductView } from '@shared/simple/stock'
+import type { MadeGoodsSetup, SavedCountView, StockList, StockProductView } from '@shared/simple/stock'
 import type { BusinessDoing, ReportPeriodKind, SimpleByMonth, SimpleCash, SimpleOwed } from '@shared/simple/reports'
 import type { GstFiledInput, GstFiledPeriod, SimpleTaxes } from '@shared/simple/taxes'
 import type { BudgetVarianceRow } from '@shared/budgets'
@@ -789,6 +789,8 @@ export const api = {
     product: (id: number, today?: string) => call<StockProductView | null>('simple:stock:product', { id, ...(today ? { today } : {}) }),
     /** Made goods' choices: products with a recipe in force on the date. */
     madeSetup: (date: string) => call<MadeGoodsSetup>('simple:stock:madeSetup', { date }),
+    /** A saved stock count with the difference the engine recorded (null = not a count). */
+    count: (voucherId: number) => call<SavedCountView | null>('simple:stock:count', { voucherId }),
     /** "Change price": the selling price from `date` (default level, as the new-product dialog). */
     setPrice: (itemId: number, ratePaise: number, date?: string) => call<{ sellingPrice: number | null }>('simple:stock:setPrice', { itemId, ratePaise, ...(date ? { date } : {}) })
   },
