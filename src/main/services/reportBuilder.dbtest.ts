@@ -4,7 +4,7 @@
 // movements); migration 038; ratio values on a hand-computed fixture; the pack scheduler runs a
 // missed job exactly once.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { DB } from '../db/connection'
@@ -27,7 +27,7 @@ import {
   deleteReport, duplicateReport, getSavedReport, listSavedReports, renameReport, runReport, saveReport, setReportPinned
 } from './reportBuilder'
 import { budgetAmounts, comparativePnl, ratioReport } from './reportAnalytics'
-import { listRuns, packTable, runDuePacks, runPack, savePack } from './reportPacks'
+import { listRuns, packFolderName, packTable, runDuePacks, runPack, savePack } from './reportPacks'
 import { runDuePacksInBackground } from '../packScheduler'
 import { postClose } from './yearEnd'
 import { noteVoucherRows } from './analysis'
@@ -627,6 +627,34 @@ describe('review round: the pack scheduler', () => {
       expect(runDuePacksInBackground(company, { renderPdf })).toBe(pass)
       await pass
       expect(listRuns(db, pack.id)).toHaveLength(1)
+    } finally {
+      rmSync(out, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('pack folders are named after the pack, not by the company-folder rule (to-do §4)', () => {
+  it('"Con" → _Con/ (never con-company/), "Month end" keeps its name, a slash becomes a dash; an existing old folder is kept', async () => {
+    const out = mkdtempSync(join(tmpdir(), 'total-pack-names-'))
+    try {
+      expect(packFolderName(out, 'Con')).toBe('_Con')
+      expect(packFolderName(out, 'Month end')).toBe('Month end')
+      expect(packFolderName(out, 'Sales/Purchases')).toBe('Sales-Purchases')
+      expect(packFolderName(out, '..')).toBe('pack')
+      // A folder an earlier version wrote (slugify) is still the one written to.
+      mkdirSync(join(out, 'con-company'))
+      expect(packFolderName(out, 'Con')).toBe('con-company')
+
+      const db = seededDb()
+      const pack = savePack(db, { name: 'Month end', reports: [{ kind: 'builtin', key: 'trialBalance' }], periodRule: 'fyToDate', frequency: 'monthly', formats: ['csv'], outputDir: out })
+      const run = await runPack(db, 'test-co', TEST_INFO, pack.id, { trigger: 'manual', now: new Date('2026-05-15T10:00:00'), renderPdf: async () => Buffer.from('') })
+      expect(run.status).toBe('ok')
+      expect(run.outputDir!.startsWith(join(out, 'Month end'))).toBe(true)
+      const old = savePack(db, { name: 'Year end', reports: [{ kind: 'builtin', key: 'trialBalance' }], periodRule: 'fyToDate', frequency: 'monthly', formats: ['csv'], outputDir: out })
+      mkdirSync(join(out, 'year-end'))
+      const run2 = await runPack(db, 'test-co', TEST_INFO, old.id, { trigger: 'manual', now: new Date('2026-05-15T10:00:00'), renderPdf: async () => Buffer.from('') })
+      expect(run2.outputDir!.startsWith(join(out, 'year-end'))).toBe(true)
+      for (const f of run2.files) expect(existsSync(f)).toBe(true)
     } finally {
       rmSync(out, { recursive: true, force: true })
     }
