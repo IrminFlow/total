@@ -3,17 +3,43 @@
 // on its own connection, runs the pragma and closes — the same check the main connection would
 // run, reading the same committed pages, while main keeps answering the renderer. checkHost.ts
 // runs it in-process where the worker file does not exist (dbtests, the CLI).
+//
+// WP 7.2 follow-up: a 'verify' job runs the whole restore check of a backup here
+// (services/backupVerify.ts verifyBackupFile: copy into the scratch folder main made, open with the
+// key main sent, quick_check, migrate the COPY, audit chain, company row, trial balance) and
+// answers with the BackupCheck. It never opens the company file: main records the verdict
+// (backup_runs + audit). Built by scripts/build-check-worker.mjs as one self-contained file —
+// no Electron, no AI / MCP code (checkWorkerBundle.test.ts).
 import { parentPort } from 'worker_threads'
-import { openForCheck, runPragmaCheck, type CheckPragma } from './checkHost'
+import { openForCheck, runPragmaCheck, type CheckJob } from './checkHost'
+import type * as BackupVerify from '../services/backupVerify'
 
-parentPort?.on('message', (msg: { id: number; path: string; pragma: CheckPragma; keyHex?: string | null }) => {
+// Loaded on the first 'verify' job only: the open-time quick_check (a 'pragma' job, awaited by
+// company:open) does not pay for evaluating the migrations / reports code it never runs.
+let verifyModule: typeof BackupVerify | null = null
+const backupVerify = (): typeof BackupVerify => (verifyModule ??= require('../services/backupVerify') as typeof BackupVerify)
+
+const run = (job: CheckJob): unknown => {
+  if (job.kind === 'verify') {
+    if (job.keyHex !== null && !/^[0-9a-f]{64}$/.test(job.keyHex)) throw new Error('bad key')
+    return backupVerify().verifyBackupFile(job.path, {
+      key: job.keyHex ? Buffer.from(job.keyHex, 'hex') : null,
+      asOn: job.asOn,
+      now: new Date(job.nowIso),
+      scratchRoot: job.scratchRoot
+    })
+  }
+  const db = openForCheck(job.path, job.keyHex ?? null)
   try {
-    const db = openForCheck(msg.path, msg.keyHex ?? null)
-    try {
-      parentPort!.postMessage({ id: msg.id, ok: true, result: runPragmaCheck(db, msg.pragma) })
-    } finally {
-      db.close()
-    }
+    return runPragmaCheck(db, job.pragma)
+  } finally {
+    db.close()
+  }
+}
+
+parentPort?.on('message', (msg: CheckJob & { id: number }) => {
+  try {
+    parentPort!.postMessage({ id: msg.id, ok: true, result: run(msg) })
   } catch (err) {
     parentPort!.postMessage({ id: msg.id, ok: false, error: err instanceof Error ? err.message : String(err) })
   }

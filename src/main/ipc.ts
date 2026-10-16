@@ -12,7 +12,7 @@ import { DEFAULT_SCRYPT, newDataKey, unwrapKeyAsync, wrapKeyAsync, type ScryptPa
 import { insecureTestCipherAllowed } from './services/secrets'
 import { assertNotThrottled, noteRightPassphrase, noteWrongPassphrase, readEnvelope, readEnvelopes, removeEnvelope, unlockCompanyKey, writeEnvelope } from './services/companyKeys'
 import { commitConvertedCopy, convertBackups, prepareConvertedCopy, removeLeftoverCopies } from './services/dbEncryption'
-import { checkBackupIfDue, latestBackupCheck, listBackupChecks, recordBackupCheck, verifyBackupFile } from './services/backupVerify'
+import { checkBackupIfDue, latestBackupCheck, listBackupChecks, recordBackupCheck, verifyBackupFileAsync } from './services/backupVerify'
 import { AUTO_LOCK_CHOICES, IdleClock, getAutoLockMinutes, setAutoLockMinutes } from './services/sessionLock'
 import { capabilityAllows, channelCapabilities } from './capabilities'
 import { effectiveCapabilities, type Capability, type CapabilityFlags } from '@shared/capabilities'
@@ -292,17 +292,18 @@ export function scheduleBackupCheck(db: DB, dest: string, tag: string): void {
       quietMs: BACKUP_CHECK_QUIET_MS, latestMs: BACKUP_CHECK_LATEST_MS
     })
     if (wait > 0) later(wait)
-    else run()
+    else void run()
   }
-  const run = (): void => {
+  const run = async (): Promise<void> => {
     const t0 = performance.now()
     try {
-      const check = runAsAuditUser(SYSTEM_AUDIT_USER, () => checkBackupIfDue(db, dest, tag, todayISO()))
+      // The check itself runs in the check worker; main only records the verdict.
+      const check = await checkBackupIfDue(db, dest, tag, todayISO(), SYSTEM_AUDIT_USER)
       if (check && !check.ok) log('warn', 'backup-check-failed', { file: check.file, error: check.error })
     } catch (err) {
       log('warn', 'backup-check-error', { error: err instanceof Error ? err.message : String(err) })
     }
-    // Not an IPC handler, but it holds the main thread like one — the launch trace shows it.
+    // Wall time of the check (off the main thread where the worker file exists) — the launch trace shows it.
     if (TRACE_IPC) console.log(`[ipc] (timer) backup check ${(performance.now() - t0).toFixed(0)} ms`)
   }
   later(3_000)
@@ -1092,7 +1093,7 @@ export function registerIpc(): void {
     // WP 7.2: a backup the user asked for is restore-checked at once (the answer comes back with it).
     let check: BackupCheck | null = null
     try {
-      check = checkBackupIfDue(c.db, path, 'manual', todayISO())
+      check = await checkBackupIfDue(c.db, path, 'manual', todayISO())
     } catch (err) {
       log('warn', 'backup-check-error', { error: err instanceof Error ? err.message : String(err) })
     }
@@ -3133,14 +3134,15 @@ export function registerIpc(): void {
 
   // Backup checks: the list (Settings → Backups) and "Check now" on the newest (or a named) backup.
   handle('backup:checks', () => listBackupChecks(requireCompany().db), 'viewer')
-  handle('backup:check', (p) => {
+  handle('backup:check', async (p) => {
     const { file } = z.object({ file: backupFileSchema.optional() }).strict().parse(p ?? {})
     const c = requireCompany()
     const name = file ?? listBackupsIn(companyBackupsDir(c.slug))[0]?.file
     if (!name) throw new Error('There is no backup to check yet — take one first')
     const path = join(companyBackupsDir(c.slug), name)
     if (!existsSync(path)) throw new Error('Backup file not found')
-    const check = verifyBackupFile(path, { asOn: todayISO(), key: isEncryptedFile(path) ? keyOfHandle(c.db) : null })
+    const check = await verifyBackupFileAsync(path, { asOn: todayISO(), key: isEncryptedFile(path) ? keyOfHandle(c.db) : null, alsoTrack: [c.db.name] })
+    if (!c.db.open) throw new Error('The business was closed before the check finished')
     return recordBackupCheck(c.db, check)
   })
 

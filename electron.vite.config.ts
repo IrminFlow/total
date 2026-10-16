@@ -2,18 +2,29 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { resolve } from 'path'
+import { buildCheckWorker } from './scripts/build-check-worker.mjs'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
+    plugins: [
+      externalizeDepsPlugin(),
+      // WP 7.1: whole-file SQLite checks (quick_check / integrity_check) and, since the PR #131
+      // follow-up, the restore check of a backup run in a worker thread (out/main/checkWorker.js).
+      // Bundled on its own (scripts/build-check-worker.mjs) so it shares no Electron-requiring
+      // chunk with index.js; written after each main build (watch mode too).
+      {
+        name: 'total-check-worker',
+        async writeBundle(options) {
+          await buildCheckWorker(resolve(options.dir ?? resolve(__dirname, 'out/main'), 'checkWorker.js'))
+        }
+      }
+    ],
     build: {
       rollupOptions: {
         // WP 5.4: the PDF text-layer reader runs in a worker thread (out/main/pdfWorker.js).
-        // WP 7.1: whole-file SQLite checks (quick_check / integrity_check) too (out/main/checkWorker.js).
         input: {
           index: resolve(__dirname, 'src/main/index.ts'),
-          pdfWorker: resolve(__dirname, 'src/main/ai/capture/pdfWorker.ts'),
-          checkWorker: resolve(__dirname, 'src/main/db/checkWorker.ts')
+          pdfWorker: resolve(__dirname, 'src/main/ai/capture/pdfWorker.ts')
         }
       }
     },
