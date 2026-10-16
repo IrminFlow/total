@@ -1,7 +1,8 @@
 // WP 10.1: where an Ask Total chip / link / "open X" goes. Main names a screen and its params
 // (shared/assist.ts AssistTarget); this whitelist turns them into a Screen — anything else is
 // not a link (never a free-form route).
-import type { AssistTarget } from '@shared/assist'
+import type { AiDraftDto } from '@shared/ai'
+import { ASK_TOTAL_ORIGIN, type AssistTarget } from '@shared/assist'
 import { PEOPLE_FILTERS, type PeopleFilter } from '@shared/simple/people'
 import { SIMPLE_SECTION_IDS, type SimpleSectionId } from '@shared/simple/uiMode'
 import type { Screen } from '../state/stores'
@@ -57,4 +58,13 @@ export function askScreen(t: AssistTarget | undefined | null): Screen | null {
     default:
       return PLAIN.includes(t.screen) ? ({ name: t.screen } as Screen) : null
   }
+}
+
+/** Settings → AI drafts in a simple-mode company: an OPEN Ask Total draft opens its simple flow
+ *  pre-filled, exactly as the Ask Total panel opens it (`ask: { draftId, prefill }` — the flow's
+ *  first save consumes it); null = not such a draft (the caller opens it as before). */
+export function askDraftScreen(d: Pick<AiDraftDto, 'id' | 'status' | 'origin' | 'payload'>): Screen | null {
+  const prefill = d.payload.simple?.prefill
+  if (d.status !== 'open' || d.origin !== ASK_TOTAL_ORIGIN || !prefill) return null
+  return { name: prefill.screen, ask: { draftId: d.id, prefill } } as Screen
 }

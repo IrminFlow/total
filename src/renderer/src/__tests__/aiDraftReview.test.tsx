@@ -14,6 +14,7 @@ import { elementsForField, markAiFields } from '../lib/aiHighlights'
 import { screenForDraft } from '../components/ai/AiDraftReview'
 import { useNav, useSession } from '../state/stores'
 import { AiSection } from '../screens/settings/AiSection'
+import { askDraftScreen } from '../simple/askTargets'
 
 const invoke = vi.fn()
 
@@ -234,6 +235,54 @@ describe('Settings → AI drafts list', () => {
     fireEvent.click(within(open).getByTestId('btn-ai-drafts-discard'))
     await act(async () => fireEvent.click(await screen.findByTestId('confirm-ok')))
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('ai:draft:discard', { id: 7 }))
+  })
+})
+
+describe('Settings → AI drafts: an Ask Total draft', () => {
+  afterEach(() => useSession.setState({ ui: { mode: 'accountant' } }))
+  const askDraft = (): AiDraftDto =>
+    draftDto({
+      id: 9, threadId: null, messageId: null, userName: null, source: 'assistant', origin: 'ask-total', summary: 'Money out ₹500.00',
+      payload: {
+        voucherTypeId: 3, voucherKind: 'payment', date: '2026-10-08', partyLedgerId: null, narration: null, reference: null, lines: [], origin: 'ask-total',
+        simple: { kind: 'money_out', question: 'paid 500 for tea in cash', prefill: { screen: 'simple-money-out', who: 'expense', amount: 50000, how: 'cash' }, intent: null }
+      }
+    })
+  const renderList = async (): Promise<HTMLElement> => {
+    draft = askDraft()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    useNav.setState({ stack: [{ name: 'settings', tab: 'ai' }] })
+    render(
+      <QueryClientProvider client={client}>
+        <AiSection />
+        <DialogHost />
+      </QueryClientProvider>
+    )
+    const table = await screen.findByTestId('rows-ai-drafts', undefined, { timeout: 3000 })
+    await waitFor(() => expect(table.querySelector('[data-draft-id="9"]')).toBeTruthy())
+    return table.querySelector('[data-draft-id="9"]') as HTMLElement
+  }
+
+  it('in a simple-mode company opens its simple flow pre-filled (as the Ask Total panel does)', async () => {
+    useSession.setState({ ui: { mode: 'simple' } })
+    const row = await renderList()
+    fireEvent.click(within(row).getByTestId('btn-ai-drafts-open'))
+    await waitFor(() =>
+      expect(useNav.getState().stack.at(-1)).toEqual({ name: 'simple-money-out', ask: { draftId: 9, prefill: { screen: 'simple-money-out', who: 'expense', amount: 50000, how: 'cash' } } })
+    )
+  })
+
+  it('in accountant mode opens the editor, as before', async () => {
+    useSession.setState({ ui: { mode: 'accountant' } })
+    const row = await renderList()
+    fireEvent.click(within(row).getByTestId('btn-ai-drafts-open'))
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'voucher-entry', aiDraftId: 9, kindHint: 'payment' }))
+  })
+
+  it('a chat draft opens its editor in simple mode too', async () => {
+    useSession.setState({ ui: { mode: 'simple' } })
+    expect(askDraftScreen(draftDto())).toBeNull()
+    expect(askDraftScreen({ ...askDraft(), status: 'consumed' })).toBeNull()
   })
 })
 
