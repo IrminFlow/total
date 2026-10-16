@@ -104,7 +104,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - ~~Items created over IPC after a screen loaded don't appear in screens that cache the item list (Labels tab)~~ DONE — `total:masters:changed` refreshes the cached master lists — PR #137 — e2e 68 notes
 - TDS: ~~late-deduction (1 %) interest computed but not shown~~ DONE — Deducted tab column + export, display only — PR #126; purchase returns don't reduce the threshold aggregate; 26Q CSV is RPU input, not FVU — WP 3.2
 - Fixed assets not done: partial disposals, GST on asset sale, extra-shift depreciation, component lives, rule 25(2) 40 % cap — WP 3.6
-- Trade cycle not done: ~~16-char invoice-number warning~~ DONE — PR #140 (NIC DocDtls.No warning for e-invoicing companies: gstValidate + the sales editor), challan / GRN list screens, convert-to-invoice, live NIC e-way for challans — WP 2.5b
+- Trade cycle not done: ~~16-char invoice-number warning~~ DONE — PR #140 (NIC DocDtls.No warning for e-invoicing companies: gstValidate + the sales editor; an explicit e-invoicing switch in Company details, seeded once from the history heuristic — PR #144), challan / GRN list screens, convert-to-invoice, live NIC e-way for challans — WP 2.5b
 - TCS not modelled: 206C(1G) 20 % slab, 206C(1C), LRS — WP 3.3
 - Cash & finance not done: MSME deadlines in the forecast, loan disbursement posting, foreign opening balances — WP 4.4
 - NIC follow-ups needing a migration: store signed QR / signed invoice; cancel IRN / cancel + extend e-way UI — WP 3.5
@@ -148,8 +148,8 @@ done on main were dropped. One line each; the pointer says where to look.
 
 ### Security
 - Attachments, capture files, exports, logs and the temporary plaintext snapshot inside an encrypted export are not encrypted — PR #112
-- ~~`total-cli` / MCP refuse a locked business (no `--passphrase`); consolidation reads a locked member only while it is the open business~~ DONE — `TOTAL_PASSPHRASE` (environment, never a flag; app's throttled unlock, exit 2, key forgotten at exit) for every `--company` command incl. MCP; `consolGroup:run` takes `memberPassphrases` for the run; the consolidation screen doesn't ask for them yet — PR #132 (from PR #112)
-- ~~No "remember on this Mac" — the passphrase is asked on every open~~ DONE — opt-in "Remember on this computer" at the prompt (the data key in safeStorage, owner-only, Forget in Lock and safety / the picker / the screen lock; dropped on lock off / on; not used by the CLI / MCP) — PR #PRNUM (from PR #112)
+- ~~`total-cli` / MCP refuse a locked business (no `--passphrase`); consolidation reads a locked member only while it is the open business~~ DONE — `TOTAL_PASSPHRASE` (environment, never a flag; app's throttled unlock, exit 2, key forgotten at exit) for every `--company` command incl. MCP; `consolGroup:run` takes `memberPassphrases` for the run — PR #132 (from PR #112); the consolidation screen asks ("Unlock <member> for this run") — PR #144
+- ~~No "remember on this Mac" — the passphrase is asked on every open~~ DONE — opt-in "Remember on this computer" at the prompt (the data key in safeStorage, owner-only, Forget in Lock and safety / the picker / the screen lock; dropped on lock off / on; not used by the CLI / MCP) — PR #142 (from PR #112)
 - ~~`canSeeProfit` doesn't cover the trial balance, report builder or AI tools; the UI doesn't hide buttons by flag (main refuses)~~ DONE — trial balance redacted, report builder / packs / AI tools / Ask Total refuse profit, export / Save / AI-settings buttons follow the flags — PR #127 (from PR #112)
 - ~~Session lock needs a user with a PIN~~ DONE — a business without users locks to a privacy screen (its passphrase when it has one; `session:unlock`) — PR #127 (from PR #112)
 - Renderer sandbox is off (`sandbox: false`) and IPC handlers don't validate the sender frame — GPT review, `src/main/index.ts:93`, `src/main/ipc.ts`
@@ -189,7 +189,7 @@ done on main were dropped. One line each; the pointer says where to look.
 
 - WP 6.x / 7.5 site: marketing site work deferred by the owner (WP 10.7); site FAQ says "nothing leaves the machine" (false once AI / capture / NIC are on) — `site/app/docs/faq/page.tsx`
 - WP 7.1: server-side DataTable paging not needed yet (Sales / People under budget at 100k) — PR #104
-- WP 7.2: encrypt attachments / exports / logs; member-passphrase prompt on the consolidation screen — PR #112 (CLI / MCP passphrase DONE in PR #132; remember-on-this-computer DONE in PR #142)
+- WP 7.2: encrypt attachments / exports / logs — PR #112 (member-passphrase prompt on the consolidation screen DONE in PR #144; CLI / MCP passphrase DONE in PR #132; remember-on-this-computer DONE in PR #142)
 - WP 7.3: ~~no data-folder move setting for OneDrive users~~ DONE — PR #133 (the CLI / MCP still ignore the pointer — follow-up); full e2e on Windows — PR #109
 - WP 7.4: tighten e2e 67–71 to the paths #107 fixed (drop workarounds); deferred coverage in `docs/e2e-coverage.md` (live NIC sandbox, price-list editor, TDS lower-deduction certificates) — PR #110
 - WP 7.6: before tagging the release, finish `CHANGELOG.md`'s Unreleased section — it has no entries for #107, #108, #110, #111, #112 and still calls #104 open (#109's Windows text has no PR link); then confirm main's CI is green on all five jobs (the tag run does not repeat e2e or perf) — owner-docs review

@@ -400,6 +400,16 @@ Read these before filing from the next release.
   (`services/gst.ts einvoicingOn`). `CashFlowRow` gained optional `parts` (ledger id, name, cash
   effect — they add up to the line) and `voucherIds`; the `daybook` screen takes optional
   `voucherIds` + `source`. [#140](https://github.com/IrminFlow/total/pull/140)
+- Review follow-ups. `receivables:statementsBulk` is in `EXPORT_CHANNELS` (`canExport`). E-invoicing
+  is an explicit company setting, meta `einvoicing: { enabled }`: #140's heuristic
+  (`einvoicingFromHistory`) only seeds it, once, at the first read, and the result is stored without
+  an audit row (the effective value doesn't change). The new channel `einvoicing:set` is owner-only
+  and audited as a company update. `gst:einvoicing` now returns `{ enabled }`, and Company details has
+  the checkbox. `simple:money:setup` takes `{ customerCredits: true }` (Zod-strict) and runs the
+  receivables allocation only then (Money out). `GroupRunResult.lockedMembers` (optional) drives the
+  consolidation screen's "Unlock <member> for this run" prompt, which re-runs with
+  `memberPassphrases`; the passphrase is held in memory only. encryption-at-rest.md says prints are
+  not exports. [#144](https://github.com/IrminFlow/total/pull/144)
 - **Locked businesses from `total-cli`, MCP and consolidation.** Every `--company` command
   (including `mcp` and `inbox`) opens a business locked with a passphrase from the environment
   variable `TOTAL_PASSPHRASE` — never a flag (command lines are visible in `ps`) — through the app's
