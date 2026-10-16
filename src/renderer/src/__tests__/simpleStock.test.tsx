@@ -3,7 +3,9 @@
 // simple:stock:setPrice; history in words), Count your stock (differences in words as you type;
 // Save posts ONE stock_count intent and shows the save card without print buttons), Made goods
 // (the recipe in plain words, what is short; Enter in the product picker never creates; a refusal
-// under "How many"; off while manufacturing is off). No banned word on any of them.
+// under "How many"; off while manufacturing is off), the recipe editor on a product (rows →
+// simple:stock:setRecipe, read-only for a viewer, a product can't use itself, Accountant view →
+// the product's full form). No banned word on any of them.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -306,5 +308,125 @@ describe('Made goods (WP 9.7)', () => {
     await waitFor(() => expect(screen.getByTestId('btn-made-features')).toBeTruthy())
     click('btn-made-features')
     await waitFor(() => expect(lastScreen()).toEqual({ name: 'simple-features' }))
+  })
+})
+
+describe('the recipe editor on a product (PR #91 to-do: "no recipe editor")', () => {
+  const BREAD: StockProductView = {
+    ...PRODUCT, itemId: 3, name: 'Bread', unit: 'Nos', history: { ...PRODUCT.history, rows: [] },
+    recipe: { versionId: 7, effectiveFrom: null, lines: [{ itemId: 1, name: 'Flour', unit: 'Kg', qtyMilliPerUnit: 500, scrapPctBp: null }] }
+  }
+  let recipeReply: () => { ok: boolean; data?: unknown; error?: string; code?: string; field?: string; params?: Record<string, unknown> }
+  beforeEach(() => {
+    recipeReply = () => ({ ok: true, data: { changed: true, recipe: { ...BREAD.recipe, versionId: 8, effectiveFrom: '2026-10-13', lines: [] } } })
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload: unknown) => {
+      if (channel === 'simple:stock:product') return { ok: true, data: BREAD }
+      if (channel === 'simple:stock:setRecipe') return recipeReply()
+      return base(channel, payload)
+    })
+  })
+  async function pick(testId: string, name: string): Promise<void> {
+    const input = (await screen.findByTestId(testId)) as HTMLInputElement
+    await waitFor(() => {
+      fireEvent.focus(input)
+      fireEvent.change(input, { target: { value: name } })
+      expect(screen.getAllByRole('option').some((o) => o.textContent === name)).toBe(true)
+    })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    await waitFor(() => expect(input.value).toBe(name))
+  }
+
+  it('shows the recipe in words; Change recipe → rows in the material’s unit; Save sends the new rows and labour from the working date', async () => {
+    renderUi(<StockList itemId={3} />)
+    await waitFor(() => expect(screen.getByTestId('stock-product-recipe')).toBeTruthy())
+    expect(text('stock-product-recipe')).toBe('To make 1 Bread you use 0.5 Kg Flour.')
+    click('btn-recipe-edit')
+    await waitFor(() => expect(screen.getByTestId('stock-recipe-editor')).toBeTruthy())
+    expect((screen.getByTestId('input-recipe-qty-0') as HTMLInputElement).value).toBe('0.5')
+    await waitFor(() => expect(visible()).toContain('How much, in Kg'))
+    typeIn('input-recipe-qty-0', '0.6')
+    await pick('picker-recipe-item-1', 'Box')
+    typeIn('input-recipe-qty-1', '1')
+    typeIn('input-recipe-labour', '10')
+    expect(visible()).toContain('The new recipe is used from 13 Oct 2026')
+    click('btn-recipe-save')
+    await waitFor(() => expect(calls('simple:stock:setRecipe')).toHaveLength(1))
+    expect(calls('simple:stock:setRecipe')[0]).toEqual({ itemId: 3, rows: [{ itemId: 1, qtyMilli: 600 }, { itemId: 2, qtyMilli: 1000 }], labourPerUnit: 1000, date: '2026-10-13' })
+    await waitFor(() => expect(screen.getByTestId('stock-recipe-note').textContent).toContain('Recipe saved.'))
+    expect(bannedWordsIn(visible())).toEqual([])
+  })
+
+  it('the product itself is not offered as a material; a refusal from main lands on its row (itself → the row typed, blank rows skipped)', async () => {
+    recipeReply = () => ({ ok: false, error: 'An item cannot be its own component', code: 'simple_recipe_cycle', field: 'rows.0.item', params: { name: 'Flour', product: 'Bread' } })
+    renderUi(<StockList itemId={3} />)
+    await waitFor(() => expect(screen.getByTestId('btn-recipe-edit')).toBeTruthy())
+    click('btn-recipe-edit')
+    const input = (await screen.findByTestId('picker-recipe-item-1')) as HTMLInputElement
+    await waitFor(() => {
+      fireEvent.focus(input)
+      fireEvent.change(input, { target: { value: 'Bre' } })
+      expect(screen.queryAllByRole('option').some((o) => o.textContent === 'Bread')).toBe(false)
+      expect(calls('simple:stock:list').length).toBeGreaterThan(0)
+    })
+    fireEvent.change(input, { target: { value: '' } })
+    click('btn-recipe-save')
+    await waitFor(() => expect(screen.getByTestId('field-error-rows.0.item') ?? null).toBeTruthy())
+    expect(visible()).toContain('Flour is itself made using Bread, so it cannot go into it.')
+  })
+
+  it('a product that would use itself is refused before anything is sent (client check, plain words)', async () => {
+    const SELF: StockProductView = { ...BREAD, recipe: { versionId: 7, lines: [{ itemId: 3, name: 'Bread', unit: 'Nos', qtyMilliPerUnit: 1000, scrapPctBp: null }] } }
+    invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'simple:stock:product') return { ok: true, data: SELF }
+      if (channel === 'config:features:get') return { ok: true, data: features }
+      if (channel === 'simple:stock:list') return { ok: true, data: LIST }
+      return { ok: true, data: [] }
+    })
+    renderUi(<StockList itemId={3} />)
+    await waitFor(() => expect(screen.getByTestId('btn-recipe-edit')).toBeTruthy())
+    click('btn-recipe-edit')
+    await waitFor(() => expect(screen.getByTestId('stock-recipe-editor')).toBeTruthy())
+    click('btn-recipe-save')
+    await waitFor(() => expect(visible()).toContain('A product cannot go into itself. Pick another one.'))
+    expect(calls('simple:stock:setRecipe')).toEqual([])
+  })
+
+  it('a viewer sees the recipe read-only; Accountant view opens the product’s full form (its BOM editor)', async () => {
+    act(() => useSession.setState({ user: { id: 2, name: 'V', role: 'viewer' } } as never))
+    renderUi(<StockList itemId={3} />)
+    await waitFor(() => expect(screen.getByTestId('stock-product-recipe')).toBeTruthy())
+    expect(screen.queryByTestId('btn-recipe-edit')).toBeNull()
+    click('btn-recipe-accountant-view')
+    await waitFor(() => expect(lastScreen()).toEqual({ name: 'masters', tab: 'items', itemId: 3 }))
+  })
+
+  it('no recipe yet: an accountant is asked to add one; with manufacturing off there is no recipe section', async () => {
+    invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'simple:stock:product') return { ok: true, data: PRODUCT }
+      if (channel === 'config:features:get') return { ok: true, data: features }
+      return { ok: true, data: [] }
+    })
+    renderUi(<StockList itemId={1} />)
+    await waitFor(() => expect(screen.getByTestId('stock-recipe-none')).toBeTruthy())
+    expect(text('btn-recipe-edit')).toBe('Add a recipe')
+    cleanup()
+    features = { ...DEFAULT_FEATURES, manufacturing: false }
+    renderUi(<StockList itemId={1} />)
+    await waitFor(() => expect(screen.getByTestId('stock-product-qty')).toBeTruthy())
+    expect(screen.queryByTestId('stock-recipe-section')).toBeNull()
+  })
+})
+
+describe('Made goods prefills the recipe’s labour', () => {
+  it('labour per one × how many, until the labour is typed', async () => {
+    const WITH_LABOUR: MadeGoodsSetup = { ...MADE, products: [{ ...MADE.products[0]!, recipe: { ...MADE.products[0]!.recipe, labourPerUnit: 500 } }] }
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload: unknown) => (channel === 'simple:stock:madeSetup' ? { ok: true, data: WITH_LABOUR } : base(channel, payload)))
+    renderUi(<MadeGoods itemId={3} />)
+    await waitFor(() => expect(screen.getByTestId('made-recipe')).toBeTruthy())
+    typeIn('input-made-qty', '10')
+    await waitFor(() => expect((screen.getByTestId('input-made-labour') as HTMLInputElement).value).toContain('50'))
+    await waitFor(() => expect(screen.getByTestId('made-labour-question')).toBeTruthy())
   })
 })
