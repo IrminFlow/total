@@ -285,6 +285,19 @@ describe('Undo never leaves stock below zero (PR #91 to-do)', () => {
     undoSave(db, count.voucherIds)
     expect(getVoucher(db, count.voucherIds[0]!)!.deletedAt).not.toBeNull()
   })
+
+  it('a product already below zero before the count may go back to that level; used since = refused', () => {
+    useUp(I('Box'), 60_000, '2025-08-05') // 50 − 60 = −10 before the count (accountant mode allows it)
+    const back = post(countIntentFrom({ date: DAY, counted: { [I('Box')]: '5' } }))
+    undoSave(db, back.voucherIds) // nothing moved since: back to −10, as before the count
+    expect(getVoucher(db, back.voucherIds[0]!)!.deletedAt).not.toBeNull()
+    expect(listOf(db, TODAY).find((r) => r.itemId === I('Box'))!.qtyMilli).toBe(-10_000)
+    const again = post(countIntentFrom({ date: DAY, counted: { [I('Box')]: '5' } }))
+    useUp(I('Box'), 8000, '2025-08-12') // 5 − 8 = −3 with the count; −18 without it, below the −10 before it
+    const before = trace()
+    expect(code(() => undoSave(db, again.voucherIds))).toMatchObject({ code: 'simple_undo_negative_stock', params: { name: 'Box' } })
+    expect(trace()).toEqual(before)
+  })
 })
 
 describe('Made goods = the hand-entered manufacture', () => {
@@ -431,6 +444,18 @@ describe('the product view, Change price, Home', () => {
     const audit = db.prepare("SELECT before_json, after_json FROM audit_log WHERE entity = 'stockItem' AND entity_id = ? AND action = 'update' ORDER BY id DESC LIMIT 1").get(flour) as { before_json: string; after_json: string }
     expect([JSON.parse(audit.before_json).reorderLevelMilli, JSON.parse(audit.after_json).reorderLevelMilli]).toEqual([null, 120_000])
     updateStockItem(db, flour, stockItemInputSchema.parse({ ...stored, reorderLevelMilli: null }))
+    // Every column of a fully filled-in product round-trips; only reorder_level_milli changes.
+    const full = createStockItem(db, stockItemInputSchema.parse({
+      name: 'Saffron', unitId: unitId(db, 'Kg'), hsn: '0910', gstRate: 5, cessRate: 1, openingQtyMilli: 2500, openingValue: 12_345,
+      barcode: '890123', reorderLevelMilli: 1000, valuationMethod: 'fifo', trackSerials: true, mrpPaise: 99_900, standardCostPaise: 45_600
+    }))
+    const raw = (): Record<string, unknown> => db.prepare('SELECT * FROM stock_items WHERE id = ?').get(full.id) as Record<string, unknown>
+    const levels = (): unknown => db.prepare('SELECT * FROM price_list_rates ORDER BY id').all()
+    const [rowBefore, levelsBefore] = [raw(), levels()]
+    const listed = listStockItems(db).find((i) => i.id === full.id)!
+    updateStockItem(db, full.id, stockItemInputSchema.parse({ ...listed, reorderLevelMilli: 3000 }))
+    expect(raw()).toEqual({ ...rowBefore, reorder_level_milli: 3000 })
+    expect(levels()).toEqual(levelsBefore)
     expect(stockList(db, TODAY).rows.find((r) => r.itemId === flour)!.level).toBe('ok')
   })
 

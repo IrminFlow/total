@@ -321,9 +321,11 @@ export type SavedVoucher = Voucher & { duplicateNumber?: boolean }
  * Closing quantity walk for the given stock items as of `date` (opening + chronological
  * movements; physical-stock absolute lines pin the quantity). Returns a row per item whose
  * closing quantity is negative. Used for the negative-stock save warning and by the
- * Exceptions report (stockAnalysis.negativeStock).
+ * Exceptions report (stockAnalysis.negativeStock). `beforeVoucherId` stops the walk just before
+ * that voucher's position on `date` (the pass's order: date, then voucher id) — what the books
+ * held right before an entry (undo.ts).
  */
-export function checkStock(db: DB, stockItemIds: number[], date: string): NegativeStockWarning[] {
+export function checkStock(db: DB, stockItemIds: number[], date: string, beforeVoucherId?: number): NegativeStockWarning[] {
   if (stockItemIds.length === 0) return []
   const placeholders = stockItemIds.map(() => '?').join(',')
   const items = db
@@ -341,10 +343,10 @@ export function checkStock(db: DB, stockItemIds: number[], date: string): Negati
     .prepare(
       `SELECT il.stock_item_id AS itemId, il.qty_milli AS qtyMilli, il.direction, il.is_absolute AS isAbsolute
        FROM ${many ? 'vouchers v CROSS JOIN inventory_lines il ON il.voucher_id = v.id' : 'inventory_lines il JOIN vouchers v ON v.id = il.voucher_id'}
-       WHERE il.stock_item_id IN (${placeholders}) AND v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK}
+       WHERE il.stock_item_id IN (${placeholders}) AND ${beforeVoucherId === undefined ? 'v.date <= ?' : '(v.date < ? OR (v.date = ? AND v.id < ?))'} AND ${IN_BOOKS} AND ${MOVES_STOCK}
        ORDER BY ${many ? '' : 'il.stock_item_id, '}v.date, v.id, il.line_order, il.id`
     )
-    .all(...stockItemIds, date) as { itemId: number; qtyMilli: number; direction: 'in' | 'out'; isAbsolute: number }[]
+    .all(...stockItemIds, ...(beforeVoucherId === undefined ? [date] : [date, date, beforeVoucherId])) as { itemId: number; qtyMilli: number; direction: 'in' | 'out'; isAbsolute: number }[]
   const byItem = new Map<number, typeof moves>()
   for (const m of moves) {
     const list = byItem.get(m.itemId)

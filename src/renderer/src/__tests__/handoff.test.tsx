@@ -121,6 +121,7 @@ describe('the full → simple table', () => {
     expect(fullCounterpart({ name: 'simple-buy' })).toEqual({ name: 'voucher-entry', kindHint: 'purchase' })
     expect(fullCounterpart({ name: 'simple-sell', party: 7 })).toEqual({ name: 'voucher-entry', kindHint: 'sales', draft: { partyLedgerId: 7 } })
     expect(fullCounterpart({ name: 'simple-money-in' })).toEqual({ name: 'voucher-entry', kindHint: 'receipt' })
+    expect(fullCounterpart({ name: 'simple-stock-count', voucherId: 9 })).toEqual({ name: 'voucher-entry', voucherId: 9 })
     expect(fullCounterpart({ name: 'simple-money-out' })).toEqual({ name: 'voucher-entry', kindHint: 'payment' })
     expect(fullCounterpart({ name: 'simple-move-money' })).toEqual({ name: 'voucher-entry', kindHint: 'contra' })
     expect(fullCounterpart({ name: 'simple-return-sale' })).toEqual({ name: 'voucher-entry', kindHint: 'credit_note' })

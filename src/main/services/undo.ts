@@ -104,17 +104,18 @@ const localDay = (now: Date): string =>
   `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
 
 /** The products a count / stock journal (made goods) in `ids` moves — binning one of those after
- *  later sales can leave stock below zero (the sales were costed on it). Other kinds: none. */
-function stockEntryItems(db: DB, ids: readonly number[]): number[] {
-  return (
-    db
-      .prepare(
-        `SELECT DISTINCT il.stock_item_id AS id FROM inventory_lines il
-         JOIN vouchers v ON v.id = il.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
-         WHERE v.id IN (${ids.map(() => '?').join(',')}) AND vt.kind IN ('physical_stock', 'stock_journal') AND ${MOVES_STOCK}`
-      )
-      .all(...ids) as { id: number }[]
-  ).map((r) => r.id)
+ *  later sales can leave stock below zero (the sales were costed on it) — and the earliest such
+ *  entry's position (date, id). Other kinds: none. */
+function stockEntryItems(db: DB, ids: readonly number[]): { items: number[]; first: { date: string; id: number } | null } {
+  const rows = db
+    .prepare(
+      `SELECT il.stock_item_id AS item, v.date, v.id FROM inventory_lines il
+       JOIN vouchers v ON v.id = il.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       WHERE v.id IN (${ids.map(() => '?').join(',')}) AND vt.kind IN ('physical_stock', 'stock_journal') AND ${MOVES_STOCK}
+       ORDER BY v.date, v.id`
+    )
+    .all(...ids) as { item: number; date: string; id: number }[]
+  return { items: [...new Set(rows.map((r) => r.item))], first: rows[0] ? { date: rows[0].date, id: rows[0].id } : null }
 }
 
 /** voucher:undoSave — bin the just-saved vouchers as one group. */
@@ -135,9 +136,13 @@ export function undoSave(db: DB, voucherIds: readonly number[], opts: UndoOption
   }
   return db.transaction(() => {
     // A count or a batch made: what each product it moves has as on today, before binning it.
-    const items = stockEntryItems(db, ids)
+    // A product already below zero — today, or just before the entry (accountant mode allows it) —
+    // may go back to that level; only "sold or used since" (lower than both) is refused.
+    const { items, first } = stockEntryItems(db, ids)
     const today = localDay(now)
-    const belowBefore = new Map(checkStock(db, items, today).map((w) => [w.stockItemId, w.closingQtyMilli]))
+    const neg = (ws: { stockItemId: number; closingQtyMilli: number }[]): Map<number, number> => new Map(ws.map((w) => [w.stockItemId, w.closingQtyMilli]))
+    const belowToday = neg(checkStock(db, items, today))
+    const belowBeforeEntry = first ? neg(checkStock(db, items, first.date, first.id)) : new Map<number, number>()
     const binned: number[] = []
     for (const id of ids) {
       // A partner binned along with an earlier member (forex revaluation pairs) is already there.
@@ -147,7 +152,9 @@ export function undoSave(db: DB, voucherIds: readonly number[], opts: UndoOption
     }
     // Binning it would leave a product below zero (or further below) as on today — sold or used
     // since — so the whole undo is refused (the transaction rolls the binning back).
-    const worse = checkStock(db, items, today).find((w) => !belowBefore.has(w.stockItemId) || w.closingQtyMilli < belowBefore.get(w.stockItemId)!)
+    const worse = checkStock(db, items, today).find(
+      (w) => w.closingQtyMilli < Math.min(belowToday.get(w.stockItemId) ?? 0, belowBeforeEntry.get(w.stockItemId) ?? 0)
+    )
     if (worse) {
       throw new AppError('simple_undo_negative_stock', `Undoing this would leave ${worse.name} below zero in stock — some of it was sold or used since. Edit it instead.`, {
         params: { name: worse.name }
