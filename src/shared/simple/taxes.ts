@@ -232,6 +232,13 @@ export function gstPeriodFor(last: string, filing: GstFilingFrequency, today: st
   return { period: end, from, to: soFar ? today : fullTo, quarterly, soFar }
 }
 
+/** The month a GSTR-1 / GSTR-3B link opens for a GST period: the period's last month (its name) —
+ *  a quarterly filer's return is filed for the quarter's last month (the JSON's `fp`), so the
+ *  link opens that month, never the quarter's first; a monthly filer's is the month itself. A
+ *  period still running opens the month it has reached (`to` = today), as the full app lists no
+ *  later month. The ONE rule every link uses (Taxes, its Whys, its Accountant view). Pure. */
+export const gstReturnMonth = (p: Pick<GstPeriod, 'period' | 'to' | 'soFar'>): string => (p.soFar ? p.to.slice(0, 7) : p.period)
+
 /** WP 10.8: the last day of a period (its month / quarter end), even while it is running. */
 export const gstPeriodEnd = (p: Pick<GstPeriod, 'period'>): string => monthEnd(p.period)
 

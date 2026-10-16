@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
-import { toPlainDate } from '@shared/dates'
-import type { SimpleTaxes } from '@shared/simple/taxes'
+import { toMonthLabel, toPlainDate } from '@shared/dates'
+import { gstReturnMonth, type SimpleTaxes } from '@shared/simple/taxes'
 import { collectedWhy, compositionDueWhy, creditLeftWhy, creditStatus, dueWhy, onPurchasesWhy, shortDate, taxesPeriodLabel, toPayPartsWhy } from '@shared/simple/explain'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
@@ -33,7 +33,7 @@ export function TaxesScreen({ period }: { period?: string }): React.JSX.Element 
   const nav = useNav()
   const q = useQuery({ queryKey: ['simpleTaxes', period ?? null, today], queryFn: () => api.simpleTaxes.get(period, today) }) // i18n-technical
   const x = q.data
-  const accountant = x?.kind === 'regular' ? { screen: gstr3bScreen(x.period.from.slice(0, 7)), hint: t('simple.taxes.accountant3b') } : undefined
+  const accountant = x?.kind === 'regular' ? { screen: gstr3bScreen(gstReturnMonth(x.period)), hint: t('simple.taxes.accountant3b') } : undefined
   return (
     <Page data-testid="simple-taxes" data-kind={x?.kind}>
       <ReportHeader testId="taxes" title={t('simple.taxes.title')} subtitle={t('simple.taxes.subtitle')} accountant={accountant} />
@@ -75,10 +75,13 @@ function GstAnswer({ x }: { x: Regular }): React.JSX.Element {
   const booksBegin = useSession((s) => s.info?.booksBeginDate ?? null)
   const f = x.figures
   const by = t('simple.taxes.gst.byDate', { date: shortDate(x.due.gstr3b, x.today, t.lang) })
-  const link = { label: t('simple.taxes.accountant3b'), screen: gstr3bScreen(x.period.from.slice(0, 7)) }
+  const month = gstReturnMonth(x.period)
+  const link = { label: t('simple.taxes.accountant3b'), screen: gstr3bScreen(month) }
+  // A quarterly filer's link says which month it opens (the full app shows one month at a time).
+  const monthName = toMonthLabel(month, 'long', t.lang) // i18n-technical
   const dueLink = {
-    gstr1: { label: t('simple.why.link.gstr1'), screen: gstr1Screen(x.period.from.slice(0, 7)) },
-    gstr3b: { label: t('simple.why.link.gstr3b'), screen: gstr3bScreen(x.period.from.slice(0, 7)) }
+    gstr1: { label: x.period.quarterly ? t('simple.why.link.gstr1Quarter', { month: monthName }) : t('simple.why.link.gstr1'), screen: gstr1Screen(month) },
+    gstr3b: { label: x.period.quarterly ? t('simple.why.link.gstr3bQuarter', { month: monthName }) : t('simple.why.link.gstr3b'), screen: gstr3bScreen(month) }
   }
   return (
     <>

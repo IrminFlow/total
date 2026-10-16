@@ -6,7 +6,7 @@ import { translator } from '../i18n'
 import { bannedWordsIn } from './bannedWords'
 import { cmp08DueDate, gstr1DueDate, gstr3bDueDate, gstr4DueDate, pmt06DueDate, qrmp3bDay } from '../gst/filing'
 import { upcomingDeadlines } from '../compliance'
-import { creditParts, gstPeriodChoices, gstPeriodEnd, gstPeriodFor, gstStartsOn, nextCompositionDue, normalizeArn, normalizeGstFiled, stepsDone, type SimpleTaxes } from './taxes'
+import { creditParts, gstPeriodChoices, gstPeriodEnd, gstPeriodFor, gstReturnMonth, gstStartsOn, nextCompositionDue, normalizeArn, normalizeGstFiled, stepsDone, type SimpleTaxes } from './taxes'
 import { applySetOff } from '../gst/returns'
 import { collectedWhy, creditStatus, onPurchasesWhy, taxesPeriodLabel, toPayWhy, withholdingUnpaidText } from './explain'
 import { GST_STATES } from '../gst/states'
@@ -165,5 +165,21 @@ describe('the credit used / left (WP 10.2 review)', () => {
     expect(parts({ igst: 0, cgst: -100_00, sgst: 0, cess: 0 }, { igst: 0, cgst: 0, sgst: 0, cess: 0 })).toEqual({ cash: 0, creditUsed: 0, creditLeft: 0 })
     // With ₹1,000 of credit: all of it is left (the return is not credit from purchases).
     expect(parts({ igst: 0, cgst: -100_00, sgst: 0, cess: 0 }, { igst: 0, cgst: 1_000_00, sgst: 0, cess: 0 })).toEqual({ cash: 0, creditUsed: 0, creditLeft: 1_000_00 })
+  })
+})
+
+describe('gstReturnMonth: the month a GSTR-1 / GSTR-3B link opens', () => {
+  const today = '2026-10-17'
+  it('monthly: the month itself', () => {
+    expect(gstReturnMonth(gstPeriodFor('2026-09', 'monthly', today)!)).toBe('2026-09')
+    expect(gstReturnMonth(gstPeriodFor('2026-10', 'monthly', today)!)).toBe('2026-10')
+  })
+  it('quarterly: the quarter’s last month from any month of it, never the first', () => {
+    for (const m of ['2026-07', '2026-08', '2026-09']) expect(gstReturnMonth(gstPeriodFor(m, 'quarterly', today)!)).toBe('2026-09')
+    for (const m of ['2026-01', '2026-02', '2026-03']) expect(gstReturnMonth(gstPeriodFor(m, 'quarterly', today)!)).toBe('2026-03')
+    // the running quarter (Oct–Dec, so far): the month it has reached, not a month to come
+    const running = gstPeriodFor('2026-10', 'quarterly', today)!
+    expect([running.period, running.soFar]).toEqual(['2026-12', true])
+    expect(gstReturnMonth(running)).toBe('2026-10')
   })
 })

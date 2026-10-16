@@ -1319,6 +1319,8 @@ export const en = {
   'simple.why.link.registers': 'Open the sales and purchase lists',
   'simple.why.link.gstr1': 'Open GSTR-1 in the full app',
   'simple.why.link.gstr3b': 'Open GSTR-3B in the full app',
+  'simple.why.link.gstr1Quarter': 'Open GSTR-1 in the full app on {month}, the quarter’s last month',
+  'simple.why.link.gstr3bQuarter': 'Open GSTR-3B in the full app on {month}, the quarter’s last month',
   'simple.why.link.tds': 'Open TDS in the full app',
   'simple.why.link.tcs': 'Open TCS in the full app',
   'simple.why.link.payroll': 'Open payroll in the full app',
