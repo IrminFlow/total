@@ -217,8 +217,8 @@ What is left between launch and Home (after): Electron + renderer boot to the co
 (~2.6–3.8 s here, ~1.9 s unloaded — one 5.7 MB renderer bundle, every screen imported eagerly; lazy
 screens would be the next win but change how every screen mounts), `company:open` (2.2–4.1 s here:
 the open backup's snapshot + both quick_checks in workers) and `dashboard:all` / `simple:home` +
-`simple:homeAttention`. The backup check itself still holds the main thread for its seconds once it
-runs (a worker thread for it is the remaining fix).
+`simple:homeAttention`. ~~The backup check itself still holds the main thread for its seconds once it
+runs~~ — now in a worker thread (PR #136, below).
 
 Found and fixed (no behaviour change): a full `ANALYZE` on every open (now only after a migration
 or without statistics; `PRAGMA optimize` otherwise); the open backup's quick_check, the integrity
@@ -266,6 +266,27 @@ run (main already up — the renderer alone):
 The renderer's own part is a quarter to a third shorter; the whole-launch figures move within the
 noise of this machine (the Gateway pair is ±1.5 s run to run) — most of a loaded launch is Electron
 and the main process starting, which this does not touch. Click → Home is unchanged (Home is eager).
+### The restore check in a worker (PR #136)
+
+The whole restore check of a backup (copy → open with its key → quick_check → migrate the copy →
+audit chain → company row → trial balance) runs as a `verify` job in the check worker
+(`db/checkWorker.ts`, bundled standalone by `scripts/build-check-worker.mjs`); main only resolves the
+key and records `backup_runs` + the audit row. Measured on 17 Oct 2026 on the 100k seed, built app,
+laptop load average ~30 (2 runs each; before = origin/main built the same way): a main-thread lag
+monitor (a 20 ms timer installed over the inspector, so the quiet-wait never sees it) during the
+automatic check after the open, and a 20 ms `backup:checks` ping loop from the renderer beside a
+manual `backup:check`:
+
+| restore check (100k) | Before | After |
+|---|---:|---:|
+| Automatic, after open: longest main-thread stall | 8.8–13.2 s | 0.24–0.29 s |
+| Manual `backup:check`: longest IPC round trip beside it | 6.3–11.0 s | 45–48 ms |
+
+The check's own wall time did not change beyond the machine's noise (same file, A/B: 4–28 s on the
+main thread, 8–28 s in the worker). The worker file is ~530 kB; its verify code is required on the
+first `verify` job only, so the open-time quick_check (a `pragma` job) starts as before. The perf
+seed's check reports "entries do not balance" — a pre-existing false failure for multi-year books
+without a closing journal (to-do.md, Performance); every step still runs, so the timing holds.
 
 ## CI
 
@@ -336,8 +357,8 @@ weekly check writes only its meta stamp.
   round trip; measure on a machine that can cache the file.
 - Full-text search (FTS5 table + triggers) for voucher text — a schema change beyond CREATE INDEX.
 - Launch ≤ 2 s: the Gateway's four reads are one round trip and the backup restore check waits
-  for Home (PR #131); left: lazy-loaded renderer screens (boot), the restore check in a worker
-  thread, and the open backup's verification could be moved after the reply if its audit row may
+  for Home (PR #131), and the restore check runs in a worker thread (PR #136); left: lazy-loaded
+  renderer screens (boot), and the open backup's verification could be moved after the reply if its audit row may
   follow the open's housekeeping rows (an ordering change — owner decision).
 - Server-side paging for the Sales / People DataTables — not needed: both are under budget at 100k
   (and the Sales list at 500k).

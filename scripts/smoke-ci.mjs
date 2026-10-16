@@ -199,9 +199,9 @@ try {
   const offResult = await invoke('security:passphrase:off', { passphrase: PASS })
   assert(offResult.encrypted === false && header(dbPath) === 'SQLite format 3', 'the lock comes off (plaintext again)')
 
-  // Main-process facts: the PDF worker thread loads (from app.asar in a packaged build), the
+  // Main-process facts: the PDF and check worker threads load (from app.asar in a packaged build), the
   // Devanagari print font is found (extraResources), and on Windows the secret store has DPAPI.
-  const probe = await app.evaluate(async ({ app: a, safeStorage }) => {
+  const probe = await app.evaluate(async ({ app: a, safeStorage }, backupPath) => {
     // Node 22's process.getBuiltinModule (the evaluated function has no `require` of its own).
     const req = process.getBuiltinModule ?? process.mainModule?.require
     if (!req) return { error: 'no require in the main process' }
@@ -221,17 +221,42 @@ try {
         resolve(`throw: ${e instanceof Error ? e.message : String(e)}`)
       }
     })
+    // The check worker (out/main/checkWorker.js, its own esbuild bundle) loads from the same place,
+    // requires the SQLite driver there, and answers both kinds of job: a quick_check of the backup
+    // and the whole restore check of it (migrations, audit chain, balance) in a scratch folder.
+    const checkJob = (job) => new Promise((resolve) => {
+      try {
+        const w = new Worker(nodePath.join(a.getAppPath(), 'out', 'main', 'checkWorker.js'))
+        const t = setTimeout(() => { void w.terminate(); resolve({ ok: false, error: 'timeout' }) }, 60000)
+        w.once('error', (e) => { clearTimeout(t); resolve({ ok: false, error: `error: ${e.message}` }) })
+        w.on('message', (m) => { clearTimeout(t); void w.terminate(); resolve(m) })
+        w.postMessage({ id: 1, ...job })
+      } catch (e) {
+        resolve({ ok: false, error: `throw: ${e instanceof Error ? e.message : String(e)}` })
+      }
+    })
+    const pragma = await checkJob({ kind: 'pragma', path: backupPath, pragma: 'quick_check', keyHex: null })
+    const scratchRoot = nodeFs.mkdtempSync(nodePath.join(req('os').tmpdir(), 'total-smoke-verify-'))
+    const verify = await checkJob({ kind: 'verify', path: backupPath, keyHex: null, asOn: (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })(), nowIso: new Date().toISOString(), scratchRoot })
+    const scratchLeft = nodeFs.readdirSync(scratchRoot).length
+    nodeFs.rmSync(scratchRoot, { recursive: true, force: true })
     return {
       platform: process.platform,
       packaged: a.isPackaged,
       worker,
+      checkWorker: pragma.ok && pragma.result === 'ok' ? 'ok' : `failed: ${JSON.stringify(pragma)}`,
+      verifyWorker: verify.ok && verify.result && verify.result.ok ? 'ok' : `failed: ${JSON.stringify(verify)}`,
+      scratchLeft,
       devanagariFont: nodeFs.existsSync(nodePath.join(fontDir, 'NotoSansDevanagari-400.woff2')),
       secureStorage: safeStorage.isEncryptionAvailable()
     }
-  })
+  }, backup.path)
   console.log('[smoke] main-process probe:', JSON.stringify(probe))
   assert(!probe.error, `main-process probe ran (${probe.error})`)
   assert(probe.worker === 'ok', `the PDF worker thread loads and answers (${probe.worker})`)
+  assert(probe.checkWorker === 'ok', `the check worker thread loads the SQLite driver and answers a quick_check (${probe.checkWorker})`)
+  assert(probe.verifyWorker === 'ok', `the check worker runs the restore check of a backup (${probe.verifyWorker})`)
+  assert(probe.scratchLeft === 0, `the worker's restore check leaves its scratch folder empty (${probe.scratchLeft})`)
   assert(probe.devanagariFont === true, 'the Devanagari print font is bundled where printFonts.ts looks')
   if (probe.platform === 'win32') assert(probe.secureStorage === true, 'safeStorage (DPAPI) is available on Windows')
 

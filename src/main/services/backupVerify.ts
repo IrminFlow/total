@@ -3,9 +3,15 @@
 // The backup file is copied into a scratch folder (never touched in place), opened (with the
 // company's key when it is encrypted), quick-checked, MIGRATED as a restore would migrate it, and
 // then: the migration count must reach this build's, the audit chain must verify, the company row
-// must be there and the entries must balance (the trial balance's movement totals, Dr = Cr). The
-// verdict goes to `backup_runs` (Home and Settings → Backups read the newest) and the audit trail
-// (entity 'backup_check'). Electron-free; the scratch folder is always removed.
+// must be there and the entries must balance (Σ Dr = Σ Cr of the in-books voucher lines, every
+// year — entryTotals). The verdict goes to `backup_runs` (Home and Settings → Backups read the
+// newest) and the audit trail (entity 'backup_check'). Electron-free; the scratch folder is always removed.
+//
+// Off the main thread (PR #131 follow-up): verifyBackupFileAsync runs the very same
+// verifyBackupFile in the check worker (db/checkWorker.ts, a 'verify' job) — the copy, the
+// quick_check, the migration of the copy and the trial balance took 6–16 s of main thread on a
+// 100k company. Main resolves the key, makes the scratch root (removed even when the worker is
+// killed) and records the answer; where there is no worker file (dbtests, the CLI) it runs here.
 import { copyFileSync, mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { basename, join } from 'path'
@@ -14,8 +20,9 @@ import { isEncryptedFile, keyForPath, keyOfHandle, openDb } from '../db/encrypti
 import { migrate } from '../db/migrate'
 import { MIGRATIONS } from '../db/migrations'
 import { tagOf } from '../db/backup'
+import { CheckStoppedError, checkWorkerFile, runCheckJob } from '../db/checkHost'
 import { verifyAudit, writeAudit } from './audit'
-import { trialBalance } from './reports'
+import { IN_BOOKS } from './vouchers'
 import type { BackupCheck, BackupCheckSteps } from '@shared/backupCheck'
 
 export interface VerifyOptions {
@@ -27,9 +34,41 @@ export interface VerifyOptions {
   now?: Date
 }
 
+/** Remove a scratch folder; never throws (a check that has its answer must not fail on cleanup).
+ *  On Windows a handle a killed worker had open may linger for a moment (EBUSY / EPERM): rmSync
+ *  retries those; anything still left is a folder under the OS temp dir, which the OS clears. */
+export function removeScratch(dir: string): void {
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  } catch {
+    // left for the OS temp cleanup — the verdict stands
+  }
+}
+
+const emptySteps = (): BackupCheckSteps => ({ opens: false, quickCheck: false, migrations: null, auditChain: null, balanced: null, company: false })
+
+/** Σ Dr and Σ Cr of every in-books voucher line dated up to `asOn`, every year alike. Not the trial
+ *  balance's movement columns: those are cumulative for balance-sheet ledgers but cover only the
+ *  as-on FY for income / expense ledgers (yearOpening.ts — the earlier years go into its computed
+ *  "Profit & Loss A/c (opening)" row, which has no movement), so they differ by the earlier years'
+ *  profit on any business with more than one year and no closing journal. Openings are not part of
+ *  the verdict, as before: a difference in opening balances is a state the books may legitimately be
+ *  in (the balance sheet shows it), not damage. */
+export function entryTotals(db: DB, asOn: string): { debit: number; credit: number } {
+  const r = db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END), 0) AS debit,
+              COALESCE(SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END), 0) AS credit
+       FROM vouchers v CROSS JOIN voucher_lines vl ON vl.voucher_id = v.id
+       WHERE v.date <= ? AND ${IN_BOOKS}`
+    )
+    .get(asOn) as { debit: number; credit: number }
+  return { debit: r.debit, credit: r.credit }
+}
+
 /** Restore `path` into a scratch folder and check it. Never throws. */
 export function verifyBackupFile(path: string, opts: VerifyOptions): BackupCheck {
-  const steps: BackupCheckSteps = { opens: false, quickCheck: false, migrations: null, auditChain: null, balanced: null, company: false }
+  const steps: BackupCheckSteps = emptySteps()
   const encrypted = isEncryptedFile(path)
   const key = opts.key !== undefined ? opts.key : encrypted ? keyForPath(path) : null
   const checkedAt = (opts.now ?? new Date()).toISOString()
@@ -70,8 +109,8 @@ export function verifyBackupFile(path: string, opts: VerifyOptions): BackupCheck
     const chain = verifyAudit(db)
     steps.auditChain = { ok: chain.ok, rows: chain.rows }
     if (!chain.ok) return result('The change history in the backup does not verify')
-    const tb = trialBalance(db, opts.asOn)
-    steps.balanced = { ok: tb.movementDebitTotal === tb.movementCreditTotal, debit: tb.movementDebitTotal, credit: tb.movementCreditTotal }
+    const totals = entryTotals(db, opts.asOn)
+    steps.balanced = { ok: totals.debit === totals.credit, debit: totals.debit, credit: totals.credit }
     if (!steps.balanced.ok) return result('The entries in the backup do not balance')
     return result(null)
   } catch (err) {
@@ -82,7 +121,38 @@ export function verifyBackupFile(path: string, opts: VerifyOptions): BackupCheck
     } catch {
       // closing a broken handle
     }
-    if (scratch) rmSync(scratch, { recursive: true, force: true })
+    if (scratch) removeScratch(scratch)
+  }
+}
+
+/** verifyBackupFile off the main thread: the same check in the check worker, the same answer.
+ *  Never throws for a finding or a worker that dies (that is a failed check, with the reason);
+ *  rejects only with CheckStoppedError — stopChecks ended it because the file is being replaced
+ *  or removed, which says nothing about the backup. */
+export async function verifyBackupFileAsync(path: string, opts: VerifyOptions): Promise<BackupCheck> {
+  const file = checkWorkerFile()
+  if (!file) return verifyBackupFile(path, opts)
+  const encrypted = isEncryptedFile(path)
+  const key = opts.key !== undefined ? opts.key : encrypted ? keyForPath(path) : null
+  const now = opts.now ?? new Date()
+  let root: string | null = null
+  try {
+    root = mkdtempSync(join(opts.scratchRoot ?? tmpdir(), 'total-backup-check-run-'))
+    const job = { kind: 'verify' as const, path, keyHex: key ? key.toString('hex') : null, asOn: opts.asOn, nowIso: now.toISOString(), scratchRoot: root }
+    return await runCheckJob<BackupCheck>(file, job)
+  } catch (err) {
+    if (err instanceof CheckStoppedError) throw err
+    return {
+      file: basename(path),
+      tag: tagOf(basename(path)),
+      encrypted,
+      checkedAt: now.toISOString(),
+      ok: false,
+      steps: emptySteps(),
+      error: `The check could not finish: ${err instanceof Error ? err.message : String(err)}`
+    }
+  } finally {
+    if (root) removeScratch(root)
   }
 }
 
@@ -110,7 +180,7 @@ const fromRow = (r: RunRow): BackupCheck => {
   try {
     steps = JSON.parse(r.checksJson) as BackupCheckSteps
   } catch {
-    steps = { opens: false, quickCheck: false, migrations: null, auditChain: null, balanced: null, company: false }
+    steps = emptySteps()
   }
   return { file: r.file, tag: r.tag, encrypted: !!r.encrypted, checkedAt: r.checkedAt, ok: !!r.ok, steps, error: r.error }
 }
@@ -138,10 +208,19 @@ export function checkDue(db: DB, tag: string, now = new Date()): boolean {
 }
 
 /** Check `dest` (a backup just written from `db`) when one is due, with the handle's own key, and
- *  record it. Null when not due or the handle has gone (the company was closed meanwhile). */
-export function checkBackupIfDue(db: DB, dest: string, tag: string, asOn: string, user?: string): BackupCheck | null {
+ *  record it — the check itself off the main thread (verifyBackupFileAsync), the record on `db`.
+ *  Null when not due, when the handle has gone (the company was closed meanwhile) or when
+ *  stopChecks ended the check (the company file is being restored, removed or re-keyed: no
+ *  finding). `user` = the audit row's user (the automatic checks pass SYSTEM_AUDIT_USER). */
+export async function checkBackupIfDue(db: DB, dest: string, tag: string, asOn: string, user?: string): Promise<BackupCheck | null> {
   if (!db.open || !checkDue(db, tag)) return null
-  const check = verifyBackupFile(dest, { asOn, key: isEncryptedFile(dest) ? keyOfHandle(db) : null })
+  let check: BackupCheck
+  try {
+    check = await verifyBackupFileAsync(dest, { asOn, key: isEncryptedFile(dest) ? keyOfHandle(db) : null })
+  } catch (err) {
+    if (err instanceof CheckStoppedError) return null
+    throw err
+  }
   if (!db.open) return null
   return recordBackupCheck(db, check, user)
 }

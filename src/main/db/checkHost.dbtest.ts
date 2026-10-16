@@ -70,18 +70,16 @@ describe('off-main-thread SQLite checks (WP 7.1)', () => {
 })
 
 // WP 7.1 review: the worker path itself — the built checkWorker (bundled here with esbuild, as
-// electron-vite bundles it), a worker that dies without answering, and stopChecks.
+// electron-vite's build writes it), a worker that dies without answering, and stopChecks.
 describe('the check worker thread', () => {
   let bundleDir = ''
   const bundle = async (): Promise<string> => {
-    const { build } = await import('esbuild')
+    // The app's own bundle of the worker (scripts/build-check-worker.mjs), the driver required
+    // from this checkout.
+    const { buildCheckWorker, sqliteDriverPath } = await import('../../../scripts/build-check-worker.mjs')
     bundleDir = mkdtempSync(join(tmpdir(), 'total-checkworker-'))
     const out = join(bundleDir, 'checkWorker.js')
-    const sqlite = createRequire(import.meta.url).resolve('better-sqlite3-multiple-ciphers')
-    await build({
-      entryPoints: [join(__dirname, 'checkWorker.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: out, logLevel: 'silent',
-      plugins: [{ name: 'sqlite', setup: (b) => b.onResolve({ filter: /^better-sqlite3-multiple-ciphers$/ }, () => ({ path: sqlite, external: true })) }]
-    })
+    await buildCheckWorker(out, { sqlitePath: sqliteDriverPath() })
     return out
   }
   afterEach(() => setCheckWorkerFile(undefined))

@@ -335,6 +335,37 @@ describe('simple:home (WP 8.6)', () => {
     expect(att.items.filter((i) => i.key === 'backdated')).toEqual([{ source: 'anomaly', key: 'backdated', count: 1, amount: null, level: 'high' }])
   })
 
+  it('the backup check card: a business with two years of entries and no closing journal passes (no red card)', async () => {
+    // Before the fix the restore check compared the trial balance's movement columns, which count
+    // only this FY for income / expense accounts — any earlier-year sale made it "not balance".
+    const prev = fyOf(`${FY.startYear - 1}-06-01`)
+    const { slug } = await ok<{ slug: string }>('company:create', company('Two Years Co', { gstRegistrationType: 'unregistered', booksFrom: FY.startYear - 1 }))
+    await ok('company:open', { slug })
+    const groups = await ok<{ id: number; name: string }[]>('master:groups:list')
+    const sales = (await ok<{ id: number }>('master:ledgers:create', { name: 'Sales', groupId: groups.find((g) => g.name === 'Sales Accounts')!.id })).id
+    const cash = (await ok<{ id: number; name: string }[]>('master:ledgers:list')).find((l) => l.name === 'Cash')!.id
+    const receipt = (await ok<{ id: number; kind: string }[]>('master:voucherTypes:list')).find((t) => t.kind === 'receipt')!.id
+    const receive = async (date: string, amount: number): Promise<void> => {
+      await ok('voucher:save', {
+        data: {
+          voucherTypeId: receipt, date, partyLedgerId: null, narration: 'sale', reference: null, instrumentNo: null,
+          instrumentDate: null, transporterId: null, vehicleNo: null, transportDistanceKm: null, currencyCode: null, exchangeRate: null,
+          lines: [
+            { ledgerId: cash, drCr: 'dr', amount, costAllocations: [] },
+            { ledgerId: sales, drCr: 'cr', amount, costAllocations: [] }
+          ],
+          inventory: [], billRefs: [], tds: null
+        }
+      })
+    }
+    await receive(addDays(prev.from, 10), 4_321_00) // last financial year
+    await receive(TODAY, 100_00)
+    const backup = await ok<{ path: string; check: { ok: boolean; error: string | null; steps: { balanced: { ok: boolean; debit: number; credit: number } } } | null }>('backup:run')
+    expect(backup.check).toMatchObject({ ok: true, error: null, steps: { balanced: { ok: true, debit: 4_421_00, credit: 4_421_00 } } })
+    const home = await ok<SimpleHomeData & { backupCheck: { ok: boolean } | null }>('simple:home', { today: TODAY })
+    expect(home.backupCheck).toMatchObject({ ok: true })
+  })
+
   it('a viewer may read it; a bad payload is refused', async () => {
     expect(ipc.CHANNEL_ROLES.get('simple:home')).toBe('viewer')
     expect(ipc.CHANNEL_ROLES.get('simple:homeAttention')).toBe('viewer')

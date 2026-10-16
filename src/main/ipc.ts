@@ -12,7 +12,7 @@ import { DEFAULT_SCRYPT, newDataKey, unwrapKeyAsync, wrapKeyAsync, type ScryptPa
 import { insecureTestCipherAllowed } from './services/secrets'
 import { assertNotThrottled, noteRightPassphrase, noteWrongPassphrase, readEnvelope, readEnvelopes, removeEnvelope, unlockCompanyKey, writeEnvelope } from './services/companyKeys'
 import { commitConvertedCopy, convertBackups, prepareConvertedCopy, removeLeftoverCopies } from './services/dbEncryption'
-import { checkBackupIfDue, latestBackupCheck, listBackupChecks, recordBackupCheck, verifyBackupFile } from './services/backupVerify'
+import { checkBackupIfDue, latestBackupCheck, listBackupChecks, recordBackupCheck, verifyBackupFileAsync } from './services/backupVerify'
 import { AUTO_LOCK_CHOICES, IdleClock, getAutoLockMinutes, setAutoLockMinutes } from './services/sessionLock'
 import { capabilityAllows, channelCapabilities } from './capabilities'
 import { effectiveCapabilities, type Capability, type CapabilityFlags } from '@shared/capabilities'
@@ -27,7 +27,7 @@ import * as attachments from './services/attachments'
 import { embedAttachments, restoreAttachmentFiles, restoreAttachmentFilesAt, type RestoreFilesResult, type StashResult } from './db/attachmentBackup'
 import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheckAsync, type BackupInfo } from './db/backup'
 import { checkIntegrity, checkIntegrityAsync, QUICK_CHECK_TIMED_OUT } from './db/integrity'
-import { stopAllChecks, stopChecks } from './db/checkHost'
+import { stopAllChecks, stopChecks, stopChecksUnder } from './db/checkHost'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
@@ -294,17 +294,18 @@ export function scheduleBackupCheck(db: DB, dest: string, tag: string): void {
       quietMs: BACKUP_CHECK_QUIET_MS, latestMs: BACKUP_CHECK_LATEST_MS
     })
     if (wait > 0) later(wait)
-    else run()
+    else void run()
   }
-  const run = (): void => {
+  const run = async (): Promise<void> => {
     const t0 = performance.now()
     try {
-      const check = runAsAuditUser(SYSTEM_AUDIT_USER, () => checkBackupIfDue(db, dest, tag, todayISO()))
+      // The check itself runs in the check worker; main only records the verdict.
+      const check = await checkBackupIfDue(db, dest, tag, todayISO(), SYSTEM_AUDIT_USER)
       if (check && !check.ok) log('warn', 'backup-check-failed', { file: check.file, error: check.error })
     } catch (err) {
       log('warn', 'backup-check-error', { error: err instanceof Error ? err.message : String(err) })
     }
-    // Not an IPC handler, but it holds the main thread like one — the launch trace shows it.
+    // Wall time of the check (off the main thread where the worker file exists) — the launch trace shows it.
     if (TRACE_IPC) console.log(`[ipc] (timer) backup check ${(performance.now() - t0).toFixed(0)} ms`)
   }
   later(3_000)
@@ -945,8 +946,9 @@ export function registerIpc(): void {
     log('warn', 'company-deleted', { slug, user: sessionUser?.name ?? null })
     if (current?.slug === slug) closeCurrentCompany()
     forgetFolderKey(companyDir(slug))
-    // WP 7.1 review: a background check (the weekly integrity_check) may still hold the file open.
-    await stopChecks(companyDbPath(slug))
+    // WP 7.1 review: a background check (the weekly integrity_check, a backup's restore check) may
+    // still hold a file in the folder open.
+    await stopChecksUnder(companyDir(slug))
     rmSync(companyDir(slug), { recursive: true, force: true })
     removeCompany(slug)
     // Secrets live outside the company folder; drop them so a future company reusing this slug
@@ -1137,7 +1139,7 @@ export function registerIpc(): void {
     // WP 7.2: a backup the user asked for is restore-checked at once (the answer comes back with it).
     let check: BackupCheck | null = null
     try {
-      check = checkBackupIfDue(c.db, path, 'manual', todayISO())
+      check = await checkBackupIfDue(c.db, path, 'manual', todayISO())
     } catch (err) {
       log('warn', 'backup-check-error', { error: err instanceof Error ? err.message : String(err) })
     }
@@ -3116,6 +3118,8 @@ export function registerIpc(): void {
     idleClock.touch()
     // The older backups follow the books: none is left plaintext behind a locked business (or
     // encrypted behind an unlocked one, where no key would open it any more).
+    // A backup's restore check still copying one of them would hold it open (Windows: the rename fails).
+    await stopChecksUnder(companyBackupsDir(slug))
     const conv = convertBackups(companyBackupsDir(slug), from, to)
     if (conv.failed.length) log('warn', 'security-backups-not-converted', { slug, failed: conv.failed.length })
     return { backupsConverted: conv.converted, backupsFailed: conv.failed }
@@ -3191,14 +3195,15 @@ export function registerIpc(): void {
 
   // Backup checks: the list (Settings → Backups) and "Check now" on the newest (or a named) backup.
   handle('backup:checks', () => listBackupChecks(requireCompany().db), 'viewer')
-  handle('backup:check', (p) => {
+  handle('backup:check', async (p) => {
     const { file } = z.object({ file: backupFileSchema.optional() }).strict().parse(p ?? {})
     const c = requireCompany()
     const name = file ?? listBackupsIn(companyBackupsDir(c.slug))[0]?.file
     if (!name) throw new Error('There is no backup to check yet — take one first')
     const path = join(companyBackupsDir(c.slug), name)
     if (!existsSync(path)) throw new Error('Backup file not found')
-    const check = verifyBackupFile(path, { asOn: todayISO(), key: isEncryptedFile(path) ? keyOfHandle(c.db) : null })
+    const check = await verifyBackupFileAsync(path, { asOn: todayISO(), key: isEncryptedFile(path) ? keyOfHandle(c.db) : null })
+    if (!c.db.open) throw new Error('The business was closed before the check finished')
     return recordBackupCheck(c.db, check)
   })
 
