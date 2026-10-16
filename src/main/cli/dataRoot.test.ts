@@ -2,39 +2,46 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { join, posix, win32 } from 'path'
 import { resolveCliDataRoot, userDataDir } from './dataRoot'
 import { pointerText } from '../dataRootResolve'
 
 let home: string
 let books: string
-const DEFAULT = '/default/total'
+let DEFAULT = ''
 beforeEach(() => {
   home = mkdtempSync(join(tmpdir(), 'total-cliroot-'))
+  DEFAULT = join(home, 'default', 'total')
   books = join(home, 'moved books')
   mkdirSync(books)
 })
 afterEach(() => rmSync(home, { recursive: true, force: true }))
 
-function writePointer(path: string, appName = 'total'): void {
-  const dir = join(home, 'Library', 'Application Support', appName)
+// Fixtures live under the real temp dir and use the host platform, so path styles always agree.
+const PLATFORM = process.platform
+const baseEnv = (): Record<string, string> => ({ APPDATA: join(home, 'appdata'), XDG_CONFIG_HOME: join(home, 'cfg') })
+const userData = (): string => userDataDir(PLATFORM, baseEnv(), home)
+
+function writePointer(path: string): void {
+  const dir = userData()
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'data-root.json'), pointerText(path))
 }
 const resolve = (env: Record<string, string> = {}, warn: string[] = []) =>
-  resolveCliDataRoot({ env, platform: 'darwin', home, defaultRoot: () => DEFAULT, warn: (l) => warn.push(l) })
+  resolveCliDataRoot({ env: { ...baseEnv(), ...env }, platform: PLATFORM, home, defaultRoot: () => DEFAULT, warn: (l) => warn.push(l) })
 
 describe('resolveCliDataRoot', () => {
   it('userData per platform', () => {
-    expect(userDataDir('win32', { APPDATA: 'C:\\U\\AppData\\Roaming' }, 'C:\\U')).toMatch(/total$/)
-    expect(userDataDir('darwin', {}, '/h')).toBe('/h/Library/Application Support/total')
-    expect(userDataDir('linux', { XDG_CONFIG_HOME: '/x' }, '/h')).toBe('/x/total')
-    expect(userDataDir('linux', {}, '/h')).toBe('/h/.config/total')
+    expect(userDataDir('win32', { APPDATA: 'C:\\U\\AppData\\Roaming' }, 'C:\\U')).toBe(win32.join('C:\\U\\AppData\\Roaming', 'total'))
+    expect(userDataDir('win32', {}, 'C:\\U')).toBe(win32.join('C:\\U', 'AppData', 'Roaming', 'total'))
+    expect(userDataDir('darwin', {}, '/h')).toBe(posix.join('/h', 'Library', 'Application Support', 'total'))
+    expect(userDataDir('linux', { XDG_CONFIG_HOME: '/x' }, '/h')).toBe(posix.join('/x', 'total'))
+    expect(userDataDir('linux', {}, '/h')).toBe(posix.join('/h', '.config', 'total'))
   })
 
   it('TOTAL_DATA_DIR wins over a pointer', () => {
     writePointer(books)
-    expect(resolve({ TOTAL_DATA_DIR: '/scratch' })).toMatchObject({ path: '/scratch', source: 'env' })
+    expect(resolve({ TOTAL_DATA_DIR: join(home, 'scratch') })).toMatchObject({ path: join(home, 'scratch'), source: 'env' })
   })
 
   it('a pointer to an existing folder is followed', () => {
@@ -57,7 +64,7 @@ describe('resolveCliDataRoot', () => {
   })
 
   it('a garbage pointer falls back with a warning', () => {
-    const dir = join(home, 'Library', 'Application Support', 'total')
+    const dir = userData()
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'data-root.json'), 'nope')
     const warn: string[] = []

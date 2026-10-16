@@ -39,11 +39,12 @@ export function userDataDir(
   env: Record<string, string | undefined> = process.env,
   home: string = homedir()
 ): string {
+  const p = platform === 'win32' ? win32 : posix
   const base =
-    platform === 'win32' ? env.APPDATA || join(home, 'AppData', 'Roaming')
-    : platform === 'darwin' ? join(home, 'Library', 'Application Support')
-    : env.XDG_CONFIG_HOME || join(home, '.config')
-  return join(base, 'total')
+    platform === 'win32' ? env.APPDATA || p.join(home, 'AppData', 'Roaming')
+    : platform === 'darwin' ? p.join(home, 'Library', 'Application Support')
+    : env.XDG_CONFIG_HOME || p.join(home, '.config')
+  return p.join(base, 'total')
 }
 
 export function readPointerText(path: string): string | null {

@@ -12,7 +12,7 @@ import {
   cmdCompanies, cmdCreateCompany, cmdExport, cmdImportMasters, cmdNextNumber, cmdPost,
   cmdTrialBalance, openCompany
 } from './commands'
-import { resolveCliDataRoot } from './dataRoot'
+import { resolveCliDataRoot, userDataDir } from './dataRoot'
 import { pointerText } from '../dataRootResolve'
 import { forgetCliKey, isPassphraseRefusal, PASSPHRASE_ENV, takePassphrase, unlockForCli } from './unlock'
 import { lockCompanyFileForTest } from '../db/testdb'
@@ -166,10 +166,10 @@ describe('total-cli data folder pointer', () => {
     const prev = process.env.TOTAL_DATA_DIR
     try {
       mkdirSync(moved)
-      const ud = join(home, 'Library', 'Application Support', 'total')
+      const ud = userDataDir(process.platform, { APPDATA: join(home, 'appdata'), XDG_CONFIG_HOME: join(home, 'cfg') }, home)
       mkdirSync(ud, { recursive: true })
       writeFileSync(join(ud, 'data-root.json'), pointerText(moved))
-      const choice = resolveCliDataRoot({ env: {}, platform: 'darwin', home, defaultRoot: () => join(home, 'Documents', 'total') })
+      const choice = resolveCliDataRoot({ env: { APPDATA: join(home, 'appdata'), XDG_CONFIG_HOME: join(home, 'cfg') }, platform: process.platform, home, defaultRoot: () => join(home, 'Documents', 'total') })
       expect(choice).toMatchObject({ path: moved, source: 'pointer' })
       process.env.TOTAL_DATA_DIR = choice.path // what cli/main.ts does
       const made = cmdCreateCompany({ name: 'Pointed Co', stateCode: '27', booksFrom: 2025 })
