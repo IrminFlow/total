@@ -85,6 +85,12 @@ describe.each([
   it.each(SURFACES)('a disabled label on %s ≥ 3', (bg) => {
     expect(contrastRatio(color(vars, '--t-disabled'), color(vars, bg))).toBeGreaterThanOrEqual(3)
   })
+  it.each(['--t-panel', '--t-panel2'])('a chosen chip (amber tint over %s): its ink label ≥ 4.5 — also when it can’t be changed', (bg) => {
+    // PaidHow / RefundHow / the radio chips: border-amber bg-amberbar/15 when chosen. A disabled
+    // one used --t-disabled (2.9–3.2:1 on this tint in dark mode); app.css keeps it ink.
+    const tint = blend([...color(vars, '--t-amber-bar').slice(0, 3), 0.15] as RGBA, color(vars, bg))
+    expect(contrastRatio(color(vars, '--t-ink'), tint)).toBeGreaterThanOrEqual(4.5)
+  })
   it('placeholder text is the muted token (≥ 4.5 on every surface — checked above)', () => {
     expect(readFileSync(resolve(__dirname, '../components/kit/Field.tsx'), 'utf8')).toContain('placeholder:text-muted')
   })
@@ -99,6 +105,12 @@ describe('the full app keeps its colours (WP 10.5 tweaks are simple-only)', () =
   it('reduced motion collapses every animation and transition (tour, spotlight, drawers)', () => {
     expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*?animation-duration: 0\.01ms !important[\s\S]*?transition-duration: 0\.01ms !important/)
     expect(css).toMatch(/\[data-motion='reduce'\] \*/)
+  })
+})
+
+describe('to-do §4: the chosen chip that can’t be changed (walk-in "Cash", dark mode)', () => {
+  it('keeps the ink label in the simple shell (grey on the amber tint was 3.2:1 in dark mode)', () => {
+    expect(css).toMatch(/\[data-shell='simple'\] button\[role='radio'\]\[aria-checked='true'\]:disabled \{\s*color: var\(--t-ink\);\s*\}/)
   })
 })
 

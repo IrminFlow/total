@@ -582,6 +582,11 @@ textarea {
   opacity: 1;
   color: var(--t-disabled);
 }
+/* A chip that is the CHOSEN answer and can't be changed (the walk-in's "Cash" next to its
+   disabled "On credit") keeps the ink label: grey on the amber tint was 3.2:1 in dark mode. */
+[data-shell='simple'] button[role='radio'][aria-checked='true']:disabled {
+  color: var(--t-ink);
+}
 [data-shell='simple'] button.bg-amberbar\/90:disabled,
 [data-shell='simple'] button.bg-danger-soft:disabled {
   background-color: var(--t-panel2);
