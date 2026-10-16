@@ -3,9 +3,9 @@
 // The backup file is copied into a scratch folder (never touched in place), opened (with the
 // company's key when it is encrypted), quick-checked, MIGRATED as a restore would migrate it, and
 // then: the migration count must reach this build's, the audit chain must verify, the company row
-// must be there and the entries must balance (the trial balance's movement totals, Dr = Cr). The
-// verdict goes to `backup_runs` (Home and Settings → Backups read the newest) and the audit trail
-// (entity 'backup_check'). Electron-free; the scratch folder is always removed.
+// must be there and the entries must balance (Σ Dr = Σ Cr of the in-books voucher lines, every
+// year — entryTotals). The verdict goes to `backup_runs` (Home and Settings → Backups read the
+// newest) and the audit trail (entity 'backup_check'). Electron-free; the scratch folder is always removed.
 //
 // Off the main thread (PR #131 follow-up): verifyBackupFileAsync runs the very same
 // verifyBackupFile in the check worker (db/checkWorker.ts, a 'verify' job) — the copy, the
@@ -22,7 +22,7 @@ import { MIGRATIONS } from '../db/migrations'
 import { tagOf } from '../db/backup'
 import { CheckStoppedError, checkWorkerFile, runCheckJob } from '../db/checkHost'
 import { verifyAudit, writeAudit } from './audit'
-import { trialBalance } from './reports'
+import { IN_BOOKS } from './vouchers'
 import type { BackupCheck, BackupCheckSteps } from '@shared/backupCheck'
 
 export interface VerifyOptions {
@@ -46,6 +46,25 @@ export function removeScratch(dir: string): void {
 }
 
 const emptySteps = (): BackupCheckSteps => ({ opens: false, quickCheck: false, migrations: null, auditChain: null, balanced: null, company: false })
+
+/** Σ Dr and Σ Cr of every in-books voucher line dated up to `asOn`, every year alike. Not the trial
+ *  balance's movement columns: those are cumulative for balance-sheet ledgers but cover only the
+ *  as-on FY for income / expense ledgers (yearOpening.ts — the earlier years go into its computed
+ *  "Profit & Loss A/c (opening)" row, which has no movement), so they differ by the earlier years'
+ *  profit on any business with more than one year and no closing journal. Openings are not part of
+ *  the verdict, as before: a difference in opening balances is a state the books may legitimately be
+ *  in (the balance sheet shows it), not damage. */
+export function entryTotals(db: DB, asOn: string): { debit: number; credit: number } {
+  const r = db
+    .prepare(
+      `SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = 'dr' THEN vl.amount ELSE 0 END), 0) AS debit,
+              COALESCE(SUM(CASE WHEN vl.dr_cr = 'cr' THEN vl.amount ELSE 0 END), 0) AS credit
+       FROM vouchers v CROSS JOIN voucher_lines vl ON vl.voucher_id = v.id
+       WHERE v.date <= ? AND ${IN_BOOKS}`
+    )
+    .get(asOn) as { debit: number; credit: number }
+  return { debit: r.debit, credit: r.credit }
+}
 
 /** Restore `path` into a scratch folder and check it. Never throws. */
 export function verifyBackupFile(path: string, opts: VerifyOptions): BackupCheck {
@@ -90,8 +109,8 @@ export function verifyBackupFile(path: string, opts: VerifyOptions): BackupCheck
     const chain = verifyAudit(db)
     steps.auditChain = { ok: chain.ok, rows: chain.rows }
     if (!chain.ok) return result('The change history in the backup does not verify')
-    const tb = trialBalance(db, opts.asOn)
-    steps.balanced = { ok: tb.movementDebitTotal === tb.movementCreditTotal, debit: tb.movementDebitTotal, credit: tb.movementCreditTotal }
+    const totals = entryTotals(db, opts.asOn)
+    steps.balanced = { ok: totals.debit === totals.credit, debit: totals.debit, credit: totals.credit }
     if (!steps.balanced.ok) return result('The entries in the backup do not balance')
     return result(null)
   } catch (err) {

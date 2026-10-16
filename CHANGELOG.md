@@ -202,6 +202,12 @@ what you typed, and a **Back to simple** button.
   busy laptop; now it runs in the background and the app keeps answering (the longest pause
   measured: under a third of a second). It checks the same things and gives the same answer.
   [#136](https://github.com/IrminFlow/total/pull/136)
+- **A backup of a business with more than one year of entries is no longer reported as "the
+  entries do not balance".** The backup check compared figures that count only this year for
+  income and expense accounts but every year for the rest, so any business with entries in an
+  earlier year and no year-end closing entry got a red "backup check failed" card on Home. It now
+  adds up every entry of every year. This changes the check's verdict only — no figure in your
+  books or reports changed. [#136](https://github.com/IrminFlow/total/pull/136)
 - **The tour of Home no longer hides what it points at.** Its card sits below, above or beside the
   button or tile it is about, inside the window, on small screens too. And Home's "entries added
   for an earlier, closed date" now counts only entries that really went into a closed month or the
@@ -396,8 +402,11 @@ Read these before filing from the next release.
   zeroes its copy of the key. `out/main/checkWorker.js` is no longer a rollup input: it is bundled
   standalone by `scripts/build-check-worker.mjs` (no Electron, AI or MCP code; Electron's exports
   are getters that throw — `checkWorkerBundle.test.ts`); the smoke's main-process probe runs a
-  quick_check and a whole restore check through the built (on Windows CI: packaged) worker.
-  [#136](https://github.com/IrminFlow/total/pull/136)
+  quick_check and a whole restore check through the built (on Windows CI: packaged) worker. The
+  restore check's balance step is `backupVerify.entryTotals` (Σ Dr = Σ Cr of in-books voucher lines
+  up to the as-on date, every year), no longer `trialBalance`'s movement totals (FY-only for P&L
+  ledgers); openings stay outside the verdict as before (a difference in opening balances is a
+  legitimate state). [#136](https://github.com/IrminFlow/total/pull/136)
 - "I've filed" lives in company meta `gstFiled`, not in `assistant_marks` (which has no room for an
   ARN). [#94](https://github.com/IrminFlow/total/pull/94)
 - i18n: `Translate.lang`, `toPlainDate(d, lang)`, `amountInWords(paise, lang)`; the glossary is

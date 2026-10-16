@@ -199,3 +199,48 @@ describe('the restore check in the check worker', () => {
     b.db.close()
   }, 60_000)
 })
+
+// The balance verdict does not depend on the financial year: a business with entries in more than
+// one year and no year-end closing journal passes (the trial balance's movement columns are
+// cumulative for balance-sheet accounts but FY-only for income / expense ones, so they differ by
+// the earlier years' profit); a line tampered out of balance still fails — worker and in-process.
+describe('the balance verdict over several financial years', () => {
+  function twoYears(): string {
+    const dir = join(ROOT, `co-${++n}`)
+    mkdirSync(dir, { recursive: true })
+    const path = join(dir, 'company.db')
+    const db = testFileDb(path)
+    db.pragma('foreign_keys = ON')
+    migrate(db)
+    seedCompany(db, TEST_INFO) // books from FY 2025-26
+    postSimpleVoucher(db, { date: '2025-05-01', amount: 12_345, kind: 'receipt' }) // last year: Cash Dr / Sales Cr
+    postSimpleVoucher(db, { date: '2026-05-01', amount: 500, kind: 'receipt' })
+    db.close()
+    return path
+  }
+  const AS_ON_NEXT_YEAR = '2026-06-30'
+
+  it('a two-year business with no closing journal passes; the totals cover every year', async () => {
+    const path = twoYears()
+    setCheckWorkerFile(null)
+    const a = verifyBackupFile(path, { asOn: AS_ON_NEXT_YEAR, key: null, now: NOW })
+    expect(a.error).toBeNull()
+    expect(a.steps.balanced).toEqual({ ok: true, debit: 12_845, credit: 12_845 })
+    setCheckWorkerFile(workerFile)
+    expect(await verifyBackupFileAsync(path, { asOn: AS_ON_NEXT_YEAR, key: null, now: NOW })).toEqual(a)
+  }, 60_000)
+
+  it('a line tampered out of balance fails (an earlier year too)', async () => {
+    const path = twoYears()
+    const db = testFileDb(path)
+    const line = db.prepare("SELECT vl.id FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id WHERE v.date = '2025-05-01' AND vl.dr_cr = 'cr'").get() as { id: number }
+    db.prepare('UPDATE voucher_lines SET amount = amount - 1 WHERE id = ?').run(line.id)
+    db.close()
+    setCheckWorkerFile(null)
+    const a = verifyBackupFile(path, { asOn: AS_ON_NEXT_YEAR, key: null, now: NOW })
+    expect(a).toMatchObject({ ok: false, error: 'The entries in the backup do not balance' })
+    expect(a.steps.balanced).toEqual({ ok: false, debit: 12_845, credit: 12_844 })
+    setCheckWorkerFile(workerFile)
+    expect(await verifyBackupFileAsync(path, { asOn: AS_ON_NEXT_YEAR, key: null, now: NOW })).toEqual(a)
+  }, 60_000)
+})

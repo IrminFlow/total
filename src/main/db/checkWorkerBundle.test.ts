@@ -18,7 +18,7 @@ describe('the check worker bundle', () => {
       const result = await buildCheckWorker(out, { metafile: true })
       const inputs = Object.keys(result.metafile!.inputs)
       // It has the restore check's code…
-      for (const f of ['src/main/services/backupVerify.ts', 'src/main/db/migrate.ts', 'src/main/db/migrations.ts', 'src/main/services/audit.ts', 'src/main/services/reports.ts']) {
+      for (const f of ['src/main/services/backupVerify.ts', 'src/main/db/migrate.ts', 'src/main/db/migrations.ts', 'src/main/services/audit.ts', 'src/main/services/vouchers.ts']) {
         expect(inputs).toContain(f)
       }
       // …and none of the app's AI / MCP code.
