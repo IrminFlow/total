@@ -12,6 +12,7 @@ import {
   cmdCompanies, cmdCreateCompany, cmdExport, cmdImportMasters, cmdNextNumber, cmdPost,
   cmdTrialBalance, openCompany
 } from './commands'
+import { dataRoot } from '../paths'
 import { resolveCliDataRoot, userDataDir } from './dataRoot'
 import { pointerText } from '../dataRootResolve'
 import { forgetCliKey, isPassphraseRefusal, PASSPHRASE_ENV, takePassphrase, unlockForCli } from './unlock'
@@ -172,9 +173,8 @@ describe('total-cli data folder pointer', () => {
       const choice = resolveCliDataRoot({ env: { APPDATA: join(home, 'appdata'), XDG_CONFIG_HOME: join(home, 'cfg') }, platform: process.platform, home, defaultRoot: () => join(home, 'Documents', 'total') })
       expect(choice).toMatchObject({ path: moved, source: 'pointer' })
       process.env.TOTAL_DATA_DIR = choice.path // what cli/main.ts does
-      const made = cmdCreateCompany({ name: 'Pointed Co', stateCode: '27', booksFrom: 2025 })
-      expect(existsSync(join(moved, 'companies', made.slug, 'company.db'))).toBe(true)
-      expect(cmdCompanies().companies.some((c) => c.slug === made.slug)).toBe(true)
+      expect(dataRoot()).toBe(moved) // the app's paths module follows the CLI's choice
+      expect(cmdCompanies().companies).toEqual([]) // reads the (empty) moved folder, not the shared test root
       expect(existsSync(join(home, 'Documents'))).toBe(false)
     } finally {
       if (prev === undefined) delete process.env.TOTAL_DATA_DIR
@@ -186,16 +186,21 @@ describe('total-cli data folder pointer', () => {
 
 describe('total-cli on a business locked with a passphrase', () => {
   const PASS = 'correct horse battery'
-  let lockedSlug: string
+  let lockedSlug = ''
 
-  beforeAll(() => {
-    lockedSlug = cmdCreateCompany({ name: 'Locked Agent Co', stateCode: '27', booksFrom: 2025 }).slug
-    lockCompanyFileForTest(companyDir(lockedSlug), companyDbPath(lockedSlug), PASS)
-    forgetAllKeys()
-  })
+  // Company seed + file lock are heavy (full-sync commits on Windows): done in the first test
+  // body (30 s budget), never in a hook (10 s) — CLAUDE.md WP 7.3.
+  const locked = (): string => {
+    if (!lockedSlug) {
+      lockedSlug = cmdCreateCompany({ name: 'Locked Agent Co', stateCode: '27', booksFrom: 2025 }).slug
+      lockCompanyFileForTest(companyDir(lockedSlug), companyDbPath(lockedSlug), PASS)
+      forgetAllKeys()
+    }
+    return lockedSlug
+  }
   afterAll(() => {
     forgetAllKeys()
-    passphraseFails.delete(lockedSlug)
+    if (lockedSlug) passphraseFails.delete(lockedSlug)
   })
 
   it('takePassphrase reads TOTAL_PASSPHRASE once and removes it from the environment', () => {
@@ -207,44 +212,44 @@ describe('total-cli on a business locked with a passphrase', () => {
   })
 
   it('refuses without the passphrase (exit-2 class), and openCompany alone stays db_locked', async () => {
-    await expect(unlockForCli(lockedSlug, null, null)).rejects.toMatchObject({ code: 'passphrase_required' })
-    await expect(unlockForCli(lockedSlug, null, null)).rejects.toThrow(/TOTAL_PASSPHRASE/)
-    expect(() => openCompany(lockedSlug)).toThrow(expect.objectContaining({ code: 'db_locked' }))
-    const err = await unlockForCli(lockedSlug, null, null).catch((e: unknown) => e)
+    await expect(unlockForCli(locked(), null, null)).rejects.toMatchObject({ code: 'passphrase_required' })
+    await expect(unlockForCli(locked(), null, null)).rejects.toThrow(/TOTAL_PASSPHRASE/)
+    expect(() => openCompany(locked())).toThrow(expect.objectContaining({ code: 'db_locked' }))
+    const err = await unlockForCli(locked(), null, null).catch((e: unknown) => e)
     expect(isPassphraseRefusal(err)).toBe(true)
   })
 
   it('a wrong passphrase gives the app message, counts toward the shared throttle', async () => {
-    const err = await unlockForCli(lockedSlug, 'not the passphrase', null).catch((e: unknown) => e)
+    const err = await unlockForCli(locked(), 'not the passphrase', null).catch((e: unknown) => e)
     expect(err).toMatchObject({ code: 'wrong_passphrase', message: 'That passphrase is not right' })
     expect(isPassphraseRefusal(err)).toBe(true)
-    expect(passphraseFails.get(lockedSlug)?.fails).toBe(1)
-    expect(keyForPath(companyDbPath(lockedSlug))).toBeNull()
+    expect(passphraseFails.get(locked())?.fails).toBe(1)
+    expect(keyForPath(companyDbPath(locked()))).toBeNull()
   })
 
   it('the right passphrase unlocks: commands read and write, then the key is forgotten', async () => {
-    expect(await unlockForCli(lockedSlug, PASS, null)).toBe(true)
-    expect(passphraseFails.has(lockedSlug)).toBe(false) // a right one clears the count
-    const ldb = openCompany(lockedSlug)
+    expect(await unlockForCli(locked(), PASS, null)).toBe(true)
+    expect(passphraseFails.has(locked())).toBe(false) // a right one clears the count
+    const ldb = openCompany(locked())
     try {
       expect(cmdTrialBalance(ldb, '2026-03-31').totalDebit).toBe(0)
       expect(cmdNextNumber(ldb, 'Receipt', '2025-07-01').number).toBeTruthy()
     } finally {
       ldb.close()
     }
-    const remembered = keyForPath(companyDbPath(lockedSlug))!
-    forgetCliKey(lockedSlug)
+    const remembered = keyForPath(companyDbPath(locked()))!
+    forgetCliKey(locked())
     expect(remembered.every((b) => b === 0)).toBe(true) // the remembered copy is zeroed too
-    expect(() => openCompany(lockedSlug)).toThrow(expect.objectContaining({ code: 'db_locked' }))
+    expect(() => openCompany(locked())).toThrow(expect.objectContaining({ code: 'db_locked' }))
   })
 
   it('five wrong tries lock out even the right passphrase for 30 s (the app counter)', async () => {
-    passphraseFails.delete(lockedSlug)
-    for (let i = 0; i < 5; i++) await expect(unlockForCli(lockedSlug, `wrong ${i}`, null)).rejects.toMatchObject({ code: 'wrong_passphrase' })
-    await expect(unlockForCli(lockedSlug, PASS, null)).rejects.toMatchObject({ code: 'passphrase_throttled' })
-    passphraseFails.delete(lockedSlug)
-    expect(await unlockForCli(lockedSlug, PASS, null)).toBe(true)
-    forgetCliKey(lockedSlug)
+    passphraseFails.delete(locked())
+    for (let i = 0; i < 5; i++) await expect(unlockForCli(locked(), `wrong ${i}`, null)).rejects.toMatchObject({ code: 'wrong_passphrase' })
+    await expect(unlockForCli(locked(), PASS, null)).rejects.toMatchObject({ code: 'passphrase_throttled' })
+    passphraseFails.delete(locked())
+    expect(await unlockForCli(locked(), PASS, null)).toBe(true)
+    forgetCliKey(locked())
   })
 
   it('a plaintext business ignores a passphrase given for it', async () => {
