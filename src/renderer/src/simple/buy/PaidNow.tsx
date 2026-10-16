@@ -2,6 +2,7 @@ import type { MessageKey } from '@shared/i18n'
 import type { MoneyHow } from '@shared/simple/intents'
 import { BUY_PAID_CHOICES, BUY_PART_HOWS, type BuyForm, type BuyPaidChoice, type BuySetup } from '@shared/simple/buy'
 import { useT } from '../../lib/i18n'
+import { useCanSave } from '../ViewerNote'
 import { AmountInput, Button, Field, FieldError, Select } from '../../components/ui'
 
 const PAID_TEXT: Record<BuyPaidChoice, MessageKey> = {
@@ -34,6 +35,8 @@ export function PaidNow({
   onAddBank: () => void
 }): React.JSX.Element {
   const t = useT()
+  // A viewer can't add accounts (main refuses it): no button that only says "not allowed".
+  const mayAdd = useCanSave()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed table above
   const how: MoneyHow | null = form.paid === 'credit' ? null : form.paid === 'part' ? form.partHow : form.paid
   const accounts = (setup?.moneyAccounts ?? []).filter((a) => (how === 'cash' ? a.kind === 'cash' : a.kind === 'bank'))
@@ -104,9 +107,11 @@ export function PaidNow({
             // A business set up with the wizard has no bank yet: add it right here (never a dead end).
             <div className="flex flex-wrap items-center gap-3" data-testid="buy-no-account">
               <p className="text-small text-ink">{t('simple.buy.noAccount')}</p>
-              <Button data-testid="btn-buy-add-bank" onClick={onAddBank}>
-                {t('simple.buy.addBank')}
-              </Button>
+              {mayAdd && (
+                <Button data-testid="btn-buy-add-bank" onClick={onAddBank}>
+                  {t('simple.buy.addBank')}
+                </Button>
+              )}
             </div>
           )}
         </div>

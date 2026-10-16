@@ -9,9 +9,10 @@ import { computeInvoice, emptyInvoiceState } from '../voucherEdit'
 import { mapIntent, normaliseIntent, type IntentContext, type IntentFacts, type IntentLedger } from './intents'
 import { bannedWordsIn } from './bannedWords'
 import {
-  buyFormErrors, buyGst, buyIntentLines, buyLineRateMissing, buyTotals, emptyBuyForm, purchaseIntentFrom, purchasePreviewLine, purchaseStatus,
+  buyFormErrors, buyGst, buyIntentLines, buyLineRateMissing, buyTotals, emptyBuyForm, purchaseIntentFrom, purchasePreviewLine, purchaseStatus, switchBuyBasis,
   type BuyContext, type BuyForm
 } from './buy'
+import { switchBasisRemembering } from './sell'
 
 const t = (key: Parameters<typeof translate>[0], vars?: Parameters<typeof translate>[1]): string => translate(key, vars, 'en')
 const DATE = '2026-10-13'
@@ -244,5 +245,81 @@ describe('WP 10.8: a product without a GST rate on a claimed GST bill', () => {
     expect(buyLineRateMissing(1, form({ gstOnBill: true }), ctxFor('regular'))).toBe(false)
     expect(buyLineRateMissing(3, form({ gstOnBill: false }), ctxFor('regular'))).toBe(false)
     expect(buyLineRateMissing(3, form(), ctxFor('unregistered'))).toBe(false)
+  })
+})
+
+describe('"Prices include GST" switched with prices typed (to-do §4): every line keeps its total', () => {
+  const sig = (f: BuyForm, c: BuyContext) => {
+    const x = buyTotals(f, c)
+    return [x.taxable, x.tax, x.folded, x.total, x.rounding]
+  }
+  const totalOf = (f: BuyForm, c: BuyContext): number => buyTotals(f, c).total
+  const rates = [1, 99, 1005, 1055, 12_345, 50_000, 99_999]
+  const qtys = ['1', '3', '2.5', '0.333', '100', '7']
+
+  it('a claimed bill: before GST ↔ with GST, the same bill (taxable, GST, total)', () => {
+    const c = ctxFor()
+    for (const supplierId of [10, 11]) for (const rate of rates) for (const qtyText of qtys) for (const discount of [null, 1, 500]) for (const itemId of [1, 2]) {
+      const ex = form({ supplierId, gstOnBill: true, lines: [line(1, itemId, qtyText, rate, discount)] })
+      const inc = switchBuyBasis(ex, c, true)
+      expect(sig(inc, c)).toEqual(sig(ex, c))
+      expect(sig(switchBuyBasis(inc, c, false), c)).toEqual(sig(ex, c))
+      const typedIncl = form({ supplierId, gstOnBill: true, ratesIncludeGst: true, lines: [line(1, itemId, qtyText, rate, discount)] })
+      expect(sig(switchBuyBasis(typedIncl, c, false), c)).toEqual(sig(typedIncl, c))
+    }
+  })
+
+  it('a business that can’t claim: before GST (folded in) ↔ what was paid, the same cost', () => {
+    for (const reg of ['composition', 'unregistered'] as const) {
+      const c = ctxFor(reg)
+      let moved = 0
+      for (const rate of rates) for (const qtyText of qtys) for (const discount of [null, 1, 500]) for (const itemId of [1, 2]) {
+        const before = form({ ratesIncludeGst: false, lines: [line(1, itemId, qtyText, rate, discount)] })
+        const paid = switchBuyBasis(before, c, true)
+        expect(buyGst(paid, c)).toBe('paid')
+        expect(totalOf(paid, c)).toBe(totalOf(before, c))
+        // Back to before GST: the same cost — a paisa only where no before-GST value folds to it.
+        const typedPaid = form({ ratesIncludeGst: true, lines: [line(1, itemId, qtyText, rate, discount)] })
+        const back = switchBuyBasis(typedPaid, c, false)
+        expect(buyGst(back, c)).toBe('fold')
+        const d = Math.abs(buyTotals(back, c).taxable - buyTotals(typedPaid, c).taxable)
+        expect(d).toBeLessThanOrEqual(1)
+        if (d) moved++
+      }
+      // (Folding adds 1 or 2 paise per paisa of value, so some costs have no exact before-GST value.)
+      expect(moved).toBeLessThan(30)
+    }
+  })
+
+  it('₹118 paid → ₹100 before GST at 18 %; amounts and expenses too; a bill without GST keeps its numbers', () => {
+    const cant = ctxFor('composition')
+    expect(switchBuyBasis(form({ ratesIncludeGst: true, lines: [line(1, 1, '2', 118_00)] }), cant, false).lines[0]).toMatchObject({ rate: 100_00, discount: null })
+    const c = ctxFor()
+    const exp = form({ mode: 'expense', categoryId: 21, gstOnBill: true, amount: 1_000_00 })
+    const expIncl = switchBuyBasis(exp, c, true)
+    expect(expIncl.amount).toBe(1_180_00)
+    expect(sig(expIncl, c)).toEqual(sig(exp, c))
+    const amt = form({ mode: 'amount', ratesIncludeGst: true, amount: 1_180_00, gstRate: 18 })
+    expect(switchBuyBasis(amt, cant, false).amount).toBe(1_000_00)
+    const none = form({ gstOnBill: false, lines: [line(1, 1, '2', 500_00)] })
+    expect(switchBuyBasis(none, c, true).lines[0]!.rate).toBe(500_00)
+  })
+})
+
+describe('review PR #119: a business that can’t claim switches there and straight back without a paisa moving', () => {
+  it('what was paid → before GST → what was paid gives the typed cost and its total back', () => {
+    for (const reg of ['composition', 'unregistered'] as const) {
+      const c = ctxFor(reg)
+      for (const rate of [1, 99, 1005, 1055, 12_345, 50_000, 99_999]) for (const qtyText of ['1', '3', '2.5', '7']) for (const discount of [null, 1, 500]) for (const itemId of [1, 2]) {
+        const typed = form({ ratesIncludeGst: true, lines: [line(1, itemId, qtyText, rate, discount)] })
+        const there = switchBasisRemembering(typed, false, reg, null, (f) => switchBuyBasis(f, c, false))
+        const back = switchBasisRemembering(there.form, true, reg, there.memo, (f) => switchBuyBasis(f, c, true))
+        expect(back.form.lines[0]).toMatchObject({ rate, discount })
+        expect(buyTotals(back.form, c).total).toBe(buyTotals(typed, c).total)
+      }
+      const amt = form({ mode: 'amount', ratesIncludeGst: true, amount: 1_000_01, gstRate: 18 })
+      const there = switchBasisRemembering(amt, false, reg, null, (f) => switchBuyBasis(f, c, false))
+      expect(switchBasisRemembering(there.form, true, reg, there.memo, (f) => switchBuyBasis(f, c, true)).form.amount).toBe(1_000_01)
+    }
   })
 })

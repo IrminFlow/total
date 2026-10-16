@@ -153,6 +153,38 @@ describe('Record a purchase (WP 9.3)', () => {
     })
   })
 
+  it('to-do §4: "Prices include GST" with prices typed converts them — the bill stays the same', async () => {
+    renderUi()
+    await ready()
+    await pick('picker-buy-supplier', 'Bharat')
+    await pick('picker-buy-item-0', 'Steel bolt')
+    typeIn('input-buy-qty-0', '10')
+    typeIn('input-buy-rate-0', '100')
+    await waitFor(() => expect(screen.getByTestId('buy-total').getAttribute('data-paise')).toBe('118000'))
+    click('buy-prices-incl')
+    await waitFor(() => expect((screen.getByTestId('input-buy-rate-0') as HTMLInputElement).value).toMatch(/^118(\.00)?$/))
+    expect(screen.getByTestId('buy-total').getAttribute('data-paise')).toBe('118000')
+    expect(screen.getByTestId('buy-tax').getAttribute('data-paise')).toBe('18000')
+    click('buy-prices-excl')
+    await waitFor(() => expect((screen.getByTestId('input-buy-rate-0') as HTMLInputElement).value).toMatch(/^100(\.00)?$/))
+    expect(screen.getByTestId('buy-total').getAttribute('data-paise')).toBe('118000')
+  })
+
+  it('to-do §4: a business that can’t claim — what was paid ↔ before GST keeps the cost', async () => {
+    act(() => useSession.setState({ info: info('unregistered') }))
+    renderUi()
+    await ready()
+    await pick('picker-buy-supplier', 'Bharat')
+    await pick('picker-buy-item-0', 'Rice')
+    typeIn('input-buy-qty-0', '2')
+    typeIn('input-buy-rate-0', '262.50')
+    await waitFor(() => expect(screen.getByTestId('buy-total').getAttribute('data-paise')).toBe('52500'))
+    click('buy-prices-excl')
+    await waitFor(() => expect((screen.getByTestId('input-buy-rate-0') as HTMLInputElement).value).toMatch(/^250(\.00)?$/))
+    expect(screen.getByTestId('buy-total').getAttribute('data-paise')).toBe('52500')
+    expect(screen.getByTestId('buy-folded').getAttribute('data-paise')).toBe('2500')
+  })
+
   it('products on a bill without GST: refused under the GST question, with "Record it as just an amount"', async () => {
     renderUi()
     await ready()
@@ -331,5 +363,22 @@ describe('Record a purchase (WP 9.3)', () => {
   it('Record a payment opens the simple Money out (WP 9.4) for the supplier, what is due and that bill', () => {
     expect(recordSupplierPaymentScreen({ partyId: 10, due: 68_000, billNo: 'BS-7', number: '4', voucherId: 44 }, 30)).toEqual({ name: 'simple-money-out', party: 10, amount: 68_000, bill: 'BS-7', billId: 44 })
     expect(recordSupplierPaymentScreen({ partyId: 10, due: 0 }, 30)).toEqual({ name: 'simple-money-out', party: 10 })
+  })
+})
+
+describe('to-do §4: a viewer is told up front (Record a purchase)', () => {
+  it('the note at the top and in place of Save; typing a new supplier offers no Create row', async () => {
+    act(() => useSession.setState({ user: { id: 2, name: 'Vee', role: 'viewer' } as never }))
+    try {
+      renderUi()
+      expect((await screen.findByTestId('viewer-note-top')).textContent).toContain('can’t save entries')
+      expect(screen.getByTestId('viewer-note')).toBeTruthy()
+      expect(screen.queryByTestId('btn-buy-save')).toBeNull()
+      fireEvent.change(screen.getByTestId('picker-buy-supplier'), { target: { value: 'Brand new mill' } })
+      await new Promise((r) => setTimeout(r, 20))
+      expect(document.querySelector('[data-create="true"]')).toBeNull()
+    } finally {
+      act(() => useSession.setState({ user: null }))
+    }
   })
 })

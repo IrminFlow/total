@@ -34,7 +34,8 @@ export function BuyLines({
   error: string | null
   onChange: (lines: BuyLine[]) => void
   onAdd: () => void
-  onCreate: (name: string, lineKey: number) => void
+  /** Absent = no "Create …" row (a viewer can't add products). */
+  onCreate?: (name: string, lineKey: number) => void
 }): React.JSX.Element {
   const t = useT()
   const items = useStockItems()
@@ -70,7 +71,7 @@ export function BuyLines({
                   value={l.itemId}
                   onPick={(id) => set(l.key, { itemId: id })}
                   placeholder={t('simple.buy.productPlaceholder')}
-                  onCreate={(name) => onCreate(name, l.key)}
+                  onCreate={onCreate ? (name) => onCreate(name, l.key) : undefined}
                   testId={`picker-buy-item-${i}`}
                   ariaLabel={t('simple.buy.product')}
                 />

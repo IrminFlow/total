@@ -124,6 +124,13 @@ what you typed, and a **Back to simple** button.
   books are not upgraded and Total says so. Books last opened with a newer Total are refused with
   "Update Total to open it" instead of being opened and misread. This protects books from 1.0 on:
   0.11.0 and earlier, already installed, can't be changed. [#116](https://github.com/IrminFlow/total/pull/116)
+- **Small fixes from the screenshots.** Once you note a GST return as filed (Taxes, "I've filed"),
+  Home's GST figure and the dashboard's GSTR-3B date move on to the next period. A Print that fails
+  now says so. Switching "Prices include GST" on Make a bill or Record a purchase converts the
+  prices already typed, so the bill stays the same. In dark mode, a choice that is already made and
+  can't be changed is readable. Someone who can only look (a viewer) is told so at
+  the top of every bill, purchase, return and money form, and sees a short note instead of
+  "Back up now". [#119](https://github.com/IrminFlow/total/pull/119)
 
 ### For accountants (figures that changed)
 

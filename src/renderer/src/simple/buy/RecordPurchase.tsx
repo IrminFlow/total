@@ -9,7 +9,7 @@ import type { SimplePreview } from '@shared/simple/intents'
 import { CATEGORIES } from '@shared/simple/categories'
 import { categoriesFor } from '@shared/simple/accountKinds'
 import {
-  asksAmountRate, BUY_MODES, buyFormErrors, buyGst, buyTotals, emptyBuyForm, productsNeedGst, purchaseIntentFrom, purchasePreviewLine, showsPriceBasis,
+  asksAmountRate, BUY_MODES, buyFormErrors, buyGst, buyTotals, emptyBuyForm, productsNeedGst, purchaseIntentFrom, purchasePreviewLine, showsPriceBasis, switchBuyBasis,
   type BuyContext, type BuyField, type BuyForm, type BuyLine, type BuyMode
 } from '@shared/simple/buy'
 import type { MessageKey } from '@shared/i18n'
@@ -34,7 +34,8 @@ import { PaidNow } from './PaidNow'
 import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
-import { useCanSave } from '../ViewerNote'
+import { useCanSave, ViewerNote } from '../ViewerNote'
+import { switchBasisRemembering, type BasisMemo } from '@shared/simple/sell'
 
 const INCL_KEY = 'total-buy-incl' // i18n-technical: localStorage key (per company)
 const PURCHASES_CATEGORY = 'purchases' as const // i18n-technical
@@ -281,13 +282,20 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
   const openFull = useAccountantView('simple-buy') // i18n-technical: screen name
   const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: savedIds?.[0] ?? null, always })
 
+  const basisMemo = useRef<BasisMemo | null>(null)
   const setIncl = (on: boolean): void => {
     try {
       localStorage.setItem(`${INCL_KEY}:${slug ?? '-'}`, on ? '1' : '0')
     } catch {
       /* the choice still applies to this bill */
     }
-    update({ ratesIncludeGst: on })
+    // Prices already typed are converted so each line's total stays the same (switchBuyBasis —
+    // the editor's own helpers).
+    if (!ctx) return update({ ratesIncludeGst: on })
+    const scope = [form.date, form.supplierId, form.mode, form.gstRate, form.gstOnBill, form.categoryId].join('|') // i18n-technical
+    const { form: next, memo } = switchBasisRemembering(form, on, scope, basisMemo.current, (f) => switchBuyBasis(f, ctx, on))
+    basisMemo.current = memo
+    update(next)
   }
 
   const setMode = (mode: BuyMode): void => {
@@ -342,13 +350,16 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
           <AccountantViewButton testId="btn-buy-accountant-view" title={t('simple.buy.accountantHint')} onOpen={accountantView} />
         </div>
       </div>
+      {!canSave && <ViewerNote top />}
 
       {noPurchaseAccount && !savedIds && (
         <section role="status" className="mb-4 rounded-lg border border-amber/60 bg-amberbar/10 px-4 py-3" data-testid="buy-no-purchase-account">
           <p className="text-body text-ink">{t('simple.buy.noPurchaseAccount')}</p>
-          <Button className="mt-2" variant="primary" disabled={addingAccount} data-testid="btn-buy-add-purchase-account" onClick={() => void addPurchaseAccount()}>
-            {t('simple.buy.addPurchaseAccount')}
-          </Button>
+          {canSave && (
+            <Button className="mt-2" variant="primary" disabled={addingAccount} data-testid="btn-buy-add-purchase-account" onClick={() => void addPurchaseAccount()}>
+              {t('simple.buy.addPurchaseAccount')}
+            </Button>
+          )}
         </section>
       )}
       {savedIds ? (
@@ -370,7 +381,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
                   value={form.supplierId}
                   onPick={(id) => update({ supplierId: id })}
                   placeholder={t('simple.buy.supplierPlaceholder')}
-                  onCreate={(name) => setCreating({ what: 'supplier', name })} // i18n-technical
+                  onCreate={canSave ? (name) => setCreating({ what: 'supplier', name }) : undefined} // i18n-technical
                   testId="picker-buy-supplier"
                   autoFocus
                 />
@@ -461,7 +472,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
                   error={errors.get(F.items)}
                   onChange={(lines) => update({ lines })}
                   onAdd={() => update({ lines: [...form.lines, newLine()] })}
-                  onCreate={(name, lineKey) => setCreating({ what: 'product', name, lineKey })} // i18n-technical
+                  onCreate={canSave ? (name, lineKey) => setCreating({ what: 'product', name, lineKey }) : undefined} // i18n-technical
                 />
                 {!showDiscount && (
                   <button type="button" className="mt-3 text-detail text-blue hover:underline" data-testid="btn-buy-add-discount" onClick={() => setShowDiscount(true)}>

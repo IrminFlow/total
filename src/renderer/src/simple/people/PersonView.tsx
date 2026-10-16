@@ -15,6 +15,7 @@ import { moneyInScreen, moneyOutScreen } from '../money/moneyLinks'
 import { Pill } from './Pill'
 import { ReminderPanel } from './ReminderPanel'
 import { HoldPanel } from './HoldPanel'
+import { printFailureText } from '../printFailure'
 
 type ContactField = 'phone' | 'whatsapp' | 'creditDays'
 type Panel = 'reminder' | 'hold'
@@ -113,7 +114,7 @@ function Person({ p }: { p: PersonData }): React.JSX.Element {
       const r = await receivablesApi.statementPdf(p.ledgerId, from <= to ? from : to, to)
       setStatement({ path: r.path })
     } catch (e) {
-      toast.push('error', (e as Error).message)
+      toast.push('error', printFailureText(e, t, t('simple.people.statementFailed')))
     } finally {
       setBusy(false)
     }

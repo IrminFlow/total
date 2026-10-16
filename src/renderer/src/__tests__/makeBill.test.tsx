@@ -163,6 +163,23 @@ describe('Make a bill (WP 9.2)', () => {
     expect(calls('simple:post')[0]).toMatchObject({ intent: { kind: 'sale', customerId: 10, items: [{ itemId: 1, qty: 2000, rate: 50_000 }], payment: { how: 'cash', accountId: 30 } } })
   })
 
+  it('to-do §4: "Prices include GST" with a price typed converts it — the bill stays ₹1,050', async () => {
+    renderUi()
+    await ready()
+    await pickCustomer('Ramesh')
+    await pickItem(0, 'Sugar')
+    typeIn('input-sell-qty-0', '2')
+    typeIn('input-sell-rate-0', '500')
+    await waitFor(() => expect(screen.getByTestId('sell-total').getAttribute('data-paise')).toBe('105000'))
+    click('sell-prices-incl')
+    await waitFor(() => expect((screen.getByTestId('input-sell-rate-0') as HTMLInputElement).value).toMatch(/^525(\.00)?$/))
+    expect(screen.getByTestId('sell-total').getAttribute('data-paise')).toBe('105000')
+    expect(localStorage.getItem('total-sell-incl:sharma')).toBe('1')
+    click('sell-prices-excl')
+    await waitFor(() => expect((screen.getByTestId('input-sell-rate-0') as HTMLInputElement).value).toMatch(/^500(\.00)?$/))
+    expect(screen.getByTestId('sell-total').getAttribute('data-paise')).toBe('105000')
+  })
+
   it('WP 10.8 review: a viewer sees the note, and ⌘↵ posts nothing (an accountant\'s ⌘↵ does)', async () => {
     const fill = async (): Promise<void> => {
       await pickCustomer('Ramesh')
@@ -176,6 +193,13 @@ describe('Make a bill (WP 9.2)', () => {
     renderUi()
     await screen.findByTestId('viewer-note')
     expect(screen.queryByTestId('btn-sell-save')).toBeNull()
+    // to-do §4: said at the top too, before anything is filled in; no "Create …" row a viewer
+    // could only be refused at.
+    expect(screen.getByTestId('viewer-note-top').textContent).toContain('can’t save entries')
+    fireEvent.change(screen.getByTestId('picker-sell-customer'), { target: { value: 'Brand new shop' } })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(document.querySelector('[data-create="true"]')).toBeNull()
+    fireEvent.change(screen.getByTestId('picker-sell-customer'), { target: { value: '' } })
     await fill()
     fireEvent.keyDown(window, { key: 'Enter', metaKey: true })
     await new Promise((r) => setTimeout(r, 50))
@@ -184,6 +208,10 @@ describe('Make a bill (WP 9.2)', () => {
     act(() => useSession.setState({ user: { id: 1, name: 'Asha', role: 'accountant' } as never }))
     renderUi()
     await ready()
+    expect(screen.queryByTestId('viewer-note-top')).toBeNull()
+    fireEvent.change(screen.getByTestId('picker-sell-customer'), { target: { value: 'Brand new shop' } })
+    await waitFor(() => expect(document.querySelector('[data-create="true"]')).not.toBeNull())
+    fireEvent.change(screen.getByTestId('picker-sell-customer'), { target: { value: '' } })
     await fill()
     fireEvent.keyDown(window, { key: 'Enter', metaKey: true })
     await waitFor(() => expect(calls('simple:post')).toHaveLength(1))

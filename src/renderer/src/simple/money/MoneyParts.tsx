@@ -5,18 +5,23 @@ import { useT } from '../../lib/i18n'
 import { Button } from '../../components/ui'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
+import { useCanSave, ViewerNote } from '../ViewerNote'
 
 /** WP 9.4 — a Money screen's heading: its title, one plain line, and "Accountant view". */
 export function MoneyHeader({ title, sub, onAccountant }: { title: string; sub: string; onAccountant: (always: boolean) => void }): React.JSX.Element {
   const t = useT()
+  const canSave = useCanSave()
   return (
-    <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
-      <div>
-        <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{title}</h1>
-        <p className="mt-1 text-detail text-muted">{sub}</p>
+    <>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="font-serif text-heading font-semibold tracking-tight text-ink">{title}</h1>
+          <p className="mt-1 text-detail text-muted">{sub}</p>
+        </div>
+        <AccountantViewButton testId="btn-money-accountant-view" title={t('simple.money.accountantHint')} onOpen={onAccountant} />
       </div>
-      <AccountantViewButton testId="btn-money-accountant-view" title={t('simple.money.accountantHint')} onOpen={onAccountant} />
-    </div>
+      {!canSave && <ViewerNote top />}
+    </>
   )
 }
 

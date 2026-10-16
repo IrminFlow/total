@@ -180,7 +180,7 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
                       value={form.supplierId}
                       onPick={(id) => update({ supplierId: id, ticks: null, advance: false })}
                       placeholder={t('simple.money.supplierPlaceholder')}
-                      onCreate={(name) => setCreating({ what: 'supplier', name })} // i18n-technical
+                      onCreate={flow.canSave ? (name) => setCreating({ what: 'supplier', name }) : undefined} // i18n-technical
                       testId="picker-money-supplier"
                       autoFocus
                     />
@@ -240,7 +240,7 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
                         value={form.billSupplierId}
                         onPick={(id) => update({ billSupplierId: id })}
                         placeholder={t('simple.money.supplierPlaceholder')}
-                        onCreate={(name) => setCreating({ what: 'billSupplier', name })} // i18n-technical
+                        onCreate={flow.canSave ? (name) => setCreating({ what: 'billSupplier', name }) : undefined} // i18n-technical
                         testId="picker-money-bill-supplier"
                       />
                     </Field>

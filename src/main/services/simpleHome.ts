@@ -21,7 +21,7 @@ import {
   ANOMALY_HOME_CAP, attentionItems, BACKUP_NUDGE_DAYS, daysSince, owedSummary,
   type HomeAttention, type HomeCash, type HomeGst, type HomeGstCredit, type HomeMoneyDay, type HomeProfitPeriod, type SimpleHomeData
 } from '@shared/simple/home'
-import { GST_FILED_META_KEY, gstPeriodEnd, gstStartsOn, normalizeGstFiled, type GstFiledMeta } from '@shared/simple/taxes'
+import { gstPeriodEnd, gstStartsOn } from '@shared/simple/taxes'
 import { doingLines, previousSpan, topParts, withoutRoundOff } from '@shared/simple/reports'
 import type { ProfitAndLoss } from '@shared/reports'
 import { descendantIdSet, profitAndLoss } from './reports'
@@ -30,7 +30,7 @@ import { stockValuesAt } from './stockAnalysis'
 import { listGroups } from './masters'
 import { IN_BOOKS } from './vouchers'
 import { getFeatures, getGstProfile, getUi } from './config'
-import { dashGst, dashSetup, tdsApplies, tdsPayableLedgers, userBackupsOf, type DashBackupInput } from './dashboard'
+import { dashGst, dashSetup, readGstFiled, tdsApplies, tdsPayableLedgers, userBackupsOf, type DashBackupInput } from './dashboard'
 import { anomalies, closeChecklist, getStatement } from './assistants'
 import { extractPurchaseDocs } from './gst'
 import { getRecon2bTolerances } from './gstIms'
@@ -215,17 +215,7 @@ export function gstCredit(db: DB, from: string, to: string): HomeGstCredit {
   return { checked: checkedMonths === 0 ? 'none' : checkedMonths === months.length ? 'all' : 'some', awaiting }
 }
 
-/** meta `gstFiled` (the Taxes screen's "I've filed" marks, shared/simple/taxes.ts); missing or
- *  malformed = none. simpleTaxes.ts writes it. */
-export function readGstFiled(db: DB): GstFiledMeta {
-  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(GST_FILED_META_KEY) as { value: string } | undefined
-  if (!row) return {}
-  try {
-    return normalizeGstFiled(JSON.parse(row.value))
-  } catch {
-    return {}
-  }
-}
+export { readGstFiled }
 
 /** `simple:homeAttention` — the close checklist for the previous month (the Assistants default)
  *  and, unless the year has more than ANOMALY_HOME_CAP entries, the anomaly scan for the FY to

@@ -12,6 +12,7 @@ import { EmptyTeach } from '../help/EmptyTeach'
 import { DataTable, defineColumns } from '../../components/table'
 import { recordPaymentScreen } from './recordPayment'
 import { returnScreen, useReturnable } from '../returns/returnable'
+import { usePrintBill } from '../printFailure'
 
 const STATUS_TEXT: Record<SaleStatus, MessageKey> = {
   paid: 'simple.sales.status.paid',
@@ -64,6 +65,7 @@ export function SalesList({ billId }: { billId?: number }): React.JSX.Element {
 
 function SalesTable(): React.JSX.Element {
   const t = useT()
+  const printBill = usePrintBill()
   const nav = useNav()
   const { from, to, workingDate } = useSession()
   const until = workingDate < to ? workingDate : to
@@ -131,7 +133,7 @@ function SalesTable(): React.JSX.Element {
           onRowActivate={(r) => nav.go({ name: 'simple-sales', billId: r.voucherId })} // i18n-technical
           trailing={(r) => (
             <span className="flex justify-end gap-2">
-              <button type="button" className="text-small text-blue hover:underline" data-testid="btn-sale-print" onClick={() => void api.invoice.pdf(r.voucherId)}>
+              <button type="button" className="text-small text-blue hover:underline" data-testid="btn-sale-print" onClick={() => void printBill(r.voucherId)}>
                 {t('common.print')}
               </button>
             </span>
@@ -146,6 +148,7 @@ function SalesTable(): React.JSX.Element {
 
 function BillView({ billId }: { billId: number }): React.JSX.Element {
   const t = useT()
+  const printBill = usePrintBill()
   const nav = useNav()
   const workingDate = useSession((s) => s.workingDate)
   const { data: bill, isLoading } = useQuery({ queryKey: ['simpleSale', billId, workingDate], queryFn: () => api.simple.sale(billId, workingDate) }) // i18n-technical
@@ -239,7 +242,7 @@ function BillView({ billId }: { billId: number }): React.JSX.Element {
         </p>
 
         <div className="mt-5 flex flex-wrap gap-2">
-          <Button data-testid="btn-bill-print" onClick={() => void api.invoice.pdf(bill.voucherId)}>
+          <Button data-testid="btn-bill-print" onClick={() => void printBill(bill.voucherId)}>
             {t('common.print')}
           </Button>
           {bill.due > 0 && !bill.walkIn && (

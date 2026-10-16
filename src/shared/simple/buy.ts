@@ -22,11 +22,12 @@ import { formatPaise, roundToRupee } from '../money'
 import { toPlainDate } from '../dates'
 import { addBreakups, computeGst, supplyTypeFor, type SupplyType } from '../gst/calc'
 import { chargesGstOn } from '../gst/registration'
-import { inclusiveLine, solveTaxable } from '../pricing'
+import { inclusiveLine, lineGross, solveTaxable } from '../pricing'
 import { computeInvoice, emptyInvoiceState, type InvoiceContext } from '../voucherEdit'
 import { qtyText } from '../voucherEdit/payload'
 import { foldGstIntoAmount, foldGstIntoLine, itemsCarryGst, type IntentFacts, type MoneyHow, type SimpleIntentInput } from './intents'
-import { qtyMilliOf } from './sell'
+import { amountToBasis, lineToExclusive, lineToInclusive, qtyMilliOf } from './sell'
+import { rateForCost } from '../capture/nonClaimable'
 
 /** "Paid now?" — Cash / UPI / Card / Bank transfer / Not yet (`credit`) / Partly. */
 export const BUY_PAID_CHOICES = ['cash', 'upi', 'card', 'bank', 'credit', 'part'] as const
@@ -426,3 +427,66 @@ export interface PurchaseView extends PurchaseRow {
   rounding: number
   note: string | null
 }
+
+// ---------- "Prices include GST" switched with prices already typed (to-do §4, shots-86) ----------
+
+/** The before-GST value whose GST folded in (foldGstIntoAmount — the same function main posts
+ *  with) comes to `cost`: the largest one not above it, found as solveTaxable finds a taxable
+ *  value (a cost no before-GST value reaches exactly is the only case a paisa can move). */
+function unfoldCost(cost: number, gstRate: number): number {
+  if (cost <= 0) return 0
+  const guess = Math.floor((cost * 100) / (100 + gstRate))
+  let best = 0
+  for (let t = Math.max(0, guess - 4); t <= guess + 4; t++) if (foldGstIntoAmount(t, gstRate) <= cost) best = t
+  return best
+}
+
+/** The Record a purchase form with "Prices include GST" set to `incl`, every typed price (and the
+ *  amount / expense) converted so each line's total — and the bill's — stays what it was:
+ *  a claimed bill as Make a bill does (sell.ts), a business that can't claim between "what I paid"
+ *  (the cost) and "before GST" (the cost = that price with its GST folded in, foldGstIntoLine /
+ *  foldGstIntoAmount). 0 % lines and a bill without GST keep their numbers. */
+export function switchBuyBasis<F extends BuyForm>(form: F, ctx: BuyContext, incl: boolean): F {
+  if (form.ratesIncludeGst === incl) return form
+  const g = buyGst(form, ctx)
+  const next = { ...form, ratesIncludeGst: incl }
+  if (g === 'none') return next
+  const supply = supplyFor(form, ctx)
+  if (form.mode !== 'items') {
+    const rate = amountRate(form, ctx) ?? 0
+    if (form.amount == null || form.amount <= 0 || rate <= 0) return next
+    if (g === 'claim') return { ...next, amount: amountToBasis(form.amount, rate, supply, incl) }
+    // can't claim: 'fold' (before GST) → 'paid' is the folded cost; 'paid' → 'fold' its before-GST value.
+    return { ...next, amount: incl ? foldGstIntoAmount(form.amount, rate) : unfoldCost(form.amount, rate) }
+  }
+  return {
+    ...next,
+    lines: form.lines.map((l) => {
+      const qtyMilli = buyQtyMilli(l.qtyText)
+      if (l.itemId == null || l.rate == null || qtyMilli == null || qtyMilli <= 0) return l
+      if (g === 'claim') {
+        const { rate, cess } = claimRate(ctx, l.itemId)
+        if (rate + cess <= 0) return l
+        const x = (incl ? lineToInclusive : lineToExclusive)(l.rate, qtyMilli, l.discount ?? 0, rate, cess, supply)
+        return { ...l, rate: x.rate, discount: x.discount }
+      }
+      const rate = ctx.invoice.items.get(l.itemId)?.gstRate ?? null
+      if (rate == null || rate <= 0) return l
+      if (incl) {
+        // before GST → what was paid: the cost main would post (foldGstIntoLine).
+        const x = foldGstIntoLine(qtyMilli, l.rate, l.discount, rate)
+        return { ...l, rate: x.rate, discount: x.discount }
+      }
+      // what was paid → before GST: one unit's before-GST price, the rest of the line's value as
+      // its discount (or the value spread by rateForCost when one unit rounds under it).
+      const cost = Math.max(0, lineGross(qtyMilli, l.rate) - (l.discount ?? 0))
+      const taxable = unfoldCost(cost, rate)
+      const unit = unfoldCost(l.rate, rate)
+      const left = lineGross(qtyMilli, unit) - taxable
+      if (left >= 0) return { ...l, rate: unit, discount: left || null }
+      const spread = rateForCost(taxable, qtyMilli)
+      return { ...l, rate: spread.ratePaise, discount: spread.discountPaise || null }
+    })
+  } as F
+}
+

@@ -2,6 +2,7 @@ import type { MessageKey } from '@shared/i18n'
 import type { MoneyHow } from '@shared/simple/intents'
 import { MONEY_HOWS, type MoneySetup } from '@shared/simple/money'
 import { useT } from '../../lib/i18n'
+import { useCanSave } from '../ViewerNote'
 import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { Ledger } from '@shared/domain'
@@ -38,6 +39,8 @@ export function HowPaid({
   onChange: (patch: { how?: MoneyHow; accountId?: number | null; reference?: string }) => void
 }): React.JSX.Element {
   const t = useT()
+  // A viewer can't add accounts (main refuses it): no button that only says "not allowed".
+  const mayAdd = useCanSave()
   const queryClient = useQueryClient()
   const [addingBank, setAddingBank] = useState(false)
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed table above
@@ -83,9 +86,11 @@ export function HowPaid({
           // A business set up with the wizard has no bank yet: add it right here (never a dead end, as WP 9.2's PaidHow).
           <div className="flex flex-wrap items-center gap-3 self-end" data-testid="money-no-account">
             <p className="text-small text-ink">{t('simple.money.noAccount')}</p>
-            <Button data-testid="btn-money-add-bank" onClick={() => setAddingBank(true)}>
-              {t('simple.money.addBank')}
-            </Button>
+            {mayAdd && (
+              <Button data-testid="btn-money-add-bank" onClick={() => setAddingBank(true)}>
+                {t('simple.money.addBank')}
+              </Button>
+            )}
           </div>
         )}
         {how !== 'cash' && (

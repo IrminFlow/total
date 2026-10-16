@@ -7,8 +7,8 @@ import { toPlainDate } from '@shared/dates'
 import { mapError, type CaughtError } from '@shared/errors'
 import type { SimplePreview } from '@shared/simple/intents'
 import {
-  billTitleKey, emptySellForm, qtyMilliOf, saleIntentFrom, salePreviewLine, sellFormErrors, sellTotals, shownRate,
-  type SellContext, type SellField, type SellForm
+  billTitleKey, emptySellForm, qtyMilliOf, saleIntentFrom, salePreviewLine, sellFormErrors, sellTotals, shownRate, switchBasisRemembering, switchSellBasis,
+  type BasisMemo, type SellContext, type SellField, type SellForm
 } from '@shared/simple/sell'
 import { api } from '../../lib/client'
 import { pricingApi } from '../../lib/pricingClient'
@@ -31,7 +31,7 @@ import { PaidHow } from './PaidHow'
 import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
-import { useCanSave } from '../ViewerNote'
+import { useCanSave, ViewerNote } from '../ViewerNote'
 
 const INCL_KEY = 'total-sell-incl' // i18n-technical: localStorage key (per company)
 const SALES_KIND = 'sales' as const // i18n-technical
@@ -297,13 +297,20 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
   const openFull = useAccountantView('simple-sell') // i18n-technical: screen name
   const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: savedIds?.[0] ?? null, always })
 
+  const basisMemo = useRef<BasisMemo | null>(null)
   const setIncl = (on: boolean): void => {
     try {
       localStorage.setItem(`${INCL_KEY}:${slug ?? '-'}`, on ? '1' : '0')
     } catch {
       /* the choice still applies to this bill */
     }
-    update({ ratesIncludeGst: on, lines: form.lines.map((l) => (l.auto ? { ...l, rate: null } : l)) })
+    // Prices already typed are converted so each line's total stays the same (switchSellBasis —
+    // the editor's own helpers); price-list ones are fetched again in the new basis.
+    if (!ctx) return update({ ratesIncludeGst: on, lines: form.lines.map((l) => (l.auto ? { ...l, rate: null } : l)) })
+    const scope = [form.date, form.customerId, form.mode, form.gstRate].join('|') // i18n-technical
+    const { form: next, memo } = switchBasisRemembering(form, on, scope, basisMemo.current, (f) => switchSellBasis(f, ctx, on))
+    basisMemo.current = memo
+    update({ ratesIncludeGst: on, amount: next.amount, lines: next.lines.map((l) => (l.auto ? { ...l, rate: null } : l)) })
   }
 
   const customerOptions = useMemo(() => (setup?.customers ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.phone ? { sub: c.phone } : {}) })), [setup?.customers])
@@ -344,13 +351,16 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
         </div>
         <AccountantViewButton testId="btn-sell-accountant-view" title={t('simple.sell.accountantHint')} onOpen={accountantView} />
       </div>
+      {!canSave && <ViewerNote top />}
 
       {noSalesAccount && !savedIds && (
         <section role="status" className="mb-4 rounded-lg border border-amber/60 bg-amberbar/10 px-4 py-3" data-testid="sell-no-sales-account">
           <p className="text-body text-ink">{t('simple.sell.noSalesAccount')}</p>
-          <Button className="mt-2" variant="primary" disabled={addingSales} data-testid="btn-sell-add-sales-account" onClick={() => void addSalesAccount()}>
-            {t('simple.sell.addSalesAccount')}
-          </Button>
+          {canSave && (
+            <Button className="mt-2" variant="primary" disabled={addingSales} data-testid="btn-sell-add-sales-account" onClick={() => void addSalesAccount()}>
+              {t('simple.sell.addSalesAccount')}
+            </Button>
+          )}
         </section>
       )}
       {savedIds ? (
@@ -373,7 +383,7 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
                   value={form.customerId}
                   onPick={pickCustomer}
                   placeholder={t('simple.sell.customerPlaceholder')}
-                  onCreate={(name) => setCreating({ what: 'customer', name })} // i18n-technical
+                  onCreate={canSave ? (name) => setCreating({ what: 'customer', name }) : undefined} // i18n-technical
                   testId="picker-sell-customer"
                   autoFocus
                 />
@@ -427,7 +437,7 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
                 error={errors.get(F.items)}
                 onChange={(lines) => update({ lines })}
                 onAdd={() => update({ lines: [...form.lines, newLine()] })}
-                onCreate={(name, lineKey) => setCreating({ what: 'product', name, lineKey })} // i18n-technical
+                onCreate={canSave ? (name, lineKey) => setCreating({ what: 'product', name, lineKey }) : undefined} // i18n-technical
               />
             ) : (
               <AmountLine form={form} regular={regular} charges={charges} amountError={errors.get(F.amount)} rateError={errors.get(F.gstRate)} onChange={update} />

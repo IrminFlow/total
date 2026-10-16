@@ -8,6 +8,7 @@ import { useNav, useScreen, useSession, useToasts, type Screen } from '../state/
 import { SupportLink } from '../components/SupportLink'
 import { TotalLogo } from '../components/TotalLogo'
 import { PlainIcon } from './icons'
+import { useCanSave, ViewerBackupNote } from './ViewerNote'
 import type { SimpleSectionId } from '@shared/simple/uiMode'
 
 const HOME: Screen = { name: 'gateway' } // i18n-technical
@@ -42,6 +43,7 @@ export function SimpleSidebar(): React.JSX.Element {
   const toast = useToasts()
   const features = useFeatures()
   const collapsed = useSimpleNavCollapsed()
+  const canSave = useCanSave()
   const [tip, setTip] = useState<{ label: string; top: number; left: number } | null>(null)
   const clearCompany = useSession((s) => s.clearCompany)
   const active = simpleSectionOf(screen)
@@ -113,9 +115,18 @@ export function SimpleSidebar(): React.JSX.Element {
         )
       })}
       <div className="flex-1" />
-      <button type="button" data-testid="btn-backup-now" className={foot} onClick={() => void backup()} {...tipFor(t('simple.nav.backupNow'))}>
-        {collapsed ? <PlainIcon id="save" /> : t('simple.nav.backupNow')}
-      </button>
+      {/* to-do §4: backups are accountant+ (main refuses a viewer) — no button that only says no. */}
+      {canSave ? (
+        <button type="button" data-testid="btn-backup-now" className={foot} onClick={() => void backup()} {...tipFor(t('simple.nav.backupNow'))}>
+          {collapsed ? <PlainIcon id="save" /> : t('simple.nav.backupNow')}
+        </button>
+      ) : (
+        !collapsed && (
+          <div className="px-3 py-1.5">
+            <ViewerBackupNote compact />
+          </div>
+        )
+      )}
       <button type="button" data-testid="btn-switch-company" className={foot} onClick={() => void switchCompany()} {...tipFor(t('simple.nav.switchCompany'))}>
         {collapsed ? <PlainIcon id="swap" /> : t('simple.nav.switchCompany')}
       </button>

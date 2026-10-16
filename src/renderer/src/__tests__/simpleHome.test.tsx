@@ -8,7 +8,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { SimpleHome } from '../simple/SimpleHome'
 import { HOME_TASKS } from '../simple/homeTasks'
-import { useNav } from '../state/stores'
+import { useNav, useSession } from '../state/stores'
 import { translator } from '@shared/i18n'
 import { profitSentence, receivablesWhy } from '@shared/simple/explain'
 import type { HomeAttention, HomeOwed, SimpleHomeData } from '@shared/simple/home'
@@ -73,7 +73,10 @@ beforeEach(() => {
   window.total = { platform: 'test', invoke } as unknown as typeof window.total
   act(() => useNav.setState({ stack: [{ name: 'gateway' }] }))
 })
-afterEach(() => cleanup())
+afterEach(() => {
+  cleanup()
+  act(() => useSession.setState({ user: null }))
+})
 
 describe('simple Home (WP 8.6)', () => {
   it('renders every tile from one simple:home call, with money.ts amounts', async () => {
@@ -205,6 +208,18 @@ describe('simple Home (WP 8.6)', () => {
     expect(screen.getByTestId('simple-home-backup-nudge').textContent).toContain('Your last backup was 9 days ago.')
     fireEvent.click(within(screen.getByTestId('simple-home-backup-nudge')).getByRole('button'))
     await waitFor(() => expect(lastScreen()).toEqual({ name: 'simple-backups' }))
+  })
+
+  it('to-do §4: a viewer gets the plain note instead of "Back up now" (nudge and failed check)', async () => {
+    act(() => useSession.setState({ user: { id: 2, name: 'Vee', role: 'viewer' } as never }))
+    renderHome(home({ backup: { lastAt: Date.now() - 9 * 86_400_000, days: 9, nudge: true }, backupCheck: { ok: false, checkedAt: Date.now() } as never }))
+    const nudge = await screen.findByTestId('simple-home-backup-nudge')
+    expect(nudge.textContent).toContain('Your last backup was 9 days ago.')
+    expect(within(nudge).queryByRole('button')).toBeNull()
+    expect(within(nudge).getByTestId('viewer-backup-note').textContent).toBe('Your sign-in can’t take backups. Ask the owner.')
+    const failed = screen.getByTestId('simple-home-backup-check-failed')
+    expect(within(failed).queryByRole('button')).toBeNull()
+    expect(within(failed).getByTestId('viewer-backup-note')).toBeTruthy()
   })
 
   it('an empty company: one "Nothing recorded yet" card with the next setup step; the GST number step is never ticked for an unregistered business', async () => {

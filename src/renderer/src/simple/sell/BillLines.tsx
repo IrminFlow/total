@@ -38,7 +38,8 @@ export function BillLines({
   error: string | null
   onChange: (lines: FormLine[]) => void
   onAdd: () => void
-  onCreate: (name: string, lineKey: number) => void
+  /** Absent = no "Create …" row (a viewer can't add products). */
+  onCreate?: (name: string, lineKey: number) => void
 }): React.JSX.Element {
   const t = useT()
   const items = useStockItems()
@@ -73,7 +74,7 @@ export function BillLines({
                   value={l.itemId}
                   onPick={(id) => set(l.key, { itemId: id, rate: null, auto: true })}
                   placeholder={t('simple.sell.productPlaceholder')}
-                  onCreate={(name) => onCreate(name, l.key)}
+                  onCreate={onCreate ? (name) => onCreate(name, l.key) : undefined}
                   testId={`picker-sell-item-${i}`}
                   ariaLabel={t('simple.sell.product')}
                 />
