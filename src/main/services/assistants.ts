@@ -11,7 +11,7 @@ import type { CompanyInfo } from '@shared/domain'
 import { fyOf, gstPeriodOf, todayISO } from '@shared/dates'
 import { formatQtyMilli } from '@shared/money'
 import { buildCloseChecklist, missingRegulars, monthBounds, addMonths, type CloseChecklist, type CloseFacts, type CloseMark, type CloseCheckKey } from '@shared/closeChecklist'
-import { findAnomalies, type AnomalyVoucher, type LedgerRole } from '@shared/anomalies'
+import { findAnomalies, resolveAnomalyRef, type AnomalyVoucher, type LedgerRole } from '@shared/anomalies'
 import { categoriseMismatches, netLinkedDebitNotes, summariseMismatches, type Mismatch } from '@shared/gst/mismatch2b'
 import { parseGstr2b, reconcile2b, recon2bOptionsFrom } from '@shared/gst/recon2b'
 import {
@@ -510,6 +510,17 @@ export function anomalies(db: DB, from: string, to: string, opts: { includeDismi
     counts: { high: open.filter((r) => r.severity === 'high').length, medium: open.filter((r) => r.severity === 'medium').length, low: open.filter((r) => r.severity === 'low').length, dismissed: all.length - open.length },
     settings
   }
+}
+
+/** An anomaly's stored key from its letters-only ref (to-do §4): a key already marked first (so a
+ *  dismissed finding can be restored), else the findings of [from, to] (dismissed ones included).
+ *  Throws when no finding — or more than one — has that ref; never guesses. */
+export function anomalyKeyForRef(db: DB, ref: string, from: string, to: string): string {
+  const marked = resolveAnomalyRef(ref, listMarks(db, 'anomaly', '').keys())
+  if (marked) return marked
+  const key = resolveAnomalyRef(ref, anomalies(db, from, to, { includeDismissed: true }).rows.map((r) => r.key))
+  if (!key) throw new Error(`No finding with ref ${ref} in ${from} to ${to} — list the anomalies again`)
+  return key
 }
 
 export function dismissAnomaly(db: DB, key: string, dismissed: boolean, note: string | null, user: string | null): MarkRow | null {

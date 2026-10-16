@@ -41,6 +41,7 @@ import { tdsSummary } from '../../services/tds'
 import { gstPeriodOf } from '@shared/dates'
 import { parseReportQuestion, requestToModel } from '@shared/reportBuilder/nl'
 import { anomalies, closeChecklist, gst2bMismatches, store2bStatement } from '../../services/assistants'
+import { anomalyRef } from '@shared/anomalies'
 import { runReport } from '../../services/reportBuilder'
 import { nameLookup } from '../tools/assistantTools'
 import { createMemory } from '../memory'
@@ -107,7 +108,8 @@ export interface EvalFacts {
   electricityFy: number
   /** WP 5.5 assistants, from the same services the tools call. */
   close: { period: string; key: string; amount: number }
-  anomaly: { found: number; key: string; amount: number }
+  /** `ref` = the finding's letters-only alias (anomalyRef) — what the model quotes back (to-do §4). */
+  anomaly: { found: number; key: string; ref: string; amount: number }
   gst2b: { period: string; matched: number; missingKey: string; missingTax: number; missingValue: number }
   /** build_report "sales by month" over the FY: the taxable total runReport computes. */
   reportSalesTotal: number
@@ -576,7 +578,7 @@ function assistantFacts(db: DB, company: CompanyInfo, today: string): Pick<EvalF
   const report = runReport(db, res.model, { working: { ...EVAL_FY }, today: today })
   return {
     close: { period: '2026-03', key: check.key, amount: check.amount! },
-    anomaly: { found: an.rows.length, key: first.key, amount: first.amount! },
+    anomaly: { found: an.rows.length, key: first.key, ref: anomalyRef(first.key), amount: first.amount! },
     gst2b: {
       period: '2025-09', matched: g.matched, missingKey: missing.key,
       missingTax: missing.portal.igst + missing.portal.cgst + missing.portal.sgst + missing.portal.cess, missingValue: missing.portal.value

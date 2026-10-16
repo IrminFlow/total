@@ -62,12 +62,20 @@ export const closeMarkSchema = z.object({
 
 export const anomalyQuerySchema = z.object({ from: iso, to: iso, includeDismissed: z.boolean().optional() })
 
-export const anomalyDismissSchema = z.object({
-  key: z.string().trim().min(3).max(200),
-  /** false restores a dismissed finding. */
-  dismissed: z.boolean(),
-  note: z.string().trim().max(500).optional()
-})
+export const anomalyDismissSchema = z
+  .object({
+    key: z.string().trim().min(3).max(200).optional(),
+    /** The finding's letters-only alias (`anomalyRef`, what the AI assistant quotes) instead of its
+     *  key — resolved to the stored key in main; `from` / `to` say where to look (absent = the
+     *  financial year up to today). Exactly one of `key` / `ref`. */
+    ref: z.string().trim().regex(/^[a-zA-Z]{10}$/, 'Expected a 10-letter finding ref').optional(),
+    from: iso.optional(),
+    to: iso.optional(),
+    /** false restores a dismissed finding. */
+    dismissed: z.boolean(),
+    note: z.string().trim().max(500).optional()
+  })
+  .refine((d) => (d.key == null) !== (d.ref == null), { message: 'Give the finding’s key or its ref', path: ['key'] })
 
 /** A return period as the portal writes it (MMYYYY). */
 export const gstPeriodSchema = z.string().regex(/^(0[1-9]|1[0-2])\d{4}$/, 'Expected MMYYYY')

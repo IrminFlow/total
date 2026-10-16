@@ -145,6 +145,28 @@ describe('anomalies', () => {
     expect(out.data.anomalies.map((x) => x.key)).toEqual(svc.rows.map((x) => x.key))
     expect(out.data.anomalies[0]!.amount).toBe('₹25,000.00')
   })
+
+  it('to-do §4: each finding carries a letters-only ref; the tool and the dismissal take it back, the stored key unchanged', async () => {
+    const b = books()
+    voucher(b, 'payment', '2025-05-05', [[b.vendor, 'dr', 25_000_00], [b.bank, 'cr', 25_000_00]], { party: b.vendor })
+    voucher(b, 'payment', '2025-05-06', [[b.vendor, 'dr', 25_000_00], [b.bank, 'cr', 25_000_00]], { party: b.vendor })
+    const tool = createToolRegistry().get('find_anomalies')!
+    type Out = { data: { found: number; anomalies: { ref: string; key: string; kind: string }[] } }
+    const all = (await tool.handler({ from: '2025-05-01', to: '2025-05-31' }, ctxFor(b))) as Out
+    expect(all.data.anomalies.length).toBeGreaterThan(1)
+    for (const a of all.data.anomalies) expect(a.ref).toMatch(/^[a-z]{10}$/)
+    const dup = all.data.anomalies.find((a) => a.key.startsWith('duplicate_party_amount:'))!
+    // the follow-up call by ref returns just that finding
+    const one = (await tool.handler({ from: '2025-05-01', to: '2025-05-31', refs: [dup.ref.toUpperCase()] }, ctxFor(b))) as Out
+    expect(one.data.anomalies.map((a) => a.key)).toEqual([dup.key])
+    // the ref resolves to the stored key; the mark is keyed by the key exactly as before
+    expect(assist.anomalyKeyForRef(b.db, dup.ref, '2025-05-01', '2025-05-31')).toBe(dup.key)
+    assist.dismissAnomaly(b.db, assist.anomalyKeyForRef(b.db, dup.ref, '2025-05-01', '2025-05-31'), true, null, 'Priya')
+    expect(b.db.prepare("SELECT item_key AS k FROM assistant_marks WHERE assistant = 'anomaly'").all()).toEqual([{ k: dup.key }])
+    // a dismissed finding is found by its ref through the marks (to restore it), whatever the period
+    expect(assist.anomalyKeyForRef(b.db, dup.ref, '2025-06-01', '2025-06-30')).toBe(dup.key)
+    expect(() => assist.anomalyKeyForRef(b.db, 'abcdefghij', '2025-05-01', '2025-05-31')).toThrow(/No finding with ref abcdefghij/)
+  })
 })
 
 const TWO_B = JSON.stringify({

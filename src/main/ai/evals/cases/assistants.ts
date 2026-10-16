@@ -40,13 +40,36 @@ export const ASSISTANT_CASES: EvalCase[] = [
     question: 'Which entries look unusual this year, and for how much?',
     tool: 'find_anomalies', args: () => ({ ...FY }),
     answer: (r, c) => {
-      // Picked by its row, not its key: anomaly keys carry long digit runs that outbound masking
-      // rewrites (unlike the identifier-free 2B keys), so the key the model sees is not the stored one.
-      const a = (r.anomalies as Row[]).find((x) => x.amount === rupees(c.f.facts.anomaly.amount))
-      return `${a?.kind}: ${a?.voucher ?? a?.item} for ${a?.amount} — ${a?.why}`
+      // Cited by its ref, not its key: anomaly keys carry long digit runs that outbound masking
+      // rewrites, so the key the model sees is not the stored one; the letters-only ref survives
+      // masking (to-do §4).
+      const a = (r.anomalies as Row[]).find((x) => x.ref === c.f.facts.anomaly.ref)
+      return `${a?.kind}: ${a?.voucher ?? a?.item} for ${a?.amount} — ${a?.why} [finding ${a?.ref}]`
     },
-    figures: (f) => [f.facts.anomaly.amount]
+    figures: (f) => [f.facts.anomaly.amount],
+    includes: (f) => [f.facts.anomaly.ref]
   }),
+  {
+    kind: 'chat', id: 'acc.anomaly-ref-followup', category: 'accuracy', title: 'A finding referred to again by its ref (masking on) is the same finding',
+    turns: [{
+      question: 'Which entries look unusual this year? Then tell me more about the first one with an amount.',
+      route: [
+        step(call('find_anomalies', { ...FY })),
+        // The ref the model read in the (masked) result goes back as the follow-up's argument.
+        step(call('find_anomalies', (c) => ({ ...FY, refs: [((c.last('find_anomalies')?.anomalies ?? []) as Row[]).find((x) => x.amount)?.ref ?? 'none'] }))),
+        say((c) => {
+          const a = ((c.last('find_anomalies')?.anomalies ?? []) as Row[])[0]
+          return `Finding ${a?.ref}: ${a?.kind} — ${a?.voucher ?? a?.item} for ${a?.amount}. ${a?.why}`
+        })
+      ]
+    }],
+    privacy: { maskIds: true, pseudonymiseParties: false },
+    expect: {
+      tools: { calls: (f) => [{ name: 'find_anomalies', args: { ...FY } }, { name: 'find_anomalies', args: { ...FY, refs: [f.facts.anomaly.ref] } }], ordered: true },
+      figures: (f) => [f.facts.anomaly.amount],
+      answerIncludes: (f) => [f.facts.anomaly.ref]
+    }
+  },
   qa({
     id: 'tool.gst-2b', category: 'tool_choice', title: 'GSTR-2B differences → gst_2b_mismatches for the month',
     question: 'Does our purchase register match GSTR-2B for September 2025?',
