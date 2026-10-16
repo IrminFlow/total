@@ -425,6 +425,38 @@ describe('Money out', () => {
   })
 })
 
+describe('Money out: a refund to a customer', () => {
+  it('against the advance they paid: = the hand-entered payment in a twin company, and the Outstandings allocation agrees', () => {
+    const adv = moneyIn({ customerId: L('Ramesh'), amount: 50_000, advance: true }).out
+    const advName = getVoucher(db, adv.voucherIds[0]!)!.number
+    expect(allocation('Ramesh')).toEqual({ bills: {}, credit: 50_000 })
+    expect(moneySetup(db).customerCredits).toEqual([{ id: L('Ramesh'), name: 'Ramesh', credit: 50_000 }])
+    const { out } = moneyOut({ who: 'refund', customerId: L('Ramesh'), amount: 30_000, how: 'bank' })
+    const v = getVoucher(db, out.voucherIds[0]!)!
+    expect(v.billRefs.map((x) => [x.kind, x.name, x.amount])).toEqual([['against', advName, 30_000]])
+    // Where they stand after: ₹200 of theirs still with us — the allocation, and the sentence says so.
+    expect(allocation('Ramesh')).toEqual({ bills: {}, credit: 20_000 })
+    expect(out.facts).toMatchObject({ kind: 'money_out', side: 'customer', balance: -20_000 })
+    expect(out.sentences.at(-1)).toContain('₹200.00')
+    roundTrips(v.id)
+    const { twin, ids } = handEntered([
+      { kind: 'receipt', state: blank(TODAY, [r('dr', L('Cash'), 50_000), r('cr', L('Ramesh'), 50_000)], [{ kind: 'new', name: advName, amount: 50_000, dueDate: null }]) },
+      { kind: 'payment', state: blank(TODAY, [r('dr', L('Ramesh'), 30_000), r('cr', L('HDFC Bank'), 30_000)], [{ kind: 'against', name: advName, amount: 30_000, dueDate: null }]) }
+    ])
+    expect(rows(twin, ids[1]!)).toEqual(rows(db, v.id))
+    const ta = partyAllocation(twin, L('Ramesh', twin), TODAY)
+    expect({ bills: ta.bills.length, credit: ta.unappliedCredit }).toEqual({ bills: 0, credit: 20_000 })
+  })
+
+  it('a customer holding no credit: refused on the customer, no trace; not offered by the setup', () => {
+    twoBills()
+    expect(moneySetup(db).customerCredits).toEqual([])
+    const before = trace()
+    expect(() => post({ kind: 'money_out', customerId: L('Ramesh'), amount: 1_000, from: { how: 'cash' } })).toThrow(expect.objectContaining({ code: 'simple_customer_no_credit', field: 'party' }))
+    expect(trace()).toEqual(before)
+  })
+})
+
 describe('Move money, the list, the setup', () => {
   it('a move between accounts is a contra (Dr to, Cr from), equal to the hand-entered one', () => {
     const out = post(moveIntentFrom({ ...emptyMoveForm(TODAY), fromId: L('Cash'), toId: L('HDFC Bank'), amount: 300_000, note: 'Deposit' }))

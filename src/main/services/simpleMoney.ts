@@ -20,7 +20,7 @@ import type { VoucherKind } from '@shared/domain'
 import { todayISO } from '@shared/dates'
 import { IN_BOOKS, getVoucher } from './vouchers'
 import { counterAccounts, WALK_IN_NAME } from './counter'
-import { openBills } from './analysis'
+import { openBills, outstandingsWithAdvances } from './analysis'
 import { descendantIdsByName } from './masters'
 import { getFeatures } from './config'
 import { ledgerClassifier, type LedgerClass } from '../ai/ledgerClass'
@@ -76,6 +76,13 @@ export function moneySetup(db: DB): MoneySetup {
   const loanGroups = descendantIdsByName(db, ['Loans (Liability)'])
   const loans = all.filter((l) => loanGroups.has(l.groupId) && cls.cls(l.id) === 'other').map((l) => ({ id: l.id, name: l.name }))
   const features = getFeatures(db)
+  // Customers whose money we hold (advances, returns kept for the next bill) — the Outstandings
+  // allocation as on today, one run (simple People's `ahead`).
+  const held = outstandingsWithAdvances(db, 'receivable', todayISO()).advanceByParty
+  const customerCredits = customers
+    .filter((c) => (held.get(c.id) ?? 0) > 0)
+    .map((c) => ({ id: c.id, name: c.name, credit: held.get(c.id)! }))
+    .sort((a, b) => b.credit - a.credit || a.name.localeCompare(b.name))
   return {
     customers,
     suppliers,
@@ -88,7 +95,8 @@ export function moneySetup(db: DB): MoneySetup {
     drawingsId,
     loans,
     tds: features.tds,
-    payroll: features.payroll
+    payroll: features.payroll,
+    customerCredits
   }
 }
 

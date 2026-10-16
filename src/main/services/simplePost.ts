@@ -117,7 +117,7 @@ function partyOf(n: NormalIntent, walkInId: number | null): number | null {
     case 'money_in':
       return n.customerId ?? n.supplierId
     case 'money_out':
-      return n.supplierId
+      return n.supplierId ?? n.customerId
     default:
       return null
   }
@@ -299,10 +299,11 @@ export function loadIntentContext(db: DB, company: CompanyInfo, n: NormalIntent)
   // A refund needs credit held with us at all (named or not): `heldCredit` (simple_refund_no_credit).
   const openCredits = new Map<number, { name: string; amount: number }[]>()
   const heldCredit = new Map<number, number>()
-  if (n.kind === 'money_in' && n.supplierId != null) {
-    const a = partyAllocationWithCredits(db, n.supplierId, n.date)
-    openCredits.set(n.supplierId, a.credits)
-    heldCredit.set(n.supplierId, a.unappliedCredit)
+  const refundParty = n.kind === 'money_in' ? n.supplierId : n.kind === 'money_out' ? n.customerId : null
+  if (refundParty != null) {
+    const a = partyAllocationWithCredits(db, refundParty, n.date)
+    openCredits.set(refundParty, a.credits)
+    heldCredit.set(refundParty, a.unappliedCredit)
   }
   return {
     invoice: {

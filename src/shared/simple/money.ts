@@ -27,8 +27,9 @@ export const MONEY_HOWS: readonly MoneyHow[] = ['cash', 'upi', 'bank', 'card']
 export const MONEY_IN_WHO = ['customer', 'owner', 'loan', 'income', 'refund'] as const
 export type MoneyInWho = (typeof MONEY_IN_WHO)[number]
 
-/** "Paid to" on Money out (salary only while Payroll is on). */
-export const MONEY_OUT_WHO = ['supplier', 'expense', 'owner', 'salary'] as const
+/** "Paid to" on Money out (salary only while Payroll is on; a customer's refund only while some
+ *  customer holds credit with us — `MoneySetup.customerCredits`). */
+export const MONEY_OUT_WHO = ['supplier', 'expense', 'owner', 'salary', 'refund'] as const
 export type MoneyOutWho = (typeof MONEY_OUT_WHO)[number]
 
 /** Goods bought to sell or make: paid from Money out they would book no goods (no stock, no
@@ -91,6 +92,8 @@ export interface MoneyInForm extends MoneyFormBase {
 export interface MoneyOutForm extends MoneyFormBase {
   who: MoneyOutWho
   supplierId: number | null
+  /** A refund to this customer (set against the credit they hold with us). */
+  customerId: number | null
   /** The expense / salary account. */
   payeeId: number | null
   ticks: string[] | null
@@ -143,6 +146,7 @@ export const emptyMoneyOutForm = (date: string, init: { supplierId?: number | nu
   ...fromBank(date, init),
   who: 'supplier',
   supplierId: init.supplierId ?? null,
+  customerId: null,
   payeeId: null,
   amount: init.amount ?? null,
   ticks: init.bill ? [init.bill] : null,
@@ -280,6 +284,7 @@ export function moneyOutIntentFrom(
     return { ...head, ...(f.supplierId != null ? { supplierId: f.supplierId } : {}), ...(bills ? { bills } : {}), ...(f.advance ? { advance: true } : {}) }
   }
   if (f.who === 'owner') return { ...head, drawings: true }
+  if (f.who === 'refund') return { ...head, ...(f.customerId != null ? { customerId: f.customerId } : {}) }
   return { ...head, ...(f.payeeId != null ? { payeeId: f.payeeId } : {}) }
 }
 
@@ -312,7 +317,8 @@ const PARTY_MISSING_OUT: Record<MoneyOutWho, MessageKey> = {
   supplier: 'simple.money.err.pickSupplier',
   expense: 'simple.money.err.pickExpense',
   owner: 'simple.money.err.noDrawings',
-  salary: 'simple.money.err.pickSalary'
+  salary: 'simple.money.err.pickSalary',
+  refund: 'simple.money.err.pickRefundCustomer'
 }
 
 export function moneyInErrors(f: MoneyInForm, open: readonly MoneyOpenBill[], defaults: Record<MoneyHow, number | null>, sources: { ownerId: number | null }): Partial<Record<MoneyInField, MessageKey>> {
@@ -333,7 +339,7 @@ export function moneyOutErrors(
 ): Partial<Record<MoneyOutField, MessageKey>> {
   const out: Partial<Record<MoneyOutField, MessageKey>> = {}
   // Owner's drawings: a missing account is added on Save (never a dead end), so not an error here.
-  const who = f.who === 'supplier' ? f.supplierId : f.who === 'owner' ? 0 : f.payeeId
+  const who = f.who === 'supplier' ? f.supplierId : f.who === 'owner' ? 0 : f.who === 'refund' ? f.customerId : f.payeeId
   if (who == null) out.party = PARTY_MISSING_OUT[f.who]
   if (f.amount == null || f.amount <= 0) out.amount = 'simple.money.err.amount'
   if (accountFor(f, defaults) == null) out.from = f.how === 'cash' ? 'simple.money.err.noCash' : 'simple.money.err.noBank'
@@ -394,6 +400,9 @@ export interface MoneySetup {
   /** Features: TDS (the read-only hint) and Payroll (the Salary choice). */
   tds: boolean
   payroll: boolean
+  /** Customers holding credit with us as on today (the Outstandings allocation's unapplied
+   *  credit, largest first) — Money out's "A customer (refund)". Absent = none. */
+  customerCredits?: { id: number; name: string; credit: number }[]
 }
 
 export type MoneyDirection = 'in' | 'out' | 'move'

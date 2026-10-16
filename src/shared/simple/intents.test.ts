@@ -423,6 +423,27 @@ describe('WP 9.4 additions: a supplier refund, unticking every bill', () => {
     expect(map({ kind: 'money_in', supplierId: L.supplier, amount: 5_000, into: { how: 'cash' }, onAccount: true }, named).entries[0]!.payload.billRefs ?? []).toEqual([])
   })
 
+  it('money out to a customer (a refund): Dr the customer, against their named credits oldest first; none held → refused unless on account', () => {
+    const c = ctx({ heldCredit: new Map([[L.ramesh, 50_000]]), openCredits: new Map([[L.ramesh, [{ name: 'R-1', amount: 30_000 }, { name: 'CN-1', amount: 20_000 }]]]) })
+    const m = map({ kind: 'money_out', customerId: L.ramesh, amount: 40_000, from: { how: 'cash' } }, c)
+    balanced(m)
+    const e = m.entries[0]!
+    expect(e.kind).toBe('payment')
+    expect(e.payload.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[L.ramesh, 'dr', 40_000], [L.cash, 'cr', 40_000]])
+    expect(e.payload.billRefs).toEqual([{ kind: 'against', name: 'R-1', amount: 30_000, dueDate: null }, { kind: 'against', name: 'CN-1', amount: 10_000, dueDate: null }])
+    expect(m.facts).toMatchObject({ side: 'customer', partyName: 'Ramesh', settled: [{ name: 'R-1', amount: 30_000 }, { name: 'CN-1', amount: 10_000 }] })
+    // More than the named credits: the excess rides on the last ref (the engine opens a bill for it).
+    expect(map({ kind: 'money_out', customerId: L.ramesh, amount: 60_000, from: { how: 'cash' } }, c).entries[0]!.payload.billRefs!.map((r) => r.amount)).toEqual([30_000, 30_000])
+    // Unnamed credit only: on account.
+    expect(map({ kind: 'money_out', customerId: L.ramesh, amount: 5_000, from: { how: 'cash' } }, ctx({ heldCredit: new Map([[L.ramesh, 5_000]]) })).entries[0]!.payload.billRefs ?? []).toEqual([])
+    const none = ctx({ heldCredit: new Map([[L.ramesh, 0]]) })
+    expect(codeOf(() => map({ kind: 'money_out', customerId: L.ramesh, amount: 5_000, from: { how: 'cash' } }, none))).toEqual({ code: 'simple_customer_no_credit', field: 'party' })
+    expect(map({ kind: 'money_out', customerId: L.ramesh, amount: 5_000, from: { how: 'cash' }, onAccount: true }, none).entries[0]!.payload.billRefs ?? []).toEqual([])
+    // A supplier can't be the customer; exactly one "who".
+    expect(codeOf(() => map({ kind: 'money_out', customerId: L.supplier, amount: 100, from: { how: 'cash' } })).code).toBe('simple_no_party')
+    expect(codeOf(() => map({ kind: 'money_out', customerId: L.ramesh, supplierId: L.supplier, amount: 100, from: { how: 'cash' } })).code).toBe('simple_no_party')
+  })
+
   it('review: a purchase amount line with a printed bill total — the bill is that total, the paise left over its round off', () => {
     const m = map({ kind: 'purchase', supplierId: L.supplier, billNo: 'RENT-9', amount: { amount: 84_788, accountId: L.purchases, gstRate: 18, billTotal: 100_050 }, payment: { how: 'cash' } })
     balanced(m)

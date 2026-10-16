@@ -329,6 +329,37 @@ describe('Money out (WP 9.4)', () => {
     expect(calls('simple:post')).toEqual([])
   })
 
+  it('“A customer (refund)” only while a customer holds credit: their credit shown, the amount pre-filled, posts customerId', async () => {
+    renderUi(<MoneyOut />)
+    await ready()
+    expect(screen.queryByTestId('money-out-who-refund')).toBeNull()
+    cleanup()
+    invoke.mockImplementation(async (channel: string) => {
+      switch (channel) {
+        case 'master:groups:list': return { ok: true, data: GROUPS }
+        case 'master:ledgers:list': return { ok: true, data: LEDGERS }
+        case 'config:features:get': return { ok: true, data: DEFAULT_FEATURES }
+        case 'simple:money:setup': return { ok: true, data: { ...SETUP, customerCredits: [{ id: 10, name: 'Ramesh', credit: 50_000 }] } }
+        case 'simple:preview': return previewReply()
+        case 'simple:post': return postReply()
+        case 'voucher:saveSummary': return { ok: true, data: { entries: [{ voucherId: 7, kind: 'payment', number: '1', amount: 50_000 }], parties: [], undo: { undoable: true, reason: null } } }
+        default: return { ok: true, data: [] }
+      }
+    })
+    renderUi(<MoneyOut />)
+    await ready()
+    click('money-out-who-refund')
+    expect(visible()).toContain('Which customer are you paying back?')
+    fireEvent.change(screen.getByTestId('picker-money-refund-customer'), { target: { value: 'Ram' } })
+    const opt = await option('Ramesh')
+    expect(opt.textContent).toContain('₹500.00 of theirs with you')
+    fireEvent.mouseDown(opt)
+    expect(bannedWordsIn(visible())).toEqual([])
+    click('btn-money-save')
+    await waitFor(() => expect(calls('simple:post')).toHaveLength(1))
+    expect((calls('simple:post')[0] as { intent: Record<string, unknown> }).intent).toMatchObject({ kind: 'money_out', customerId: 10, amount: 50_000, from: { how: 'cash', accountId: 30 } })
+  })
+
   it('Salary only with Payroll on; the owner took money = drawings; the TDS hint says it plainly', async () => {
     previewReply = () => ({ ok: true, data: { ...PREVIEW, kind: 'money_out', sentences: ['₹35,000.00 to Bharat Steel from Cash.'], tds: [{ partyName: 'Bharat Steel', sectionCode: '194C', tdsPaise: 70_000 }] } })
     renderUi(<MoneyOut />)

@@ -160,6 +160,7 @@ export const ERROR_MAP = {
   simple_return_amount: e('errors.intent.returnAmount', 'amount', ['amount'], 'errors.intent.returnAmountPlain'),
   simple_refund_not_due: e('errors.intent.refundNotDue', 'refund', ['bill'], 'errors.intent.refundNotDuePlain'),
   simple_refund_no_credit: e('errors.intent.refundNoCredit', 'party', ['name'], 'errors.intent.refundNoCreditPlain'),
+  simple_customer_no_credit: e('errors.intent.customerNoCredit', 'party', ['name'], 'errors.intent.customerNoCreditPlain'),
   simple_before_books: e('errors.intent.beforeBooks', 'date', ['date'], 'errors.intent.beforeBooksPlain'),
   simple_far_future: e('errors.intent.farFuture', 'date'),
   simple_save_refused: e('errors.intent.saveRefused'),
