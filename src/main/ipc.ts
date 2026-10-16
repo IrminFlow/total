@@ -1567,7 +1567,7 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('pdc:list', () => vouchers.pdcRegister(requireCompany().db), 'viewer')
   handle('pdc:mature', (p) => {
-    const { id, creditHoldOverride } = idSchema.extend({ creditHoldOverride: creditOverrideSchema.optional() }).parse(p)
+    const { id, creditHoldOverride } = idSchema.extend({ creditHoldOverride: creditOverrideSchema.strict().optional() }).strict().parse(p)
     const c = requireCompany()
     // WP 4.2: a post-dated sales invoice maturing to a held party creates credit — owner override only.
     if (creditHoldOverride && c.usersExist && sessionUser?.role !== 'owner') throw new Error('Only an owner can override a credit hold')
@@ -1634,7 +1634,7 @@ export function registerIpc(): void {
   handle('voucher:bin', () => vouchers.listBin(requireCompany().db), 'viewer')
   // WP 8.5: a voucher undone with others comes back with its whole undo group.
   handle('voucher:restore', (p) => {
-    const { id, creditHoldOverride } = idSchema.extend({ creditHoldOverride: creditOverrideSchema.optional() }).parse(p)
+    const { id, creditHoldOverride } = idSchema.extend({ creditHoldOverride: creditOverrideSchema.strict().optional() }).strict().parse(p)
     const c = requireCompany()
     // WP 4.2: restoring a sales invoice / challan to a held party creates credit — owner override only.
     if (creditHoldOverride && c.usersExist && sessionUser?.role !== 'owner') throw new Error('Only an owner can override a credit hold')

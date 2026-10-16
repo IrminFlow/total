@@ -1015,10 +1015,17 @@ export interface MaturePostDatedResult {
 /** Flip matured post-dated vouchers (date ≤ `today`) into the books. Runs on company open;
  *  each maturation is audit-logged individually. Vouchers dated inside the locked period are
  *  refused, not flipped (v0.3 review F3) — see MaturePostDatedResult.blockedByLock. */
-export function maturePostDated(db: DB, today: string): MaturePostDatedResult {
-  const held = hasCreditHold(db)
+/** WP 4.2: SQL (over `v` = vouchers, `vt` = voucher_types) that is 1 when the voucher coming into
+ *  the books would run into its party's credit hold — creditHoldOnEntry's test in one expression
+ *  (maturePostDated, the PDC register's status). */
+export function heldOnEntrySql(db: DB): string {
+  return hasCreditHold(db)
     ? `(vt.kind IN (${HOLD_KINDS.map((k) => `'${k}'`).join(', ')}) AND v.is_optional = 0 AND COALESCE((SELECT credit_hold FROM ledgers WHERE id = v.party_ledger_id), 0) = 1)`
     : '0'
+}
+
+export function maturePostDated(db: DB, today: string): MaturePostDatedResult {
+  const held = heldOnEntrySql(db)
   const rows = db
     .prepare(`SELECT v.id, v.date, ${held} AS held FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.post_dated = 1 AND v.date <= ? AND ${NOT_DELETED}`)
     .all(today) as { id: number; date: string; held: number }[]

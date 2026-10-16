@@ -268,7 +268,15 @@ function LedgerForm({
       }
       if (ledger) await api.ledgers.update(ledger.id, data)
       else await api.ledgers.create(data)
-      if (ledger && holdChange) await receivablesApi.setHold(ledger.id, hold, hold ? holdReason.trim() : '')
+      if (ledger && holdChange) {
+        // The ledger is saved by now: a refused hold change must say so (not look like a failed save).
+        try {
+          await receivablesApi.setHold(ledger.id, hold, hold ? holdReason.trim() : '')
+        } catch (err) {
+          await queryClient.invalidateQueries()
+          return void toast.push('error', `Ledger updated, but the credit hold was not changed: ${(err as Error).message}`)
+        }
+      }
       // A ledger edit (name, group, opening balance, GST flags) can change any open report, so
       // refresh everything — same as the delete path. Only active queries refetch; the rest are
       // marked stale and refetch when their screen next mounts.

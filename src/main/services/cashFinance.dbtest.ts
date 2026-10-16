@@ -16,6 +16,7 @@ import { budgetCsv, budgetDrill, budgetMonthlyReport, budgetRevisions, importBud
 import { addPrepayment, getLoan, listLoans, postEmi, saveLoan, emiReminders } from './loans'
 import { postRevaluation, revaluationPreview, saveRate, settle, exposure, listRevaluations, reverseRevaluation, setLedgerCurrency } from './forex'
 import { forecastBase, saveForecastItem, listForecastItems } from './cashForecast'
+import { cashNext30 } from './simpleReports'
 import { closeWarnings, financeReminders } from './cashFinanceChecks'
 import { buildForecast, SCENARIO_PRESETS } from '@shared/cashForecast'
 import { emiFor } from '@shared/loanSchedule'
@@ -96,6 +97,7 @@ describe('cash-flow forecast — pending post-dated cheques', () => {
     post(db, 'journal', '2026-05-12', [dr(purchases, 40_000_00), cr(supp, 40_000_00)], { partyLedgerId: supp })
     const before = forecastBase(db, TEST_INFO, '2026-06-01', '2026-08-31')
     const plain = buildForecast({ asOn: before.asOn, unit: 'week', count: 13, openingCash: before.openingCash, flows: before.flows, scenario: SCENARIO_PRESETS.expected })
+    const simpleBefore = cashNext30(db, TEST_INFO, '2026-06-01')
     const received = post(db, 'receipt', '2026-06-20', [dr(bank, 60_000_00), cr(cust, 60_000_00)], { partyLedgerId: cust, postDated: true, instrumentNo: '000123' })
     const issued = post(db, 'payment', '2026-06-25', [dr(supp, 40_000_00), cr(bank, 40_000_00)], { partyLedgerId: supp, postDated: true })
     const binned = post(db, 'receipt', '2026-06-21', [dr(bank, 1_000_00), cr(cust, 1_000_00)], { partyLedgerId: cust, postDated: true })
@@ -110,6 +112,8 @@ describe('cash-flow forecast — pending post-dated cheques', () => {
     // Default: the forecast is unchanged by the cheques.
     const dflt = buildForecast({ asOn: base.asOn, unit: 'week', count: 13, openingCash: base.openingCash, flows: base.flows, scenario: SCENARIO_PRESETS.expected })
     expect(dflt.totals).toEqual(plain.totals)
+    // Simple "Cash in the next 30 days" keeps the default: unchanged by the cheques.
+    expect(cashNext30(db, TEST_INFO, '2026-06-01')).toEqual(simpleBefore)
     // On: the ₹60,000 cheque replaces ₹60,000 of the ₹1,00,000 bill; the ₹40,000 cheque the whole payable.
     const on = buildForecast({ asOn: base.asOn, unit: 'week', count: 13, openingCash: base.openingCash, flows: base.flows, scenario: SCENARIO_PRESETS.expected, includePdc: true })
     const rec = on.contributions.filter((c) => c.source === 'receivable')

@@ -16,6 +16,9 @@ import { withCreditHoldOverride } from '../../lib/creditHoldOverride'
 import { isOwnerOrNoUsers } from '../../lib/roles'
 
 const STATUS_LABEL: Record<PdcRegisterRow['status'], string> = { pending: 'Pending', due: 'Due — locked period', matured: 'Matured', bounced: 'Bounced' }
+/** A held invoice / challan waits for the owner, not for its date or a lock (WP 4.2). */
+const statusLabel = (r: PdcRegisterRow): string =>
+  r.onHold && (r.status === 'pending' || r.status === 'due') ? (r.status === 'due' ? 'Due — party on credit hold' : 'Pending — party on credit hold') : STATUS_LABEL[r.status]
 const STATUS_TONE: Record<PdcRegisterRow['status'], 'info' | 'warning' | 'success' | 'danger'> = { pending: 'info', due: 'warning', matured: 'success', bounced: 'danger' }
 
 const PDC_COLUMNS = defineColumns<PdcRegisterRow>([
@@ -64,7 +67,7 @@ const PDC_COLUMNS = defineColumns<PdcRegisterRow>([
     width: 150,
     cell: (r) => (
       <span title={r.bounceReason ?? undefined}>
-        <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Badge>
+        <Badge tone={STATUS_TONE[r.status]}>{statusLabel(r)}</Badge>
       </span>
     )
   }

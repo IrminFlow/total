@@ -436,9 +436,11 @@ export function buildForecast(input: ForecastInput): ForecastResult {
   const perPeriod = new Map(periods.map((p) => [p.key, { inflow: 0, outflow: 0, bySource: emptyBySource() }]))
   const beyond = { inflow: 0, outflow: 0 }
 
-  const flows = input.includePdc ? netPdcAgainstBills(input.flows) : input.flows
+  // Netting only while the cheques themselves count — excluding 'pdc' must not drop the bills too.
+  const withPdc = !!input.includePdc && !excluded.has('pdc')
+  const flows = withPdc ? netPdcAgainstBills(input.flows) : input.flows
   for (const f of flows) {
-    if (excluded.has(f.source) || (f.source === 'pdc' && !input.includePdc)) continue
+    if (excluded.has(f.source) || (f.source === 'pdc' && !withPdc)) continue
     const delayed = f.direction === 'in' && (f.source === 'receivable' || f.source === 'sales_order') ? addDaysISO(f.date, input.scenario.delayDays) : f.date
     const effectiveDate = delayed < input.asOn ? input.asOn : delayed
     const effectiveBp = scenarioProbability(f, input.scenario)

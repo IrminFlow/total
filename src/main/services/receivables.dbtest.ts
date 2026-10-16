@@ -20,6 +20,7 @@ import { simpleInterest } from '@shared/receivables/interest'
 import { createLedger } from './masters'
 import { saveVoucher, deleteVoucher, restoreVoucher, getVoucher, CREDIT_HOLD_PREFIX, maturePostDated, maturePdcNow } from './vouchers'
 import { restoreFromBin, undoSave } from './undo'
+import { pdcRegisterFull } from './pdc'
 import { ledgerStatement } from './reports'
 import { outstandings } from './analysis'
 import { extractOutwardDocs } from './gst'
@@ -248,8 +249,14 @@ describe('credit hold', () => {
     const rec = receipt(f, '2026-04-01', 2_000)
     undoSave(f.db, [inv, rec])
     rx.setCreditHold(f.db, f.party, true, 'Over limit')
+    const count = (sql: string): number => (f.db.prepare(sql).get() as { n: number }).n
+    const trace = (): number[] => [count('SELECT COUNT(*) AS n FROM audit_log'), count('SELECT COUNT(*) AS n FROM undo_groups'), count('SELECT COUNT(*) AS n FROM undo_group_vouchers'), count('SELECT COUNT(*) AS n FROM vouchers WHERE deleted_at IS NULL')]
+    const before = trace()
+    // The receipt (restored first) is rolled back with the refused invoice: no trace at all.
     expect(() => restoreFromBin(f.db, rec)).toThrow(CREDIT_HOLD_PREFIX)
     expect(getVoucher(f.db, rec)!.deletedAt).not.toBeNull()
+    expect(getVoucher(f.db, inv)!.deletedAt).not.toBeNull()
+    expect(trace()).toEqual(before)
     expect(restoreFromBin(f.db, rec, { creditHoldOverride: { reason: 'Owner: agreed' } }).restored.sort()).toEqual([inv, rec].sort())
     expect(auditRows(f.db, 'credit_override').map((a) => a.entity_id)).toEqual([inv])
   })
@@ -283,12 +290,17 @@ describe('credit hold', () => {
     expect(res.matured.sort()).toEqual([pdcIn, pdcOut].sort())
     expect(res.blockedByHold).toEqual([pdInvoice])
     expect(getVoucher(f.db, pdInvoice)!.postDated).toBe(true)
+    // The PDC register says why it is still waiting (not only the open-time log).
+    const reg = pdcRegisterFull(f.db, '2026-05-15')
+    expect(reg.find((r) => r.voucherId === pdInvoice)).toMatchObject({ status: 'due', onHold: true })
+    expect(reg.filter((r) => r.onHold).map((r) => r.voucherId)).toEqual([pdInvoice])
     // Mature now: a received cheque early is fine; the invoice needs the owner's reason.
     maturePdcNow(f.db, pdcLater)
     expect(getVoucher(f.db, pdcLater)!.postDated).toBe(false)
     expect(() => maturePdcNow(f.db, pdInvoice)).toThrow(CREDIT_HOLD_PREFIX)
     maturePdcNow(f.db, pdInvoice, { creditHoldOverride: { reason: 'Owner: goods already gone' } })
     expect(getVoucher(f.db, pdInvoice)!.postDated).toBe(false)
+    expect(pdcRegisterFull(f.db, '2026-05-15').some((r) => r.onHold)).toBe(false)
     const ov = auditRows(f.db, 'credit_override')
     expect(ov.map((a) => a.entity_id)).toEqual([pdInvoice])
     expect(JSON.parse(ov[0]!.after_json!)).toMatchObject({ mature: true, overrideReason: 'Owner: goods already gone' })

@@ -6,7 +6,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Group, Ledger } from '@shared/domain'
 import { LedgerFormModal } from '../components/LedgerFormModal'
-import { useSession } from '../state/stores'
+import { useSession, useToasts } from '../state/stores'
 
 const invoke = vi.fn()
 
@@ -163,6 +163,20 @@ describe('LedgerFormModal', () => {
       fireEvent.click(screen.getByTestId('btn-ledger-save'))
       await waitFor(() => expect(onClose2).toHaveBeenCalled())
       expect(invoke.mock.calls.find(([ch]) => ch === 'receivables:setHold')![1]).toEqual({ ledgerId: 43, hold: false, reason: '' })
+    })
+
+    it('a refused hold change after the save says the ledger was saved and the hold was not', async () => {
+      const base = invoke.getMockImplementation()!
+      invoke.mockImplementation(async (ch: string, payload: unknown) =>
+        ch === 'receivables:setHold' ? { ok: false, error: 'Only an owner can do this' } : base(ch, payload))
+      const onClose = vi.fn()
+      renderWithClient(<LedgerFormModal ledger={CUSTOMER} onClose={onClose} />)
+      fireEvent.click(await screen.findByTestId('ledger-credit-hold-toggle'))
+      fireEvent.change(screen.getByTestId('ledger-credit-hold-reason'), { target: { value: 'Over limit' } })
+      fireEvent.click(screen.getByTestId('btn-ledger-save'))
+      await waitFor(() => expect(useToasts.getState().toasts.some((t) => t.kind === 'error' && t.text.startsWith('Ledger updated, but the credit hold was not changed'))).toBe(true))
+      expect(order()).toEqual(['master:ledgers:update', 'receivables:setHold'])
+      expect(onClose).not.toHaveBeenCalled()
     })
 
     it('an accountant sees the hold read-only and never calls setHold', async () => {

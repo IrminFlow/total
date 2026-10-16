@@ -8,7 +8,7 @@ import type { PdcDirection, PdcStatus, PdcRegisterRow, PdcDue, BounceInput, Boun
 import { addDays } from '@shared/dashboard'
 import { writeAudit } from './audit'
 import { bankLedgers } from './banking'
-import { NOT_DELETED, getLockDate, getVoucher, saveVoucher } from './vouchers'
+import { NOT_DELETED, getLockDate, getVoucher, heldOnEntrySql, saveVoucher } from './vouchers'
 
 
 
@@ -16,6 +16,7 @@ interface Row {
   voucherId: number; number: string; voucherTypeName: string; date: string; postDated: number; partyLedgerId: number | null
   partyName: string | null; instrumentNo: string | null; instrumentDate: string | null
   maturedAt: string | null; bouncedOn: string | null; bounceVoucherId: number | null; bounceCharges: number | null; bounceReason: string | null
+  held: number
 }
 
 /** The register: pending PDCs plus matured / bounced ones still tracked (pdc_events). */
@@ -26,7 +27,7 @@ export function pdcRegisterFull(db: DB, today: string): PdcRegisterRow[] {
       `SELECT v.id AS voucherId, v.number, vt.name AS voucherTypeName, v.date, v.post_dated AS postDated,
               v.party_ledger_id AS partyLedgerId, l.name AS partyName, v.instrument_no AS instrumentNo, v.instrument_date AS instrumentDate,
               e.matured_at AS maturedAt, e.bounced_on AS bouncedOn, e.bounce_voucher_id AS bounceVoucherId,
-              e.bounce_charges AS bounceCharges, e.bounce_reason AS bounceReason
+              e.bounce_charges AS bounceCharges, e.bounce_reason AS bounceReason, ${heldOnEntrySql(db)} AS held
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        LEFT JOIN ledgers l ON l.id = v.party_ledger_id
@@ -49,7 +50,9 @@ export function pdcRegisterFull(db: DB, today: string): PdcRegisterRow[] {
       voucherId: r.voucherId, number: r.number, voucherTypeName: r.voucherTypeName, date: r.date, direction, partyLedgerId, partyName,
       bankLedgerId: bank?.ledgerId ?? null, bankLedgerName: bank ? (banks.get(bank.ledgerId) ?? null) : null,
       instrumentNo: r.instrumentNo, instrumentDate: r.instrumentDate, amount, status, maturedAt: r.maturedAt, bouncedOn: r.bouncedOn,
-      bounceVoucherId: r.bounceVoucherId, bounceCharges: r.bounceCharges, bounceReason: r.bounceReason
+      bounceVoucherId: r.bounceVoucherId, bounceCharges: r.bounceCharges, bounceReason: r.bounceReason,
+      // WP 4.2: a post-dated invoice / challan to a party on hold does not mature by itself.
+      ...(r.postDated && r.held ? { onHold: true } : {})
     }
   })
 }

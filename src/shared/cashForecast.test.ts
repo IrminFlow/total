@@ -190,4 +190,10 @@ describe('pending post-dated cheques (includePdc)', () => {
     expect(r.periods[1]).toMatchObject({ inflow: 1_440_00, outflow: 0 })
     expect(r.totals.closing).toBe(240_00 - 600_00 + 1_440_00)
   })
+
+  it('on, but the cheques excluded: the bills are not netted (nothing dropped)', () => {
+    const r = buildForecast({ asOn: ASON, unit: 'week', count: 3, openingCash: 0, scenario: SCENARIO_PRESETS.expected, flows, includePdc: true, exclude: ['pdc'] })
+    const without = buildForecast({ asOn: ASON, unit: 'week', count: 3, openingCash: 0, scenario: SCENARIO_PRESETS.expected, flows: flows.filter((f) => f.source !== 'pdc') })
+    expect(r.totals).toEqual(without.totals)
+  })
 })

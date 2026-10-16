@@ -227,6 +227,9 @@ export interface PdcRegisterRow {
   bounceVoucherId: number | null
   bounceCharges: number | null
   bounceReason: string | null
+  /** WP 4.2: still post-dated, an invoice / challan to a party on credit hold — it does not
+   *  mature by itself (Mature now with an owner override, or release the hold). */
+  onHold?: boolean
 }
 
 export interface PdcDue {
