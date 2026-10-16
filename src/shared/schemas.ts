@@ -383,6 +383,14 @@ export const tradePendingSchema = z.object({
   asOn: isoDate
 })
 export type TradePendingQuery = z.infer<typeof tradePendingSchema>
+/** WP 2.5b lists: trade:noteList — the challan / GRN list screens. */
+export const tradeNoteListSchema = z.object({
+  stage: z.enum(['delivery_note', 'receipt_note']),
+  from: isoDate,
+  to: isoDate,
+  asOn: isoDate.optional(),
+  filter: z.enum(['pending', 'closed', 'all'])
+}).strict()
 
 // ---------- reports, returns, closure (WP 2.5d) ----------
 

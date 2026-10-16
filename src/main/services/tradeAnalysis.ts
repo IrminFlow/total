@@ -1,4 +1,5 @@
 import type { DB } from '../db/connection'
+import { GDNI_PURPOSES, GRNI_PURPOSES } from '@shared/tradeCycle/convert'
 import type { TradeDocKind, VoucherKind } from '@shared/domain'
 import type {
   ItemDemandRow, LeadTimeRow, OrderBookRow, ReturnRateRow, ReturnRow, ReturnSide, StaleDocRow, StaleOptions, UnbilledGoods,
@@ -324,10 +325,9 @@ export function returnsRate(db: DB, q: { side: ReturnSide; from: string; to: str
 
 // ---------- GRNI / GDNI ----------
 
-/** Challan purposes that are supplies awaiting an invoice (GDNI). */
-export const GDNI_PURPOSES = ['supply', 'approval'] as const
-/** GRN purposes awaiting a bill (GRNI). */
-export const GRNI_PURPOSES = ['purchase'] as const
+// Challan purposes awaiting an invoice (GDNI) / GRN purposes awaiting a bill (GRNI) — shared with
+// the challan / GRN lists' "Convert to invoice / bill" (tradeCycle/convert.ts).
+export { GDNI_PURPOSES, GRNI_PURPOSES } from '@shared/tradeCycle/convert'
 
 /**
  * trade:unbilledGoods — goods delivered not invoiced (pending supply / on-approval challans) and

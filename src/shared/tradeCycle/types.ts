@@ -84,6 +84,56 @@ export interface PendingNoteRow {
   ageDays: number
 }
 
+// ---------- challan / GRN lists (WP 2.5b lists) ----------
+
+/** trade:noteList's filter: still pending (as on the date), finished (fully invoiced / billed or
+ *  short-closed), or every note of the period. */
+export type NoteListFilter = 'pending' | 'closed' | 'all'
+
+/** A note's state as on the list date, derived from its lines and live links (only the short-close
+ *  is stored, `trade_voucher_details.closed_at`). */
+export type NoteListStatus = 'pending' | 'partly' | 'done' | 'closed'
+
+/** A document drawing on a note's lines (an invoice / bill, or a rejection note). */
+export interface NoteListTarget {
+  voucherId: number
+  number: string
+  kind: VoucherKind
+  date: string
+  linkType: LinkType
+}
+
+/** One delivery challan / GRN of the list screens (trade:noteList). */
+export interface StockNoteListRow {
+  voucherId: number
+  number: string
+  date: string
+  purpose: TradePurpose
+  partyLedgerId: number | null
+  partyName: string | null
+  lineCount: number
+  /** "Widget, Phone" — the items in line order, each once. */
+  items: string
+  /** Totals in the one unit every line shares; null when the lines' units differ. */
+  qtyMilli: number | null
+  pendingMilli: number | null
+  unit: string | null
+  decimals: number
+  /** Lines with something pending. */
+  pendingLines: number
+  /** Taxable value of every line / of the pending quantity — the pending reports' rule. */
+  value: number
+  pendingValue: number
+  status: NoteListStatus
+  closedAt: string | null
+  closeReason: string | null
+  /** Live documents drawing on the note, dated on or before the list date. */
+  targets: NoteListTarget[]
+  /** "Convert to invoice / bill" applies: something pending, not closed, and a supply / approval
+   *  challan or a purchase GRN (the GDNI / GRNI purposes). */
+  convertible: boolean
+}
+
 // ---------- quotations / orders (WP 2.5c) ----------
 
 /** A document drawing on (downstream) or drawn on by (upstream) a trade doc. */
