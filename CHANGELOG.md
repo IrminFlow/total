@@ -415,8 +415,10 @@ Read these before filing from the next release.
 - **Import undo and opening bills.** Undoing an import whose opening bill now has one of your
   receipts or payments against it keeps every opening that import brought in (ledger and stock
   openings, opening bills), so Dr still equals Cr and the receipt keeps its bill. The rest of the
-  import is undone, and the kept rows name the bill and the entry. Remove that link, then undo
-  again. Before this, the party kept its opening while its contra was removed. [#150](https://github.com/IrminFlow/total/pull/150)
+  import is undone, and the kept rows name the bill and the entry. An opening the import changed
+  on an existing ledger also stays at the imported figure until then. Remove that link, then undo
+  again. Receipts the same import brought against its opening bills don't count (the undo removes
+  them). Before this, the party kept its opening while its contra was removed. [#150](https://github.com/IrminFlow/total/pull/150)
 - **Report-pack file names** use the report's own name, made safe the same way as the folder
   (`02-Con.csv`, not `02-con-company.csv`; "Trial balance" is `01-Trial balance.csv`). Files that
   earlier runs wrote keep their old names. Running a period again writes the new names beside

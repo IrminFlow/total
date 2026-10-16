@@ -48,7 +48,7 @@ import { setCreditHold } from './receivables'
 import { setBankDetails } from './bulkPayments'
 import { markImportedClose } from './yearEnd'
 import { writeAudit } from './audit'
-import { openingBillsByParty, openingBillsInUse, partySide, replaceOpeningBills, type OpeningBillRow } from './openingBills'
+import { openingBillsByParty, partySide, replaceOpeningBills, type OpeningBillRow } from './openingBills'
 import { readCompanyInfo, writeCompanyInfo } from '../db/seed'
 
 export type DuplicateStrategy = 'skip' | 'update' | 'create'
@@ -1377,18 +1377,19 @@ const AUDIT_ENTITY_OF: Record<string, string> = { bank_date: 'voucher_line' }
 
 type UndoItem = { id: number; entity: string; entity_id: number; action: 'create' | 'update'; before_json: string | null }
 
-/** Live entries that settle a party's bill by name (or charge interest on it), for the message. */
-function billUsers(db: DB, ledgerId: number, bill: string): string[] {
-  return (db.prepare(
-    `SELECT DISTINCT vt.name || ' ' || v.number AS label FROM bill_refs br
+/** Live entries that settle a party's bill by name (or charge interest on it) — the WP 8.7 guard's
+ *  own test (`openingBillsInUse`), with each entry's id and label for the message. */
+function billUsers(db: DB, ledgerId: number, bill: string): { id: number; label: string }[] {
+  return db.prepare(
+    `SELECT DISTINCT v.id, vt.name || ' ' || v.number AS label FROM bill_refs br
        JOIN vouchers v ON v.id = br.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
       WHERE br.party_ledger_id = ? AND br.kind = 'against' AND br.name = ? COLLATE NOCASE AND v.deleted_at IS NULL
      UNION
-     SELECT DISTINCT vt.name || ' ' || v.number FROM interest_charges ic
+     SELECT DISTINCT v.id, vt.name || ' ' || v.number FROM interest_charges ic
        JOIN vouchers v ON v.id = ic.debit_note_voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
       WHERE ic.party_ledger_id = ? AND ic.bill_key = ? AND v.deleted_at IS NULL
-     ORDER BY 1`
-  ).all(ledgerId, bill, ledgerId, `o:${bill}`) as { label: string }[]).map((r) => r.label)
+     ORDER BY 2`
+  ).all(ledgerId, bill, ledgerId, `o:${bill}`) as { id: number; label: string }[]
 }
 
 /**
@@ -1396,7 +1397,7 @@ function billUsers(db: DB, ledgerId: number, bill: string): string[] {
  * it), or null. A bill is pinned when the undo would remove it — an opening-bills item whose
  * earlier bills don't include it, a created party ledger (its bills go with its opening), or a
  * restored ledger opening its current bills no longer fit — and something rests on it
- * (`openingBillsInUse`, the WP 8.7 guard's own test).
+ * (`billUsers`, the WP 8.7 guard's own test) other than an entry this undo bins itself.
  */
 function openingsPinnedBy(db: DB, items: readonly UndoItem[]): string | null {
   const billsItem = new Map<number, OpeningBillRow[]>()
@@ -1422,12 +1423,16 @@ function openingsPinnedBy(db: DB, items: readonly UndoItem[]): string | null {
     }
     if (names.length) goes.set(it.entity_id, [...(goes.get(it.entity_id) ?? []), ...names])
   }
+  // Entries this undo bins itself (the batch's own vouchers — a books round trip brings the
+  // receipts against its opening bills too) don't pin anything: they are gone before the openings.
+  const binnedHere = new Set(items.filter((it) => it.entity === 'voucher' && it.action === 'create').map((it) => it.entity_id))
   for (const [ledgerId, names] of goes) {
-    const used = openingBillsInUse(db, ledgerId, names)
-    if (!used.length) continue
-    const party = (db.prepare('SELECT name FROM ledgers WHERE id = ?').get(ledgerId) as { name: string }).name
-    const by = billUsers(db, ledgerId, used[0]!)
-    return `opening bill ${used[0]} of ${party} has ${by.length ? by.join(', ') : 'an entry'} against it (opening_bills_in_use), so the import's openings stay as imported and still agree; remove that link, then undo again`
+    for (const name of names) {
+      const by = billUsers(db, ledgerId, name).filter((u) => !binnedHere.has(u.id))
+      if (!by.length) continue
+      const party = (db.prepare('SELECT name FROM ledgers WHERE id = ?').get(ledgerId) as { name: string }).name
+      return `opening bill ${name} of ${party} has ${by.map((u) => u.label).join(', ')} against it (opening_bills_in_use), so the import's openings stay as imported and still agree; remove that link, then undo again`
+    }
   }
   return null
 }

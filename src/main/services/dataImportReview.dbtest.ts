@@ -280,6 +280,32 @@ describe('#7 undo: a user receipt against an imported opening bill (to-do §4, P
     expect(again.kept).toEqual([expect.objectContaining({ entity: 'ledger', id: acme, reason: expect.stringMatching(/opening cleared/) })])
   })
 
+  it('a receipt the SAME import brought against its own opening bill pins nothing (the undo bins it)', () => {
+    // A books round trip: Acme's opening bill OB-1 and the receipt R-1 against it arrive together.
+    const src = seededDb()
+    const acmeSrc = createLedger(src, { name: 'Acme', groupId: groupId(src, 'Sundry Debtors'), openingBalance: 100_000, pan: null }).id
+    createLedger(src, { name: 'Capital', groupId: groupId(src, 'Capital Account'), openingBalance: -100_000, pan: null })
+    replaceOpeningBills(src, acmeSrc, [{ name: 'OB-1', date: '2025-04-01', dueDate: null, amount: 100_000 }])
+    const cashSrc = id(src, "SELECT id FROM ledgers WHERE name = 'Cash'")!
+    saveVoucher(src, {
+      voucherTypeId: id(src, "SELECT id FROM voucher_types WHERE kind = 'receipt'")!, number: 'R-1', date: '2025-06-01', partyLedgerId: acmeSrc,
+      lines: [{ ledgerId: cashSrc, drCr: 'dr', amount: 40_000, costAllocations: [] }, { ledgerId: acmeSrc, drCr: 'cr', amount: 40_000, costAllocations: [] }],
+      billRefs: [{ kind: 'against', name: 'OB-1', amount: 40_000, dueDate: null }]
+    })
+    const db = seededDb()
+    const r = importBooks(db, books(src))
+    expect(r.blocked).toBeUndefined()
+    const acme = id(db, "SELECT id FROM ledgers WHERE name = 'Acme'")!
+    const u = undoImport(db, r.batchId!)
+    expect(u.kept.filter((k) => /kept with its opening/.test(k.reason))).toEqual([])
+    expect(u.binned).toBe(1)
+    expect(openingSum(db)).toBe(0)
+    expect(id(db, "SELECT id FROM ledgers WHERE name = 'Capital'")).toBeUndefined()
+    // Acme stays only because the binned receipt still names it — with its opening cleared.
+    expect(getLedger(db, acme)!.openingBalance).toBe(0)
+    expect(openingBillsByParty(db, [acme]).get(acme)).toBeUndefined()
+  })
+
   it('a receipt against a bill the undo keeps (an earlier bill of the same name) pins nothing', () => {
     // Acme already had OB-1 for ₹1,000 before the import; the import only changes its due date.
     const db = seededDb()
