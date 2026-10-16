@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { useNav, useSession, useToasts, type Screen } from '../state/stores'
+import { switchCompany, useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { api } from '../lib/client'
 import { Kbd, Money, useKeyNav } from './ui'
 import { useFeatures } from '../lib/useFeatures'
@@ -193,9 +193,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
         label: 'Switch company',
         run: async () => {
           try {
-            await api.company.close()
-            clearCompany()
-            nav.home()
+            await switchCompany(api.company.close)
           } catch (err) {
             toast.push('error', (err as Error).message)
           }

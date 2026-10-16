@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useIsFetching } from '@tanstack/react-query'
-import { useNav, usePeriodPicker, useScreen, useSession, useTheme, useToasts } from '../state/stores'
+import { switchCompany, useNav, usePeriodPicker, useScreen, useSession, useTheme, useToasts } from '../state/stores'
 import { api } from '../lib/client'
 import { Button, DateInput, Kbd, Modal } from './ui'
 import { SupportLink } from './SupportLink'
@@ -30,7 +30,7 @@ const NAV = ACCOUNTANT_NAV
 const HEADER_CHIP = 'rounded-md border border-line bg-panel2 px-2.5 py-1 text-small text-muted hover:border-amber/60 hover:text-ink'
 
 export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpenPalette: () => void }): React.JSX.Element {
-  const { info, from, to, clearCompany, user, setUser, setLocked } = useSession()
+  const { info, from, to, user, setUser, setLocked } = useSession()
   const screen = useScreen()
   const nav = useNav()
   const toast = useToasts()
@@ -261,9 +261,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
             className="rounded-md px-2.5 py-1.5 text-left text-body-sm text-muted hover:bg-panel2 hover:text-ink"
             onClick={async () => {
               try {
-                await api.company.close()
-                clearCompany()
-                nav.home()
+                await switchCompany(api.company.close)
               } catch (err) {
                 toast.push('error', (err as Error).message)
               }

@@ -336,6 +336,25 @@ export const useSession = create<SessionState>((set) => ({
   setIntegrityWarning: (integrityWarning) => set({ integrityWarning })
 }))
 
+/**
+ * "Switch company" (sidebar, simple sidebar, ⌘K): the unsaved-changes question comes FIRST — on
+ * "Stay" nothing closes and the screen stays as it was; on "Discard" the company closes. Resolves
+ * to whether it switched. (Before, the company closed first and "Stay" kept the old company's
+ * screens on the stack for the next one — to-do §4, shots-96.)
+ */
+export async function switchCompany(close: () => Promise<unknown>): Promise<boolean> {
+  if (!(await confirmLeave())) return false
+  await close()
+  useSession.getState().clearCompany()
+  return true
+}
+
+// Another company (or none): its screens never carry over — the next company starts on its own
+// Home. (lib/handoff.ts drops the kept simple forms on the same change.)
+useSession.subscribe((s, prev) => {
+  if (s.slug !== prev.slug && prev.slug !== null) useNav.setState({ stack: [{ name: 'gateway' }] })
+})
+
 // ---------- working-period picker ----------
 
 /** The header's "Working period" modal — opened from the header button, a screen's Options
