@@ -289,7 +289,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'gstr9' && <Gstr9Screen />}
           {screen.name === 'itc04' && <Itc04Screen />}
           {screen.name === 'itc-reversal' && <ItcReversalScreen />}
-          {screen.name === 'registers' && <RegistersScreen key={screen.tab ?? 'last'} tab={screen.tab} />}
+          {screen.name === 'registers' && <RegistersScreen key={`${screen.tab ?? 'last'}|${screen.from ?? ''}|${screen.to ?? ''}`} tab={screen.tab} from={screen.from} to={screen.to} />}
           {screen.name === 'outstandings' && <OutstandingsScreen initialSide={screen.side} />}
           {screen.name === 'receivables' && <ReceivablesScreen key={screen.tab ?? 'control'} tab={screen.tab} />}
           {screen.name === 'payables' && <PayablesScreen key={screen.tab ?? 'plan'} tab={screen.tab} />}

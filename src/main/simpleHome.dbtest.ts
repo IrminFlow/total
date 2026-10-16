@@ -13,6 +13,8 @@ import type { DashboardSeries } from '@shared/dashboard'
 import type { OutstandingParty, ProfitAndLoss } from '@shared/reports'
 import type { HomeAttention, SimpleHomeData } from '@shared/simple/home'
 import { withoutRoundOff } from '@shared/simple/reports'
+import { nextCompositionDue } from '@shared/simple/taxes'
+import { cmp08DueDate, gstr4DueDate } from '@shared/gst/filing'
 import { partyAllocation } from './services/analysis'
 
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<{ ok: boolean; data?: unknown; error?: string }>>()
@@ -214,6 +216,10 @@ describe('simple:home (WP 8.6)', () => {
     expect(row!.outwardTax).toBe(sum4(q.outward) + q.zeroRated.igst + q.zeroRated.cess)
     expect(row!.rcmTax).toBe(sum4(q.rcm))
     expect(row!.itc).toBe(sum4(q.itc))
+    // The "Why?" PMT-06 dates are simple:taxes' for the same quarter (the quarter's first two months).
+    const taxes = await ok<{ due: { pmt06: string[] } }>('simple:taxes', { period: row!.period, today: TODAY })
+    expect(home.gst?.kind === 'regular' && home.gst.pmt06).toEqual(taxes.due.pmt06)
+    expect(taxes.due.pmt06).toHaveLength(2)
 
     // Mid-quarter, its return more than 45 days off: the quarter so far, never last month alone.
     const start = `${qStart(addMonths(TODAY.slice(0, 7), -3))}-01`
@@ -238,7 +244,7 @@ describe('simple:home (WP 8.6)', () => {
 
     const comp = await ok<{ slug: string }>('company:create', company('Home Composition', { gstin: '27AAPFU0939F1ZV', gstRegistrationType: 'composition' }))
     await ok('company:open', { slug: comp.slug })
-    expect((await ok<SimpleHomeData>('simple:home', { today: TODAY })).gst).toEqual({ kind: 'composition' })
+    expect((await ok<SimpleHomeData>('simple:home', { today: TODAY })).gst).toEqual({ kind: 'composition', composition: nextCompositionDue(TODAY, cmp08DueDate, gstr4DueDate) })
 
     const un = await ok<{ slug: string }>('company:create', company('Home Unregistered', { gstRegistrationType: 'unregistered' }))
     await ok('company:open', { slug: un.slug })

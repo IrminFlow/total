@@ -94,7 +94,13 @@ export function dueWhy(form: 'gstr1' | 'gstr3b' | 'pmt06', x: Pick<RegularTaxes,
   const quarterly = x.period.quarterly ? 'yes' : 'no'
   if (form === 'gstr1') return t('simple.why.due.gstr1', { period, date: shortDate(x.due.gstr1, x.today, t.lang), quarterly })
   if (form === 'gstr3b') return t('simple.why.due.gstr3b', { period, date: shortDate(x.due.gstr3b, x.today, t.lang), amount: money(x.figures.toPay), quarterly })
-  return t('simple.why.due.pmt06', { dates: x.due.pmt06.map((d) => shortDate(d, x.today, t.lang)).join(', ') })
+  return pmt06Why(x.due.pmt06, x.today, t)
+}
+
+/** PMT-06 (rule 61(3), shared/gst/filing.ts pmt06DueDate): a quarterly filer's payment dates for
+ *  the quarter's first two months — Taxes' dates, and Home's GST tile for a quarterly filer. */
+export function pmt06Why(dates: readonly string[], today: string, t: Translate): string {
+  return t('simple.why.due.pmt06', { dates: dates.map((d) => shortDate(d, today, t.lang)).join(', ') })
 }
 
 /** Composition dates: CMP-08 (the quarter) and GSTR-4 (the year). */

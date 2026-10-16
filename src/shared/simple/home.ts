@@ -18,6 +18,7 @@ import type { AnomalyKind, AnomalySeverity } from '../anomalies'
 import type { Deadline } from '../compliance'
 import type { GstFilingFrequency } from '../gst/filing'
 import type { DoingLines, DoingPart } from './reports'
+import type { CompositionDue } from './taxes'
 
 /** One side of what is owed (customers → you, or you → suppliers), from the Outstandings
  *  allocation as on today. Paise, positive. */
@@ -96,9 +97,15 @@ export interface HomeGstCredit {
 }
 
 export type HomeGst =
-  | { kind: 'regular'; filing: GstFilingFrequency; row: DashGst; credit: HomeGstCredit }
-  /** Composition: no GST figure — the composition return note only. */
-  | { kind: 'composition' }
+  | {
+      kind: 'regular'; filing: GstFilingFrequency; row: DashGst; credit: HomeGstCredit
+      /** A quarterly filer: the PMT-06 dates of the quarter's first two months (shared/gst/filing.ts
+       *  pmt06DueDate, rule 61(3)) — for the "Why?" only; absent for a monthly filer. */
+      pmt06?: string[]
+    }
+  /** Composition: no GST figure — the composition return note, and (for its "Why?") the next
+   *  CMP-08 / GSTR-4 dates, the same ones simple:taxes shows (nextCompositionDue). */
+  | { kind: 'composition'; composition?: CompositionDue }
 
 export type HomeAttentionSource = 'owed' | 'close' | 'anomaly' | 'stock'
 

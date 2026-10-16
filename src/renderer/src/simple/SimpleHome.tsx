@@ -18,7 +18,7 @@ import { todayISO, toPlainDate } from '@shared/dates'
 import type { MessageKey } from '@shared/i18n'
 import { homeAttentionRows, isEmptyHome, owedAttention, type HomeGst, type SimpleHomeData } from '@shared/simple/home'
 import {
-  attentionText, cashWhy, deadlineText, deadlineWhy, gstLine, gstLinkLabel, gstWhy, homeProfitWhy, money, monthCompareWhy, moneyInWhy, moneyOutWhy, payablesWhy, profitSentence,
+  attentionText, cashWhy, compositionDueWhy, deadlineText, deadlineWhy, gstLine, gstLinkLabel, gstWhy, homeProfitWhy, money, monthCompareWhy, moneyInWhy, moneyOutWhy, payablesWhy, pmt06Why, profitSentence,
   receivablesWhy
 } from '@shared/simple/explain'
 
@@ -35,6 +35,8 @@ const STEP_LABEL: Record<OnboardingStepId, { label: MessageKey; hint: MessageKey
 }
 
 const cardCls = 'rounded-lg border border-line bg-panel p-panel shadow-elev-1'
+const CMP08 = 'cmp08' // i18n-technical
+const GSTR4 = 'gstr4' // i18n-technical
 
 /**
  * WP 8.6: the simple Home — today's money in / out, who owes whom, cash and bank, GST due (regular
@@ -238,12 +240,38 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
                 {t('simple.home.gstQuarterly')}
               </p>
             )}
+            {gstRegular.pmt06 && gstRegular.pmt06.length > 0 && (
+              <div className="mt-1">
+                <Why
+                  label={t('common.why')}
+                  ariaLabel={t('simple.home.whyLabel', { what: t('simple.taxes.due.title') })}
+                  sentence={pmt06Why(gstRegular.pmt06, home.today, t)}
+                  link={links.gst}
+                  testId="simple-why-pmt06"
+                />
+              </div>
+            )}
           </Tile>
         )}
         {home.gst?.kind === 'composition' && (
           <li className={cardCls} data-testid="simple-tile-gst-composition">
             <h2 className="text-small font-medium text-muted">{t('simple.home.gstTitle')}</h2>
             <p className="mt-2 text-detail text-ink">{t('simple.home.gstComposition')}</p>
+            {home.gst.composition && (
+              <div className="mt-2">
+                <Why
+                  label={t('common.why')}
+                  ariaLabel={t('simple.home.whyLabel', { what: t('simple.home.gstTitle') })}
+                  sentence={compositionDueWhy(CMP08, { composition: home.gst.composition, today: home.today }, t)}
+                  link={link('gst', t('simple.why.link.taxes'))} // i18n-technical
+                  testId="simple-why-gst-composition"
+                >
+                  <p className="text-small text-muted" data-testid="simple-why-gst-composition-gstr4">
+                    {compositionDueWhy(GSTR4, { composition: home.gst.composition, today: home.today }, t)}
+                  </p>
+                </Why>
+              </div>
+            )}
           </li>
         )}
         {home.profitHidden ? (

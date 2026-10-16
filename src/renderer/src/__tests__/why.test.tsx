@@ -12,7 +12,7 @@ import type { SimpleHomeData } from '@shared/simple/home'
 import { last12Months, monthBars, monthTotals, type BusinessDoing, type DoingLines, type SimpleCash, type SimpleOwed } from '@shared/simple/reports'
 import type { SimpleTaxes } from '@shared/simple/taxes'
 import {
-  byMonthTotalsWhy, cashEndWhy, doingCashWhy, cashInWhy, cashNowWhy, cashOutWhy, collectedWhy, deadlineWhy, doingResultWhy, dueWhy, homeProfitWhy, monthCompareWhy, onPurchasesWhy, owedTotalWhy,
+  billsToPayWhy, byMonthBarWhy, byMonthTotalsWhy, compositionDueWhy, pmt06Why, cashEndWhy, doingCashWhy, cashInWhy, cashNowWhy, cashOutWhy, collectedWhy, deadlineWhy, doingResultWhy, dueWhy, homeProfitWhy, monthCompareWhy, onPurchasesWhy, owedTotalWhy,
   salesCompareWhy, toPayPartsWhy, withholdingWhy
 } from '@shared/simple/explain'
 import { useNav, useSession } from '../state/stores'
@@ -22,6 +22,9 @@ import { ReportsScreen } from '../simple/reports/ReportsScreen'
 import { TaxesScreen } from '../simple/taxes/TaxesScreen'
 import { ProfitLossScreen } from '../screens/ProfitLoss'
 import { Gstr1Screen } from '../screens/GstReturns'
+import { BillsToPay } from '../simple/people/BillsToPay'
+import { RegistersScreen } from '../screens/Registers'
+import { billsToPayTotals, type BillsToPay as BillsToPayData } from '@shared/simple/people'
 
 const t = translator('en')
 const TODAY = '2026-10-13'
@@ -158,6 +161,42 @@ describe('Home: every tile and date has a "Why?" (WP 10.2)', () => {
     await why('simple-why-deadline-pf', deadlineWhy(HOME.deadlines[1]!, TODAY, t), { label: 'Open payroll in the full app', target: { name: 'payroll' } })
     await why('simple-why-deadline-advance-tax', deadlineWhy(HOME.deadlines[2]!, TODAY, t))
   })
+
+  it('a quarterly filer: the PMT-06 dates explained, opening Taxes on the tile\'s period', async () => {
+    const gst = HOME.gst as Extract<NonNullable<SimpleHomeData['gst']>, { kind: 'regular' }>
+    replies.set('simple:home', { ...HOME, gst: { ...gst, filing: 'quarterly', pmt06: ['2026-07-25', '2026-08-25'], row: { ...gst.row, quarterly: true, from: '2026-07-01', to: '2026-09-30' } } })
+    renderUi(<SimpleHome />)
+    fireEvent.click(await screen.findByTestId('simple-why-pmt06'))
+    const link = screen.getByTestId('simple-why-pmt06-link').textContent!.replace(/ →$/, '')
+    await why('simple-why-pmt06', pmt06Why(['2026-07-25', '2026-08-25'], TODAY, t), { label: link, target: { name: 'simple-taxes', period: '2026-09' } })
+    expect(pmt06Why(['2026-07-25', '2026-08-25'], TODAY, t)).toContain('(form PMT-06): 25 Jul, 25 Aug.')
+  })
+
+  it('composition: the CMP-08 and GSTR-4 dates explained, opening Taxes', async () => {
+    const composition = { cmp08: { from: '2026-07-01', to: '2026-09-30', due: '2026-10-18' }, gstr4: { fyLabel: '2025-26', due: '2026-06-30' } }
+    replies.set('simple:home', { ...HOME, gst: { kind: 'composition', composition }, gstAnswer: 'composition' })
+    renderUi(<SimpleHome />)
+    fireEvent.click(await screen.findByTestId('simple-why-gst-composition'))
+    expect(screen.getByTestId('simple-why-gst-composition-gstr4').textContent).toBe(compositionDueWhy('gstr4', { composition, today: TODAY }, t))
+    await why('simple-why-gst-composition', compositionDueWhy('cmp08', { composition, today: TODAY }, t), { label: 'Open Taxes', target: { name: 'simple-taxes' } })
+  })
+})
+
+describe('People → Bills to pay: each total has a "Why?" (review, to-do §4)', () => {
+  it('this week / this month: the bills behind the total and the late part → Outstandings, payable side', async () => {
+    const bills = [
+      { ledgerId: 8, party: 'Sharma Traders', name: 'S-1', voucherId: 1, date: '2026-09-01', dueDate: '2026-10-01', amount: 2_000_00, pending: 2_000_00, overdueDays: 12 },
+      { ledgerId: 9, party: 'Bala', name: 'B-1', voucherId: 3, date: '2026-10-05', dueDate: '2026-10-28', amount: 4_000_00, pending: 4_000_00, overdueDays: 0 }
+    ]
+    const data: BillsToPayData = { today: TODAY, bills, ...billsToPayTotals(bills, TODAY) }
+    replies.set('simple:people:billsToPay', data)
+    renderUi(<BillsToPay />)
+    const payables = { label: 'See every open bill, party by party', target: { name: 'outstandings', side: 'payable' } }
+    await why('why-bills-due-week', billsToPayWhy(data, 'week', t), payables)
+    expect(billsToPayWhy(data, 'week', t)).toBe('1 bill from 1 supplier falls due by 18 Oct, late ones included: ₹2,000.00 in all. ₹2,000.00 of it is already past its due date.')
+    await why('why-bills-due-month', billsToPayWhy(data, 'month', t), payables)
+    expect(billsToPayWhy(data, 'month', t)).toContain('2 bills from 2 suppliers fall due by 31 Oct')
+  })
 })
 
 describe('Reports: every line and figure has a "Why?" (WP 10.2)', () => {
@@ -194,6 +233,15 @@ describe('Reports: every line and figure has a "Why?" (WP 10.2)', () => {
     cleanup()
     renderUi(<ReportsScreen report="by-month" />)
     await why('why-by-month', byMonthTotalsWhy(BY_MONTH, t), { label: 'Open the sales and purchase lists', target: { name: 'registers', tab: 'sales' } })
+    // Review (to-do §4): one "Why?" per month — its own figures, opening the lists on that month.
+    const sep = BARS.find((m) => m.month === '2026-09')!
+    await why('why-by-month-2026-09', byMonthBarWhy(sep, t), {
+      label: 'Open the sales and purchase lists for Sep 2026', target: { name: 'registers', tab: 'sales', from: '2026-09-01', to: '2026-09-30' }
+    })
+    expect(byMonthBarWhy(sep, t)).toBe('In Sep 2026 you sold ₹70,000.00 on 3 bills and bought ₹40,000.00 on 2 bills, before GST.')
+    await why('why-by-month-2026-02', byMonthBarWhy(BARS.find((m) => m.month === '2026-02')!, t), {
+      label: 'Open the sales and purchase lists for Feb 2026', target: { name: 'registers', tab: 'sales', from: '2026-02-01', to: '2026-02-28' }
+    })
   })
 })
 
@@ -233,6 +281,20 @@ describe('the P&L opens on the dates a "Why?" asks for (WP 10.2)', () => {
     cleanup()
     invoke.mockClear()
     renderUi(<ProfitLossScreen />)
+    await waitFor(() => expect(asked()).toContainEqual(expect.objectContaining({ from: '2026-04-01', to: '2027-03-31' })))
+  })
+})
+
+describe('the registers open on the month a "Why?" asks for (review, to-do §4)', () => {
+  const asked = (): unknown[] => invoke.mock.calls.filter(([c]) => c === 'analysis:register').map(([, p]) => p)
+  it('with from / to that month (the session period left alone); without them, the session period as before', async () => {
+    renderUi(<RegistersScreen tab="sales" from="2026-09-01" to="2026-09-30" />)
+    await waitFor(() => expect(asked()).toContainEqual(expect.objectContaining({ from: '2026-09-01', to: '2026-09-30' })))
+    expect(asked()).not.toContainEqual(expect.objectContaining({ from: '2026-04-01' }))
+    expect(useSession.getState().from).toBe('2026-04-01')
+    cleanup()
+    invoke.mockClear()
+    renderUi(<RegistersScreen tab="sales" />)
     await waitFor(() => expect(asked()).toContainEqual(expect.objectContaining({ from: '2026-04-01', to: '2027-03-31' })))
   })
 })

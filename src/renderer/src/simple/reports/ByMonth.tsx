@@ -2,7 +2,8 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toMonthLabel } from '@shared/dates'
 import type { MonthBar, SimpleByMonth } from '@shared/simple/reports'
-import { byMonthTotalsWhy, byMonthWhy } from '@shared/simple/explain'
+import { byMonthBarWhy, byMonthTotalsWhy, byMonthWhy } from '@shared/simple/explain'
+import { monthEnd } from '@shared/dashboard'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useSession } from '../../state/stores'
@@ -11,6 +12,8 @@ import { DataTable, defineColumns } from '../../components/table'
 import { LoadError, ReportHeader, WhyLink, cardCls, money } from './parts'
 
 const REGISTERS = { name: 'registers', tab: 'sales' } as const // i18n-technical
+/** One bar's "Why?" link: the registers on that month. */
+const monthRegisters = (month: string): { name: 'registers'; tab: 'sales'; from: string; to: string } => ({ ...REGISTERS, from: `${month}-01`, to: monthEnd(month) })
 const NO_MAX = 'none' // i18n-technical: twelve rows, no inner scroll
 
 /** Bar height in whole percent of the tallest bar (display only — the amounts stay paise). */
@@ -91,6 +94,15 @@ function Body({ b }: { b: SimpleByMonth }): React.JSX.Element {
           columns={columns}
           rows={[...b.months].reverse()}
           rowKey={(r) => r.month}
+          trailing={(r) => (
+            <WhyLink
+              what={t('simple.reports.byMonth.bar', { month: toMonthLabel(r.month, 'long', t.lang), sales: money(r.sales), purchases: money(r.purchases) })}
+              sentence={byMonthBarWhy(r, t)}
+              link={{ label: t('simple.why.link.monthRegisters', { month: toMonthLabel(r.month, 'long', t.lang) }), screen: monthRegisters(r.month) }}
+              testId={`why-by-month-${r.month}`}
+            />
+          )}
+          trailingWidth={60}
           toolbarFeatures={{ quickFilter: false, columns: false, groupBy: false, density: false, views: false }}
           maxHeight={NO_MAX}
         />

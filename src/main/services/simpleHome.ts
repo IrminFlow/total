@@ -21,7 +21,8 @@ import {
   ANOMALY_HOME_CAP, attentionItems, BACKUP_NUDGE_DAYS, daysSince, owedSummary,
   type HomeAttention, type HomeCash, type HomeGst, type HomeGstCredit, type HomeMoneyDay, type HomeProfitPeriod, type SimpleHomeData
 } from '@shared/simple/home'
-import { gstPeriodEnd, gstStartsOn } from '@shared/simple/taxes'
+import { gstPeriodEnd, gstStartsOn, nextCompositionDue } from '@shared/simple/taxes'
+import { cmp08DueDate, gstr4DueDate, pmt06DueDate } from '@shared/gst/filing'
 import { doingLines, previousSpan, topParts, withoutRoundOff } from '@shared/simple/reports'
 import type { ProfitAndLoss } from '@shared/reports'
 import { descendantIdSet, profitAndLoss } from './reports'
@@ -135,10 +136,18 @@ function compute(db: DB, company: CompanyInfo, opts: { today: string; backups: D
   const filing = company.gstRegistrationType === 'regular' ? getGstProfile(db).filing : 'monthly'
   // WP 10.8: never a return period that ended before the books (or the registration) began.
   const gstRow = dashGst(db, company, today, gstStartsOn(company.booksBeginDate, company.gstRegistrationSince))
+  // Review (to-do §4): the "Why?" of a quarterly filer's PMT-06 dates and of the composition
+  // dates — the dates simple:taxes shows, from the same shared/gst/filing.ts rules.
+  const pmt06 = gstRow && filing === 'quarterly'
+    ? [addMonths(gstRow.period, -2), addMonths(gstRow.period, -1)].map(pmt06DueDate).filter((d): d is string => d != null)
+    : []
   const gst: HomeGst | null = gstRow
-    ? { kind: 'regular', filing, row: gstRow, credit: gstCredit(db, gstRow.from ?? `${gstRow.period}-01`, gstRow.to ?? gstRow.from ?? `${gstRow.period}-01`) }
+    ? {
+        kind: 'regular', filing, row: gstRow, credit: gstCredit(db, gstRow.from ?? `${gstRow.period}-01`, gstRow.to ?? gstRow.from ?? `${gstRow.period}-01`),
+        ...(pmt06.length > 0 ? { pmt06 } : {})
+      }
     : company.gstRegistrationType === 'composition'
-      ? { kind: 'composition' }
+      ? { kind: 'composition', composition: nextCompositionDue(today, cmp08DueDate, gstr4DueDate) }
       : null
 
   // ---- deadlines (WP 8.0: applicable ones only), other than GST ----

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
@@ -100,8 +100,19 @@ type Tab = RegistersTab
 
 const TAB_LABELS: Record<Tab, string> = { sales: 'Sales', purchase: 'Purchase', items: 'Item profit' }
 
-export function RegistersScreen({ tab: requestedTab }: { tab?: Tab } = {}): React.JSX.Element {
-  const { from, to } = useSession()
+export function RegistersScreen({ tab: requestedTab, from: askedFrom, to: askedTo }: { tab?: Tab; from?: string; to?: string } = {}): React.JSX.Element {
+  const { from: sessionFrom, to: sessionTo } = useSession()
+  // A simple "Why?" link may ask for one month (Reports → by month); absent = the session period,
+  // as before. Changing the period in the options afterwards goes back to the session period.
+  const [asked, setAsked] = useState(askedFrom && askedTo ? { from: askedFrom, to: askedTo } : null)
+  const seen = useRef({ sessionFrom, sessionTo })
+  useEffect(() => {
+    if (seen.current.sessionFrom === sessionFrom && seen.current.sessionTo === sessionTo) return
+    seen.current = { sessionFrom, sessionTo }
+    setAsked(null)
+  }, [sessionFrom, sessionTo])
+  const from = asked?.from ?? sessionFrom
+  const to = asked?.to ?? sessionTo
   const toast = useToasts()
   // The last register viewed is remembered per company (screen option); tabs stay in the header.
   // WP 8.1: a link may ask for a tab ("Purchase list" → purchase); it becomes the remembered one.

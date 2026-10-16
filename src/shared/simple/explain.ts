@@ -19,6 +19,7 @@ import type { AnomalyKind } from '../anomalies'
 export { dirOf, join, money, resultOf, shortDate, span } from './explainCommon'
 export * from './explainReports'
 export * from './explainTaxes'
+export * from './explainPeople'
 
 type RegularGst = Extract<HomeGst, { kind: 'regular' }>
 
