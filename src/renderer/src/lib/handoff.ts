@@ -301,11 +301,12 @@ export function useAccountantView(self: Name): (req: AccountantViewRequest) => P
       const blank = req.fallback ?? fullCounterpart(screen) ?? section(screen)
       if (req.savedId != null) return nav.go({ name: 'voucher-entry', voucherId: req.savedId })
       if (!req.intent) return nav.go(blank)
+      const kept = !!req.keep
       if (req.keep) keepForm(req.keep)
       try {
         const r = await api.simple.intentForm({ ...req.intent, clientId: req.clientId ?? HANDOFF_CLIENT_ID } as SimpleIntentInput, today)
         const [entry, ...rest] = r.entries
-        if (!entry) return nav.go(blank)
+        if (!entry) return nav.go(blank, { force: kept })
         const handoff: SimpleHandoff = {
           from: screen.name,
           kind: r.kind,
@@ -315,9 +316,11 @@ export function useAccountantView(self: Name): (req: AccountantViewRequest) => P
         }
         nav.go({ name: 'voucher-entry', handoff, draftId: nextDraftId() }, { force: true })
       } catch {
-        // Answers the mapping can't use yet (no product picked, say): the blank editor.
+        // Answers the mapping can't use yet (no product picked, say): the blank editor, with no
+        // discard question when the answers are kept for the way back (the note says they could
+        // not be carried; Back / Cancel there return to them).
         toast.push('info', t('simple.handoff.notCarried'))
-        nav.go(blank)
+        nav.go(blank, { force: kept })
       }
     },
     [self, nav, t, toast, slug, userId, today] // eslint-disable-line react-hooks/exhaustive-deps -- `screen` is `self`

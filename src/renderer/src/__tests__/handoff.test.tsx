@@ -227,13 +227,25 @@ describe('the remembered choice', () => {
     expect(localStorage.getItem(KEY('simple-sell'))).toBeNull()
   })
 
-  it('answers the mapping refuses open the blank editor; a saved form opens the saved voucher', async () => {
+  it('answers the mapping refuses open the blank editor (no discard question — the answers are kept); a saved form opens the saved voucher', async () => {
     setSession({ mode: 'simple' })
     intentForm = new Error('Pick a product')
-    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-buy' }] }))
+    const flow: Screen = { name: 'simple-buy' }
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow] }))
+    const Dirty = (): null => {
+      useUnsavedGuard(true)
+      return null
+    }
+    const dirty = render(withClient(<><Dirty /><DialogHost /></>))
     const { result } = renderHook(() => useAccountantView('simple-buy'), { wrapper: ({ children }) => withClient(<>{children}</>) })
-    await act(async () => result.current({ intent: { kind: 'purchase', date: '2026-05-10', supplierId: 3, items: [] } as never }))
-    await waitFor(() => expect(top()).toEqual({ name: 'voucher-entry', kindHint: 'purchase' }))
+    await act(async () => result.current({ intent: { kind: 'purchase', date: '2026-05-10', supplierId: 3, items: [] } as never, keep: { form: { supplierId: 3 } } }))
+    expect(top()).toEqual({ name: 'voucher-entry', kindHint: 'purchase' })
+    expect(screen.queryByTestId('confirm-ok')).toBeNull()
+    dirty.unmount()
+    // Back from the blank editor: the purchase form with the answers.
+    act(() => useNav.getState().back())
+    await waitFor(() => expect(top()).toBe(flow))
+    expect(renderHook(() => useKeptForm({ supplierId: null as number | null })).result.current[0]).toEqual({ supplierId: 3 })
     await act(async () => result.current({ intent: null, savedId: 44 }))
     await waitFor(() => expect(top()).toEqual({ name: 'voucher-entry', voucherId: 44 }))
   })
