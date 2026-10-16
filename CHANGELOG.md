@@ -56,6 +56,13 @@ what you typed, and a **Back to simple** button.
   [#94](https://github.com/IrminFlow/total/pull/94)
 - **Accountant-view hand-off on every simple screen**: what you typed and have not saved goes to
   the full editor. [#96](https://github.com/IrminFlow/total/pull/96)
+- **Hand-off polish.** Cancel or "Back to simple" from that editor brings back the answers you
+  typed. If your answers can't be carried over, the empty editor opens without asking you to
+  discard them. A sale to a walk-in customer shows "Cash sale", and GST / round-off accounts
+  show their names. These are added when you save, as the full app does the first time.
+  Reports and Taxes have the "Always open the full app for this" menu. People and the Reports page
+  have their own Accountant view. ⌘K results say Accounts / Products / Entries.
+  [#122](https://github.com/IrminFlow/total/pull/122)
 - **Ask Total** (no key needed). Type a question or a short entry ("who owes me?", "paid 2,500 rent
   in cash") and Total answers from the same figures the screens show, or opens the right form
   pre-filled. It also understands some Hinglish and Hindi words. It does not guess a name: it asks
