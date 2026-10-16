@@ -13,7 +13,7 @@ const INDEXES = [
 ]
 
 describe('WP 7.1 performance indexes migration', () => {
-  it('comes right before WP 7.2 security (backup_runs, the last migration) and only creates indexes', () => {
+  it('comes right before WP 7.2 security (backup_runs) and only creates indexes', () => {
     expect(M).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE backup_runs')) - 1)
     const statements = MIGRATIONS[M]!.split(';').map((s) => s.replace(/--.*$/gm, '').trim()).filter(Boolean)
     expect(statements.length).toBe(INDEXES.length)

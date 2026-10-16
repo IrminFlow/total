@@ -69,8 +69,9 @@ export interface PerfCase {
 // docs/perf-budgets.md says why each figure is what it is (measured on the laptop, WP 7.1).
 const REPORT = { k100: 1000, k500: 3000 }
 const SAVE = { k100: 300, k500: 300 }
-// A voucher search reads every voucher's number / narration / reference (LIKE '%…%'): linear in the
-// books until a full-text index exists (deferred) — 200 ms at 100k, 600 ms at 500k.
+// A voucher search by a selective word / number goes through the trigram text index (voucher_fts);
+// one that matches most of the books (every customer, every item) still reads every voucher and
+// sorts the matches — 200 ms at 100k, 600 ms at 500k (docs/perf-budgets.md, "Voucher text index").
 const SEARCH = { k100: 200, k500: 600 }
 
 const HEADER = {

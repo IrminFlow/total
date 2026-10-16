@@ -150,7 +150,13 @@ const EXPECTED_TABLES = [
   // WP 9.1 — simple:post idempotency
   'simple_posts',
   // WP 7.2 — backup restore checks
-  'backup_runs'
+  'backup_runs',
+  // To-do §4 — the voucher text index (an FTS5 table and its shadow tables)
+  'voucher_fts',
+  'voucher_fts_data',
+  'voucher_fts_idx',
+  'voucher_fts_docsize',
+  'voucher_fts_config'
 ]
 
 describe('migrate', () => {
