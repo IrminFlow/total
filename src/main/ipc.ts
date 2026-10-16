@@ -795,6 +795,20 @@ export function registerIpc(): void {
     const { itemId, ratePaise, date } = z.object({ itemId: z.number().int().positive(), ratePaise: z.number().int().positive().max(1e13), date: isoDate.optional() }).strict().parse(payload)
     return simpleStock.setSellingPrice(requireCompany().db, itemId, ratePaise, date ?? todayISO())
   })
+  // The simple recipe editor: a NEW BOM version through bom.saveBomVersion (the full editor's
+  // save and audit row; accountant+, as bom:saveVersion), the labour per unit beside it.
+  handle('simple:stock:setRecipe', (payload) => {
+    const q = z
+      .object({
+        itemId: z.number().int().positive(),
+        rows: z.array(z.object({ itemId: z.number().int().positive(), qtyMilli: z.number().int().min(0).max(1e12) }).strict()).max(200),
+        labourPerUnit: z.number().int().min(0).max(1e13).nullable().optional(),
+        date: isoDate.optional()
+      })
+      .strict()
+      .parse(payload)
+    return simpleStock.saveRecipe(requireCompany().db, { itemId: q.itemId, rows: q.rows, labourPerUnit: q.labourPerUnit ?? null }, q.date ?? todayISO())
+  })
 
   // WP 9.9: the simple Reports screens (services/simpleReports.ts) — read-only, as on today (a
   // later date asked for is clamped): how the business is doing for a period (the P&L's own

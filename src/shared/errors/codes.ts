@@ -180,6 +180,13 @@ export const ERROR_MAP = {
   // WP 9.7: the stock intents (shared/simple/stock.ts).
   simple_count_twice: e('errors.intent.countTwice', 'counts', ['name'], 'errors.intent.countTwicePlain'),
   simple_no_recipe: e('errors.intent.noRecipe', 'item', ['name'], 'errors.intent.noRecipePlain'),
+  // The simple recipe editor (shared/simple/stock.ts planRecipe): refusals on the row they are about.
+  simple_recipe_unknown: e('errors.recipe.unknown', 'rows'),
+  simple_recipe_empty: e('errors.recipe.empty', 'rows'),
+  simple_recipe_self: e('errors.recipe.self', 'rows', ['name'], 'errors.recipe.selfPlain'),
+  simple_recipe_twice: e('errors.recipe.twice', 'rows', ['name'], 'errors.recipe.twicePlain'),
+  simple_recipe_qty: e('errors.recipe.qty', 'rows', ['name'], 'errors.recipe.qtyPlain'),
+  simple_recipe_cycle: e('errors.recipe.cycle', 'rows', ['name', 'product'], 'errors.recipe.cyclePlain'),
   simple_not_enough_material: e('errors.intent.notEnoughMaterial', 'qty', ['names'], 'errors.intent.notEnoughMaterialPlain'),
   simple_no_sale_price: e('errors.intent.noSalePrice', 'price', ['name'], 'errors.intent.noSalePricePlain'),
   // WP 9.9: the simple Reports / Taxes screens (services/simpleReports.ts, simpleTaxes.ts).

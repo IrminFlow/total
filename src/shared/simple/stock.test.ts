@@ -9,8 +9,11 @@ import type { BomVersion } from '../bom'
 import { bannedWordsIn } from './bannedWords'
 import { intentSentences, mapIntent, normaliseIntent, readCount, type IntentContext, type MappedIntent } from './intents'
 import {
-  countDifference, countFormErrors, countIntentFrom, makeFormErrors, makeIntentFrom, parseCountText, recipeNeeds, recipeRows, stockLevel, emptyMakeForm
+  countDifference, countFormErrors, countIntentFrom, makeFormErrors, makeIntentFrom, parseCountText, recipeNeeds, recipeRows, stockLevel, emptyMakeForm,
+  formFieldOf, nextVersionName, planRecipe, recipeFormErrors, recipeFormFrom, recipeInputFrom, recipeLabour
 } from './stock'
+import { validateBomVersion, versionWouldCycle, pickBomVersion } from '../bom'
+import { bomVersionInputSchema } from '../schemas'
 
 const TODAY = '2025-08-14'
 const t = translator('en')
@@ -200,5 +203,93 @@ describe('the Stock screens’ rules', () => {
     expect(makeFormErrors(emptyMakeForm(TODAY))).toEqual({ item: 'simple.made.err.item', qty: 'simple.made.err.qty', price: 'simple.made.err.price' })
     const recipe = { versionId: 7, lines: [{ itemId: FLOUR, name: 'Flour', unit: 'Kg', qtyMilliPerUnit: 500, scrapPctBp: null }, { itemId: BOX, name: 'Box', unit: 'Nos', qtyMilliPerUnit: 1000, scrapPctBp: null }] }
     expect(recipeNeeds(recipe, 3000)).toEqual(recipeRows(BREAD, 3000, versions, TODAY)!.rows.map((r) => ({ itemId: r.componentId, qtyMilli: r.qtyMilli })))
+  })
+})
+
+describe('the recipe editor: rows → the BOM version the accountant service saves', () => {
+  const JAM = 103
+  const names: Record<number, string> = { [FLOUR]: 'Flour', [BOX]: 'Box', [BREAD]: 'Bread', [JAM]: 'Jam' }
+  const nameOf = (id: number): string => names[id] ?? ''
+  const exists = (id: number): boolean => id in names
+  const plan = (rows: { itemId: number; qtyMilli: number }[], itemId = BREAD, labour: number | null = null, vs: BomVersion[] = versions, labourOf: (id: number) => number | null = () => null) =>
+    planRecipe({ itemId, rows, labourPerUnit: labour }, vs, TODAY, nameOf, exists, labourOf)
+  const codeOf = (fn: () => unknown): { code?: string; field?: string; params?: unknown } => {
+    try {
+      fn()
+    } catch (err) {
+      const e = err as { code?: string; field?: string; params?: unknown }
+      return { code: e.code, field: e.field, params: e.params }
+    }
+    throw new Error('not refused')
+  }
+
+  it('a change is a NEW default version from the working date, open-ended, named vN; it parses as the full editor’s payload and passes its checks', () => {
+    const p = plan([{ itemId: FLOUR, qtyMilli: 600 }, { itemId: BOX, qtyMilli: 1000 }], BREAD, 1000)
+    expect(p).toEqual({
+      changed: true,
+      labourPerUnit: 1000,
+      version: { itemId: BREAD, name: 'v2', effectiveFrom: TODAY, effectiveTo: null, isDefault: true, lines: [{ componentId: FLOUR, qtyMilliPerUnit: 600, scrapPctBp: null }, { componentId: BOX, qtyMilliPerUnit: 1000, scrapPctBp: null }] }
+    })
+    if (!p.changed) throw new Error('changed')
+    expect(bomVersionInputSchema.parse(p.version)).toEqual(p.version)
+    expect(validateBomVersion({ ...p.version, effectiveFrom: p.version.effectiveFrom ?? null, effectiveTo: null, lines: p.version.lines.map((l) => ({ ...l, scrapPctBp: l.scrapPctBp ?? null })) })).toEqual([])
+    // From the working date the new one is picked; before it the old one.
+    const after = [...versions, { ...p.version, id: 8, effectiveFrom: TODAY, effectiveTo: null, lines: p.version.lines.map((l) => ({ ...l, scrapPctBp: l.scrapPctBp ?? null })) }]
+    expect(pickBomVersion(after.map((v) => (v.id === 7 ? { ...v, isDefault: false } : v)), BREAD, TODAY)!.id).toBe(8)
+    expect(pickBomVersion(after.map((v) => (v.id === 7 ? { ...v, isDefault: false } : v)), BREAD, '2025-08-13')!.id).toBe(7)
+  })
+
+  it('a first recipe is in force always (no dates); the same answers (labour 0 = none) are no change; scrap on a material that stays is kept', () => {
+    expect(plan([{ itemId: FLOUR, qtyMilli: 250 }], JAM)).toMatchObject({ changed: true, version: { name: 'v1', effectiveFrom: null, effectiveTo: null, isDefault: true } })
+    expect(plan([{ itemId: FLOUR, qtyMilli: 500 }, { itemId: BOX, qtyMilli: 1000 }])).toEqual({ changed: false, versionId: 7 })
+    expect(plan([{ itemId: FLOUR, qtyMilli: 500 }, { itemId: BOX, qtyMilli: 1000 }], BREAD, 0)).toEqual({ changed: false, versionId: 7 })
+    expect(plan([{ itemId: FLOUR, qtyMilli: 500 }, { itemId: BOX, qtyMilli: 1000 }], BREAD, 1000)).toMatchObject({ changed: true })
+    expect(plan([{ itemId: FLOUR, qtyMilli: 500 }, { itemId: BOX, qtyMilli: 1000 }], BREAD, 1000, versions, () => 1000)).toEqual({ changed: false, versionId: 7 })
+    const scrapped: BomVersion[] = [{ ...versions[0]!, lines: [{ componentId: FLOUR, qtyMilliPerUnit: 500, scrapPctBp: 500 }, { componentId: BOX, qtyMilliPerUnit: 1000, scrapPctBp: null }] }]
+    const p = plan([{ itemId: FLOUR, qtyMilli: 600 }, { itemId: JAM, qtyMilli: 1000 }], BREAD, null, scrapped)
+    expect(p.changed && p.version.lines).toEqual([{ componentId: FLOUR, qtyMilliPerUnit: 600, scrapPctBp: 500 }, { componentId: JAM, qtyMilliPerUnit: 1000, scrapPctBp: null }])
+    expect(nextVersionName([...versions, { ...versions[0]!, id: 9, name: 'V2' }], BREAD)).toBe('v3')
+  })
+
+  it('refusals on the row: itself, twice, no quantity, empty, a loop, unknown', () => {
+    expect(codeOf(() => plan([{ itemId: BREAD, qtyMilli: 1000 }]))).toEqual({ code: 'simple_recipe_self', field: 'rows.0.item', params: { name: 'Bread' } })
+    expect(codeOf(() => plan([{ itemId: BOX, qtyMilli: 1000 }, { itemId: BOX, qtyMilli: 2000 }]))).toMatchObject({ code: 'simple_recipe_twice', field: 'rows.1.item' })
+    expect(codeOf(() => plan([{ itemId: BOX, qtyMilli: 0 }]))).toMatchObject({ code: 'simple_recipe_qty', field: 'rows.0.qty' })
+    expect(codeOf(() => plan([]))).toMatchObject({ code: 'simple_recipe_empty', field: 'rows' })
+    expect(versionWouldCycle(FLOUR, [BREAD], versions)).toBe(true)
+    expect(codeOf(() => plan([{ itemId: BOX, qtyMilli: 1000 }, { itemId: BREAD, qtyMilli: 1000 }], FLOUR))).toEqual({ code: 'simple_recipe_cycle', field: 'rows.1.item', params: { name: 'Bread', product: 'Flour' } })
+    expect(codeOf(() => plan([{ itemId: 999, qtyMilli: 1000 }]))).toMatchObject({ code: 'simple_recipe_unknown', field: 'rows.0.item' })
+    expect(codeOf(() => plan([{ itemId: BOX, qtyMilli: 1000 }], 999))).toMatchObject({ code: 'simple_recipe_unknown' })
+  })
+
+  it('the form: rows from the recipe, client checks on the typed row, blank rows dropped (refusals mapped back), labour per batch', () => {
+    const recipe = { versionId: 7, lines: [{ itemId: FLOUR, name: 'Flour', unit: 'Kg', qtyMilliPerUnit: 500, scrapPctBp: null }], labourPerUnit: 1000 }
+    expect(recipeFormFrom(recipe)).toEqual({ rows: [{ itemId: FLOUR, qtyText: '0.5' }], labourPerUnit: 1000 })
+    expect(recipeFormFrom(null)).toEqual({ rows: [], labourPerUnit: null })
+    const form = { rows: [{ itemId: null, qtyText: '' }, { itemId: FLOUR, qtyText: '0.6' }, { itemId: BOX, qtyText: '1' }, { itemId: null, qtyText: '' }], labourPerUnit: 0 }
+    expect(recipeFormErrors(form, BREAD)).toEqual({})
+    const input = recipeInputFrom(form, BREAD)
+    expect(input).toEqual({ itemId: BREAD, rows: [{ itemId: FLOUR, qtyMilli: 600 }, { itemId: BOX, qtyMilli: 1000 }], labourPerUnit: null, rowIndex: [1, 2] })
+    expect(formFieldOf('rows.1.qty', input.rowIndex)).toBe('rows.2.qty')
+    expect(formFieldOf('rows', input.rowIndex)).toBe('rows')
+    expect(recipeFormErrors({ rows: [{ itemId: null, qtyText: '' }], labourPerUnit: null }, BREAD)).toEqual({ rows: 'simple.stock.recipe.err.empty' })
+    expect(recipeFormErrors({ rows: [{ itemId: BREAD, qtyText: '1' }, { itemId: FLOUR, qtyText: 'lots' }, { itemId: FLOUR, qtyText: '1' }, { itemId: null, qtyText: '2' }], labourPerUnit: null }, BREAD)).toEqual({
+      'rows.0.item': 'simple.stock.recipe.err.self',
+      'rows.1.qty': 'simple.stock.recipe.err.qty',
+      'rows.2.item': 'simple.stock.recipe.err.twice',
+      'rows.3.item': 'simple.stock.recipe.err.item'
+    })
+    expect(recipeLabour(1000, 10_000)).toBe(10_000)
+    expect(recipeLabour(333, 1500)).toBe(500) // 499.5 → 500, half-up
+    expect(recipeLabour(1000, 0)).toBe(0)
+  })
+
+  it('the recipe editor’s words are free of banned words in every language', () => {
+    for (const lang of ['en', 'hi', 'hinglish'] as const) {
+      const tr = translator(lang)
+      for (const k of ['simple.stock.recipe.title', 'simple.stock.recipe.none', 'simple.stock.recipe.fromDate', 'errors.recipe.cycle', 'errors.recipe.self'] as const) {
+        expect(bannedWordsIn(tr(k, { name: 'Bread', product: 'Flour', date: '12 Aug 2025' }))).toEqual([])
+      }
+    }
   })
 })

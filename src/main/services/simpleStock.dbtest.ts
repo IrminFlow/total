@@ -10,7 +10,10 @@
 //   - refusals (not enough material → qty, no recipe → item, lock / closed year → date, a viewer)
 //     leave no trace; Undo bins the entry as one group; the same clientId replays;
 //   - "Change price" adds a dated row on the default price level (earlier bills keep the old
-//     price); Home's attention row counts what the list calls running low.
+//     price); Home's attention row counts what the list calls running low;
+//   - the recipe editor's Save = the BOM version the accountant editor saves (bom.saveBomVersion
+//     with the same dates), row for row and audit row for audit row; Made goods after it = the
+//     hand-entered manufacture with the new recipe; refusals and unchanged answers leave no trace.
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -23,17 +26,17 @@ import { todayISO } from '@shared/dates'
 import { stockItemInputSchema } from '@shared/schemas'
 import { buildPhysicalPayload, emptyPhysicalState, manufactureRepresentation, physicalRepresentation } from '@shared/voucherEdit'
 import type { ManufactureInput } from '@shared/manufacture'
-import { countIntentFrom, emptyMakeForm, makeIntentFrom, type MakeForm } from '@shared/simple/stock'
+import { countIntentFrom, emptyMakeForm, makeIntentFrom, recipeLabour, recipeRows, type MakeForm } from '@shared/simple/stock'
 import { createGodown, createLedger, createStockItem, listStockItems, updateStockItem } from './masters'
 import { getVoucher, saveVoucher, setLockDate } from './vouchers'
 import { stockSummary } from './stockAnalysis'
-import { setBom } from './bom'
+import { listBomVersions, saveBomVersion, setBom } from './bom'
 import { getManufactureDetails, saveManufacture } from './manufacture'
 import { postClose } from './yearEnd'
 import { undoSave } from './undo'
 import { pricingLoader } from './pricing'
 import { previewIntent, postIntent } from './simplePost'
-import { madeGoodsSetup, savedCount, setSellingPrice, stockList, stockProduct } from './simpleStock'
+import { madeGoodsSetup, saveRecipe, savedCount, setSellingPrice, stockList, stockProduct } from './simpleStock'
 import { simpleHomeAttention } from './simpleHome'
 import { createDemoCompany } from './demo'
 
@@ -465,6 +468,107 @@ describe('the product view, Change price, Home', () => {
   })
 })
 
+describe('the recipe editor = the accountant BOM editor', () => {
+  const NEW_DAY = '2025-08-12'
+  const bomRows = (d: DB) => ({
+    versions: d.prepare('SELECT * FROM bom_versions ORDER BY id').all(),
+    lines: d.prepare('SELECT * FROM bom_version_lines ORDER BY id').all()
+  })
+  const bomAudit = (d: DB) =>
+    (d.prepare("SELECT entity_id AS id, action, before_json AS b, after_json AS a FROM audit_log WHERE entity = 'bom' ORDER BY id").all() as { id: number; action: string; b: string | null; a: string | null }[])
+  const recipeTrace = (d: DB = db) => {
+    const n = (sql: string): number => (d.prepare(sql).get() as { n: number }).n
+    return { versions: n('SELECT COUNT(*) AS n FROM bom_versions'), lines: n('SELECT COUNT(*) AS n FROM bom_version_lines'), audit: n('SELECT COUNT(*) AS n FROM audit_log'), meta: JSON.stringify(d.prepare('SELECT * FROM meta ORDER BY key').all()) }
+  }
+  const refusal = (fn: () => unknown): { code?: string; field?: string } => {
+    try {
+      fn()
+    } catch (err) {
+      const e = err as { code?: string; field?: string }
+      return { code: e.code, field: e.field }
+    }
+    throw new Error('not refused')
+  }
+  /** Bread changes to 600 g of flour + 1 box, ₹10 labour each, from 12 Aug. */
+  const change = (d: DB) => saveRecipe(d, { itemId: I('Bread', d), rows: [{ itemId: I('Flour', d), qtyMilli: 600 }, { itemId: I('Box', d), qtyMilli: 1000 }], labourPerUnit: 1000 }, NEW_DAY)
+  /** The same change typed into the full editor: "+ New version" v2, effective from 12 Aug, default. */
+  const handChange = (d: DB) =>
+    saveBomVersion(d, { itemId: I('Bread', d), name: 'v2', effectiveFrom: NEW_DAY, effectiveTo: null, isDefault: true, lines: [{ componentId: I('Flour', d), qtyMilliPerUnit: 600, scrapPctBp: null }, { componentId: I('Box', d), qtyMilliPerUnit: 1000, scrapPctBp: null }] })
+
+  it('a changed recipe is the full editor’s new version row for row (same audit row); the old one stays for earlier dates', () => {
+    const auditBefore = bomAudit(db).length
+    const r = change(db)
+    handChange(twin)
+    expect(r.changed).toBe(true)
+    expect(bomRows(db)).toEqual(bomRows(twin))
+    // The version's own audit row is the full editor's; the labour per unit is one more `bom` row.
+    const mine = bomAudit(db).slice(auditBefore)
+    const theirs = bomAudit(twin).slice(auditBefore)
+    expect(mine[0]).toEqual(theirs[0])
+    expect(mine[0]).toMatchObject({ id: I('Bread'), action: 'create' })
+    expect(mine).toHaveLength(2)
+    expect(JSON.parse(mine[1]!.a!)).toEqual({ versionId: r.recipe!.versionId, labourPerUnitPaise: 1000 })
+    // Before 12 Aug the old recipe (½ kg), from it the new one.
+    const versions = listBomVersions(db)
+    expect(recipeRows(I('Bread'), 10_000, versions, DAY)!.rows).toEqual([{ componentId: I('Flour'), qtyMilli: 5000 }, { componentId: I('Box'), qtyMilli: 10_000 }])
+    expect(recipeRows(I('Bread'), 10_000, versions, NEW_DAY)!.rows).toEqual([{ componentId: I('Flour'), qtyMilli: 6000 }, { componentId: I('Box'), qtyMilli: 10_000 }])
+    expect(versions.filter((v) => v.itemId === I('Bread'))).toHaveLength(2)
+    // The product view and Made goods read it, with the labour per one.
+    const view = stockProduct(db, I('Bread'), TODAY)!.recipe!
+    expect(view).toMatchObject({ effectiveFrom: NEW_DAY, labourPerUnit: 1000 })
+    expect(view.lines.map((l) => l.qtyMilliPerUnit)).toEqual([600, 1000])
+    expect(madeGoodsSetup(db, TODAY).products.find((p) => p.itemId === I('Bread'))!.recipe.labourPerUnit).toBe(1000)
+    expect(madeGoodsSetup(db, DAY).products.find((p) => p.itemId === I('Bread'))!.recipe.labourPerUnit).toBeUndefined()
+  })
+
+  it('Made goods after it = the hand-entered manufacture with the new recipe (6 kg × ₹40 + 10 × ₹10 + ₹100 labour = ₹440)', () => {
+    change(db)
+    const v2 = handChange(twin)
+    const setup = madeGoodsSetup(db, TODAY).products.find((p) => p.itemId === I('Bread'))!
+    const labour = recipeLabour(setup.recipe.labourPerUnit!, 10_000)
+    expect(labour).toBe(10_000)
+    const out = post(makeIntentFrom({ ...emptyMakeForm(TODAY), itemId: I('Bread'), qtyText: '10', price: 5000, labour, labourRecorded: false }))
+    const hand = saveManufacture(twin, {
+      date: TODAY, finishedItemId: I('Bread', twin), qtyMilli: 10_000, saleRatePaise: 5000,
+      raw: [{ stockItemId: I('Flour', twin), qtyMilli: 6000 }, { stockItemId: I('Box', twin), qtyMilli: 10_000 }],
+      labourPaise: 10_000, labourPosted: true, profitPaise: 6000, bomVersionId: v2.id, narration: null, godownId: null
+    })
+    const mine = getVoucher(db, out.voucherIds[0]!)!
+    expect(shape(mine)).toEqual(shape(getVoucher(twin, hand.id)!))
+    const { voucherId: _a, ...dm } = getManufactureDetails(db, mine.id)!
+    const { voucherId: _b, ...dt } = getManufactureDetails(twin, hand.id)!
+    expect(dm).toEqual(dt)
+    expect(mine.inventory.map((l) => l.amount)).toEqual([24_000, 10_000, 44_000])
+    expect(summaryOf(db, TODAY)).toEqual(summaryOf(twin, TODAY))
+  })
+
+  it('a first recipe is in force always; the same answers again write nothing; scrap on a material that stays is kept', () => {
+    const r = saveRecipe(db, { itemId: I('Jam'), rows: [{ itemId: I('Flour'), qtyMilli: 250 }], labourPerUnit: null }, NEW_DAY)
+    const jam = listBomVersions(db, I('Jam'))
+    expect(jam).toEqual([{ id: r.recipe!.versionId, itemId: I('Jam'), name: 'v1', effectiveFrom: null, effectiveTo: null, isDefault: true, lines: [{ componentId: I('Flour'), qtyMilliPerUnit: 250, scrapPctBp: null }] }])
+    const before = recipeTrace()
+    expect(saveRecipe(db, { itemId: I('Jam'), rows: [{ itemId: I('Flour'), qtyMilli: 250 }], labourPerUnit: 0 }, TODAY)).toMatchObject({ changed: false })
+    expect(recipeTrace()).toEqual(before)
+    // The accountant gave flour a 5 % scrap allowance; a simple change keeps it.
+    saveBomVersion(db, { ...jam[0]!, lines: [{ componentId: I('Flour'), qtyMilliPerUnit: 250, scrapPctBp: 500 }] })
+    saveRecipe(db, { itemId: I('Jam'), rows: [{ itemId: I('Flour'), qtyMilli: 300 }, { itemId: I('Box'), qtyMilli: 1000 }], labourPerUnit: null }, TODAY)
+    expect(listBomVersions(db, I('Jam')).at(-1)).toMatchObject({ name: 'v2', effectiveFrom: TODAY, isDefault: true, lines: [{ componentId: I('Flour'), qtyMilliPerUnit: 300, scrapPctBp: 500 }, { componentId: I('Box'), qtyMilliPerUnit: 1000, scrapPctBp: null }] })
+  })
+
+  it('refusals on the row, leaving no trace: itself, listed twice, no quantity, empty, a loop through another recipe, an unknown product', () => {
+    const before = recipeTrace()
+    const jam = I('Jam')
+    expect(refusal(() => saveRecipe(db, { itemId: jam, rows: [{ itemId: I('Flour'), qtyMilli: 100 }, { itemId: jam, qtyMilli: 1000 }], labourPerUnit: null }, TODAY))).toEqual({ code: 'simple_recipe_self', field: 'rows.1.item' })
+    expect(refusal(() => saveRecipe(db, { itemId: jam, rows: [{ itemId: I('Flour'), qtyMilli: 100 }, { itemId: I('Flour'), qtyMilli: 200 }], labourPerUnit: null }, TODAY))).toEqual({ code: 'simple_recipe_twice', field: 'rows.1.item' })
+    expect(refusal(() => saveRecipe(db, { itemId: jam, rows: [{ itemId: I('Flour'), qtyMilli: 0 }], labourPerUnit: null }, TODAY))).toEqual({ code: 'simple_recipe_qty', field: 'rows.0.qty' })
+    expect(refusal(() => saveRecipe(db, { itemId: jam, rows: [], labourPerUnit: null }, TODAY))).toEqual({ code: 'simple_recipe_empty', field: 'rows' })
+    // Bread is made with flour, so flour can't be made with bread.
+    expect(refusal(() => saveRecipe(db, { itemId: I('Flour'), rows: [{ itemId: I('Bread'), qtyMilli: 1000 }], labourPerUnit: null }, TODAY))).toEqual({ code: 'simple_recipe_cycle', field: 'rows.0.item' })
+    expect(refusal(() => saveRecipe(db, { itemId: jam, rows: [{ itemId: 99_999, qtyMilli: 1000 }], labourPerUnit: null }, TODAY))).toEqual({ code: 'simple_recipe_unknown', field: 'rows.0.item' })
+    expect(recipeTrace()).toEqual(before)
+  })
+})
+
 describe('roles', () => {
   it('a viewer reads the Stock screens but can’t count or make (simple:post refused, nothing written)', async () => {
     const ipc = await import('../ipc')
@@ -487,6 +591,10 @@ describe('roles', () => {
     const res = await call('simple:post', { intent: { clientId: 'viewer-count-01', kind: 'stock_count', date: TODAY, counts: [{ itemId: item.id, qty: 1000 }] }, today: TODAY })
     expect(res).toMatchObject({ ok: false, code: 'not_permitted' })
     expect(await call('simple:stock:setPrice', { itemId: item.id, ratePaise: 100 })).toMatchObject({ ok: false, code: 'not_permitted' })
+    // The recipe editor is the accountant BOM editor's role (bom:saveVersion): a viewer can't save one.
+    const versionsBefore = await ok<unknown[]>('bom:versions', {})
+    expect(await call('simple:stock:setRecipe', { itemId: item.id, rows: [{ itemId: item.id, qtyMilli: 1000 }] })).toMatchObject({ ok: false, code: 'not_permitted' })
+    expect(await ok('bom:versions', {})).toEqual(versionsBefore)
     // "Tell me when it runs low" is the masters item update — accountant and up.
     const soap = (await ok<{ id: number; reorderLevelMilli: number | null }[]>('master:stockItems:list')).find((i) => i.id === item.id)!
     expect(await call('master:stockItems:update', { id: item.id, data: { ...soap, reorderLevelMilli: 2000 } })).toMatchObject({ ok: false, code: 'not_permitted' })

@@ -15,19 +15,25 @@
 //   screen's "average price" prefill (manufacture.suggestedSaleRate);
 // - setSellingPrice: the product's row on the DEFAULT price level (the WP 8.4 quick-create path:
 //   that level, else "Selling price"), from the date — the earlier price stays for earlier bills
-//   (its row ends the day before); saved through priceLevels.saveRate (audited `priceRate`).
+//   (its row ends the day before); saved through priceLevels.saveRate (audited `priceRate`);
+// - saveRecipe: "To make 1 X you use …" — a NEW BOM version through the accountant BOM service
+//   (bom.saveBomVersion, audited `bom` exactly as the full editor's save), planned by the pure
+//   shared/simple/stock.ts planRecipe (first recipe = always, a change = from the working date);
+//   the optional labour per unit is kept per version in meta `simpleRecipeLabour` (the BOM tables
+//   have no labour column — nothing posts from it; Made goods only prefills its labour answer).
 import type { DB } from '../db/connection'
 import { addDaysISO, fyOf } from '@shared/dates'
 import { pickBomVersion } from '@shared/bom'
 import { unitRate } from '@shared/manufacture'
 import {
-  historyWhat, needsReorder, stockLevel,
+  historyWhat, needsReorder, planRecipe, stockLevel, type RecipeInput,
   type MadeGoodsSetup, type SavedCountView, type StockList, type StockProductView, type StockRecipe, type StockRow
 } from '@shared/simple/stock'
 import { countLineEffects, stockMovements, stockSummary } from './stockAnalysis'
 import { IN_BOOKS, MOVES_STOCK } from './vouchers'
 import { pricingLoader } from './pricing'
-import { listBomVersions } from './bom'
+import { listBomVersions, saveBomVersion } from './bom'
+import { writeAudit } from './audit'
 import { suggestedSaleRate } from './manufacture'
 import { defaultPriceLevel, saveRate } from './priceLevels'
 import { sellingLevel } from './quickCreate'
@@ -94,12 +100,29 @@ export const stockAttentionCounts = (db: DB, asOn: string): { low: number; negat
     }
   })()
 
-function recipeOf(db: DB, itemId: number, date: string, versions = listBomVersions(db)): StockRecipe | null {
+const LABOUR_KEY = 'simpleRecipeLabour' // meta: { [bomVersionId]: paise per unit }
+
+/** The simple recipe editor's labour per unit, by BOM version id. */
+function recipeLabours(db: DB): Record<string, number> {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(LABOUR_KEY) as { value: string } | undefined
+  if (!row) return {}
+  try {
+    const v = JSON.parse(row.value) as unknown
+    return v && typeof v === 'object' ? (v as Record<string, number>) : {}
+  } catch {
+    return {}
+  }
+}
+
+function recipeOf(db: DB, itemId: number, date: string, versions = listBomVersions(db), labours = recipeLabours(db)): StockRecipe | null {
   const v = pickBomVersion(versions, itemId, date)
   if (!v || v.lines.length === 0) return null
   const name = db.prepare('SELECT si.name, u.symbol FROM stock_items si JOIN units u ON u.id = si.unit_id WHERE si.id = ?')
+  const labour = labours[String(v.id)]
   return {
     versionId: v.id,
+    effectiveFrom: v.effectiveFrom,
+    ...(typeof labour === 'number' && labour > 0 ? { labourPerUnit: labour } : {}),
     lines: v.lines.map((l) => {
       const c = name.get(l.componentId) as { name: string; symbol: string } | undefined
       return { itemId: l.componentId, name: c?.name ?? '', unit: c?.symbol ?? '', qtyMilliPerUnit: l.qtyMilliPerUnit, scrapPctBp: l.scrapPctBp }
@@ -197,10 +220,11 @@ export function savedCount(db: DB, voucherId: number): SavedCountView | null {
 export function madeGoodsSetup(db: DB, date: string): MadeGoodsSetup {
   return db.transaction((): MadeGoodsSetup => {
     const versions = listBomVersions(db)
+    const labours = recipeLabours(db)
     const items = db.prepare('SELECT si.id, si.name, u.symbol FROM stock_items si JOIN units u ON u.id = si.unit_id ORDER BY si.name COLLATE NOCASE').all() as { id: number; name: string; symbol: string }[]
     const products: MadeGoodsSetup['products'] = []
     for (const it of items) {
-      const recipe = recipeOf(db, it.id, date, versions)
+      const recipe = recipeOf(db, it.id, date, versions, labours)
       if (!recipe) continue
       products.push({ itemId: it.id, name: it.name, unit: it.symbol, recipe, suggestedPrice: suggestedSaleRate(db, it.id, date).ratePaise })
     }
@@ -233,5 +257,36 @@ export function setSellingPrice(db: DB, itemId: number, ratePaise: number, date:
       saveRate(db, { ...base, rate: ratePaise, effectiveFrom: date, effectiveTo: current?.effectiveTo ?? null })
     }
     return { sellingPrice: sellingPrices(db, date)(itemId) }
+  })()
+}
+
+/**
+ * The simple recipe editor's Save: the answers checked and planned by planRecipe, then ONE new
+ * BOM version through bom.saveBomVersion (the full editor's own save — its validation, cycle
+ * check and `bom` audit row), the labour per unit beside it (meta, audited as a `bom` update
+ * with the before / after labour). Answers equal to the recipe in force write nothing. One
+ * transaction: a refusal leaves no version, no meta and no audit row.
+ */
+export function saveRecipe(db: DB, input: RecipeInput, date: string): { changed: boolean; recipe: StockRecipe | null } {
+  return db.transaction(() => {
+    const versions = listBomVersions(db)
+    const items = new Map((db.prepare('SELECT id, name FROM stock_items').all() as { id: number; name: string }[]).map((r) => [r.id, r.name]))
+    const labours = recipeLabours(db)
+    const plan = planRecipe(
+      input,
+      versions,
+      date,
+      (id) => items.get(id) ?? '',
+      (id) => items.has(id),
+      (vid) => (typeof labours[String(vid)] === 'number' && labours[String(vid)]! > 0 ? labours[String(vid)]! : null)
+    )
+    if (!plan.changed) return { changed: false, recipe: recipeOf(db, input.itemId, date) }
+    const saved = saveBomVersion(db, plan.version)
+    if (plan.labourPerUnit != null) {
+      const next = { ...labours, [String(saved.id)]: plan.labourPerUnit }
+      db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(LABOUR_KEY, JSON.stringify(next))
+      writeAudit(db, 'bom', input.itemId, 'update', { versionId: saved.id, labourPerUnitPaise: null }, { versionId: saved.id, labourPerUnitPaise: plan.labourPerUnit })
+    }
+    return { changed: true, recipe: recipeOf(db, input.itemId, date) }
   })()
 }
