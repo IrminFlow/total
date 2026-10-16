@@ -143,8 +143,14 @@ C was rejected because of its asynchronous API.
   `inbox`, `mcp`) unlocks a locked one from the environment variable **`TOTAL_PASSPHRASE`**.
   - **Never a flag.** A process's command line is readable by every user of the computer (`ps`,
     Activity Monitor, Task Manager) and lands in shell history; its environment is readable only by
-    the same user (and an administrator). The CLI reads the variable once, at start, and deletes it
-    from its own environment, so nothing it starts inherits it.
+    the same user (and an administrator). The CLI reads the variable once, at start — before it
+    starts anything (on Windows the data-root lookup runs `reg` / `powershell`) — and deletes it
+    from its own environment, so nothing it starts afterwards (worker threads included: they copy
+    the environment when they are created) inherits it. What deleting cannot reach: the
+    `scripts/total-cli.mjs` launcher (the process the MCP client starts, which then starts
+    Electron-as-Node) keeps the variable in its environment while the command runs, and on Linux
+    `/proc/<pid>/environ` keeps showing a process's ORIGINAL environment to the same user and root.
+    Neither widens who can read it — the same user can read the client's configuration file anyway.
   - **Same unlock as the app.** `companyKeys.unlockCompanyKey` → `unlockKey`: every envelope
     (folder copy, then the secret-store mirror where the CLI can read it — under Electron-as-Node
     there is no safeStorage, so normally only `company.key.json`), a key accepted only once it opens
@@ -160,7 +166,8 @@ C was rejected because of its asynchronous API.
     copy `company.key.json` and guess offline at that same cost. A persisted counter would be a
     file that same user can delete.
   - **The key is forgotten** when the command ends (`forgetFolderKey`) and again on process exit
-    (`forgetAllKeys`); the unwrapped buffer is zeroed after it is remembered. For `mcp` the
+    (`forgetAllKeys`); the unwrapped buffer is zeroed after it is remembered, and the remembered
+    copy is zeroed when the command's handle has closed (`forgetCliKey`). For `mcp` the
     session's database handle holds the key for as long as the server runs, so the per-request
     re-checks (kill switch, user still active, same PIN) work exactly as on a plaintext file.
   - **Never stored.** The passphrase is not logged, audited or written to `mcp_log` (sizes and a

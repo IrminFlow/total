@@ -32,6 +32,11 @@ import { overBudget } from '../perf/bench'
 import { appSecretStore } from '../services/secretStore'
 import { forgetCliKey, forgetKeysOnExit, isPassphraseRefusal, PASSPHRASE_ENV, PASSPHRASE_EXIT_CODE, takePassphrase, unlockForCli } from './unlock'
 
+/** The passphrase from TOTAL_PASSPHRASE — read (and removed from the environment) once, at start,
+ *  BEFORE anything is spawned: on Windows defaultDataRoot() runs `reg` / `powershell`, which would
+ *  otherwise inherit it. */
+const PASSPHRASE = takePassphrase()
+
 if (!process.env.TOTAL_DATA_DIR) process.env.TOTAL_DATA_DIR = defaultDataRoot()
 
 const USAGE = `total-cli — headless access to Total's books (same validation as the app)
@@ -120,9 +125,6 @@ function required(args: Args, name: string): string {
 function out(data: unknown): void {
   process.stdout.write(JSON.stringify(data, null, 2) + '\n')
 }
-
-/** The passphrase from TOTAL_PASSPHRASE — read (and removed from the environment) once, at start. */
-const PASSPHRASE = takePassphrase()
 
 /** Unlock (when locked) and open `--company`; the key is forgotten when `fn` is done. */
 async function withCompany<T>(args: Args, fn: (db: import('../db/connection').DB, slug: string) => T | Promise<T>): Promise<T> {

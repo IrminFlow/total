@@ -53,9 +53,12 @@ export async function unlockForCli(slug: string, passphrase: string | null, stor
   return true
 }
 
-/** Forget the folder key of `slug` (end of a command). */
+/** Forget the folder key of `slug` and zero the remembered copy (end of a command — the command's
+ *  handle is closed by then, so nothing reads the buffer any more). */
 export function forgetCliKey(slug: string): void {
+  const key = keyForPath(companyDbPath(slug))
   forgetFolderKey(companyDir(slug))
+  key?.fill(0)
 }
 
 let exitHookInstalled = false

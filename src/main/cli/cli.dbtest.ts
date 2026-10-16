@@ -205,7 +205,9 @@ describe('total-cli on a business locked with a passphrase', () => {
     } finally {
       ldb.close()
     }
+    const remembered = keyForPath(companyDbPath(lockedSlug))!
     forgetCliKey(lockedSlug)
+    expect(remembered.every((b) => b === 0)).toBe(true) // the remembered copy is zeroed too
     expect(() => openCompany(lockedSlug)).toThrow(expect.objectContaining({ code: 'db_locked' }))
   })
 
