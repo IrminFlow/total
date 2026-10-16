@@ -35,7 +35,7 @@
 > - Accountant mode with Tally-style double-entry books, GSTR-1 and GSTR-3B files, an edit log and Tally import.
 > - AI help and e-invoice filing are optional and send data only when you turn them on.
 >
-> The code is public on GitHub. Mac is the main build; Windows is a preview.
+> The code can be read on GitHub. Mac is the main build; Windows is a preview.
 >
 > I would love honest feedback, especially from shop owners and CAs: what felt confusing, what was missing?
 >
@@ -68,8 +68,8 @@ Screen recording, English voice-over, test company only. Button names are the re
 | 6 | Type a name in the Customer box; pick or create from the list | "Choose the customer, or leave it empty for a cash customer." (1:00) |
 | 7 | Product box: type a product, set the quantity; price and GST chip appear | "Add what you sold. GST is worked out for you." (1:15) |
 | 8 | **Paid how?** buttons: Cash, UPI, Card, Bank transfer, On credit (udhaar), Partly paid; pick one; the line under the total updates | "Pick how they paid. Credit is udhaar: Total remembers who owes you." (1:30) |
-| 9 | Click **Save bill**; the save card appears with Print, PDF, Share, Undo | "Save. Done. You can print, make a PDF, or share it. Made a mistake? Undo." (1:42) |
-| 10 | Click **Print**; the TAX INVOICE preview with business name and GST split | "That is a proper GST tax invoice, with the amount in words." (1:52) |
+| 9 | Click **Save bill**; the save card appears with Print, Save as PDF, Share, Undo | "Save. Done. You can print, save a PDF, or share it. Made a mistake? Undo." (1:42) |
+| 10 | Click **Print**; the TAX INVOICE document with business name and GST split | "That is a proper GST tax invoice, with the amount in words." (1:52) |
 | 11 | Back on Home: the tile numbers moved; end card with `<download link>` | "Home already shows it. Link below." (2:00) |
 
 Record on a fresh test company. Use made-up names and a round amount. Do not show real customer data.

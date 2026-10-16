@@ -83,7 +83,7 @@ The "Watch for" column is what the scripted study found, so you know where real 
 |---|---|---|---|---|
 | 1 | "Set up the app for your own kind of business. Use a made-up shop name." | Home, with the short tour offered | Business made; Home visible | Not sure about the GST question: "Not sure" is allowed. Choice of language first. |
 | 2 | "Your customer Sharma bought two things for cash today. Make a bill for it." (S: use products. Services: use "just an amount".) | The save card ("Saved.") | Bill saved; total looks right to them | Adding a bank account when paying by UPI or card; whether they find **+ Sale**. |
-| 3 | "Print that bill." | Print preview open | A page with the business name and amount appears | Looking for Print on the wrong screen. |
+| 3 | "Print that bill." | The bill opens as a PDF | A page with the business name and amount appears | Looking for Print on the wrong screen. |
 | 4 | "Another customer will pay next month. Make a bill that is not paid yet." | Save card; the line under the total shows when it is due | Saved as On credit (udhaar) with a named customer | Typing a near-duplicate name ("Sharmaji Store" next to "Sharma Stores"): does the "Did you mean?" help or confuse? |
 | 5 | "A customer paid you some of what they owe. Record it." | Money in saved | The right customer owes less | Choosing the wrong customer; the idea of "oldest bill first". |
 | 6 | "You paid the electricity bill from the shop's cash. Record it." | Money out saved | Saved as an expense | Asking for a supplier name when it is a cash expense. |
