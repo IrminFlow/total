@@ -216,6 +216,7 @@ function EdocsDocuments(): React.JSX.Element {
   const exportEinv = async (): Promise<void> => {
     try {
       const r = await api.edoc.exportEInvoice(from, to, period)
+      if (r.cancelled) return
       toast.push(r.count ? 'success' : 'warning', r.count ? `${r.count} B2B invoice${r.count > 1 ? 's' : ''} written for IRN generation` : 'No B2B invoices (parties need GSTINs) in this period')
     } catch (err) {
       toast.push('error', (err as Error).message)

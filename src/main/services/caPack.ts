@@ -270,8 +270,12 @@ export function exportTallyXml(db: DB, _company: CompanyInfo, slug: string, from
 }
 
 /** The full CA handover pack: Tally XML + every standard report as CSV, for the period. */
-export function exportCaPack(db: DB, company: CompanyInfo, slug: string, from: string, to: string): { path: string } {
-  const dir = join(companyExportsDir(slug), `ca-pack-${from}_${to}`)
+/** The CA pack's folder name inside exports/ (also the save dialog's default name). */
+export const caPackFolderName = (from: string, to: string): string => `ca-pack-${from}_${to}`
+
+/** `target` = the folder chosen in the save dialog; absent = `<company>/exports/ca-pack-<from>_<to>` as before. */
+export function exportCaPack(db: DB, company: CompanyInfo, slug: string, from: string, to: string, target?: string): { path: string } {
+  const dir = target ?? join(companyExportsDir(slug), caPackFolderName(from, to))
   mkdirSync(dir, { recursive: true })
 
   writeTallyXmlFiles(dir, db, from, to)

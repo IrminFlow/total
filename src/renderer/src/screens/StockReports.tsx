@@ -294,8 +294,8 @@ function LabelsTab(): React.JSX.Element {
   const print = async (): Promise<void> => {
     setPrinting(true)
     try {
-      const { path } = await api.stock.labelsPdf(query)
-      toast.push('success', `Labels saved — ${path.split(/[\\/]/).pop()}`)
+      const { path, cancelled } = await api.stock.labelsPdf(query)
+      if (!cancelled) toast.push('success', `Labels saved — ${path.split(/[\\/]/).pop()}`)
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {

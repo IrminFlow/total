@@ -461,7 +461,19 @@ function edocCompany(company: CompanyInfo): EdocCompany {
   }
 }
 
-export function exportEInvoices(db: DB, company: CompanyInfo, slug: string, from: string, to: string, period: string): { path: string; count: number } {
+/** The e-invoice JSON's file name inside exports/ (also the save dialog's default name). */
+export const eInvoiceFileName = (period: string): string => `einvoice-${period}.json`
+
+/** `opts.path` = the file chosen in the save dialog; absent = `<company>/exports/einvoice-<period>.json` as before. */
+export function exportEInvoices(
+  db: DB,
+  company: CompanyInfo,
+  slug: string,
+  from: string,
+  to: string,
+  period: string,
+  opts: { path?: string } = {}
+): { path: string; count: number } {
   // Purchase-side debit notes (goods returned to a supplier) are NOT outward documents —
   // e-invoicing one would register a spurious IRN and auto-populate portal GSTR-1 with
   // output tax the books don't contain. Same outwardDebitNoteIds split as every sibling
@@ -475,7 +487,7 @@ export function exportEInvoices(db: DB, company: CompanyInfo, slug: string, from
       (i.partyGstin || i.supTyp === 'EXPWP' || i.supTyp === 'EXPWOP')
   )
   const json = buildEInvoiceJson(invoices, edocCompany(company))
-  const path = join(companyExportsDir(slug), `einvoice-${period}.json`)
+  const path = opts.path ?? join(companyExportsDir(slug), eInvoiceFileName(period))
   writeFileSync(path, JSON.stringify(json, null, 2))
   return { path, count: invoices.length }
 }
