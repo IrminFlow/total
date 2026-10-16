@@ -49,6 +49,7 @@ noisy by ±20 %; the A/B tables below interleave before / after runs on copies o
 |---|---|---:|---:|
 | Trial balance, P&L, Balance sheet, Day book, Ledger statement, Outstandings, Stock summary (valuation pass), GSTR-1, GSTR-3B | `reports.*`, `analysis.outstandings`, `stockAnalysis.stockSummary`, `gst.gstr1 / gstr3b` | 1 s | 3 s |
 | Gateway (accountant Home): `report:dashboardSeries`, `report:dashboard` | `dashboard.dashboardSeries`, `reports.dashboard` | 1 s each | 3 s each |
+| Gateway in one round trip: `dashboard:all` (series + dashboard + MSME due + promised; what the Gateway calls since PR #PRNUM) | `dashboard.dashboardAll` | 2 s | 6 s |
 | simple:home (one round trip) | `simpleHome` | **600 ms** | 3 s |
 | simple:homeAttention (fills in after Home) | `simpleHomeAttention` | 1 s | 3 s |
 | Reports: how the business is doing; Taxes | `simpleReports.businessDoing`, `simpleTaxes.simpleTaxes` | 1 s | 3 s |
@@ -57,7 +58,7 @@ noisy by ±20 %; the A/B tables below interleave before / after runs on copies o
 | Save: sales invoice with 5 lines; receipt against 3 bills | `vouchers.saveVoucher` | 300 ms | 300 ms |
 | Company open: integrity check | `checkIntegrity` | 1 s | 3 s |
 | Backup (online snapshot + quick_check of the copy) | `snapshotTo` + `quickCheckOk` | 3 s | 10 s |
-| App launch → Home interactive (built app, Playwright) | `scripts/perf-launch.mjs` | see Launch | — |
+| **launch**: app launch → Home interactive (built app, Playwright, 100k) | `scripts/perf-launch.mjs` | 2 s target, not met — see Launch | — |
 
 Why the budgets differ from the proposal (100k ≤ 1 s per report, ≤ 300 ms save, ≤ 200 ms search;
 500k ≤ 3 s per report):
@@ -183,6 +184,42 @@ and balance query, run together; then the Gateway's own reads on the main thread
 other: `report:dashboardSeries` ~0.9 s, `report:dashboard` ~0.37 s, `payables:msmeDue` ~0.25 s,
 `report:dashboardPromised` ~0.19 s. Electron + renderer boot is ~1.9 s with no company at all.
 
+### Launch after PR #PRNUM (one round trip, backup check after Home)
+
+Measured on the same laptop on 16 Oct 2026 while it was heavily loaded (other work running — every
+figure is ~2–3× the table above; the before / after pairs were taken minutes apart on copies of the
+same 100k seed, before = origin/main built the same way), median of 3, `--trace`:
+
+| launch (100k) | Before | After |
+|---|---:|---:|
+| Gateway: launch → company list | 4.8 s | 3.5 s |
+| Gateway: click → Home idle | 17.5 s | 8.5 s |
+| **Gateway: launch → Home interactive** | **22.2 s** | **12.0 s** |
+| Simple Home: click → Home idle | 21.6 s | 7.4 s |
+| **Simple Home: launch → Home interactive** | **24.9 s** | **11.3 s** |
+
+What the trace showed: the open's automatic **backup restore check** (WP 7.2: copy, open, migrate,
+quick_check, audit chain, TB — on the main thread, 6–16 s here, deferred 3 s after the open) fired
+while Home was still loading, so every read Home asked for after it — the Gateway's MSME / promised
+chips and its party-tasks / finance rows, which mount only once their card has data, and simple
+Home's `simple:homeAttention` reply — waited behind it. Two changes, no figure changed:
+
+- The Gateway's four reads are one `dashboard:all` call (each part exactly its channel's output —
+  `dashboardAll.dbtest.ts` deep-equals them on the demo seed and, with `TOTAL_PERF_DATA`, on the
+  100k seed; the old channels stay). Its handler time is the four together (~4.2–5.3 s here vs
+  2.3 + 1.0 + 1.5 + 0.8 s as four calls; `npm run perf -- --only gatewayAll`: 2.5 s median against
+  the 2 s budget, the series alone 1.3 s on this loaded run).
+- The deferred backup check now also waits until no IPC call has run for 2 s (at most 60 s after
+  the backup, `quietWait.ts`), so it runs after Home has loaded. It checks the same things and writes
+  the same rows; the trace prints it as `(timer) backup check`.
+
+What is left between launch and Home (after): Electron + renderer boot to the company list
+(~2.6–3.8 s here, ~1.9 s unloaded — one 5.7 MB renderer bundle, every screen imported eagerly; lazy
+screens would be the next win but change how every screen mounts), `company:open` (2.2–4.1 s here:
+the open backup's snapshot + both quick_checks in workers) and `dashboard:all` / `simple:home` +
+`simple:homeAttention`. The backup check itself still holds the main thread for its seconds once it
+runs (a worker thread for it is the remaining fix).
+
 Found and fixed (no behaviour change): a full `ANALYZE` on every open (now only after a migration
 or without statistics; `PRAGMA optimize` otherwise); the open backup's quick_check, the integrity
 quick_check and the weekly `PRAGMA integrity_check` ran on the main thread (now a worker thread; the
@@ -258,8 +295,9 @@ weekly check writes only its meta stamp.
   (two arrays of ~660k objects at 500k today) and share one pass / one Outstandings run across a
   round trip; measure on a machine that can cache the file.
 - Full-text search (FTS5 table + triggers) for voucher text — a schema change beyond CREATE INDEX.
-- Launch ≤ 2 s: the Gateway's four reads could run as one round trip (renderer change, kept out
-  while Phase 10 is in flight); the open backup's verification could be moved after the reply if
-  its audit row may follow the open's housekeeping rows (an ordering change — owner decision).
+- Launch ≤ 2 s: the Gateway's four reads are one round trip and the backup restore check waits
+  for Home (PR #PRNUM); left: lazy-loaded renderer screens (boot), the restore check in a worker
+  thread, and the open backup's verification could be moved after the reply if its audit row may
+  follow the open's housekeeping rows (an ordering change — owner decision).
 - Server-side paging for the Sales / People DataTables — not needed: both are under budget at 100k
   (and the Sales list at 500k).

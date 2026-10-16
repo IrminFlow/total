@@ -41,7 +41,16 @@ export const hashOf = (value: unknown): string => createHash('sha256').update(ca
 export async function reportOutputs(db: DB, info: CompanyInfo, today: string): Promise<Record<string, unknown>> {
   const ctx = perfContext(db, info, today)
   const out: Record<string, unknown> = {}
-  for (const c of PERF_CASES) if (!c.writes) out[c.id] = await c.run(ctx)
+  for (const c of PERF_CASES) if (!c.writes && !c.partsOf) out[c.id] = await c.run(ctx)
+  // A bundle (dashboard:all) must carry exactly the hashed outputs of the cases it bundles.
+  for (const c of PERF_CASES) {
+    if (!c.partsOf) continue
+    const bundle = (await c.run(ctx)) as Record<string, { ok: boolean; data?: unknown } | null>
+    for (const [part, id] of Object.entries(c.partsOf)) {
+      const got = bundle[part]
+      if (!got?.ok || canonical(got.data) !== canonical(out[id])) throw new Error(`${c.id}.${part} differs from ${id}`)
+    }
+  }
   const fyStarts = [info.booksFrom, info.booksFrom + 1, info.booksFrom + 2].filter((y) => `${y}-04-01` <= today)
   for (const y of fyStarts) {
     const from = `${y}-04-01`

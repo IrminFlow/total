@@ -264,3 +264,27 @@ export function monthSpan(ym: string, w: Pick<DashboardWindow, 'from' | 'asOn'>)
   const to = end < w.asOn ? end : w.asOn
   return from <= to ? { from, to } : null
 }
+
+/** "Promised this week" chip (report:dashboardPromised). */
+export interface DashPromised {
+  count: number
+  amount: number
+  overdueCount: number
+  weekFrom: string
+  weekTo: string
+}
+
+/**
+ * dashboard:all — the accountant Gateway's four reads in ONE round trip (launch to Home): each
+ * part is exactly what its own channel returns (report:dashboardSeries, report:dashboard,
+ * payables:msmeDue, report:dashboardPromised), wrapped so a failing part fails only its card,
+ * as when they were four calls. `msmeDue` / `promised` are null when the caller asked without
+ * them (`parties: false` — the Gateway's "Ageing, top parties & compliance" cards are hidden, so
+ * nothing shows them; the old screen made neither call then).
+ */
+export interface DashboardAll<TDash = unknown, TMsme = unknown> {
+  series: DashSection<DashboardSeries>
+  dashboard: DashSection<TDash>
+  msmeDue: DashSection<TMsme> | null
+  promised: DashSection<DashPromised> | null
+}

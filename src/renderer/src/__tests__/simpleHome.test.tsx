@@ -83,7 +83,7 @@ describe('simple Home (WP 8.6)', () => {
     renderHome(home())
     await screen.findByTestId('simple-tile-receivables')
     expect(invoke.mock.calls.filter(([ch]) => ch === 'simple:home')).toHaveLength(1)
-    expect(invoke.mock.calls.some(([ch]) => ch === 'report:dashboardSeries')).toBe(false)
+    expect(invoke.mock.calls.some(([ch]) => ch === 'report:dashboardSeries' || ch === 'dashboard:all')).toBe(false)
     expect(screen.getByTestId('simple-tile-money-in-value').textContent).toBe('₹4,200.00')
     expect(screen.getByTestId('simple-tile-money-out-value').textContent).toBe('₹1,200.00')
     expect(screen.getByTestId('simple-tile-receivables-value').textContent).toBe('₹67,282.20')

@@ -36,8 +36,8 @@ import type {
   VoucherListRow
 } from '@shared/reports'
 import type { CashFlowStatement } from '@shared/reportMath'
-import type { DashboardSeries } from '@shared/dashboard'
-import type { MsmeYearEndWarning } from '@shared/payables/types'
+import type { DashboardAll, DashboardSeries } from '@shared/dashboard'
+import type { MsmeDueSummary, MsmeYearEndWarning } from '@shared/payables/types'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
 import type { Recon2bResult, Recon2bTolerances } from '@shared/gst/recon2b'
@@ -1070,6 +1070,9 @@ export const api = {
     /** Gateway dashboard cards (WP 1.10b) — sectioned: each card's data or its own error. */
     dashboardSeries: (today: string, from: string, to: string) =>
       call<DashboardSeries>('report:dashboardSeries', { today, from, to }),
+    /** The Gateway's four reads (series, dashboard, MSME due, promised) in one round trip — each part its channel's output or its own error. */
+    dashboardAll: (today: string, from: string, to: string, parties = true) =>
+      call<DashboardAll<DashboardData, MsmeDueSummary>>('dashboard:all', { today, from, to, parties }),
     cashFlow: (from: string, to: string) => call<CashFlowStatement>('report:cashFlow', { from, to }),
     stockAgeing: (asOn: string) => call<StockAgeingRow[]>('report:stockAgeing', { asOn }),
     itemProfitability: (from: string, to: string) => call<ItemProfitRow[]>('report:itemProfitability', { from, to }),

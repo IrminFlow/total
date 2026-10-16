@@ -5,11 +5,14 @@ import { todayISO } from '@shared/dates'
 import { formatPaise, formatPaiseCompact } from '@shared/money'
 import { payablesApi } from '../../lib/payablesClient'
 import { useNav } from '../../state/stores'
+import { useGatewayFetch } from './gatewayData'
 
 export function MsmeDueLine(): React.JSX.Element | null {
   const nav = useNav()
   const today = todayISO()
-  const { data } = useQuery({ queryKey: ['dashboard', 'msmeDue', today], queryFn: () => payablesApi.msmeDue(today) })
+  // On the Gateway this comes with its one dashboard:all round trip (gatewayData.tsx).
+  const viaGateway = useGatewayFetch()
+  const { data } = useQuery({ queryKey: ['dashboard', 'msmeDue', today], queryFn: () => (viaGateway ? viaGateway('msmeDue') : payablesApi.msmeDue(today)) })
   if (!data || data.dueThisWeekBills + data.overdueBills === 0) return null
   return (
     <button

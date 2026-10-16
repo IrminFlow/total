@@ -59,14 +59,25 @@ const DASH = {
   topReceivables: [], topPayables: [], cashSpark: [], voucherCount: 40, partyCount: 5, itemCount: 6, hasEmployees: false, ratios: {}
 }
 
+const MSME = { asOn: today, dueThisWeek: 1250000, dueThisWeekBills: 2, overdue: 0, overdueBills: 0 }
+const PROMISED = { count: 1, amount: 500000, overdueCount: 0, weekFrom: today, weekTo: today }
+
 function setup(opts: { series?: DashboardSeries | { fail: string }; features?: Partial<CompanyFeatures> } = {}): void {
   invoke.mockImplementation(async (channel: string) => {
     switch (channel) {
-      case 'report:dashboardSeries': {
+      // Launch to Home: the Gateway's four reads come as ONE dashboard:all, each part a section.
+      case 'dashboard:all': {
         const s = opts.series ?? series()
-        return 'fail' in s ? { ok: false, error: s.fail } : { ok: true, data: s }
+        return {
+          ok: true,
+          data: {
+            series: 'fail' in s ? { ok: false, error: s.fail } : { ok: true, data: s },
+            dashboard: { ok: true, data: DASH },
+            msmeDue: { ok: true, data: MSME },
+            promised: { ok: true, data: PROMISED }
+          }
+        }
       }
-      case 'report:dashboard': return { ok: true, data: DASH }
       case 'config:features:get': return { ok: true, data: { ...DEFAULT_FEATURES, ...opts.features } }
       case 'app:notifyDeadlines': return { ok: true, data: null }
       case 'log:renderer': return { ok: true, data: null }
@@ -187,6 +198,17 @@ describe('Gateway dashboard', () => {
     expect(screen.getByTestId('dash-trade').textContent).toContain('database is locked')
     expect(screen.getByTestId('tile-cash').textContent).toContain('Unavailable')
     await waitFor(() => expect(screen.getAllByTestId('recent-voucher')).toHaveLength(1))
+  })
+
+  it('launch to Home: the four reads are ONE dashboard:all call, and the chips come with it', async () => {
+    setup()
+    await waitFor(() => expect(screen.getAllByTestId('recent-voucher')).toHaveLength(1))
+    await waitFor(() => expect(screen.getByTestId('dash-msme-due').textContent).toContain('12.5K'))
+    expect(screen.getByTestId('chip-promised-week').textContent).toContain('1 this week')
+    const channels = invoke.mock.calls.map(([ch]) => ch as string)
+    expect(channels.filter((ch) => ch === 'dashboard:all')).toHaveLength(1)
+    for (const old of ['report:dashboardSeries', 'report:dashboard', 'payables:msmeDue', 'report:dashboardPromised']) expect(channels).not.toContain(old)
+    expect(invoke.mock.calls.find(([ch]) => ch === 'dashboard:all')![1]).toEqual({ today, from: fy.from, to: fy.to, parties: true })
   })
 
   it('a card that throws while rendering is contained by its boundary', async () => {

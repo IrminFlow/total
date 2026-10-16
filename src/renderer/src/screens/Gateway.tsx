@@ -1,6 +1,7 @@
 // Gateway — the company dashboard (WP 1.10b). Figures come from report:dashboardSeries (sectioned:
 // each card renders its own section, loading skeleton or error) plus the older report:dashboard
-// for recent entries and the payroll flag. Every number reconciles to a report screen and every
+// for recent entries and the payroll flag — fetched, with the MSME / promised chips, as ONE
+// dashboard:all round trip (gateway/gatewayData.tsx). Every number reconciles to a report screen and every
 // tile/row clicks through to it. The working period is the session's from/to; "this month" is
 // today's month while today is inside that period, else the period's last month (see
 // dashboardWindow in @shared/dashboard).
@@ -29,6 +30,7 @@ import { CARD_SCREENS, screenApplies } from '../lib/screens'
 import { isManufactureKey, kindForVoucherKey } from '../lib/voucherKeys'
 import { Sparkline } from '../components/charts'
 import { cardState, type CardState } from './gateway/parts'
+import { GatewayDataProvider, useGatewayFetcher } from './gateway/gatewayData'
 import {
   AgeingCard,
   BooksCard,
@@ -68,12 +70,16 @@ export function Gateway(): React.JSX.Element {
   const regType = info?.gstRegistrationType
   const shortcuts = useMemo(() => SHORTCUTS.filter((c) => (!c.feature || features[c.feature]) && screenApplies(c, regType)), [features, regType])
 
+  const opts = useScreenOptions('gateway', { charts: true, parties: true, activity: true })
+  // Launch to Home: the series, report:dashboard and the two chips (MSME due, promised) are ONE
+  // dashboard:all round trip — each keeps its own query (and error), see gateway/gatewayData.
+  const fetchPart = useGatewayFetcher(today, from, to, opts.options.parties)
   const seriesQ = useQuery({
     queryKey: ['dashboard', 'series', today, from, to],
-    queryFn: () => api.reports.dashboardSeries(today, from, to)
+    queryFn: () => fetchPart('series')
   })
   // Same key VoucherEntry uses (react-query dedupes): recent entries + the payroll flag.
-  const dashQ = useQuery({ queryKey: ['dashboard', today, from], queryFn: () => api.reports.dashboard(today, from) })
+  const dashQ = useQuery({ queryKey: ['dashboard', today, from], queryFn: () => fetchPart('dashboard') })
 
   const s: DashboardSeries | undefined = seriesQ.data
   const card = <K extends SectionKey>(k: K): CardState<SectionData<K>> =>
@@ -125,9 +131,9 @@ export function Gateway(): React.JSX.Element {
   const setup = s?.setup.ok ? s.setup.data : null
   const brandNew = setup?.voucherCount === 0
   const hasPayroll = features.payroll && (dashQ.data?.hasEmployees ?? false)
-  const opts = useScreenOptions('gateway', { charts: true, parties: true, activity: true })
 
   return (
+    <GatewayDataProvider fetch={fetchPart}>
     <Page width="full" className="flex flex-col gap-3" data-testid="gateway-dashboard">
       <PageHeader
         title="Dashboard"
@@ -256,6 +262,7 @@ export function Gateway(): React.JSX.Element {
 
       {!brandNew && setup && <OnboardingCard setup={setup} />}
     </Page>
+    </GatewayDataProvider>
   )
 }
 

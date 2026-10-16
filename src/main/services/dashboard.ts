@@ -16,14 +16,17 @@ import {
   dashboardWindow, monthOf, monthSpan, addDays, addMonths, weekStart, monthEnd,
   type DashAgeing, type DashCash, type DashCashLedger, type DashGst, type DashMonth, type DashParty,
   type DashSection, type DashSetup, type DashStatus, type DashStock, type DashStockAlert, type DashTds,
-  type DashTrade, type DashTrendPoint, type DashboardSeries, type DashboardWindow, type DashActivity, type DashPdc
+  type DashTrade, type DashTrendPoint, type DashboardSeries, type DashboardWindow, type DashActivity, type DashPdc,
+  type DashboardAll, type DashPromised
 } from '@shared/dashboard'
+import type { DashboardData } from '@shared/reports'
+import type { MsmeDueSummary } from '@shared/payables/types'
 import { complianceApplicability, upcomingDeadlines } from '@shared/compliance'
 import { tdsQuarterOf } from '@shared/tds'
 import { gstPeriodOf } from '@shared/dates'
 import { gstr1DueDate, gstr3bDueDate } from '@shared/gst/filing'
 import { GST_FILED_META_KEY, normalizeGstFiled, type GstFiledMeta } from '@shared/simple/taxes'
-import { closingBalances, descendantIdSet, profitAndLoss, stockAgeing } from './reports'
+import { closingBalances, dashboard as dashboardRecent, descendantIdSet, profitAndLoss, stockAgeing } from './reports'
 import { netTradeRows, outstandings } from './analysis'
 import { negativeStock, stockValuesAt } from './stockAnalysis'
 import { gstr3b, turnover } from './gst'
@@ -34,6 +37,7 @@ import { getFeatures, getGstProfile } from './config'
 import { listGroups } from './masters'
 import { IN_BOOKS, NOT_DELETED, getLockDate } from './vouchers'
 import { promisedThisWeek } from './receivables'
+import { msmeDueSummary } from './payables'
 import { pdcsMaturing } from './pdc'
 
 /** Mirrors db/backup.ts BackupInfo — passed in by the IPC handler (the service never touches
@@ -511,7 +515,31 @@ function monthEndBalances(
  * still open, from the follow-ups (services/receivables.ts). Kept a separate function and a
  * separate channel (report:dashboardPromised) so the dashboard series stays untouched.
  */
-export function dashPromisedPayments(db: DB, today: string): { count: number; amount: number; overdueCount: number; weekFrom: string; weekTo: string } {
+export function dashPromisedPayments(db: DB, today: string): DashPromised {
   const s = promisedThisWeek(db, today)
   return { count: s.count, amount: s.amount, overdueCount: s.overdueCount, weekFrom: s.weekFrom, weekTo: s.weekTo }
+}
+
+/**
+ * dashboard:all (launch to Home): the Gateway's four reads — the series, report:dashboard
+ * (recent entries + the payroll flag), "MSME due this week" and "promised this week" — in one
+ * read transaction, each part the very function its own channel calls with the same arguments
+ * (fyFrom = the session's from, as the Gateway always passed; asOn = today; the last two only
+ * while `parties` is not false). Nothing is shared or
+ * re-derived between the parts, so the figures are those of the four channels
+ * (dashboardAll.dbtest.ts deep-equals them). Each part is a section: one that throws fails only
+ * its own card.
+ */
+export function dashboardAll(
+  db: DB,
+  company: CompanyInfo,
+  opts: { today: string; from: string; to: string; backups: DashBackupInput[]; parties?: boolean }
+): DashboardAll<DashboardData, MsmeDueSummary> {
+  const parties = opts.parties !== false
+  return db.transaction(() => ({
+    series: section(() => computeSeries(db, company, opts)),
+    dashboard: section(() => dashboardRecent(db, opts.today, opts.from)),
+    msmeDue: parties ? section(() => msmeDueSummary(db, opts.today)) : null,
+    promised: parties ? section(() => dashPromisedPayments(db, opts.today)) : null
+  }))()
 }

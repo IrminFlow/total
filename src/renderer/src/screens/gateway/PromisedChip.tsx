@@ -6,13 +6,16 @@ import { formatPaiseCompact, formatPaise } from '@shared/money'
 import { todayISO } from '@shared/dates'
 import { receivablesApi } from '../../lib/receivablesClient'
 import { useNav } from '../../state/stores'
+import { useGatewayFetch } from './gatewayData'
 import { Badge } from '../../components/ui'
 import { drillRowProps } from '../../components/links'
 
 export function PromisedChip(): React.JSX.Element | null {
   const nav = useNav()
   const today = todayISO()
-  const { data } = useQuery({ queryKey: ['dashboard', 'promised', today], queryFn: () => receivablesApi.dashboardPromised(today) })
+  // On the Gateway this comes with its one dashboard:all round trip (gatewayData.tsx).
+  const viaGateway = useGatewayFetch()
+  const { data } = useQuery({ queryKey: ['dashboard', 'promised', today], queryFn: () => (viaGateway ? viaGateway('promised') : receivablesApi.dashboardPromised(today)) })
   if (!data || (data.count === 0 && data.overdueCount === 0)) return null
   return (
     <div

@@ -191,6 +191,12 @@ what you typed, and a **Back to simple** button.
   rate is picked from today's rates (the ones its next bill will use); an older rate such as 12 %
   is still there under "Custom rate (check with your CA)". No figure changed.
   [#130](https://github.com/IrminFlow/total/pull/130)
+- **Home opens sooner on big books.** After you open a business, Total checks that its fresh
+  backup can be restored. On a business with 100,000 entries that check ran while Home was still
+  loading, and Home waited for it. Now it runs once Home has loaded. The full app's dashboard also
+  gets its figures in one request instead of four. Measured on a busy laptop with 100,000 entries,
+  from starting Total to a ready Home: the full app's dashboard went from 22.2 s to 12.0 s, simple
+  Home from 24.9 s to 11.3 s. No figure changed. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
 
 ### For accountants (figures that changed)
 
@@ -318,6 +324,11 @@ Read these before filing from the next release.
 - Ask Total: new intents `bill` / `withholding` / `payroll` (`src/shared/assist.ts`, `picks.bill`);
   new IPC `assist:draft:discard` (accountant+, audited `ai_draft`); an Ask Total draft records
   `payload.simple.askedBy`. [#125](https://github.com/IrminFlow/total/pull/125)
+- Launch to Home: new IPC `dashboard:all` (viewer, Zod-strict `{ today, from, to, parties? }`, one
+  read transaction; each part = `report:dashboardSeries` / `report:dashboard` / `payables:msmeDue` /
+  `report:dashboardPromised`, which stay) used by the accountant Gateway; PERF_CASE `gatewayAll`
+  (2 s at 100k); the deferred backup restore check waits for 2 s without IPC (`quietWait.ts`, at
+  most 60 s). [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
 - "I've filed" lives in company meta `gstFiled`, not in `assistant_marks` (which has no room for an
   ARN). [#94](https://github.com/IrminFlow/total/pull/94)
 - i18n: `Translate.lang`, `toPlainDate(d, lang)`, `amountInWords(paise, lang)`; the glossary is
