@@ -16,7 +16,7 @@ import { TEST_INFO, postSimpleVoucher, testFileDb } from '../db/testdb'
 import { rekeyFile } from '../db/encryption'
 import { newDataKey } from '../db/keyEnvelope'
 import { snapshotTo } from '../db/backup'
-import { runningChecks, setCheckWorkerFile, stopAllChecks, stopChecks, stopChecksUnder } from '../db/checkHost'
+import { CheckStoppedError, runningChecks, setCheckWorkerFile, stopAllChecks, stopChecks, stopChecksUnder } from '../db/checkHost'
 import { SYSTEM_AUDIT_USER } from './audit'
 import { checkBackupIfDue, recordBackupCheck, verifyBackupFile, verifyBackupFileAsync } from './backupVerify'
 import type { DB } from '../db/connection'
@@ -33,6 +33,9 @@ beforeAll(async () => {
   await buildCheckWorker(workerFile, { sqlitePath: sqliteDriverPath() })
 }, 60_000)
 afterEach(() => setCheckWorkerFile(undefined))
+
+/** The promise's value or its rejection reason — a handler attached the moment the check starts. */
+const settled = <T,>(p: Promise<T>): Promise<T | unknown> => p.then((v) => v, (e: unknown) => e)
 afterAll(() => rmSync(ROOT, { recursive: true, force: true }))
 
 /** A company file (WAL, seeded, one entry) migrated with `migrations`. */
@@ -183,7 +186,9 @@ describe('the restore check in the check worker', () => {
     await snapshotTo(a.db, backupA)
     await snapshotTo(b.db, backupB)
     const pa = checkBackupIfDue(a.db, backupA, 'auto', AS_ON, SYSTEM_AUDIT_USER)
-    const pb = verifyBackupFileAsync(backupB, { asOn: AS_ON, key: null, now: NOW })
+    // Settled into a value at once: the stopped check rejects while the test is still awaiting the
+    // other one, and a rejection with no handler yet is an unhandled rejection.
+    const pb = settled(verifyBackupFileAsync(backupB, { asOn: AS_ON, key: null, now: NOW }))
     await new Promise((r) => setTimeout(r, 50))
     // A folder that is only a prefix of the name (ROOT/co vs ROOT/co-12) is not "inside".
     await stopChecksUnder(join(ROOT, 'co'))
@@ -193,7 +198,7 @@ describe('the restore check in the check worker', () => {
     expect(runningChecks(backupA)).toBe(0)
     expect(runningChecks(backupB)).toBe(1)
     await stopChecksUnder(dirname(b.path))
-    await expect(pb).rejects.toThrow()
+    expect(await pb).toBeInstanceOf(CheckStoppedError)
     expect(runningChecks(backupB)).toBe(0)
     a.db.close()
     b.db.close()
@@ -211,13 +216,15 @@ describe('the restore check in the check worker', () => {
     await snapshotTo(a.db, backupA)
     await snapshotTo(b.db, backupB)
     const pa = checkBackupIfDue(a.db, backupA, 'auto', AS_ON, SYSTEM_AUDIT_USER)
-    const pb = verifyBackupFileAsync(backupB, { asOn: AS_ON, key: null, now: NOW })
+    // Settled into a value at once: the stopped check rejects while the test is still awaiting the
+    // other one, and a rejection with no handler yet is an unhandled rejection.
+    const pb = settled(verifyBackupFileAsync(backupB, { asOn: AS_ON, key: null, now: NOW }))
     await new Promise((r) => setTimeout(r, 50))
     expect(runningChecks(backupA)).toBe(1)
     expect(runningChecks(backupB)).toBe(1)
     await stopAllChecks()
     expect(await pa).toBeNull()
-    await expect(pb).rejects.toThrow()
+    expect(await pb).toBeInstanceOf(CheckStoppedError)
     expect(runningChecks(backupA)).toBe(0)
     expect(runningChecks(backupB)).toBe(0)
     expect(runRows(a.db)).toEqual([])
