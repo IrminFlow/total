@@ -55,7 +55,7 @@ export type Screen =
   | { name: 'gateway' }
   // Optional drill params (Registers month rows → filtered Day Book): restrict to one
   // 'YYYY-MM' month and/or one voucher-type kind ('sales' | 'purchase' | …).
-  | { name: 'daybook'; month?: string; kind?: string; date?: string }
+  | { name: 'daybook'; month?: string; kind?: string; date?: string; voucherIds?: number[]; source?: string }
   | { name: 'import-tally' }
   | { name: 'data-import' }
   | { name: 'data-export' }

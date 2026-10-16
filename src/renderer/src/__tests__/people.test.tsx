@@ -65,6 +65,7 @@ const BILLS: BillsData = {
 }
 const info: CompanyInfo = { name: 'Sharma Traders', stateCode: '27', gstin: null, gstRegistrationType: 'unregistered', address: '', booksFrom: 2026, email: null, phone: null, pan: null, tan: null }
 const calls = (ch: string): unknown[] => invoke.mock.calls.filter(([c]) => c === ch).map(([, p]) => p)
+let rameshNow: PersonData = RAMESH
 let updateReply: () => { ok: boolean; data?: unknown; error?: string; code?: string; field?: string }
 
 function renderUi(ui: React.ReactElement): void {
@@ -74,13 +75,15 @@ function renderUi(ui: React.ReactElement): void {
 const visibleText = (): string => document.body.textContent ?? ''
 
 beforeEach(() => {
+  rameshNow = RAMESH
   updateReply = () => ({ ok: true, data: { ledgerId: 10, phone: '9876543210', whatsapp: null, creditDays: 20 } })
   invoke.mockImplementation(async (channel: string, payload: { id?: number }) => {
     switch (channel) {
       case 'master:groups:list': return { ok: true, data: GROUPS }
       case 'master:ledgers:list': return { ok: true, data: [ledger(10, 'Ramesh', 2), ledger(20, 'Bharat Steel', 3)] }
       case 'simple:people:list': return { ok: true, data: LIST }
-      case 'simple:people:person': return { ok: true, data: payload.id === 20 ? BHARAT : RAMESH }
+      case 'simple:people:person': return { ok: true, data: payload.id === 20 ? BHARAT : rameshNow }
+      case 'receivables:statementPdf': return { ok: true, data: { path: '/tmp/exports/statement.pdf' } }
       case 'simple:people:billsToPay': return { ok: true, data: BILLS }
       case 'simple:people:update': return updateReply()
       case 'simple:people:reminded': return { ok: true, data: { logId: 1 } }
@@ -239,6 +242,38 @@ describe('a person’s page', () => {
     open.mockRestore()
   })
 
+  it('inside the "don\'t remind again" window the first send asks first; Not now sends nothing, Send again goes ahead', async () => {
+    rameshNow = { ...RAMESH, reminder: { ...RAMESH.reminder!, lastSent: '2026-10-11', allowed: false, nextAllowed: '2026-10-18' } }
+    renderUi(<PersonView id={10} />)
+    fireEvent.click(await screen.findByTestId('btn-person-remind'))
+    expect(screen.getByTestId('reminder-last').textContent).toContain('You can still send it.')
+    fireEvent.click(screen.getByTestId('btn-reminder-copy'))
+    expect(screen.getByTestId('reminder-again').textContent).toContain('You reminded them 3 days ago. Send again?')
+    expect(bannedWordsIn(screen.getByTestId('reminder-again').textContent ?? '')).toEqual([])
+    fireEvent.click(screen.getByTestId('btn-reminder-again-no'))
+    expect(screen.queryByTestId('reminder-again')).toBeNull()
+    expect(navigator.clipboard.writeText).not.toHaveBeenCalled()
+    expect(calls('simple:people:reminded')).toEqual([])
+    fireEvent.click(screen.getByTestId('btn-reminder-sms'))
+    fireEvent.click(screen.getByTestId('btn-reminder-again-yes'))
+    await waitFor(() => expect(calls('simple:people:reminded')).toEqual([{ id: 10, via: 'sms', today: TODAY }]))
+    expect(navigator.clipboard.writeText).toHaveBeenCalled()
+    // Asked once per panel: the next way (the same message) goes straight through.
+    const open = vi.spyOn(window, 'open').mockReturnValue(null)
+    fireEvent.click(screen.getByTestId('btn-reminder-whatsapp'))
+    expect(screen.queryByTestId('reminder-again')).toBeNull()
+    await waitFor(() => expect(open).toHaveBeenCalled())
+    open.mockRestore()
+  })
+
+  it('outside the window (or never reminded) nothing is asked', async () => {
+    renderUi(<PersonView id={10} />)
+    fireEvent.click(await screen.findByTestId('btn-person-remind'))
+    fireEvent.click(screen.getByTestId('btn-reminder-copy'))
+    expect(screen.queryByTestId('reminder-again')).toBeNull()
+    await waitFor(() => expect(calls('simple:people:reminded')).toHaveLength(1))
+  })
+
   it('hold: the owner is asked why; the reason is required', async () => {
     renderUi(<PersonView id={10} />)
     fireEvent.click(await screen.findByTestId('btn-person-hold'))
@@ -254,14 +289,25 @@ describe('a person’s page', () => {
     act(() => useSession.setState({ user: { id: 2, name: 'Vik', role: 'viewer' } as never }))
     renderUi(<PersonView id={10} />)
     await screen.findByTestId('person-balance')
-    for (const id of ['btn-person-money-in', 'btn-person-make-bill', 'btn-person-remind', 'btn-person-statement', 'btn-person-hold', 'btn-person-save', 'btn-person-edit']) {
+    for (const id of ['btn-person-money-in', 'btn-person-make-bill', 'btn-person-remind', 'btn-person-hold', 'btn-person-save', 'btn-person-edit']) {
       expect(screen.queryByTestId(id), id).toBeNull()
     }
     expect(screen.getByTestId('btn-person-history')).toBeTruthy()
+    // PR #92 follow-up: a viewer gets the same Statement (receivables:statementPdf is a viewer read).
+    fireEvent.click(screen.getByTestId('btn-person-statement'))
+    await waitFor(() => expect(calls('receivables:statementPdf')).toEqual([{ ledgerId: 10, from: '2026-04-01', to: TODAY }]))
+    expect(await screen.findByTestId('person-statement-saved')).toBeTruthy()
     cleanup()
     act(() => useSession.setState({ user: { id: 3, name: 'Asha', role: 'accountant' } as never }))
     renderUi(<PersonView id={10} />)
     await screen.findByTestId('btn-person-remind')
     expect(screen.queryByTestId('btn-person-hold')).toBeNull()
+    // PR #140 review: the statement is a file of the books — not for a user whose canExport the
+    // owner turned off (receivables:statementPdf is in EXPORT_CHANNELS).
+    cleanup()
+    act(() => useSession.setState({ user: { id: 2, name: 'Vik', role: 'viewer', capabilities: { canExport: false } } as never }))
+    renderUi(<PersonView id={10} />)
+    await screen.findByTestId('btn-person-history')
+    expect(screen.queryByTestId('btn-person-statement')).toBeNull()
   })
 })

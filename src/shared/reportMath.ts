@@ -5,10 +5,24 @@
 
 // ---------- cash flow (indirect method) ----------
 
+/** One ledger's share of a cash-flow line (its cash effect, same sign as the line). */
+export interface CashFlowPart {
+  ledgerId: number
+  name: string
+  amount: number
+}
+
 export interface CashFlowRow {
   name: string
   /** Signed cash effect in paise: positive = cash generated, negative = cash used. */
   amount: number
+  /** What the line was computed from (drill-down): the ledgers whose movement it is — their
+   *  amounts add up to `amount` — and the in-books vouchers in the period that moved them
+   *  (closing journals left out, as in the figures). Absent where no ledger is behind the line
+   *  (the stock change is the valuation engine's); an opening-balance line has parts but no
+   *  vouchers. */
+  parts?: CashFlowPart[]
+  voucherIds?: number[]
 }
 
 export interface CashFlowStatement {
@@ -33,6 +47,10 @@ export interface GroupDelta {
   name: string
   /** Balance change over the period, signed dr-positive (asset increase > 0, liability increase < 0). */
   delta: number
+  /** Per-ledger deltas (dr-positive, adding up to `delta`) and the vouchers behind them; the row
+   *  carries them as cash effects (−delta). */
+  parts?: CashFlowPart[]
+  voucherIds?: number[]
 }
 
 export interface CashFlowInput {
@@ -80,6 +98,8 @@ export function buildCashFlow(input: CashFlowInput): CashFlowStatement {
   for (const g of input.groupDeltas) {
     if (g.delta === 0) continue
     const row: CashFlowRow = { name: g.name, amount: -g.delta }
+    if (g.parts) row.parts = g.parts.filter((p) => p.amount !== 0).map((p) => ({ ...p, amount: -p.amount })).sort((a, b) => a.name.localeCompare(b.name) || a.ledgerId - b.ledgerId)
+    if (g.voucherIds) row.voucherIds = [...g.voucherIds].sort((a, b) => a - b)
     const activity = activityFor(g.name)
     if (activity === 'investing') investing.push(row)
     else if (activity === 'financing') financing.push(row)

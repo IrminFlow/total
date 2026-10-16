@@ -3,6 +3,7 @@ import { LANGUAGES, type Language, type MessageKey } from '@shared/i18n'
 import { toPlainDate } from '@shared/dates'
 import { reminderMessage, reminderSms, whatsappLink, whatsappNumber, type PersonReminder, type PersonView, type ReminderVia } from '@shared/simple/people'
 import type { ReminderBucket } from '@shared/receivables/config'
+import { daysBetweenIso } from '@shared/receivables/interest'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useToasts } from '../../state/stores'
@@ -25,7 +26,8 @@ const LANG_TEXT: Record<Language, MessageKey> = { en: 'simple.people.lang.en', h
  * Copy, Open in WhatsApp (a wa.me link the OS browser opens — the app sends nothing itself) and
  * Copy for SMS (the same message without the bill list). Each one is logged as a reminder sent
  * today (reminder_log, like the letter); the "don't remind again within N days" setting is said,
- * not enforced.
+ * not enforced — inside that window the first send asks "You reminded them N days ago. Send
+ * again?" (Send again goes ahead, Not now sends nothing; never a block).
  */
 export function ReminderPanel({ person, reminder, startLang, onSent }: { person: PersonView; reminder: PersonReminder; startLang: Language; onSent: () => void }): React.JSX.Element {
   const t = useT()
@@ -63,6 +65,15 @@ export function ReminderPanel({ person, reminder, startLang, onSent }: { person:
       setLoggedOnce(false)
       toast.push('error', (e as Error).message)
     }
+  }
+  // Inside the cadence window the first send of this panel asks first; the click on "Send again"
+  // is itself a user gesture, so the clipboard / window.open still work.
+  const [asking, setAsking] = useState<(() => Promise<void>) | null>(null)
+  const insideWindow = !loggedOnce && reminder.lastSent != null && !reminder.allowed
+  const daysAgo = reminder.lastSent ? Math.max(0, daysBetweenIso(reminder.lastSent, person.today)) : 0
+  const askFirst = (send: () => Promise<void>): void => {
+    if (insideWindow) setAsking(() => send)
+    else void send()
   }
   const onCopy = async (via: 'copied' | 'sms'): Promise<void> => {
     if (!(await copy(via === 'sms' ? sms : text))) {
@@ -106,16 +117,36 @@ export function ReminderPanel({ person, reminder, startLang, onSent }: { person:
       )}
       <Textarea className="mt-3 font-sans" rows={11} readOnly value={text} data-testid="reminder-text" aria-label={t('simple.people.reminder.title', { name: person.name })} />
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button variant="primary" data-testid="btn-reminder-whatsapp" onClick={() => void onWhatsapp()}>
+        <Button variant="primary" data-testid="btn-reminder-whatsapp" onClick={() => askFirst(onWhatsapp)}>
           {t('simple.people.reminder.whatsapp')}
         </Button>
-        <Button data-testid="btn-reminder-copy" onClick={() => void onCopy(COPIED)}>
+        <Button data-testid="btn-reminder-copy" onClick={() => askFirst(() => onCopy(COPIED))}>
           {t('simple.people.reminder.copy')}
         </Button>
-        <Button data-testid="btn-reminder-sms" onClick={() => void onCopy(SMS)}>
+        <Button data-testid="btn-reminder-sms" onClick={() => askFirst(() => onCopy(SMS))}>
           {t('simple.people.reminder.sms')}
         </Button>
       </div>
+      {asking && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-md border border-amber/60 bg-panel2 p-2" role="group" aria-labelledby="reminder-again-text" data-testid="reminder-again">
+          <p id="reminder-again-text" className="text-body text-ink">{t('simple.people.reminder.again', { days: daysAgo })}</p>
+          <Button
+            variant="primary"
+            size="sm"
+            data-testid="btn-reminder-again-yes"
+            onClick={() => {
+              const send = asking
+              setAsking(null)
+              void send()
+            }}
+          >
+            {t('simple.people.reminder.againYes')}
+          </Button>
+          <Button size="sm" data-testid="btn-reminder-again-no" onClick={() => setAsking(null)}>
+            {t('simple.people.reminder.againNo')}
+          </Button>
+        </div>
+      )}
       {!whatsappNumber(number) && <p className="mt-2 text-detail text-muted" data-testid="reminder-no-phone">{t('simple.people.reminder.noPhone')}</p>}
       {note && (
         <p className="mt-2 text-detail text-ink" role="status" data-testid="reminder-note">

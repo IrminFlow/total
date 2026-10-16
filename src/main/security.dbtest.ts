@@ -328,6 +328,7 @@ describe('capability flags (finer-grained roles)', () => {
     expect(map.get('voucher:save')).toBe('canPost')
     expect(map.get('simple:post')).toBe('canPost')
     expect(map.get('export:books')).toBe('canExport')
+    expect(map.get('receivables:statementPdf')).toBe('canExport') // PR #140: a viewer read, still a file
     expect(map.get('report:profitLoss')).toBe('canSeeProfit')
     expect(map.get('ai:settings:set')).toBe('canManageAi')
   })

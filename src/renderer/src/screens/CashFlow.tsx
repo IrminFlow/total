@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
-import { useSession, useToasts } from '../state/stores'
+import { useNav, useSession, useToasts } from '../state/stores'
+import { openLedgerStatement } from '../lib/drill'
 import { Button, EmptyState, Money, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
 import { OptionToggle, OptionsExport, OptionsPeriod, useScreenOptions } from '../components/ScreenOptions'
 import { DrawerSection } from '../components/kit/Drawer'
@@ -9,6 +11,84 @@ import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/clie
 import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import type { CashFlowRow } from '@shared/reportMath'
+
+/** Day book filtered to the vouchers a line was computed from (same period — the session's). */
+function openLineVouchers(r: CashFlowRow): void {
+  if (!r.voucherIds || r.voucherIds.length === 0) return
+  useNav.getState().go({ name: 'daybook', voucherIds: r.voucherIds, source: `Cash flow: ${r.name}` })
+}
+
+/** One line: the row opens the Day book on its vouchers; ▸ shows the ledgers behind it, whose
+ *  names open their statements for the period. */
+function Line({ r }: { r: CashFlowRow }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const drills = (r.voucherIds?.length ?? 0) > 0
+  const parts = r.parts ?? []
+  return (
+    <>
+      <tr
+        data-testid="cash-flow-line"
+        data-line={r.name}
+        data-vouchers={r.voucherIds?.length ?? 0}
+        className={drills ? 'cursor-pointer hover:bg-panel2' : undefined}
+        tabIndex={drills ? 0 : undefined}
+        title={drills ? `Open the ${r.voucherIds!.length === 1 ? 'voucher' : `${r.voucherIds!.length} vouchers`} behind this line in the Day book` : undefined}
+        onClick={drills ? () => openLineVouchers(r) : undefined}
+        onKeyDown={
+          drills
+            ? (e) => {
+                if (e.key === 'Enter' && e.target === e.currentTarget) {
+                  e.preventDefault()
+                  openLineVouchers(r)
+                }
+              }
+            : undefined
+        }
+      >
+        <td className="pl-6">
+          {parts.length > 0 && (
+            <button
+              type="button"
+              className="mr-1 w-4 text-muted hover:text-ink"
+              aria-expanded={open}
+              aria-label={`${open ? 'Hide' : 'Show'} the ledgers behind ${r.name}`}
+              data-testid="cash-flow-toggle"
+              onClick={(e) => {
+                e.stopPropagation()
+                setOpen((o) => !o)
+              }}
+            >
+              {open ? '▾' : '▸'}
+            </button>
+          )}
+          {r.name}
+        </td>
+        <td className="r">
+          <Money paise={r.amount} />
+        </td>
+      </tr>
+      {open &&
+        parts.map((p) => (
+          <tr key={p.ledgerId} data-testid="cash-flow-part" data-ledger-id={p.ledgerId} className="text-detail">
+            <td className="pl-12">
+              <button
+                type="button"
+                className="text-left text-blue hover:underline"
+                data-testid="cash-flow-ledger"
+                title={`Open ${p.name} statement`}
+                onClick={() => openLedgerStatement(p.ledgerId)}
+              >
+                {p.name}
+              </button>
+            </td>
+            <td className="r text-muted">
+              <Money paise={p.amount} />
+            </td>
+          </tr>
+        ))}
+    </>
+  )
+}
 
 function Section({ title, rows, total, leadRow }: {
   title: string
@@ -30,12 +110,7 @@ function Section({ title, rows, total, leadRow }: {
         </tr>
       )}
       {rows.map((r) => (
-        <tr key={r.name}>
-          <td className="pl-6">{r.name}</td>
-          <td className="r">
-            <Money paise={r.amount} />
-          </td>
-        </tr>
+        <Line key={r.name} r={r} />
       ))}
       <tr className="font-medium">
         <td>Net cash from {title.toLowerCase()}</td>

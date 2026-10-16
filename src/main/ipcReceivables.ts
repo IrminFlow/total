@@ -50,7 +50,9 @@ export function registerReceivablesIpc(handle: Handle, company: () => Company): 
     const q = statementQuerySchema.parse(p)
     const c = company()
     return rx.statementPdf(c.db, c.info, c.slug, q.ledgerId, q.from, q.to)
-  })
+    // A viewer may save it too: the statement (ledgerStatement + the Outstandings allocation)
+    // holds nothing the viewer-readable receivables:statement / simple:people:person don't show.
+  }, 'viewer')
   handle('receivables:statementsBulk', async (p) => {
     const q = statementsBulkSchema.parse(p)
     const c = company()

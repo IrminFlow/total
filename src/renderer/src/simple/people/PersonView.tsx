@@ -16,6 +16,7 @@ import { Pill } from './Pill'
 import { ReminderPanel } from './ReminderPanel'
 import { HoldPanel } from './HoldPanel'
 import { printFailureText } from '../printFailure'
+import { useCapabilityRefused } from '../../lib/capabilities'
 
 type ContactField = 'phone' | 'whatsapp' | 'creditDays'
 type Panel = 'reminder' | 'hold'
@@ -68,6 +69,7 @@ function Person({ p }: { p: PersonData }): React.JSX.Element {
   const [reminderLang] = useLanguage()
   const canEdit = user == null || user.role !== 'viewer' // i18n-technical
   const isOwner = user == null || user.role === 'owner' // i18n-technical
+  const exportRefused = useCapabilityRefused('canExport') // i18n-technical
   const money = (x: number): string => formatPaise(x, { symbol: true })
   const name = p.walkIn ? t('simple.sales.cashCustomer') : p.name
   const customer = p.side === 'customer' // i18n-technical
@@ -195,7 +197,9 @@ function Person({ p }: { p: PersonData }): React.JSX.Element {
               {t('simple.people.remind')}
             </Button>
           )}
-          {canEdit && (
+          {/* Everyone, viewers too: the statement holds nothing the page doesn't already show — but
+              it is a file of the books, so not for a user the owner turned canExport off for. */}
+          {!exportRefused && (
             <Button data-testid="btn-person-statement" title={t('simple.people.statementHint')} disabled={busy} onClick={() => void makeStatement()}>
               {t('simple.people.statement')}
             </Button>
