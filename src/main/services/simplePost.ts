@@ -630,9 +630,14 @@ interface CreatedLedger {
 
 /** How the full editor makes a ledger the rehearsal created, the way it does on first use (null =
  *  the user picks or creates it there): the counter's walk-in customer (ensureWalkIn's name and
- *  group). */
-function createdOnFirstUse(r: CreatedLedger, _kind: VoucherKind): HandoffCreate | null {
+ *  group), a GST ledger of the entry's side and the Round Off ledger (ensureTaxLedgers above = the
+ *  editor's useTaxLedgers: same names, groups and side pick). */
+function createdOnFirstUse(r: CreatedLedger, kind: VoucherKind): HandoffCreate | null {
   if (r.name === WALK_IN_NAME && r.groupName === 'Sundry Debtors') return { kind: 'walkIn' }
+  if (r.groupName === 'Duties & Taxes' && (r.taxType === 'cgst' || r.taxType === 'sgst' || r.taxType === 'igst' || r.taxType === 'cess')) {
+    return { kind: 'tax', taxType: r.taxType, side: taxSideOf(kind) }
+  }
+  if (r.name.toLowerCase() === 'round off' && r.groupName === 'Indirect Expenses') return { kind: 'roundOff' }
   return null
 }
 

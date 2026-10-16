@@ -109,3 +109,29 @@ describe('the walk-in customer of a handed-off sale', () => {
     expect(saved[0]!.data.partyLedgerId).toBe(501)
   })
 })
+
+describe('GST / round-off ledgers of a handed-off "just an amount" bill', () => {
+  it('rows show the ledger name, and the ledgers are created on save as on first use', async () => {
+    ledgers = [...ledgers, ledger(40, 'Ramesh', 1, { stateCode: '27' })]
+    const row = (ledgerId: number | null, drCr: 'dr' | 'cr', amount: number) => ({ ledgerId, drCr, amount, costAllocations: [] })
+    renderHandoff({
+      from: 'simple-sell', kind: 'sale', others: [], missing: [], addedOnSave: ['CGST', 'SGST'],
+      entry: {
+        role: 'bill', kind: 'sales', voucherTypeId: 1, form: 'accounting', amount: 118_000,
+        pending: { rows: [null, null, { name: 'CGST', create: { kind: 'tax', taxType: 'cgst', side: 'output' } }, { name: 'SGST', create: { kind: 'tax', taxType: 'sgst', side: 'output' } }] },
+        state: {
+          date: '2026-10-14', number: '', rows: [row(40, 'dr', 118_000), row(20, 'cr', 100_000), row(null, 'cr', 9_000), row(null, 'cr', 9_000)],
+          narration: '', instrumentNo: '', billRefs: [], advanceReceipt: false, optional: false, tds: null, original: null
+        }
+      }
+    })
+    await waitFor(() => expect(document.querySelector('input[placeholder="CGST (added when you save)"]')).not.toBeNull(), { timeout: 3000 })
+    expect(document.querySelector('input[placeholder="SGST (added when you save)"]')).not.toBeNull()
+    expect(created).toEqual([])
+    await act(async () => fireEvent.click(screen.getByTestId('btn-save-voucher')))
+    await waitFor(() => expect(saved).toHaveLength(1))
+    expect(created).toEqual([{ name: 'CGST', groupId: 3, taxType: 'cgst' }, { name: 'SGST', groupId: 3, taxType: 'sgst' }])
+    expect(saved[0]!.data.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[40, 'dr', 118_000], [20, 'cr', 100_000], [501, 'cr', 9_000], [502, 'cr', 9_000]])
+  })
+})
+

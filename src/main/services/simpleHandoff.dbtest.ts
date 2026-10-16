@@ -270,6 +270,40 @@ describe('simple:intentForm — the editor state of the current answers', () => 
     expect(bill.pending).toBeUndefined()
   })
 
+  it('review: GST and round-off ledgers the save would create are named in their rows and created on save like the editor does', () => {
+    db.prepare("DELETE FROM ledgers WHERE name IN ('CGST', 'SGST', 'Round Off')").run()
+    const i = { kind: 'sale', customerId: L('Ramesh'), amount: { amount: '999', gstRate: 18 }, payment: { how: 'credit' } }
+    const before = trace()
+    const hf = intentForm(db, INFO, intent(i), TODAY)
+    expect(trace()).toEqual(before)
+    expect(hf.missing).toEqual([])
+    expect([...(hf.addedOnSave ?? [])].sort()).toEqual(['CGST', 'Round Off', 'SGST'])
+    const bill = hf.entries[0]!
+    if (bill.form !== 'accounting') throw new Error('accounting form')
+    const pendingRows = bill.state.rows.map((r, at) => [r.ledgerId, bill.pending?.rows?.[at] ?? null] as const).filter(([, p]) => p != null)
+    expect(pendingRows.map(([id]) => id)).toEqual([null, null, null])
+    expect(pendingRows.map(([, p]) => p!.create).sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)))).toEqual([
+      { kind: 'roundOff' }, { kind: 'tax', taxType: 'cgst', side: 'output' }, { kind: 'tax', taxType: 'sgst', side: 'output' }
+    ])
+    // Created on save as the editor's useTaxLedgers does (same names / groups), then saved = simple:post.
+    const editorCreate = (c: HandoffCreate): number => {
+      if (c.kind === 'roundOff') return ledger(db, 'Round Off', 'Indirect Expenses')
+      if (c.kind === 'tax') return ledger(db, c.taxType.toUpperCase(), 'Duties & Taxes', { taxType: c.taxType })
+      throw new Error('no walk-in expected')
+    }
+    const viaEditor = rehearse(db, () => {
+      const made = new Map<string, number>()
+      const once = (c: HandoffCreate): number => {
+        const k = JSON.stringify(c)
+        if (!made.has(k)) made.set(k, editorCreate(c))
+        return made.get(k)!
+      }
+      return hf.entries.map((e) => rows(editorSave(withPending(e, 0, once))))
+    })
+    const out = post(i)
+    expect(out.voucherIds.map((id) => rows(id))).toEqual(viaEditor)
+  })
+
   it('answers that cannot be used are refused like the preview, writing nothing', () => {
     const before = trace()
     expect(() => intentForm(db, INFO, intent({ kind: 'purchase', supplierId: L('Bharat Steel'), items: [{ itemId: 99_999, qty: '1', rate: '100' }] }), TODAY)).toThrow()
