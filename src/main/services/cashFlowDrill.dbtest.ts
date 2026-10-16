@@ -127,6 +127,13 @@ describe('cash flow drill-down', () => {
       expect(cf.netChange).toBe(cf.closingCash - cf.openingCash)
     })
   }
+  // PR #140 review: a period across the financial-year boundary (income / expense ledgers reset,
+  // balance-sheet ledgers carry on) — the drills still add up line by line.
+  it('Perf Traders across the year end (2025-10-01 → 2026-06-30): drills add up', () => {
+    const cf = cashFlow(db, '2025-10-01', '2026-06-30')
+    expectDrillsAddUp(db, cf)
+    expect(cf.netChange).toBe(cf.closingCash - cf.openingCash)
+  })
 })
 
 // Printed from origin/main's cashFlow (before the drill-down) on seedLarge({ vouchers: 1500 }).

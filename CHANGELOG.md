@@ -345,15 +345,17 @@ Read these before filing from the next release.
   only; the stock change has no drill (it is the valuation engine's). No figure changed — pinned to
   the previous code's output on a 1,500-voucher seed. [#140](https://github.com/IrminFlow/total/pull/140)
 - **e-invoice number warning.** For a company that e-invoices (NIC live filing set up for
-  e-invoices, an IRN in the books, or an e-invoice JSON exported), a sales invoice number longer
-  than 16 characters, with characters other than letters, digits, `/` and `-`, or starting with
-  0, `/` or `-` is warned about in the GST issues panel (`einvoice_doc_no`) and under the number in
-  the sales editor — never refused. Source: NIC e-invoice schema, Generate IRN v1.03, `DocDtls.No`
+  e-invoices, an IRN in the books, or an e-invoice JSON exported), a sales invoice or credit note
+  number longer than 16 characters, with characters other than letters, digits, `/` and `-`, or
+  starting with 0, `/` or `-` is warned about in the GST issues panel (`einvoice_doc_no`; B2B and
+  export documents only — B2C bills get no IRN) and under the number in the sales / credit note
+  editor — never refused. Source: NIC e-invoice schema, Generate IRN v1.03, `DocDtls.No`
   (read 2026-10-17). [#140](https://github.com/IrminFlow/total/pull/140)
 
 ### For developers
 
-- `receivables:statementPdf` is a viewer read. New viewer read `gst:einvoicing`
+- `receivables:statementPdf` is a viewer read, governed by `canExport` (in `EXPORT_CHANNELS`, like
+  `report:pdf`). New viewer read `gst:einvoicing`
   (`services/gst.ts einvoicingOn`). `CashFlowRow` gained optional `parts` (ledger id, name, cash
   effect — they add up to the line) and `voucherIds`; the `daybook` screen takes optional
   `voucherIds` + `source`. [#140](https://github.com/IrminFlow/total/pull/140)

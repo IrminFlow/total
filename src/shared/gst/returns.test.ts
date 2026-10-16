@@ -657,6 +657,18 @@ describe('validateGstr1', () => {
     expect(validateGstr1(docs, { ...company, gstRegistrationType: 'composition', einvoicing: true }).find((i) => i.code === 'einvoice_doc_no')).toBeUndefined()
   })
 
+  it('PR #140 review: credit notes are checked too (DocDtls.Typ CRN, same No rule); B2C bills are not e-invoiced', () => {
+    const docs = fixtureDocs()
+    const b2c = docs.find((d) => d.kind === 'sales' && !d.partyGstin)!
+    b2c.number = 'B2C/2026-27/000001'
+    expect(validateGstr1(docs, { ...company, einvoicing: true }).find((i) => i.code === 'einvoice_doc_no')).toBeUndefined()
+    const note = docs.find((d) => d.kind === 'credit_note' && d.partyGstin)!
+    note.number = 'CRN/2026-27/000001'
+    const issue = validateGstr1(docs, { ...company, einvoicing: true }).find((i) => i.code === 'einvoice_doc_no')!
+    expect(issue.voucherIds).toEqual([note.voucherId])
+    expect(issue.message).toContain('1 invoice / note')
+  })
+
   it('invalid buyer GSTINs block', () => {
     const docs = fixtureDocs()
     docs[0]!.partyGstin = '27AAPFU0939F1ZZ' // bad checksum

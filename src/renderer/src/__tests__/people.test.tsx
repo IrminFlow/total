@@ -302,5 +302,12 @@ describe('a person’s page', () => {
     renderUi(<PersonView id={10} />)
     await screen.findByTestId('btn-person-remind')
     expect(screen.queryByTestId('btn-person-hold')).toBeNull()
+    // PR #140 review: the statement is a file of the books — not for a user whose canExport the
+    // owner turned off (receivables:statementPdf is in EXPORT_CHANNELS).
+    cleanup()
+    act(() => useSession.setState({ user: { id: 2, name: 'Vik', role: 'viewer', capabilities: { canExport: false } } as never }))
+    renderUi(<PersonView id={10} />)
+    await screen.findByTestId('btn-person-history')
+    expect(screen.queryByTestId('btn-person-statement')).toBeNull()
   })
 })

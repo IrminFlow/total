@@ -191,13 +191,20 @@ export function validateGstr1(docs: GstDoc[], company: Gstr1ValidationCompany): 
 
   // NIC e-invoice schema DocDtls.No (sources.ts einvoiceDocNo): ≤ 16 characters of A-Z a-z 0-9 / -,
   // not starting with 0, / or -. A warning: the return files, the IRN request would be refused.
+  // The rule is the same for INV / CRN / DBN (DocDtls.Typ), so credit notes and outward debit
+  // notes are checked too; only documents that are e-invoiced — a registered buyer or an export
+  // (services/edocs.ts eligibility; the NIC page: B2C invoices are not sent for an IRN).
   if (company.einvoicing && company.gstRegistrationType === 'regular') {
-    const badNo = docs.filter((d) => d.kind === 'sales' && einvoiceDocNoWarning(d.number))
+    const einvoiced = (d: GstDoc): boolean => !!d.partyGstin || d.invTyp === 'EXPWP' || d.invTyp === 'EXPWOP'
+    const badNo = docs.filter((d) => einvoiced(d) && einvoiceDocNoWarning(d.number))
     if (badNo.length) {
+      const what = badNo.every((d) => d.kind === 'sales')
+        ? `sales invoice${badNo.length === 1 ? '' : 's'}`
+        : `invoice${badNo.length === 1 ? ' / note' : 's / notes'}`
       issues.push({
         code: 'einvoice_doc_no',
         severity: 'warning',
-        message: `${badNo.length} sales invoice${badNo.length === 1 ? '' : 's'} with a number the e-invoice portal refuses (${badNo.slice(0, 5).map((d) => d.number).join(', ')}${badNo.length > 5 ? ', …' : ''}) — at most 16 letters, digits, / or -, not starting with 0, / or - (NIC e-invoice schema, DocDtls.No).`,
+        message: `${badNo.length} ${what} with a number the e-invoice portal refuses (${badNo.slice(0, 5).map((d) => d.number).join(', ')}${badNo.length > 5 ? ', …' : ''}) — at most 16 letters, digits, / or -, not starting with 0, / or - (NIC e-invoice schema, DocDtls.No).`,
         voucherIds: badNo.map((d) => d.voucherId)
       })
     }

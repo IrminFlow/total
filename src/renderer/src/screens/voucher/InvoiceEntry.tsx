@@ -279,12 +279,14 @@ export function InvoiceEntry({
   const { supply, fxActive } = computed
   // WP 8.0: a purchase / debit note that can't claim GST: rates are typed including it (the cost).
   const nonClaimable = !computed.chargesGst && (kind === 'purchase' || kind === 'debit_note')
-  // WP 2.5b: a sales invoice number the e-invoice portal would refuse (NIC schema DocDtls.No — at
-  // most 16 letters / digits / "/" / "-", not starting with 0, / or -) is warned about, never
-  // refused, while the company e-invoices and the bill's date charges GST.
-  const { data: einvoicing } = useQuery({ queryKey: ['einvoicing'], queryFn: () => api.gst.einvoicing(), enabled: kind === 'sales', staleTime: 60_000 })
+  // WP 2.5b: a sales invoice / credit note number the e-invoice portal would refuse (NIC schema
+  // DocDtls.No, the same rule for INV and CRN — at most 16 letters / digits / "/" / "-", not
+  // starting with 0, / or -) is warned about, never refused, while the company e-invoices and the
+  // bill's date charges GST. (A debit note here may be a purchase return, not e-invoiced by us.)
+  const einvoiceKind = kind === 'sales' || kind === 'credit_note'
+  const { data: einvoicing } = useQuery({ queryKey: ['einvoicing'], queryFn: () => api.gst.einvoicing(), enabled: einvoiceKind, staleTime: 60_000 })
   const shownNumber = isEdit ? alterNumber : numberField.value === NUMBER_LOADING ? '' : numberField.value
-  const numberWarning = kind === 'sales' && einvoicing === true && computed.chargesGst ? einvoiceDocNoWarning(shownNumber) : null
+  const numberWarning = einvoiceKind && einvoicing === true && computed.chargesGst ? einvoiceDocNoWarning(shownNumber) : null
   // WP 2.6: the grid prices sales lines through the resolver (party rate › level › scheme …).
   const linePricing = useInvoicePricing(kind, partyId, date, supply, fxActive ? currencyCode : '')
 

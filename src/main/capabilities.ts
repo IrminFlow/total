@@ -58,6 +58,9 @@ export const EXPORT_CHANNELS: readonly string[] = [
   'payroll:ptReturnCsv',
   'pricing:exportCsv',
   'rb:exportJson',
+  // PR #140 review: a party's statement PDF is a report of the books written to a file, like
+  // report:pdf — a viewer may save it (its minimum role), unless the owner turned canExport off.
+  'receivables:statementPdf',
   'report:pdf',
   'tcs:export27eq',
   'tds:export26q',
