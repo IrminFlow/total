@@ -11,8 +11,12 @@ export interface IpcResult<T = unknown> {
   issues?: { code: string; field?: string; line?: number; params?: Record<string, string | number>; message?: string }[]
 }
 
+/** Scripted runs only: the shifted day main accepted (main/e2eClock.ts), else null. */
+const e2eToday = process.argv.find((a) => a.startsWith('--total-e2e-today='))?.slice('--total-e2e-today='.length) ?? null
+
 const api = {
   platform: process.platform,
+  e2eToday,
   invoke: (channel: string, payload?: unknown): Promise<IpcResult> => {
     if (!/^[a-zA-Z0-9:._-]+$/.test(channel)) {
       return Promise.resolve({ ok: false, error: 'Bad channel' })

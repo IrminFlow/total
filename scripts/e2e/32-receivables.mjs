@@ -58,10 +58,9 @@ await scenario('32-receivables', async (h) => {
     page.waitForFunction((t) => document.body.textContent?.includes(t), text, { timeout })
 
   // ---------- setup: a late payer with one invoice 100 days old ----------
-  const today = await page.evaluate(() => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  })
+  // The books begin early enough that the 100-day-old bill is inside them on any calendar day.
+  await h.coverDaysBack(100)
+  const today = localToday()
   const addDays = (iso, n) => {
     const d = new Date(`${iso}T00:00:00Z`)
     d.setUTCDate(d.getUTCDate() + n)

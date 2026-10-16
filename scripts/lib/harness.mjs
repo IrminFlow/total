@@ -103,6 +103,7 @@ export class Harness {
       await page.setViewportSize({ width: 1440, height: 900 })
       await page.waitForLoadState('domcontentloaded')
       await page.waitForFunction(() => Boolean(window.total), null, { timeout: 30000 })
+      if (process.env.TOTAL_E2E_TODAY) await assertShiftedClock(app, page)
       return { app, page }
     }
     try {
@@ -215,7 +216,9 @@ export class Harness {
   /** From company-select: create a fresh (unregistered, default-state) company via the UI
    *  and land on the Gateway, in `mode` (default the harness mode, 'accountant'). `opts.gstin`
    *  registers it (Regular) — WP 8.0: only a regular registration may charge GST, so scenarios
-   *  that post tax lines pass one. */
+   *  that post tax lines pass one. `opts.coverDaysBack: N` begins the books early enough that a
+   *  bill N days old is inside them (`booksStartCovering`; the form's FY picker), so a scenario's
+   *  relative dates keep their age on every calendar day. */
   async createCompanyUI(name, timeout = 30000, opts = {}) {
     if (typeof timeout === 'object') [opts, timeout] = [timeout, 30000]
     const mode = opts.mode ?? this.mode
@@ -223,6 +226,8 @@ export class Harness {
     await this.click('btn-company-create')
     await this.fill('input-company-name', name)
     if (opts.gstin) await this.fill('input-company-gstin', opts.gstin)
+    const early = opts.coverDaysBack == null ? null : booksStartCovering(opts.coverDaysBack)
+    if (early) await this.page.getByLabel('Books begin (FY)').selectOption(String(fyStartYearOf(early)))
     await this.click('btn-company-save')
     await this.waitScreen('gateway', timeout)
     await this.setMode(mode)
@@ -252,6 +257,16 @@ export class Harness {
     await this.page.waitForSelector(mode === 'simple' ? '[data-testid="simple-nav"]' : 'nav[aria-label="Main"]', { state: 'attached', timeout: 10000 })
     await this.click(mode === 'simple' ? 'simple-nav-home' : 'nav-gateway')
     await this.waitScreen('gateway')
+  }
+
+  /** The OPEN company's books begin early enough for a bill `daysBack` days old (the owner's
+   *  company:updateInfo, as Company details saves it) — for companies made outside the form, e.g.
+   *  the demo seed. Nothing is written when the current FY already covers it. */
+  async coverDaysBack(daysBack) {
+    const early = booksStartCovering(daysBack)
+    if (!early) return
+    const info = (await this.invoke('company:current')).info
+    await this.invoke('company:updateInfo', { ...info, booksFrom: Math.min(info.booksFrom, fyStartYearOf(early)) })
   }
 
   /** WP 7.4, the setup wizard's start-date step: "Start of this financial year" unless dates
@@ -336,6 +351,22 @@ export function assertEq(actual, expected, label) {
   }
 }
 
+/** TOTAL_E2E_TODAY: both the main process and the renderer must see the faked day (shared/e2eClock.ts),
+ *  or the run would silently test the real date. */
+async function assertShiftedClock(app, page) {
+  const mainDay = await app.evaluate(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })
+  const rendererDay = await page.evaluate(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })
+  if (mainDay !== localToday() || rendererDay !== localToday()) {
+    throw new Error(`TOTAL_E2E_TODAY=${process.env.TOTAL_E2E_TODAY} not in force: main ${mainDay}, renderer ${rendererDay}`)
+  }
+}
+
 /**
  * Scenario wrapper: launches a fresh Harness, runs `fn(h)`, screenshots success/failure,
  * asserts a clean console (unless `opts.allowConsoleErrors`), and exits the process with
@@ -383,8 +414,13 @@ export function isoLocal(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-/** Today, as the app sees it (local date). */
+/** Today, as the app sees it (local date). TOTAL_E2E_TODAY=YYYY-MM-DD shifts the APP's clock to
+ *  that day (shared/e2eClock.ts — honoured with TOTAL_DATA_DIR in an unpackaged build, which the
+ *  harness always launches), so the scripts' today follows it: a scenario can be run as if on
+ *  5 April or 10 May to prove its dates hold on any calendar day. */
 export function localToday() {
+  const fake = process.env.TOTAL_E2E_TODAY
+  if (fake && /^\d{4}-\d{2}-\d{2}$/.test(fake)) return fake
   return isoLocal(new Date())
 }
 

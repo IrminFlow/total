@@ -157,5 +157,12 @@ The app's "today" is the machine's LOCAL date. Scenarios take theirs from `local
 `fixedToday` / `relativeDate(n)` in `scripts/lib/harness.mjs` (never `toISOString()`, which is the
 UTC date), and never clamp a relative date to the financial-year start: a scenario that needs a bill
 N days old starts the books early enough (`h.pickSetupStart(N)` in the setup wizard,
-`booksStartCovering(N)`; `TOTAL_E2E_EARLY_BOOKS=1` forces that branch for a check on any day). CI
-runs the e2e job with `TZ=Asia/Kolkata`.
+`booksStartCovering(N)`; the full company form takes `createCompanyUI(name, { coverDaysBack: N })`,
+an already open company `h.coverDaysBack(N)`; `TOTAL_E2E_EARLY_BOOKS=1` forces that branch for a
+check on any day). CI runs the e2e job with `TZ=Asia/Kolkata`.
+
+To run a scenario as if on another day, set `TOTAL_E2E_TODAY=YYYY-MM-DD`: the app's clock (main and
+renderer, `src/shared/e2eClock.ts` — honoured only with `TOTAL_DATA_DIR` in an unpackaged build)
+and the harness's `localToday()` move to that day, and the harness checks both processes see it
+before the scenario starts. E.g. `TOTAL_E2E_TODAY=2027-04-05 node scripts/run-e2e.mjs 32 33 57 59`
+(1 April – mid May is where a relative bill used to fall into the previous financial year).

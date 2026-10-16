@@ -1,3 +1,4 @@
+import { e2eToday } from './e2eClock'
 import { app, BrowserWindow, dialog, shell } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
@@ -92,7 +93,9 @@ function createWindow(): void {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false,
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // Scripted runs only (TOTAL_E2E_TODAY, e2eClock.ts): the preload hands the day to the renderer.
+      ...(e2eToday ? { additionalArguments: [`--total-e2e-today=${e2eToday}`] } : {})
     }
   })
 
