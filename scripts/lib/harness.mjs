@@ -324,6 +324,19 @@ export class Harness {
     }
   }
 
+  /** True when the open window would refuse to unload (a screen with unsaved answers —
+   *  useUnsavedGuard's beforeunload listener cancels a synthetic beforeunload; nothing else runs). */
+  async blocksUnload() {
+    if (!this.page) return false
+    return this.page
+      .evaluate(() => {
+        const e = new Event('beforeunload', { cancelable: true })
+        window.dispatchEvent(e)
+        return e.defaultPrevented
+      })
+      .catch(() => false)
+  }
+
   /** Close the app — always, and in bounded time. A screen with unsaved answers blocks the window's
    *  unload (useUnsavedGuard's beforeunload); Playwright's own dismissal of that dialog then raced
    *  the teardown ("No dialog is showing") and app.close() never resolved, so the runner killed the
@@ -424,6 +437,12 @@ export async function scenario(name, fn, opts = {}) {
     await fn(h)
     if (!opts.allowConsoleErrors) h.assertNoConsoleErrors()
     h.assertNoKeyWarnings()
+    // close() lets a blocked unload through so teardown never hangs — but a scenario that ENDS with
+    // unsaved answers on screen (the window would ask to discard them) has not done what it says,
+    // unless it says so (`opts.allowUnsavedOnClose`).
+    if (!opts.allowUnsavedOnClose && (await h.blocksUnload())) {
+      throw new Error('the scenario ended with unsaved answers on screen (closing the window would ask to discard them) — save or discard them first, or pass { allowUnsavedOnClose: true }')
+    }
     await h.shot('99-success')
     ok = true
   } catch (err) {

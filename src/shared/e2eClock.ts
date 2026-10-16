@@ -23,23 +23,35 @@ export function e2eClockOffset(today: string, now: Date): number {
   return target.getTime() - now.getTime()
 }
 
-let installed = false
+let offsetMs: number | null = null
 
-/** Replace the global Date with one shifted to `today`. Idempotent; a null day does nothing. */
+/** The shift in force (ms added to the real clock), or null — the normal case: no shift. */
+export function e2eClockOffsetMs(): number | null {
+  return offsetMs
+}
+
+/** A file's time (stat mtimeMs, always the REAL clock) on the app's clock: compared with Date.now()
+ *  / today (backup age, stale locks, sweeps), it must move with the shift. Unchanged without one. */
+export function fileTimeMs(mtimeMs: number): number {
+  return offsetMs == null ? mtimeMs : mtimeMs + offsetMs
+}
+
+/** Replace the global Date with one shifted to `today`. Idempotent; a null day does nothing.
+ *  A plain function (not a subclass) whose prototype IS Date.prototype, so `x instanceof Date`
+ *  still holds for every date (structured-clone copies, libraries holding the real Date), and
+ *  `Date()` called without `new` still returns the (shifted) string. */
 export function installE2eClock(today: string | null | undefined): void {
-  if (!today || !ISO_DAY.test(today) || installed) return
-  installed = true
+  if (!today || !ISO_DAY.test(today) || offsetMs != null) return
   const RealDate = Date
   const offset = e2eClockOffset(today, new RealDate())
+  offsetMs = offset
   const realNow = RealDate.now.bind(RealDate)
-  class ShiftedDate extends RealDate {
-    constructor(...args: unknown[]) {
-      if (args.length === 0) super(realNow() + offset)
-      else super(...(args as [string | number | Date]))
-    }
-    static now(): number {
-      return realNow() + offset
-    }
+  function ShiftedDate(this: unknown, ...args: unknown[]): unknown {
+    if (!new.target) return new RealDate(realNow() + offset).toString()
+    return Reflect.construct(RealDate, args.length === 0 ? [realNow() + offset] : args, new.target)
   }
+  Object.setPrototypeOf(ShiftedDate, RealDate)
+  ShiftedDate.prototype = RealDate.prototype
+  ;(ShiftedDate as unknown as { now: () => number }).now = () => realNow() + offset
   ;(globalThis as { Date: DateConstructor }).Date = ShiftedDate as unknown as DateConstructor
 }

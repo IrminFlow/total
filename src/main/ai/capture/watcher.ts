@@ -16,6 +16,7 @@ import { runAsAuditUser } from '../../services/audit'
 import { log } from '../../log'
 import { captureFilesDir, captureInboxDir, cleanName } from './files'
 import { checkCaptureFile, insertCaptureFile } from './store'
+import { fileTimeMs } from '@shared/e2eClock'
 
 export const CAPTURE_INBOX_USER = 'capture-inbox'
 export const INBOX_MAX_ATTEMPTS = 5
@@ -83,7 +84,7 @@ export async function scanCaptureInbox(
     }
     const stable = state.seen.get(name) === sig
     state.seen.set(name, sig)
-    if (now - st.mtimeMs < minAge || (opts.requireStable !== false && !stable)) {
+    if (now - fileTimeMs(st.mtimeMs) < minAge || (opts.requireStable !== false && !stable)) {
       waiting++
       continue
     }

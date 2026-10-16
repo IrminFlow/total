@@ -14,6 +14,7 @@ import Database from 'better-sqlite3-multiple-ciphers'
 import { closeSync, existsSync, openSync, readSync, rmSync, statSync } from 'fs'
 import { resolve, sep } from 'path'
 import { AppError } from '@shared/errors'
+import { e2eClockOffsetMs } from '@shared/e2eClock'
 
 type DB = Database.Database
 
@@ -121,7 +122,37 @@ export function openDb(path: string, opts: OpenDbOptions = {}): DB {
       throw err
     }
   }
+  installE2eSqlClock(db)
   return db
+}
+
+/** Scripted runs only (TOTAL_E2E_TODAY, shared/e2eClock.ts): SQLite's own 'now' — column defaults
+ *  such as vouchers.created_at, `datetime('now')` in updates — reads the REAL clock, so with a
+ *  shifted JS clock the books would be half-shifted (back-dated findings compare created_at with the
+ *  audit trail's shifted times). The date functions are overridden on this connection to read
+ *  'now' (or no time value) as the shifted instant and hand everything else to SQLite's own
+ *  function on a private connection. Without a shift nothing is registered. */
+const SQL_DATE_FUNCTIONS = ['datetime', 'date', 'time', 'julianday', 'unixepoch', 'strftime'] as const
+let sqlClockHelper: DB | null = null
+function installE2eSqlClock(db: DB): void {
+  const offset = e2eClockOffsetMs()
+  if (offset == null) return
+  const helper = (sqlClockHelper ??= new Database(':memory:'))
+  const nowText = (): string => new Date(Date.now()).toISOString().slice(0, 23).replace('T', ' ')
+  for (const name of SQL_DATE_FUNCTIONS) {
+    const statements = new Map<number, Database.Statement>()
+    db.function(name, { varargs: true, deterministic: false }, (...args: unknown[]) => {
+      const timeAt = name === 'strftime' ? 1 : 0
+      const fixed = args.map((a) => (typeof a === 'string' && a.trim().toLowerCase() === 'now' ? nowText() : a))
+      if (fixed.length === timeAt) fixed.push(nowText()) // datetime() / strftime('%Y') = now
+      let st = statements.get(fixed.length)
+      if (!st) {
+        st = helper.prepare(`SELECT ${name}(${fixed.map(() => '?').join(', ')})`).pluck()
+        statements.set(fixed.length, st)
+      }
+      return st.get(...fixed) as string | number | null
+    })
+  }
 }
 
 /** Remove a database file and its WAL / SHM siblings. */

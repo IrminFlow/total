@@ -9,6 +9,7 @@ import { CheckStoppedError, pragmaCheck } from './checkHost'
 import { assertNotNewer } from './migrate'
 import { preUpgradeOf, PRE_UPGRADE_TAG } from './preUpgrade'
 import { AppError } from '@shared/errors'
+import { fileTimeMs } from '@shared/e2eClock'
 
 export interface BackupInfo {
   file: string
@@ -94,7 +95,7 @@ export function listBackupsIn(dir: string): BackupInfo[] {
     .map((f) => {
       const st = statSync(join(dir, f))
       const up = preUpgradeOf(f)
-      return { file: basename(f), sizeBytes: st.size, mtime: st.mtimeMs, tag: tagOf(f), ...(up ? { upgrade: { from: up.from, to: up.to } } : {}) }
+      return { file: basename(f), sizeBytes: st.size, mtime: fileTimeMs(st.mtimeMs), tag: tagOf(f), ...(up ? { upgrade: { from: up.from, to: up.to } } : {}) }
     })
     .sort((a, b) => b.mtime - a.mtime)
 }

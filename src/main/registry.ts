@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, rmSync, statSync } from 'fs'
 import { renameReplacing } from './fsRetry'
 import type { CompanySummary } from '@shared/domain'
 import { registryPath, ensureDataTree } from './paths'
+import { fileTimeMs } from '@shared/e2eClock'
 
 export interface Registry {
   version: 1
@@ -61,7 +62,7 @@ function acquireRegistryLock(): void {
       return
     } catch {
       try {
-        const age = Date.now() - statSync(lockPath()).mtimeMs
+        const age = Date.now() - fileTimeMs(statSync(lockPath()).mtimeMs)
         if (age > STALE_LOCK_MS) {
           rmSync(lockPath(), { force: true })
           continue
