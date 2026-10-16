@@ -408,6 +408,21 @@ describe('WP 9.4 additions: a supplier refund, unticking every bill', () => {
     expect(codeOf(() => map({ kind: 'money_in', supplierId: L.supplier, customerId: L.ramesh, amount: 100, into: { how: 'cash' } })).code).toBe('simple_no_party')
   })
 
+  it('a supplier who owes us nothing back: refused on the supplier — unless it is money for something else (on account)', () => {
+    const none = ctx({ heldCredit: new Map([[L.supplier, 0]]) })
+    expect(codeOf(() => map({ kind: 'money_in', supplierId: L.supplier, amount: 5_000, into: { how: 'cash' } }, none))).toEqual({ code: 'simple_refund_no_credit', field: 'party' })
+    const other = map({ kind: 'money_in', supplierId: L.supplier, amount: 5_000, into: { how: 'cash' }, onAccount: true }, none)
+    balanced(other)
+    expect(other.entries[0]!.payload.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[L.cash, 'dr', 5_000], [L.supplier, 'cr', 5_000]])
+    expect(other.entries[0]!.payload.billRefs ?? []).toEqual([])
+    // Unnamed credit held (a payment on account) counts: no named credit to settle — on account.
+    const unnamed = map({ kind: 'money_in', supplierId: L.supplier, amount: 5_000, into: { how: 'cash' } }, ctx({ heldCredit: new Map([[L.supplier, 5_000]]) }))
+    expect(unnamed.entries[0]!.payload.billRefs ?? []).toEqual([])
+    // onAccount even with named credits: nothing set against them.
+    const named = ctx({ heldCredit: new Map([[L.supplier, 30_000]]), openCredits: new Map([[L.supplier, [{ name: 'DN-1', amount: 30_000 }]]]) })
+    expect(map({ kind: 'money_in', supplierId: L.supplier, amount: 5_000, into: { how: 'cash' }, onAccount: true }, named).entries[0]!.payload.billRefs ?? []).toEqual([])
+  })
+
   it('review: a purchase amount line with a printed bill total — the bill is that total, the paise left over its round off', () => {
     const m = map({ kind: 'purchase', supplierId: L.supplier, billNo: 'RENT-9', amount: { amount: 84_788, accountId: L.purchases, gstRate: 18, billTotal: 100_050 }, payment: { how: 'cash' } })
     balanced(m)

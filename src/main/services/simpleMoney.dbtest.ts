@@ -293,6 +293,23 @@ describe('Money in: the form’s ticks equal the Outstandings allocation', () =>
     expect(out.facts).toMatchObject({ side: 'supplier', balance: 0 })
     roundTrips(v.id)
   })
+
+  it('a supplier who owes us nothing back: refused on the supplier (no trace); “paying us for something else” posts it on account, = the hand-entered receipt', () => {
+    const before = trace()
+    expect(() => moneyIn({ who: 'refund', supplierId: L('Bharat Steel'), amount: 20_000, how: 'cash' })).toThrow(expect.objectContaining({ code: 'simple_refund_no_credit', field: 'party' }))
+    expect(trace()).toEqual(before)
+    const preview = (): unknown => previewIntent(db, INFO, { clientId: 'refund-none-01', kind: 'money_in', supplierId: L('Bharat Steel'), amount: 20_000, into: { how: 'cash' } }, TODAY)
+    expect(preview).toThrow(expect.objectContaining({ code: 'simple_refund_no_credit', params: { name: 'Bharat Steel' } }))
+    const { out } = moneyIn({ who: 'refund', supplierId: L('Bharat Steel'), amount: 20_000, how: 'cash', refundOther: true })
+    const v = getVoucher(db, out.voucherIds[0]!)!
+    expect(v.billRefs).toEqual([])
+    roundTrips(v.id)
+    const { twin, ids } = handEntered([{ kind: 'receipt', state: blank(TODAY, [r('dr', L('Cash'), 20_000), r('cr', L('Bharat Steel'), 20_000)], []) }])
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, v.id))
+    // Now we owe them ₹200 (the money is on their account) — and a later refund is refused again.
+    expect(out.facts).toMatchObject({ side: 'supplier', balance: 20_000 })
+    expect(() => moneyIn({ who: 'refund', supplierId: L('Bharat Steel'), amount: 1_000, how: 'cash' })).toThrow(expect.objectContaining({ code: 'simple_refund_no_credit' }))
+  })
 })
 
 describe('Money out', () => {

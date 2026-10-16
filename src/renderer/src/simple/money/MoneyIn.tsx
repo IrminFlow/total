@@ -12,7 +12,7 @@ import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession, type AskOpen } from '../../state/stores'
 import { moneyInFromAsk } from '@shared/simple/askPrefill'
-import { AmountInput, Button, DateInput, Field, Page, Select, TextInput, useFormErrors } from '../../components/ui'
+import { AmountInput, Button, Checkbox, DateInput, Field, Page, Select, TextInput, useFormErrors } from '../../components/ui'
 import { TypeAhead, useGroups, useLedgers } from '../../components/pickers'
 import { CategoryPicker } from '../CategoryPicker'
 import { NewAccountDialog } from '../NewAccountDialog'
@@ -38,6 +38,7 @@ const F = { date: 'date', party: 'party', amount: 'amount', into: 'into', bills:
 const IN_SIDE = 'in' as const // i18n-technical
 const INCOME_SIDE = 'income' as const // i18n-technical
 const INCOME_CTX: AccountContext = { field: 'account', side: 'sales' } // i18n-technical
+const NO_CREDIT = 'simple_refund_no_credit' // i18n-technical: error code
 
 const isDirty = (f: MoneyInForm): boolean => f.amount != null || f.customerId != null || f.sourceId != null || f.supplierId != null || f.note.trim() !== ''
 
@@ -97,7 +98,7 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
   const intent = useMemo(() => (setup ? moneyInIntentFrom(form, open, defaults, sources) : null), [form, open, setup]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const errors = useFormErrors<MoneyInField>(
-    { date: form.date, party: `${form.who}|${form.customerId}|${form.sourceId}|${form.supplierId}`, amount: form.amount, into: `${form.how}|${form.accountId}`, bills: `${form.ticks?.join(',')}|${form.advance}|${form.amount}` },
+    { date: form.date, party: `${form.who}|${form.customerId}|${form.sourceId}|${form.supplierId}|${form.refundOther}`, amount: form.amount, into: `${form.how}|${form.accountId}`, bills: `${form.ticks?.join(',')}|${form.advance}|${form.amount}` },
     { simple: true, t }
   )
   const update = (patch: Partial<MoneyInForm>): void => setForm((f) => ({ ...f, ...patch }))
@@ -134,6 +135,7 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
   const customerOptions = useMemo(() => (setup?.customers ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.phone ? { sub: c.phone } : {}) })), [setup?.customers])
   const supplierOptions = useMemo(() => (setup?.suppliers ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.phone ? { sub: c.phone } : {}) })), [setup?.suppliers])
   const ownerName = ledgers.find((l) => l.id === sources.ownerId)?.name ?? null
+  const supplierName = setup?.suppliers.find((s) => s.id === form.supplierId)?.name ?? null
 
   return (
     <Page data-testid="simple-money-in">
@@ -150,7 +152,7 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
               label={t('simple.money.in.who')}
               value={form.who}
               options={MONEY_IN_WHO.map((w) => ({ value: w, label: lbl(WHO_TEXT[w]) }))}
-              onPick={(who) => update({ who, sourceId: null, ticks: null, advance: false })}
+              onPick={(who) => update({ who, sourceId: null, ticks: null, advance: false, refundOther: false })}
               testId="money-in-who"
             />
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr]">
@@ -169,9 +171,32 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
                   </Field>
                 )}
                 {form.who === 'refund' && (
-                  <Field label={t('simple.money.supplier')} name={F.party} error={errors.get(F.party)}>
-                    <TypeAhead options={supplierOptions} value={form.supplierId} onPick={(id) => update({ supplierId: id })} placeholder={t('simple.money.supplierPlaceholder')} testId="picker-money-supplier" />
-                  </Field>
+                  <>
+                    <Field label={t('simple.money.supplier')} name={F.party} error={errors.get(F.party)}>
+                      <TypeAhead options={supplierOptions} value={form.supplierId} onPick={(id) => update({ supplierId: id })} placeholder={t('simple.money.supplierPlaceholder')} testId="picker-money-supplier" />
+                    </Field>
+                    {/* A supplier who owes us nothing back: not a refund — other money in, or (said
+                        explicitly) money for something else kept on their account. */}
+                    {flow.refusal === NO_CREDIT && !form.refundOther && (
+                      <div className="mt-2 flex flex-col gap-1.5" data-testid="money-refund-no-credit">
+                        {!errors.get(F.party) && (
+                          <p role="alert" className="text-hint text-danger">
+                            {supplierName ? t('errors.intent.refundNoCredit', { name: supplierName }) : t('errors.intent.refundNoCreditPlain')}
+                          </p>
+                        )}
+                        <div>
+                          <Button variant="ghost" data-testid="btn-money-refund-as-income" onClick={() => update({ who: INCOME_SIDE, sourceId: null, supplierId: null })}>
+                            {t('simple.money.refundAsIncome')}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                    {form.supplierId != null && (
+                      <div className="mt-2">
+                        <Checkbox label={t('simple.money.refundOther')} hint={t('simple.money.refundOtherHint')} checked={form.refundOther} onChange={(v) => update({ refundOther: v })} testId="check-money-refund-other" />
+                      </div>
+                    )}
+                  </>
                 )}
                 {form.who === 'owner' && (
                   <div data-testid="money-owner">

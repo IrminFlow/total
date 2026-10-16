@@ -51,6 +51,9 @@ export interface MoneyInForm extends MoneyFormBase {
   sourceId: number | null
   /** A refund from this supplier. */
   supplierId: number | null
+  /** "They are paying us for something else" (a supplier's money that is not a refund): kept on
+   *  their account even when they owe us nothing back (intent `onAccount`). */
+  refundOther: boolean
   /** null = untouched (the bills are settled oldest first); else the bill names the user ticked. */
   ticks: string[] | null
   /** "Is this for a bill you haven't made yet?" — what the bills don't take is an advance. */
@@ -102,6 +105,7 @@ export const emptyMoneyInForm = (date: string, init: { customerId?: number | nul
   customerId: init.customerId ?? null,
   sourceId: null,
   supplierId: null,
+  refundOther: false,
   amount: init.amount ?? null,
   ticks: init.bill ? [init.bill] : null,
   advance: false
@@ -206,7 +210,7 @@ export function moneyInIntentFrom(
     const bills = f.amount != null && f.amount > 0 ? ticksToBills(open, f.amount, f.ticks) : null
     return { ...head, ...(f.customerId != null ? { customerId: f.customerId } : {}), ...(bills ? { bills } : {}), ...(f.advance ? { advance: true } : {}) }
   }
-  if (f.who === 'refund') return { ...head, ...(f.supplierId != null ? { supplierId: f.supplierId } : {}) }
+  if (f.who === 'refund') return { ...head, ...(f.supplierId != null ? { supplierId: f.supplierId } : {}), ...(f.refundOther ? { onAccount: true } : {}) }
   const sourceId = f.who === 'owner' ? (f.sourceId ?? sources.ownerId) : f.sourceId
   return { ...head, ...(sourceId != null ? { sourceId } : {}) }
 }

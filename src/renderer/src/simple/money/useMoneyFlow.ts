@@ -60,6 +60,9 @@ export function useMoneyFlow<F extends string>(opts: {
   askDiscard: () => Promise<boolean>
   /** WP 10.8: false for a viewer (no Save, no "Create …" rows). */
   canSave: boolean
+  /** The code main refused the current answers with (preview or save) — a screen offers a way
+   *  out for some (a refund from a supplier who owes nothing back); null = none. */
+  refusal: string | null
 } {
   const t = useT()
   const canSave = useCanSave()
@@ -69,6 +72,7 @@ export function useMoneyFlow<F extends string>(opts: {
   const [preview, setPreview] = useState<SimplePreview | null>(null)
   const [savedIds, setSavedIds] = useState<number[] | null>(null)
   const [general, setGeneral] = useState<{ text: string; details: string } | null>(null)
+  const [refusal, setRefusal] = useState<string | null>(null)
   const [leaving, setLeaving] = useState(false)
   const saving = poster.status === 'posting'
   const { intent, clientErrors, errors } = opts
@@ -93,13 +97,14 @@ export function useMoneyFlow<F extends string>(opts: {
   const [previewing, setPreviewing] = useState(false)
   useEffect(() => {
     setPreview(null)
+    setRefusal(null)
     if (!ready || savedIds) return
     setPreviewing(true)
     let stale = false
     const id = window.setTimeout(() => {
       previewRef.current(intent!).then(
         (p) => !stale && (setPreview(p), setPreviewing(false)),
-        () => !stale && (setPreview(null), setPreviewing(false))
+        (err: unknown) => !stale && (setPreview(null), setPreviewing(false), setRefusal((err as CaughtError | null)?.code ?? null))
       )
     }, 300)
     return () => {
@@ -112,6 +117,7 @@ export function useMoneyFlow<F extends string>(opts: {
 
   const place = (err: unknown): void => {
     setGeneral(null)
+    setRefusal((err as CaughtError | null)?.code ?? null)
     const moved = remap(err, opts.mapField)
     const mapped = errors.apply(moved)
     if (mapped.general || Object.keys(mapped.fields).length === 0) {
@@ -182,5 +188,5 @@ export function useMoneyFlow<F extends string>(opts: {
     return () => window.removeEventListener('keydown', h, true)
   }, [])
 
-  return { preview, previewing, saving, savedIds, general, save, startNew, askDiscard, canSave }
+  return { preview, previewing, saving, savedIds, general, save, startNew, askDiscard, canSave, refusal }
 }
