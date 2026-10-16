@@ -13,6 +13,21 @@ export const KIND_DEFAULT_WIDTH: Partial<Record<ColumnKind, number>> = {
 }
 /** Smallest width a flexible (text, no `width`) column starts at when it has no `minWidth`. */
 export const FLEX_MIN_WIDTH = 120
+/**
+ * Smallest width of a NAME column — a flexible text column that can't be hidden (the row's
+ * customer / product / account), when it has no `minWidth`: about 16 characters of a body-size
+ * name plus the cell padding (to-do §4: names were cut to ~12 characters at 1024 px while the
+ * money columns beside them had room). A name column also takes a double share of spare space.
+ */
+export const NAME_MIN_WIDTH = 152
+/** How narrow a kind-default column may shrink when the columns don't fit, before the table
+ *  scrolls sideways (never under its header label or `minWidth`). Money keeps room for
+ *  ₹99,99,999.00; dates and numbers don't shrink. */
+export const KIND_SHRINK_WIDTH: Partial<Record<ColumnKind, number>> = {
+  money: 128,
+  quantity: 112,
+  enum: 104
+}
 /** Header cell horizontal padding (12px each side, `.ledger-table th`). */
 const HEADER_PADDING = 24
 /** Room for the sort arrow that appears next to the label of a sorted column. */
@@ -51,6 +66,10 @@ export interface ColumnWidthSpec {
   text: boolean
   /** The user resized it: it keeps that width while another column can take the spare space. */
   resized: boolean
+  /** A name column (see NAME_MIN_WIDTH): a double share of spare space. */
+  name?: boolean
+  /** Narrowest it may shrink to when the columns don't fit (absent = `base`, never shrinks). */
+  floor?: number
 }
 
 /**
@@ -70,7 +89,12 @@ export function columnWidthSpecs<Row>(
     if (user !== undefined) return { id: c.id, base: Math.round(Math.max(user, min)), flex: false, text, resized: true }
     if (c.width !== undefined) return { id: c.id, base: Math.round(Math.max(c.width, min)), flex: false, text, resized: false }
     const kindDefault = KIND_DEFAULT_WIDTH[c.kind]
-    if (kindDefault !== undefined) return { id: c.id, base: Math.max(kindDefault, min, header), flex: false, text, resized: false }
+    if (kindDefault !== undefined) {
+      const base = Math.max(kindDefault, min, header)
+      const shrink = KIND_SHRINK_WIDTH[c.kind]
+      return { id: c.id, base, flex: false, text, resized: false, ...(shrink !== undefined ? { floor: Math.min(base, Math.max(shrink, min, header)) } : {}) }
+    }
+    if (text && c.hideable === false) return { id: c.id, base: Math.round(Math.max(c.minWidth ?? NAME_MIN_WIDTH, header)), flex: true, text, resized: false, name: true }
     return { id: c.id, base: Math.round(Math.max(c.minWidth ?? FLEX_MIN_WIDTH, header)), flex: true, text, resized: false }
   })
 }
@@ -98,11 +122,36 @@ export function layoutColumnWidths(specs: readonly ColumnWidthSpec[], available:
   if (spare > 0 && specs.length > 0) {
     let targets = specs.flatMap((s, i) => (s.flex ? [i] : []))
     if (targets.length === 0) targets = [fallbackTarget(specs)]
-    const share = Math.floor(spare / targets.length)
-    const rest = spare - share * targets.length
-    targets.forEach((i, k) => {
-      widths[i]! += share + (k < rest ? 1 : 0)
+    // Shares: 1 per flexible column, 2 per name column (a name needs the room more than a
+    // status or note column). Whole pixels, the remainder 1px each from the left.
+    const weight = (i: number): number => (specs[i]!.name ? 2 : 1)
+    const parts = targets.reduce((a, i) => a + weight(i), 0)
+    const unit = Math.floor(spare / parts)
+    let rest = spare - unit * parts
+    targets.forEach((i) => {
+      widths[i]! += unit * weight(i)
     })
+    for (let k = 0; rest > 0; k = (k + 1) % targets.length, rest--) widths[targets[k]!]! += 1
+  } else if (spare < 0 && Number.isFinite(available) && available > 0) {
+    // Too wide: the shrinkable (kind-default) columns give up room first, in proportion to what
+    // each can give, down to their floor; only then does the table scroll sideways.
+    const room = specs.map((s) => Math.max(0, s.base - (s.floor ?? s.base)))
+    const total = room.reduce((a, b) => a + b, 0)
+    const take = Math.min(-spare, total)
+    if (take > 0) {
+      let taken = 0
+      room.forEach((r, i) => {
+        const cut = Math.floor((take * r) / total)
+        widths[i]! -= cut
+        taken += cut
+      })
+      for (let i = 0; taken < take && i < room.length; i++) {
+        if (widths[i]! > (specs[i]!.floor ?? specs[i]!.base)) {
+          widths[i]! -= 1
+          taken++
+        }
+      }
+    }
   }
   return { widths, total: widths.reduce((a, b) => a + b, 0) + fixed }
 }

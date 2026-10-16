@@ -5,6 +5,8 @@
 //   sweepInPage           contrast (text ≥ 4.5, large ≥ 3; disabled / aria-hidden exempt), names
 //                         (inputs, buttons, links), role="tab" inside a tablist, and — WP 10.5 —
 //                         inputs whose aria-describedby points at nothing.
+//   plantToastInPage      put a toast-sized stand-in into the real toast stack (layoutInPage then
+//                         checks it keeps clear of the Save bar / a docked panel's input)
 //   layoutInPage          WP 10.5 window-size checks: the document never scrolls (only the screen
 //                         and the panels do), no button / link is cut off by the window or has
 //                         its own text clipped, and the landmarks are there (one banner, a
@@ -157,6 +159,21 @@ export function sweepInPage() {
   return { lowContrast, unlabeled, orphanTabs, brokenDescribedBy }
 }
 
+/** A stand-in toast in the real `[data-toasts]` stack (same box as Toasts in ui.tsx renders), so
+ *  the stack's placement can be checked without a screen raising one. `remove` takes it out. */
+export function plantToastInPage(remove = false) {
+  const stack = document.querySelector('[data-toasts]')
+  if (!stack) return false
+  stack.querySelector('[data-planted-toast]')?.remove()
+  if (remove) return true
+  const b = document.createElement('button')
+  b.setAttribute('data-planted-toast', '')
+  b.className = 'pointer-events-auto rounded-lg border bg-raised px-4 py-2.5 text-left text-detail shadow-elev-2 border-info/50 text-info'
+  b.textContent = 'Saved a planted toast with a long enough sentence to wrap onto two lines'
+  stack.appendChild(b)
+  return true
+}
+
 /** WP 10.5: window-size + landmark checks (runs in the renderer). */
 export function layoutInPage() {
   const problems = []
@@ -217,6 +234,18 @@ export function layoutInPage() {
   if (count('main, [role="main"]') !== 1) problems.push(`main landmarks: ${count('main, [role="main"]')}`)
   for (const el of document.querySelectorAll('aside[data-docked]')) {
     if (!el.getAttribute('aria-labelledby') && !el.getAttribute('aria-label')) problems.push(`docked panel without a name: ${describe(el)}`)
+  }
+  // A toast never sits on the Save bar nor on a docked / overlaid panel's input (to-do §4: at
+  // 1700 px a toast covered Ask Total's question box; a two-row Save bar had Save under a toast).
+  const hits = (a, b) => a.left < b.right - 1 && b.left < a.right - 1 && a.top < b.bottom - 1 && b.top < a.bottom - 1
+  const keepClear = [
+    ...[...document.querySelectorAll('[data-testid="save-bar"]')].map((el) => ['the Save bar', el]),
+    ...[...document.querySelectorAll('aside[data-docked] textarea, aside[data-docked] input')].map((el) => ['a docked panel\'s input', el])
+  ].filter(([, el]) => visible(el))
+  for (const toast of document.querySelectorAll('[data-toasts] > *')) {
+    if (!visible(toast)) continue
+    const tr = toast.getBoundingClientRect()
+    for (const [what, el] of keepClear) if (hits(tr, el.getBoundingClientRect())) problems.push(`a toast covers ${what}: ${describe(toast)}`)
   }
   for (const d of document.querySelectorAll('[role="dialog"]')) {
     if (!visible(d)) continue

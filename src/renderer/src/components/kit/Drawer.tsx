@@ -4,6 +4,7 @@ import { registerPanelLayer, useDialogLayer } from './layers'
 import { Kbd } from './Text'
 import { IconButton } from './Button'
 import { useKitLabels } from './labels'
+import { useToastClearance } from './toastClearance'
 
 /**
  * Right-side panel over the screen: screen options, a record's details, filters. A dialog layer
@@ -161,6 +162,9 @@ export function DockedDrawer({
       if (lost && previous && previous.isConnected && !el?.contains(previous)) previous.focus({ preventScroll: true })
     }
   }, [layered])
+  // Simple shell: toasts keep left of the open panel (at 1700 px a bottom-right toast sat on
+  // Ask Total's question box). The full app (no provider) is untouched.
+  useToastClearance(asideRef, '--t-docked-w', layered, (el) => el.getBoundingClientRect().width || el.offsetWidth || width, [width, dock])
   const clamp = (w: number): number => Math.round(Math.min(maxWidth, Math.max(minWidth, w)))
   const startDrag = (e: React.PointerEvent<HTMLDivElement>): void => {
     if (!onResize) return

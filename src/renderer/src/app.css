@@ -600,9 +600,16 @@ textarea {
   position: relative;
 }
 /* A toast never covers the Save bar's buttons: while a simple screen shows one, the stack sits
-   above it. */
+   above it — by the bar's measured height (`--t-save-bar-h`, SaveBar.tsx, set before the first
+   paint; it wraps to two rows on narrow windows), 5.5rem until measured. */
 [data-shell='simple']:has([data-testid='save-bar']) [data-toasts] {
-  bottom: 5.5rem;
+  bottom: calc(var(--t-save-bar-h, 4.75rem) + 0.75rem);
+}
+/* Nor a docked / overlaid panel (Ask Total's question box at the bottom right): while one is
+   open the stack sits left of it (`--t-docked-w`, kit/Drawer.tsx). */
+[data-shell='simple']:has(aside[data-docked]) [data-toasts] {
+  right: calc(var(--t-docked-w, 380px) + 1rem);
+  max-width: calc(100vw - var(--t-docked-w, 380px) - 2rem);
 }
 /* Gate polish: on Lock and safety (and the plain Backups screen) the last card — the backup
    check, Back up now — sits where a bottom-right toast lands, and its result toast covered it:

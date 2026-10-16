@@ -4,7 +4,7 @@ import { useT } from '../lib/i18n'
 import { SIMPLE_SECTIONS, simpleSectionOf } from '../lib/screens'
 import { useFeatures } from '../lib/useFeatures'
 import { useSimpleNavCollapsed } from '../lib/simpleLayout'
-import { useNav, useScreen, useSession, useToasts, type Screen } from '../state/stores'
+import { switchCompany, useNav, useScreen, useSession, useToasts, type Screen } from '../state/stores'
 import { SupportLink } from '../components/SupportLink'
 import { TotalLogo } from '../components/TotalLogo'
 import { PlainIcon } from './icons'
@@ -45,7 +45,6 @@ export function SimpleSidebar(): React.JSX.Element {
   const collapsed = useSimpleNavCollapsed()
   const canSave = useCanWrite()
   const [tip, setTip] = useState<{ label: string; top: number; left: number } | null>(null)
-  const clearCompany = useSession((s) => s.clearCompany)
   const active = simpleSectionOf(screen)
   const sections = SIMPLE_SECTIONS.filter((s) => !s.feature || features[s.feature])
   const backup = async (): Promise<void> => {
@@ -56,11 +55,9 @@ export function SimpleSidebar(): React.JSX.Element {
       toast.push('error', (err as Error).message)
     }
   }
-  const switchCompany = async (): Promise<void> => {
+  const onSwitchCompany = async (): Promise<void> => {
     try {
-      await api.company.close()
-      clearCompany()
-      nav.home()
+      await switchCompany(api.company.close)
     } catch (err) {
       toast.push('error', (err as Error).message)
     }
@@ -127,7 +124,7 @@ export function SimpleSidebar(): React.JSX.Element {
           </div>
         )
       )}
-      <button type="button" data-testid="btn-switch-company" className={foot} onClick={() => void switchCompany()} {...tipFor(t('simple.nav.switchCompany'))}>
+      <button type="button" data-testid="btn-switch-company" className={foot} onClick={() => void onSwitchCompany()} {...tipFor(t('simple.nav.switchCompany'))}>
         {collapsed ? <PlainIcon id="swap" /> : t('simple.nav.switchCompany')}
       </button>
       <div className={`mt-2 border-t border-line pt-2 ${collapsed ? 'flex justify-center' : ''}`}>

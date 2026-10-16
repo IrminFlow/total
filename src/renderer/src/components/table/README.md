@@ -193,14 +193,19 @@ onto its batches.
 
 - A user-resized width wins, then the column's `width`, then a kind default (money 150,
   quantity 130, date 104, number 96, enum 130) widened to fit the header label. Text columns
-  without a `width` are flexible and start at `max(minWidth ?? 120, header label)`.
+  without a `width` are flexible and start at `max(minWidth ?? 120, header label)`. A
+  flexible text column with `hideable: false` is the row's NAME column (customer, product,
+  account): it starts at `max(minWidth ?? 152, header label)` — about 16 characters.
   `minWidth` applies everywhere, including resizing.
-- The table measures its scroll area. Spare space goes to the flexible columns in equal
-  whole-pixel shares. When every column is fixed, it goes to the last text column the user
+- The table measures its scroll area. Spare space goes to the flexible columns in
+  whole-pixel shares, a name column taking two shares. When every column is fixed, it goes to the last text column the user
   hasn't resized. The table's width is the exact sum, so the browser never splits pixels
   between cells (which used to draw hairline seams). You don't need to leave a column without
   a width just to absorb the space.
-- When the columns don't fit, they keep their widths and the table scrolls sideways.
+- When the columns don't fit, money / quantity / enum columns on their kind default shrink
+  first (to 128 / 112 / 104, never under their header label or `minWidth`); only then does the
+  table scroll sideways. Dates, numbers, explicit and user widths keep theirs. A text cell
+  longer than 16 characters carries its text as a tooltip.
 
 Header controls take no label space. The sort arrow appears only on a sorted column. The
 filter funnel sits over the header's edge. It shows on hover, while focus is anywhere in the

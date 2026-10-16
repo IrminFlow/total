@@ -1,14 +1,16 @@
-import { createContext, useContext, useId, type ReactNode } from 'react'
+import { createContext, useContext, useId, useState, type ReactNode } from 'react'
 import { useT } from '../lib/i18n'
 import { AmountInput, Button, DateInput, Field, Select, TextInput } from '../components/ui'
 import { formatPaise } from '@shared/money'
 import { toPlainDate } from '@shared/dates'
-import { slabsOn } from '@shared/gst/rateTable'
+import { useSession } from '../state/stores'
 import type { MessageKey } from '@shared/i18n'
 import {
   OPENING_OTHER_KINDS,
   billNames,
+  openingGstChoices,
   parseQtyText,
+  readCustomGstRate,
   stockLineValue,
   type BillDraft,
   type ItemDraft,
@@ -332,6 +334,9 @@ export function PartiesStep({ side, draft, update, state }: OpeningsStepProps & 
 
 // ---------- stock ----------
 
+/** The rate picker's "Custom rate (check with your CA)" choice (never a rate). */
+const CUSTOM_RATE = 'custom' // i18n-technical: option value
+
 export function StockStep({ draft, update, state }: OpeningsStepProps): React.JSX.Element {
   const t = useT()
   const listId = useId()
@@ -342,7 +347,17 @@ export function StockStep({ draft, update, state }: OpeningsStepProps): React.JS
   // WP 10.8: while the business charges GST, a new product's rate is asked here — a product made
   // without one would go on its first bill with no GST at all (the slabs in force on the day).
   const askGst = state.chargesGst === true
-  const slabs = askGst ? slabsOn(state.booksBegin) : []
+  // to-do §4: the slabs in force on the WORKING date (what the next bill charges); the books-begin
+  // date's other slabs only behind "Custom rate (check with your CA)".
+  const workingDate = useSession((s) => s.workingDate)
+  const { offered, earlier } = askGst ? openingGstChoices(workingDate, state.booksBegin) : { offered: [], earlier: [] }
+  /** Rows whose custom-rate box is open → the text typed there. */
+  const [custom, setCustom] = useState<Record<string, string>>({})
+  const customShown = (r: ItemDraft): boolean => custom[r.key] != null || (r.gstRate != null && !offered.includes(r.gstRate))
+  const setCustomRate = (i: number, r: ItemDraft, text: string): void => {
+    setCustom((c) => ({ ...c, [r.key]: text }))
+    setItem(i, { gstRate: readCustomGstRate(text) })
+  }
   const defaultUnit = state.pick.units.find((u) => u.symbol === 'Pcs')?.id ?? state.pick.units[0]?.id ?? null
   const setItem = (i: number, patch: Partial<ItemDraft>): void =>
     update((d) => ({
@@ -401,15 +416,25 @@ export function StockStep({ draft, update, state }: OpeningsStepProps): React.JS
                 <OField label={t('simple.openings.stock.gstRate')} name={`items.${i}.gstRate`}>
                   <Select
                     data-testid={`openings-item-${i}-gst`}
-                    value={r.gstRate == null ? '' : String(r.gstRate)}
-                    onChange={(e) => setItem(i, { gstRate: e.target.value === '' ? null : Number(e.target.value) })}
+                    value={customShown(r) ? CUSTOM_RATE : r.gstRate == null ? '' : String(r.gstRate)}
+                    onChange={(e) => {
+                      const v = e.target.value
+                      if (v === CUSTOM_RATE) {
+                        setCustom((c) => ({ ...c, [r.key]: r.gstRate != null && !offered.includes(r.gstRate) ? String(r.gstRate) : '' }))
+                        setItem(i, { gstRate: null })
+                        return
+                      }
+                      setCustom(({ [r.key]: _gone, ...rest }) => rest)
+                      setItem(i, { gstRate: v === '' ? null : Number(v) })
+                    }}
                   >
                     <option value="">{t('simple.openings.stock.gstPick')}</option>
-                    {slabs.map((s) => (
-                      <option key={s.rate} value={s.rate}>
-                        {s.rate === 0 ? t('simple.newProduct.gstNil') : t('simple.sell.gstChip', { rate: s.rate })}
+                    {offered.map((rate) => (
+                      <option key={rate} value={rate}>
+                        {rate === 0 ? t('simple.newProduct.gstNil') : t('simple.sell.gstChip', { rate })}
                       </option>
                     ))}
+                    <option value={CUSTOM_RATE}>{t('simple.newProduct.customRate')}</option>
                   </Select>
                 </OField>
               ) : (
@@ -448,6 +473,35 @@ export function StockStep({ draft, update, state }: OpeningsStepProps): React.JS
                 }
               />
             </div>
+            {askGst && r.itemId == null && !known(r.name) && customShown(r) && (
+              <div className="rounded-md border border-amber/60 bg-amberbar/10 px-3 py-2 md:col-span-full" data-testid={`openings-item-${i}-gst-custom`}>
+                <div className="flex flex-wrap items-end gap-2">
+                  <Field label={t('simple.newProduct.customRateLabel')} className="w-44">
+                    <TextInput
+                      data-testid={`openings-item-${i}-gst-custom-input`}
+                      inputMode="decimal"
+                      className="num"
+                      placeholder={t('simple.newProduct.otherRate')}
+                      value={custom[r.key] ?? (r.gstRate != null ? String(r.gstRate) : '')}
+                      onChange={(e) => setCustomRate(i, r, e.target.value)}
+                    />
+                  </Field>
+                  {earlier.map((rate) => (
+                    <button
+                      key={rate}
+                      type="button"
+                      aria-pressed={r.gstRate === rate}
+                      data-testid={`openings-item-${i}-gst-earlier-${rate}`}
+                      onClick={() => setCustomRate(i, r, String(rate))}
+                      className="rounded-md border border-line px-3 py-1.5 text-detail text-ink hover:border-amber/60"
+                    >
+                      {t('simple.sell.gstChip', { rate })}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-small text-ink">{t('simple.newProduct.customRateWarn')}</p>
+              </div>
+            )}
           </div>
         ))}
         <div>

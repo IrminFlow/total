@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { useCanSave, ViewerNote } from './ViewerNote'
+import { useToastClearance } from '../components/kit/toastClearance'
 
 /**
  * WP 10.5 — the sticky Save bar of the simple entry screens (Make a bill, Record a purchase,
@@ -33,6 +34,9 @@ export function SaveBar({
   const barRef = useRef<HTMLDivElement>(null)
   // WP 10.8: a viewer gets a plain note where the buttons would be, never a Save that refuses.
   const canSave = useCanSave()
+  // Toasts sit above the bar whatever its height (it wraps to two rows on a narrow window or a
+  // long preview line — a fixed offset let a toast cover Save), from the first paint on.
+  useToastClearance(barRef, '--t-save-bar-h', true, (el) => el.getBoundingClientRect().height || el.offsetHeight)
   useEffect(() => {
     const onFocus = (e: FocusEvent): void => {
       const bar = barRef.current

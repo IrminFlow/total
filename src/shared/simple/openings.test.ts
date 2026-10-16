@@ -3,9 +3,10 @@
 // numbers per party, bills after the start, quantities) and the payload the screen sends.
 import { describe, expect, it } from 'vitest'
 import {
-  billNames, differenceKind, openingFigures, openingSteps, openingsPayload, openingsStepErrors, parseQtyText,
+  billNames, differenceKind, openingFigures, openingGstChoices, readCustomGstRate, openingSteps, openingsPayload, openingsStepErrors, parseQtyText,
   simpleOpeningsSchema, stockLineRate, stockLineValue, type OpeningsDraft
 } from './openings'
+import { slabsOn } from '../gst/rateTable'
 
 const empty = (): OpeningsDraft => ({ cash: { amount: null, base: null }, banks: [], overdrafts: [], customers: [], suppliers: [], items: [], others: [] })
 const bill = (over: Partial<OpeningsDraft['customers'][number]['bills'][number]> = {}) => ({ key: 'b', ref: '', date: '', amount: 100_00, ...over })
@@ -184,5 +185,28 @@ describe('gate polish: "What you sell it for" on an opening-stock row', () => {
     expect(p.items.map((i) => [i.sellPrice, i.sellBase])).toEqual([[22_00, null], [130_00, 120_00], [undefined, undefined]])
     d.items = [{ ...d.items[0]!, sell: -1 }]
     expect(openingsStepErrors(d, 'stock', '2026-04-01')).toEqual({ 'items.0.sell': 'errors.openings.negative' })
+  })
+})
+
+// to-do §4 (PR #111 leftover): a new opening product's GST rate is offered from the WORKING date's
+// slabs (what its next bill charges); the books-begin date's other slabs are custom rates.
+describe('openingGstChoices / readCustomGstRate', () => {
+  it('books begun before 22 Sep 2025, working in Oct 2026: 12 % and 28 % are only "earlier"', () => {
+    const { offered, earlier } = openingGstChoices('2026-10-16', '2025-04-01')
+    expect(offered).toEqual(slabsOn('2026-10-16').map((s) => s.rate))
+    expect(offered).not.toContain(12)
+    expect(offered).not.toContain(28)
+    expect(earlier).toEqual([12, 28])
+  })
+  it('the same period on both dates: nothing earlier', () => {
+    expect(openingGstChoices('2026-10-16', '2026-04-01').earlier).toEqual([])
+    expect(openingGstChoices('2025-06-01', '2025-04-01')).toEqual({ offered: slabsOn('2025-06-01').map((s) => s.rate), earlier: [] })
+  })
+  it('custom rates: 0–100, up to two decimals', () => {
+    expect(readCustomGstRate('12')).toBe(12)
+    expect(readCustomGstRate(' 7.5 ')).toBe(7.5)
+    expect(readCustomGstRate('0')).toBe(0)
+    expect(readCustomGstRate('100')).toBe(100)
+    for (const bad of ['', 'abc', '101', '-5', '1.234', '5%']) expect(readCustomGstRate(bad)).toBeNull()
   })
 })
