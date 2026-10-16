@@ -456,6 +456,32 @@ describe('canSeeProfit: false covers every way to the profit (PR #112 follow-up)
   })
 })
 
+describe('canExport: false refuses every export channel (review follow-up)', () => {
+  it('an accountant without canExport is refused each EXPORT_CHANNELS channel before its payload is read; the statements folder included', async () => {
+    const { slug } = await ok<{ slug: string }>('company:create', company('Export Gate Co'))
+    await ok('company:open', { slug })
+    const owner = await ok<{ id: number }>('users:save', { data: { name: 'Owner', role: 'owner', pin: '1111' } })
+    const acct = await ok<{ id: number }>('users:save', { data: { name: 'Esha', role: 'accountant', pin: '2222', capabilities: { canExport: false } } })
+    await ok('auth:login', { userId: acct.id, pin: '2222' })
+    expect(caps.EXPORT_CHANNELS).toContain('receivables:statementsBulk')
+    const leaked: string[] = []
+    for (const ch of caps.EXPORT_CHANNELS) {
+      if (!ipc.CHANNEL_ROLES.has(ch)) continue
+      if ((await call(ch, undefined)).code !== 'not_permitted') leaked.push(ch)
+    }
+    expect(leaked).toEqual([])
+    const fy = { from: '2026-04-01', to: '2027-03-31' }
+    expect((await call('receivables:statementsBulk', fy)).code).toBe('not_permitted')
+    // the role alone (no flag) still lets an accountant write them; the owner always
+    await ok('auth:login', { userId: owner.id, pin: '1111' })
+    expect((await call('receivables:statementsBulk', fy)).ok).toBe(true)
+    await ok('users:save', { id: acct.id, data: { name: 'Esha', role: 'accountant', capabilities: { canExport: true } } })
+    await ok('auth:login', { userId: acct.id, pin: '2222' })
+    expect((await call('receivables:statementsBulk', fy)).ok).toBe(true)
+    await ok('auth:login', { userId: owner.id, pin: '1111' })
+  })
+})
+
 describe('consolidation member passphrases (PR #132) leave no trace', () => {
   const PASS = 'member passphrase zq7-unique'
   /** Every file under the data root that holds the passphrase bytes (logs, audit, WAL, JSON …). */

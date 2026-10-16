@@ -61,6 +61,9 @@ export const EXPORT_CHANNELS: readonly string[] = [
   // PR #140 review: a party's statement PDF is a report of the books written to a file, like
   // report:pdf — a viewer may save it (its minimum role), unless the owner turned canExport off.
   'receivables:statementPdf',
+  // Review follow-up: every customer's statement written to a folder — a report of the books to
+  // files, like report:pdf (accountant, its minimum role, unless the owner turned canExport off).
+  'receivables:statementsBulk',
   'report:pdf',
   'tcs:export27eq',
   'tds:export26q',
