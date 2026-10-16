@@ -16,7 +16,7 @@ import { TEST_INFO, postSimpleVoucher, testFileDb } from '../db/testdb'
 import { rekeyFile } from '../db/encryption'
 import { newDataKey } from '../db/keyEnvelope'
 import { snapshotTo } from '../db/backup'
-import { runningChecks, setCheckWorkerFile, stopChecks, stopChecksUnder } from '../db/checkHost'
+import { runningChecks, setCheckWorkerFile, stopAllChecks, stopChecks, stopChecksUnder } from '../db/checkHost'
 import { SYSTEM_AUDIT_USER } from './audit'
 import { checkBackupIfDue, recordBackupCheck, verifyBackupFile, verifyBackupFileAsync } from './backupVerify'
 import type { DB } from '../db/connection'
@@ -195,6 +195,33 @@ describe('the restore check in the check worker', () => {
     await stopChecksUnder(dirname(b.path))
     await expect(pb).rejects.toThrow()
     expect(runningChecks(backupB)).toBe(0)
+    a.db.close()
+    b.db.close()
+  }, 60_000)
+
+  it('stopAllChecks (a data-folder move) ends running restore checks too, nothing recorded', async () => {
+    const hang = join(ROOT, 'hang3.js')
+    writeFileSync(hang, 'setInterval(() => {}, 1000)\n')
+    setCheckWorkerFile(hang)
+    const a = liveDb()
+    const b = liveDb()
+    const backupA = join(dirname(a.path), 'backups', `snap-${++n}-auto.db`)
+    mkdirSync(dirname(backupA), { recursive: true })
+    const backupB = join(dirname(b.path), `snap-${++n}-auto.db`)
+    await snapshotTo(a.db, backupA)
+    await snapshotTo(b.db, backupB)
+    const pa = checkBackupIfDue(a.db, backupA, 'auto', AS_ON, SYSTEM_AUDIT_USER)
+    const pb = verifyBackupFileAsync(backupB, { asOn: AS_ON, key: null, now: NOW })
+    await new Promise((r) => setTimeout(r, 50))
+    expect(runningChecks(backupA)).toBe(1)
+    expect(runningChecks(backupB)).toBe(1)
+    await stopAllChecks()
+    expect(await pa).toBeNull()
+    await expect(pb).rejects.toThrow()
+    expect(runningChecks(backupA)).toBe(0)
+    expect(runningChecks(backupB)).toBe(0)
+    expect(runRows(a.db)).toEqual([])
+    expect(auditRows(a.db)).toEqual([])
     a.db.close()
     b.db.close()
   }, 60_000)
