@@ -7,6 +7,7 @@ import { mkdtempSync, readdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import Database from 'better-sqlite3-multiple-ciphers'
+import { testFileDb } from './testdb'
 
 process.env.TOTAL_DATA_DIR = mkdtempSync(join(tmpdir(), 'total-interrupted-upgrade-'))
 const { openCompanyDb } = await import('./connection')
@@ -52,7 +53,7 @@ describe('an upgrade interrupted midway', () => {
     const slug = 'interrupted'
     ensureCompanyTree(slug)
     const path = companyDbPath(slug)
-    const raw = new Database(path)
+    const raw = testFileDb(path)
     try {
       raw.pragma('journal_mode = WAL')
       raw.pragma('foreign_keys = ON')
@@ -67,7 +68,7 @@ describe('an upgrade interrupted midway', () => {
 
     // The reference: the same file with only the migrations before the faulty one.
     const refPath = join(process.env.TOTAL_DATA_DIR!, 'reference.db')
-    const ref = new Database(refPath)
+    const ref = testFileDb(refPath)
     try {
       migrate(ref, MIGRATIONS.slice(0, FAULTY))
     } finally {
@@ -117,7 +118,7 @@ describe('an upgrade interrupted midway', () => {
     // version; keep-newest-2 must not push out the only copy the previous Total can open.
     const slug = 'interrupted-twice'
     ensureCompanyTree(slug)
-    const raw = new Database(companyDbPath(slug))
+    const raw = testFileDb(companyDbPath(slug))
     try {
       raw.pragma('journal_mode = WAL')
       migrate(raw, MIGRATIONS.slice(0, N - BEHIND))
@@ -149,13 +150,13 @@ describe('an upgrade interrupted midway', () => {
     const original = MIGRATIONS[rebuild]!
     const path = join(process.env.TOTAL_DATA_DIR!, 'rebuild.db')
     const refPath = join(process.env.TOTAL_DATA_DIR!, 'rebuild-ref.db')
-    const ref = new Database(refPath)
+    const ref = testFileDb(refPath)
     try {
       migrate(ref, MIGRATIONS.slice(0, rebuild))
     } finally {
       ref.close()
     }
-    const db = new Database(path)
+    const db = testFileDb(path)
     try {
       db.pragma('foreign_keys = ON')
       migrate(db, MIGRATIONS.slice(0, rebuild - 1))

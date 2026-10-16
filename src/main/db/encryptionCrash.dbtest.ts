@@ -13,7 +13,7 @@ import { snapshotTo } from './backup'
 import { newDataKey, wrapKey } from './keyEnvelope'
 import { migrate } from './migrate'
 import { seedCompany } from './seed'
-import { TEST_INFO } from './testdb'
+import { TEST_INFO, testFileDb } from './testdb'
 import { bookFacts, commitConvertedCopy, convertBackups, convertCompanyFile, prepareConvertedCopy, removeLeftoverCopies, sameFacts } from '../services/dbEncryption'
 import { readEnvelopes, unlockKey, writeEnvelope } from '../services/companyKeys'
 import { WrongPassphraseError } from './keyEnvelope'
@@ -33,7 +33,7 @@ function companyFile(): string {
   mkdirSync(join(dir, 'backups'), { recursive: true })
   mkdirSync(join(dir, 'exports'), { recursive: true })
   const path = join(dir, 'company.db')
-  const db = new Database(path)
+  const db = testFileDb(path)
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   migrate(db)

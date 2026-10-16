@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import Database from 'better-sqlite3-multiple-ciphers'
+import { testFileDb } from '../db/testdb'
 import { mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -20,7 +20,7 @@ const INFO: CompanyInfo = {
 function makeCompanyDb(withOwner: boolean): string {
   const dir = mkdtempSync(join(tmpdir(), 'total-company-delete-'))
   const dbPath = join(dir, 'company.db')
-  const db = new Database(dbPath)
+  const db = testFileDb(dbPath)
   db.pragma('journal_mode = WAL')
   migrate(db)
   seedCompany(db, INFO)
@@ -69,7 +69,7 @@ describe('company delete authorization (assertDeleteAuthorized)', () => {
 
     // Same meta-persisted counter as auth:login: the owner is locked out at the login screen too,
     // and every wrong delete-PIN was audited as a login_failed.
-    const db = new Database(dbPath)
+    const db = testFileDb(dbPath)
     const owner = db.prepare("SELECT id FROM users WHERE role = 'owner'").get() as { id: number }
     expect(() => login(db, owner.id, '1234')).toThrow('Too many attempts — wait 30 seconds')
     const audits = db
@@ -81,7 +81,7 @@ describe('company delete authorization (assertDeleteAuthorized)', () => {
 
   it('failed logins also lock the delete PIN gate (throttle is shared in both directions)', () => {
     const dbPath = makeCompanyDb(true)
-    const db = new Database(dbPath)
+    const db = testFileDb(dbPath)
     const owner = db.prepare("SELECT id FROM users WHERE role = 'owner'").get() as { id: number }
     for (let i = 0; i < 5; i++) {
       expect(() => login(db, owner.id, '0000')).toThrow('Wrong PIN')

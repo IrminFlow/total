@@ -11,6 +11,7 @@ import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSyn
 import { tmpdir } from 'os'
 import { join } from 'path'
 import Database from 'better-sqlite3-multiple-ciphers'
+import { testFileDb } from './db/testdb'
 
 type Result = { ok: boolean; data?: unknown; error?: string; code?: string; field?: string }
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<Result>>()
@@ -114,7 +115,7 @@ describe('upgrade: an existing plaintext company opens unchanged', () => {
     const slug = 'old-books'
     const { mkdirSync } = await import('fs')
     mkdirSync(join(dir(slug), 'backups'), { recursive: true })
-    const d = new Database(dbFile(slug))
+    const d = testFileDb(dbFile(slug))
     d.pragma('journal_mode = WAL')
     migrate.migrate(d, migrations.MIGRATIONS.slice(0, -1))
     seed.seedCompany(d, company('Old Books') as never)

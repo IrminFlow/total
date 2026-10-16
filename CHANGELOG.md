@@ -335,6 +335,11 @@ Read these before filing from the next release.
   longer prune the only copy the previous Total can open; a timed-out open quick_check stays
   visible to `stopChecks` until its thread has exited (terminate cannot interrupt SQLite); the
   on-open auto-purge of the bin commits with its summary audit row too.
+- **Windows test flake** ([#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)): dbtests that write a file
+  database open it with `testFileDb` (`db/testdb.ts`, `synchronous = OFF` per connection) instead of
+  the driver's constructor, whose durable default fsynced every commit of the fixtures (~60 for
+  migrate + seed) — backup.dbtest's restore tests took 2–7 s on the Windows runner and once 70 s.
+  `scratchDbLint.dbtest.ts` refuses a writable raw file open in a dbtest. No product code changed.
 - Audit entity `itc_reversal` (`gst:itcReversalApply` / `gst:itcReversalPost`). `SimpleHomeData.gst`
   has optional `pmt06` (regular, quarterly) and `composition` (`CompositionDue`), both additive. The
   `registers` screen takes optional `from` / `to`. `reportPacks.packFolderName`. New pure sentences:

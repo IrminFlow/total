@@ -12,7 +12,7 @@ import { join } from 'path'
 import { createHash } from 'crypto'
 import { migrate } from '../db/migrate'
 import { seedCompany } from '../db/seed'
-import { TEST_INFO, postSimpleVoucher, seededDb } from '../db/testdb'
+import { TEST_INFO, postSimpleVoucher, seededDb, testFileDb } from '../db/testdb'
 import { restoreCompanyDb, snapshotSync, snapshotTo } from '../db/backup'
 import { BLOB_TABLE, embedAttachments, restoreAttachmentFiles, restoreAttachmentFilesAt, stashSnapshotAttachments } from '../db/attachmentBackup'
 import {
@@ -46,7 +46,7 @@ describe('type policy at open and at restore', () => {
     const backups = join(root, 'backups')
     const bstore = join(backups, 'attachments')
     mkdirSync(backups)
-    let db = new Database(dbPath)
+    let db = testFileDb(dbPath)
     db.pragma('journal_mode = WAL')
     migrate(db)
     seedCompany(db, TEST_INFO)
@@ -57,13 +57,13 @@ describe('type policy at open and at restore', () => {
     const script = '#!/bin/sh\necho owned\n'
     const s = sha(script)
     putStoredFile(bstore, s, Buffer.from(script))
-    const b = new Database(backupPath)
+    const b = testFileDb(backupPath)
     b.prepare("INSERT INTO attachments (entity, entity_id, file_name, mime, size, sha256, stored_path) VALUES ('voucher', ?, 'run.command', 'text/plain', ?, ?, ?)").run(
       v.id, script.length, s, storedPathFor(s)
     )
     b.close()
     restoreCompanyDb(db, dbPath, backupPath, backups)
-    db = new Database(dbPath)
+    db = testFileDb(dbPath)
     const r = restoreAttachmentFiles(db, live, bstore)
     expect(r.restored).toBe(0)
     expect(r.refused).toEqual([{ sha256: s, fileName: 'run.command', reason: expect.stringMatching(/\.command can't be attached/) }])

@@ -12,7 +12,7 @@ import { migrate } from './migrate'
 import { MIGRATIONS } from './migrations'
 import { seedCompany } from './seed'
 import { quickCheckOk, snapshotTo } from './backup'
-import { TEST_INFO } from './testdb'
+import { TEST_INFO, testFileDb } from './testdb'
 import { bookFacts, convertBackups, convertCompanyFile, sameFacts } from '../services/dbEncryption'
 import { verifyBackupFile } from '../services/backupVerify'
 
@@ -36,7 +36,7 @@ function companyFile(migrations = MIGRATIONS): string {
   const dir = join(ROOT, `co-${++n}`)
   mkdirSync(dir, { recursive: true })
   const path = join(dir, 'company.db')
-  const db = new Database(path)
+  const db = testFileDb(path)
   db.pragma('journal_mode = WAL')
   db.pragma('foreign_keys = ON')
   migrate(db, migrations)
@@ -182,7 +182,7 @@ describe('the restore check of a backup', () => {
     expect(r.error).toBeTruthy()
 
     const unbalanced = companyFile()
-    const d = new Database(unbalanced)
+    const d = testFileDb(unbalanced)
     const vt = (d.prepare("SELECT id FROM voucher_types WHERE kind = 'journal'").get() as { id: number }).id
     const cash = (d.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
     const v = Number(d.prepare("INSERT INTO vouchers (voucher_type_id, date, number) VALUES (?, '2025-05-01', 'X1')").run(vt).lastInsertRowid)
@@ -197,7 +197,7 @@ describe('the WP 7.2 migration', () => {
   it('is the last migration (number by position) and leaves every existing user as the role says', () => {
     expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE backup_runs'))).toBe(MIGRATIONS.length - 1)
     const path = companyFile(MIGRATIONS.slice(0, -1))
-    const db = new Database(path)
+    const db = testFileDb(path)
     db.prepare("INSERT INTO users (name, pin_hash, role, active) VALUES ('Old Owner', 'x', 'owner', 1)").run()
     migrate(db)
     expect(db.prepare('SELECT capabilities_json AS c FROM users').get()).toEqual({ c: null })

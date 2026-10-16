@@ -6,7 +6,7 @@ import Database from 'better-sqlite3-multiple-ciphers'
 import { existsSync, mkdtempSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { freshPartialDb, postSimpleVoucher, seededDb, TEST_INFO } from '../db/testdb'
+import { freshPartialDb, postSimpleVoucher, seededDb, TEST_INFO, testFileDb } from '../db/testdb'
 import { migrate } from '../db/migrate'
 import { MIGRATIONS } from '../db/migrations'
 import { seedCompany } from '../db/seed'
@@ -142,7 +142,7 @@ describe('tamper evidence', () => {
     const file = join(dir, 'b.db')
     snapshotSync(db, file)
     writeAudit(db, 'group', 1, 'update', null, { later: true })
-    const restored = new Database(file)
+    const restored = testFileDb(file)
     try {
       const v = verifyAudit(restored)
       expect(v.ok).toBe(true)

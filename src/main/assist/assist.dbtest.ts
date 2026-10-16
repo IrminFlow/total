@@ -12,6 +12,7 @@ import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import Database from 'better-sqlite3-multiple-ciphers'
+import { testFileDb } from '../db/testdb'
 import { todayISO } from '@shared/dates'
 import type { AssistAnswer, AssistDraftResult } from '@shared/assist'
 import type { AiDraftDto } from '@shared/ai'
@@ -314,7 +315,7 @@ describe('Ask Total on hand-worked books', () => {
   it('WP 10.6: a chat (AI panel) draft opened in its simple flow is consumed by the save; other drafts are left alone', async () => {
     const { insertDraft } = await import('../ai/store')
     const receipt = (extra: Record<string, unknown> = {}): number => {
-      const db = new Database(dbPath)
+      const db = testFileDb(dbPath)
       try {
         return insertDraft(db, {
           threadId: null, messageId: null, summary: 'Receipt from Ramesh', source: 'chat',
