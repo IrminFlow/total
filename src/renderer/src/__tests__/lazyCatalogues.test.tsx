@@ -210,6 +210,7 @@ describe('a language other than the user\'s (useCatalogue)', () => {
     expect(chip('en')).toBe('true')
     expect(chip('hinglish')).not.toBe('true')
     expect(screen.getByTestId('reminder-lang-loading').textContent).toBe(en['simple.looks.languageLoading'])
+    for (const id of ['whatsapp', 'copy', 'sms']) expect((screen.getByTestId(`btn-reminder-${id}`) as HTMLButtonElement).disabled).toBe(true)
     await act(async () => {
       d.resolve()
       await loadCatalogue('hinglish')
@@ -217,6 +218,7 @@ describe('a language other than the user\'s (useCatalogue)', () => {
     expect(text()).toContain('Namaste Ramesh ji,')
     expect(chip('hinglish')).toBe('true')
     expect(screen.queryByTestId('reminder-lang-loading')).toBeNull()
+    for (const id of ['whatsapp', 'copy', 'sms']) expect((screen.getByTestId(`btn-reminder-${id}`) as HTMLButtonElement).disabled).toBe(false)
     for (const s of seen) if (s.hinglishChip === 'true') expect(s.text).not.toContain('Hello Ramesh,')
   })
 

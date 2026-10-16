@@ -130,13 +130,13 @@ export function ReminderPanel({ person, reminder, startLang, onSent }: { person:
       )}
       <Textarea className="mt-3 font-sans" rows={11} readOnly value={text} data-testid="reminder-text" aria-label={t('simple.people.reminder.title', { name: person.name })} />
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button variant="primary" data-testid="btn-reminder-whatsapp" onClick={() => askFirst(onWhatsapp)}>
+        <Button variant="primary" data-testid="btn-reminder-whatsapp" disabled={loading} onClick={() => askFirst(onWhatsapp)}>
           {t('simple.people.reminder.whatsapp')}
         </Button>
-        <Button data-testid="btn-reminder-copy" onClick={() => askFirst(() => onCopy(COPIED))}>
+        <Button data-testid="btn-reminder-copy" disabled={loading} onClick={() => askFirst(() => onCopy(COPIED))}>
           {t('simple.people.reminder.copy')}
         </Button>
-        <Button data-testid="btn-reminder-sms" onClick={() => askFirst(() => onCopy(SMS))}>
+        <Button data-testid="btn-reminder-sms" disabled={loading} onClick={() => askFirst(() => onCopy(SMS))}>
           {t('simple.people.reminder.sms')}
         </Button>
       </div>
