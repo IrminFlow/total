@@ -23,7 +23,7 @@ import type { Language } from '@shared/i18n'
 import type { CompanyInfo } from '@shared/domain'
 import { toPlainDate } from '@shared/dates'
 import { AppError, structuredOf } from '@shared/errors'
-import { gstRegistrationOf } from '@shared/gst/registration'
+import { chargesGstOn, gstRegistrationOf } from '@shared/gst/registration'
 import { validateGstin } from '@shared/gst/validate'
 import { moneyOutFieldOf } from '@shared/simple/money'
 import { narrationPrefix } from '@shared/capture/categorise'
@@ -239,11 +239,14 @@ function acceptOne(db: DB, company: CompanyInfo, bankLedgerId: number, item: Ban
   if ((c.kind === 'expense' || c.kind === 'charges') && c.gstBill) {
     if (!gstBillComplete(c)) throw new AppError('simple_bank_bill_incomplete', 'Say who the GST bill is from, its number and its GST rate', { field: 'gstBill' })
     const stateOf = db.prepare('SELECT state_code AS s FROM ledgers WHERE id = ?')
+    const facts = gstRegistrationOf(company)
     gst = {
-      facts: gstRegistrationOf(company),
+      facts,
       companyStateCode: company.stateCode,
       supplierState: (id) => (stateOf.get(id) as { s: string | null } | undefined)?.s ?? null,
-      chargesSupplierId: c.kind === 'charges' ? bankAsSupplier(db, bankLedgerId, c.gstBill.gstin) : null
+      // The bank becomes a supplier only when the line's date charges GST (WP 8.0): on any other
+      // date the answer is the plain payment, and no "<bank> (charges)" creditor is added for it.
+      chargesSupplierId: c.kind === 'charges' && chargesGstOn(facts, line.date) ? bankAsSupplier(db, bankLedgerId, c.gstBill.gstin) : null
     }
   }
   const intent = intentForChoice(line, c, bankLedgerId, item.clientId, gst)

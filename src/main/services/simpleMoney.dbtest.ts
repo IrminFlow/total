@@ -448,6 +448,27 @@ describe('Money out: a refund to a customer', () => {
     expect({ bills: ta.bills.length, credit: ta.unappliedCredit }).toEqual({ bills: 0, credit: 20_000 })
   })
 
+  it('more than the credit held: the excess opens a bill named after the payment — the customer now owes it (the supplier-refund mirror)', () => {
+    const adv = moneyIn({ customerId: L('Ramesh'), amount: 50_000, advance: true }).out
+    const advName = getVoucher(db, adv.voucherIds[0]!)!.number
+    const { out } = moneyOut({ who: 'refund', customerId: L('Ramesh'), amount: 60_000, how: 'cash' })
+    const v = getVoucher(db, out.voucherIds[0]!)!
+    expect(v.billRefs.map((x) => [x.kind, x.name, x.amount])).toEqual([['against', advName, 60_000]])
+    expect(allocation('Ramesh')).toEqual({ bills: { [v.number]: 10_000 }, credit: 0 })
+    expect(out.facts).toMatchObject({ side: 'customer', balance: 10_000 })
+  })
+
+  it('a customer whose credit is unnamed (money received on account, no advance flag) counts as credit held: the refund nets it off, no bill opens', () => {
+    twoBills()
+    post({ kind: 'money_in', customerId: L('Ramesh'), amount: 190_000, into: { how: 'cash' } })
+    expect(allocation('Ramesh')).toEqual({ bills: {}, credit: 30_000 })
+    expect(moneySetup(db).customerCredits).toEqual([{ id: L('Ramesh'), name: 'Ramesh', credit: 30_000 }])
+    const { out } = moneyOut({ who: 'refund', customerId: L('Ramesh'), amount: 30_000, how: 'cash' })
+    expect(getVoucher(db, out.voucherIds[0]!)!.billRefs).toEqual([])
+    expect(allocation('Ramesh')).toEqual({ bills: {}, credit: 0 })
+    expect(out.facts).toMatchObject({ side: 'customer', balance: 0 })
+  })
+
   it('a customer holding no credit: refused on the customer, no trace; not offered by the setup', () => {
     twoBills()
     expect(moneySetup(db).customerCredits).toEqual([])
