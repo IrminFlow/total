@@ -294,7 +294,7 @@ export function ChequeBackfillModal({ bankLedgerId, bankName, onClose, onFilled 
     }
   }
   const conflicts = data?.conflicts ?? []
-  const outsideSkipped = !includeOutside ? (data?.outsideBooks ?? 0) : 0
+  const outsideSkipped = data?.outsideBooks ?? 0
   return (
     <Modal title={`Fill the cheque register — ${bankName}`} onClose={onClose} extraWide>
       <div className="flex flex-col gap-3" data-testid="cheque-backfill">
@@ -303,7 +303,7 @@ export function ChequeBackfillModal({ bankLedgerId, bankName, onClose, onFilled 
           cheques against their vouchers, exactly as Print cheque would have — the vouchers themselves are not changed.
         </p>
         <Checkbox
-          label="Include numbers outside any cheque book (any 6-digit number)"
+          label="Include numbers outside any cheque book (a 6-digit number in the cheque no. field or after “cheque” in the narration)"
           checked={includeOutside}
           onChange={setIncludeOutside}
           testId="input-cheque-backfill-outside"

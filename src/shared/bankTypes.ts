@@ -205,8 +205,8 @@ export interface ChequeBackfillPreview {
   rows: ChequeBackfillRow[]
   /** Entries skipped because their leaf is taken — never overwritten. */
   conflicts: ChequeBackfillRow[]
-  /** Entries whose number is outside every cheque book (recorded only with includeOutside, and
-   *  then only 6-digit numbers). */
+  /** Entries left out because their number is outside every cheque book (with includeOutside
+   *  only 6-digit numbers from the cheque-number field or the narration are recorded). */
   outsideBooks: number
 }
 

@@ -284,10 +284,13 @@ export function setChequeStatus(db: DB, input: ChequeStatusInput): ChequeRegiste
 // / amount / date from `chequeData`) — owner-run, audited, idempotent; it never changes a
 // voucher or a figure (a voucher's '457' stays '457' while the register says 000457).
 
+const OUTSIDE_RE = new RegExp(`^\\d{${OUTSIDE_BOOK_DIGITS}}$`)
+
 export interface ChequeBackfillOptions {
   /** Limit to one bank account (the Cheques tab passes its bank). */
   bankLedgerId?: number
-  /** Also record 6-digit numbers outside every cheque book (off by default). */
+  /** Also record 6-digit numbers outside every cheque book (off by default) — from the cheque-number
+   *  field or a cheque word in the narration only, never a bare reference. */
   includeOutside?: boolean
 }
 
@@ -297,7 +300,10 @@ export interface ChequeBackfillOptions {
  * post-dated payments are included: their leaf has left the book too, and leaving it out would
  * let the next leaf be handed out twice. The number is read by `chequeNumberOf` (leafValue, the
  * print rule) and must fall inside one of the bank's cheque books (an inactive, used-up book
- * counts — it is history), or be a 6-digit number with `includeOutside`. A voucher that already
+ * counts — it is history), or, with `includeOutside`, be a 6-digit number from the cheque-number
+ * field or the narration's cheque word (never a bare reference). `outsideBooks` counts the
+ * entries left out for being outside every book. A reference that is a voucher
+ * number is not read as a cheque number (a bounced cheque's charges entry carries one). A voucher that already
  * has a register entry on that bank is skipped silently; a leaf held by another entry (or by a
  * blank cancelled / stopped leaf), or claimed by an earlier entry of the same run, is a conflict.
  */
@@ -316,6 +322,8 @@ export function chequeBackfillPreview(db: DB, opts: ChequeBackfillOptions = {}):
        AND (v.instrument_no IS NOT NULL OR v.reference IS NOT NULL OR v.narration IS NOT NULL)
      ORDER BY v.date, v.id`
   )
+  // Every voucher number (one read; vouchers.number is indexed only behind voucher_type_id).
+  const voucherNumberSet = new Set((db.prepare('SELECT DISTINCT number FROM vouchers').all() as { number: string }[]).map((r) => r.number.trim()))
   for (const bank of banks) {
     const books = db.prepare('SELECT * FROM cheque_books WHERE bank_ledger_id = ? ORDER BY from_no').all(bank.id) as BookRow[]
     const ranges = books.map(toRange)
@@ -335,10 +343,18 @@ export function chequeBackfillPreview(db: DB, opts: ChequeBackfillOptions = {}):
       if (vouchersInRegister.has(v.id)) continue
       const found = chequeNumberOf(v)
       if (!found) continue
+      // A digits-only reference that is a voucher number (another entry's, or its own) points at
+      // that entry, not at a cheque leaf — a bounced cheque's charges payment carries the
+      // original's number there.
+      if (found.source === 'reference' && voucherNumberSet.has(found.text)) continue
       const book = bookFor(ranges, found.leaf)
-      if (!book) {
+      // Outside every book only with the box on, and then only a 6-digit number read from the
+      // cheque-number field or after a cheque word in the narration — never a bare digits-only
+      // reference, which is as often a UTR, a bill or a voucher number (a bounced PDC's charges
+      // entry carries the original's voucher number there).
+      if (!book && (!opts.includeOutside || found.source === 'reference' || !OUTSIDE_RE.test(found.text))) {
         outsideBooks++
-        if (!opts.includeOutside || !new RegExp(`^\\d{${OUTSIDE_BOOK_DIGITS}}$`).test(found.text)) continue
+        continue
       }
       const number = book ? formatLeaf(found.leaf, book.width) : found.text
       const data = chequeData(db, v.id, bank.id)

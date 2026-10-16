@@ -9,7 +9,8 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { seededDb } from '../db/testdb'
 import { createLedger } from './masters'
-import { getVoucher, saveVoucher, deleteVoucher } from './vouchers'
+import { getVoucher, saveVoucher, deleteVoucher, maturePdcNow } from './vouchers'
+import { bouncePdc } from './pdc'
 import { listAudit, setAuditContext } from './audit'
 import { trialBalance } from './reports'
 import { backfillChequeRegister, chequeBackfillPreview, chequeRegister, issueCheque, nextChequeNumber, saveChequeBook, setChequeStatus } from './cheques'
@@ -193,6 +194,133 @@ describe('cheque register backfill', () => {
     expect(backfillChequeRegister(c.db, { bankLedgerId: c.hdfc, includeOutside: true, voucherIds: [six.id, kept.id] })).toMatchObject({ filled: 2 })
     expect(chequeRegister(c.db, c.hdfc, false).map((r) => [r.number, r.bookId == null, r.status])).toEqual([['000458', false, 'issued'], ['900123', true, 'issued']])
     expect(chequeBackfillPreview(c.db, { bankLedgerId: c.hdfc }).rows.map((r) => r.voucherId)).toEqual([notTicked.id])
+  })
+})
+
+describe('cheque register backfill = Print cheque, review cases', () => {
+  /** Multi-line payments: two suppliers without a party, a party payment with bank charges. */
+  function seedMulti(c: Co & { bea: number; charges: number }) {
+    const twoSuppliers = saveVoucher(c.db, {
+      voucherTypeId: vtId(c.db, 'payment'), date: '2026-05-02', partyLedgerId: null, narration: null, reference: null, instrumentNo: '000457',
+      lines: [
+        { ledgerId: c.acme, drCr: 'dr', amount: 600_00, costAllocations: [] },
+        { ledgerId: c.bea, drCr: 'dr', amount: 900_00, costAllocations: [] },
+        { ledgerId: c.hdfc, drCr: 'cr', amount: 1_500_00, costAllocations: [] }
+      ]
+    })
+    const withCharges = saveVoucher(c.db, {
+      voucherTypeId: vtId(c.db, 'payment'), date: '2026-05-03', partyLedgerId: c.acme, narration: null, reference: null, instrumentNo: '000458',
+      lines: [
+        { ledgerId: c.acme, drCr: 'dr', amount: 2_000_00, costAllocations: [] },
+        { ledgerId: c.charges, drCr: 'dr', amount: 25_00, costAllocations: [] },
+        { ledgerId: c.hdfc, drCr: 'cr', amount: 2_025_00, costAllocations: [] }
+      ]
+    })
+    return { twoSuppliers, withCharges }
+  }
+  const multiCo = () => {
+    const c = company()
+    return { ...c, bea: ledger(c.db, 'Bea Supplies', 'Sundry Creditors'), charges: ledger(c.db, 'Bank Charges', 'Indirect Expenses') }
+  }
+
+  it('multi-line payments get the payee / amount Print cheque gives them (twin printed after the book existed)', () => {
+    const c = multiCo()
+    seedMulti(c)
+    saveChequeBook(c.db, { bankLedgerId: c.hdfc, ...BOOK })
+    expect(backfillChequeRegister(c.db, { bankLedgerId: c.hdfc }).filled).toBe(2)
+    const t = multiCo()
+    saveChequeBook(t.db, { bankLedgerId: t.hdfc, ...BOOK })
+    const te = seedMulti(t)
+    issueCheque(t.db, te.twoSuppliers.id, t.hdfc)
+    issueCheque(t.db, te.withCharges.id, t.hdfc)
+    const reg = comparable(chequeRegister(c.db, c.hdfc, false))
+    expect(reg).toEqual(comparable(chequeRegister(t.db, t.hdfc, false)))
+    expect(reg.map((r) => [r.number, r.payee, r.amount])).toEqual([['000457', 'Bea Supplies', 1_500_00], ['000458', 'Acme Traders', 2_025_00]])
+  })
+
+  it('a post-dated cheque later matured and bounced reads exactly as print-then-bounce', () => {
+    const run = (printFirst: boolean) => {
+      const c = multiCo()
+      if (printFirst) saveChequeBook(c.db, { bankLedgerId: c.hdfc, ...BOOK })
+      const p = pay(c.db, { bank: c.hdfc, to: c.acme, party: c.acme, amount: 400_00, date: '2026-05-06', instrumentNo: '000461', postDated: true })
+      if (printFirst) issueCheque(c.db, p.id, c.hdfc)
+      maturePdcNow(c.db, p.id)
+      bouncePdc(c.db, { voucherId: p.id, date: '2026-05-08', charges: 50_00, chargesLedgerId: c.charges, recoverChargesFromParty: false, reason: 'Funds insufficient' })
+      if (!printFirst) {
+        saveChequeBook(c.db, { bankLedgerId: c.hdfc, ...BOOK })
+        const preview = chequeBackfillPreview(c.db, { bankLedgerId: c.hdfc })
+        // the bounced cheque is recorded; the charges entry (reference = the original's number,
+        // narration "cheque 000461") never takes a leaf of its own
+        expect(preview.rows.map((r) => r.voucherId)).toEqual([p.id])
+        backfillChequeRegister(c.db, { bankLedgerId: c.hdfc })
+      }
+      return comparable(chequeRegister(c.db, c.hdfc, false))
+    }
+    const backfilled = run(false)
+    expect(backfilled).toEqual(run(true))
+    expect(backfilled.map((r) => [r.number, r.status])).toEqual([['000461', 'issued']])
+  })
+
+  it('a bounced cheque\'s charges entry (reference = the original voucher\'s number) never takes a leaf, even when that number is inside a book', () => {
+    const c = multiCo()
+    const p = pay(c.db, { bank: c.hdfc, to: c.acme, party: c.acme, amount: 400_00, date: '2026-05-06', instrumentNo: '000002', postDated: true })
+    maturePdcNow(c.db, p.id)
+    const res = bouncePdc(c.db, { voucherId: p.id, date: '2026-05-08', charges: 50_00, chargesLedgerId: c.charges, recoverChargesFromParty: false, reason: '' })
+    const chargesRef = getVoucher(c.db, res.chargesVoucherId!)!.reference!
+    expect(chargesRef).toBe(getVoucher(c.db, p.id)!.number)
+    // a book whose range covers both the cheque and that voucher number
+    saveChequeBook(c.db, { bankLedgerId: c.hdfc, name: 'Low book', fromNo: 1, toNo: 500, width: 6, receivedOn: null, active: true })
+    expect(chequeBackfillPreview(c.db, { bankLedgerId: c.hdfc }).rows.map((r) => r.voucherId)).toEqual([p.id])
+  })
+
+  it('an entry printed between the preview and the apply is skipped, not recorded twice', () => {
+    const c = company()
+    const a = pay(c.db, { bank: c.hdfc, to: c.rent, amount: 100_00, date: '2026-05-01', instrumentNo: '000457' })
+    const b = pay(c.db, { bank: c.hdfc, to: c.rent, amount: 200_00, date: '2026-05-02', instrumentNo: '000458' })
+    saveChequeBook(c.db, { bankLedgerId: c.hdfc, ...BOOK })
+    const ticked = chequeBackfillPreview(c.db, { bankLedgerId: c.hdfc }).rows.map((r) => r.voucherId)
+    expect(ticked).toEqual([a.id, b.id])
+    issueCheque(c.db, a.id, c.hdfc) // someone printed it meanwhile
+    const res = backfillChequeRegister(c.db, { bankLedgerId: c.hdfc, voucherIds: ticked })
+    expect(res.rows.map((r) => r.voucherId)).toEqual([b.id])
+    expect(chequeRegister(c.db, c.hdfc, false).map((r) => [r.number, r.voucherId])).toEqual([['000457', a.id], ['000458', b.id]])
+    // the summary row carries counts + numbers, never the vouchers' contents
+    const summary = listAudit(c.db, { entity: 'cheque' }).rows.find((r) => r.action === 'import')!
+    expect(JSON.parse(summary.afterJson as string)).toEqual({
+      kind: 'register_backfill', bankLedgerId: c.hdfc, includeOutside: false, filled: 1,
+      numbers: [{ bankLedgerId: c.hdfc, number: '000458', voucherId: b.id }], conflicts: []
+    })
+  })
+
+  it('a backfilled leaf whose payment is binned reads as a printed one whose payment is binned', () => {
+    const run = (printFirst: boolean) => {
+      const c = company()
+      if (printFirst) saveChequeBook(c.db, { bankLedgerId: c.hdfc, ...BOOK })
+      const p = pay(c.db, { bank: c.hdfc, to: c.rent, amount: 100_00, date: '2026-05-01', instrumentNo: '000457' })
+      if (printFirst) issueCheque(c.db, p.id, c.hdfc)
+      else {
+        saveChequeBook(c.db, { bankLedgerId: c.hdfc, ...BOOK })
+        backfillChequeRegister(c.db, { bankLedgerId: c.hdfc })
+      }
+      deleteVoucher(c.db, p.id)
+      return { reg: comparable(chequeRegister(c.db, c.hdfc, false)), next: nextChequeNumber(c.db, c.hdfc)?.label }
+    }
+    const backfilled = run(false)
+    expect(backfilled).toEqual(run(true))
+    expect(backfilled.next).toBe('000458')
+  })
+
+  it('with "outside any book" on, a bare digits-only reference is never recorded (UTR / bill numbers)', () => {
+    const c = company()
+    pay(c.db, { bank: c.hdfc, to: c.rent, amount: 100_00, date: '2026-05-01', reference: '900124' })
+    const narr = pay(c.db, { bank: c.hdfc, to: c.rent, amount: 100_00, date: '2026-05-02', narration: 'Paid by chq 900125' })
+    const instr = pay(c.db, { bank: c.hdfc, to: c.rent, amount: 100_00, date: '2026-05-03', instrumentNo: '900126' })
+    pay(c.db, { bank: c.hdfc, to: c.rent, amount: 100_00, date: '2026-05-04', reference: '123456789012' })
+    saveChequeBook(c.db, { bankLedgerId: c.hdfc, ...BOOK })
+    const wide = chequeBackfillPreview(c.db, { bankLedgerId: c.hdfc, includeOutside: true })
+    expect(wide.rows.map((r) => [r.voucherId, r.source])).toEqual([[narr.id, 'narration'], [instr.id, 'instrument']])
+    expect(wide.outsideBooks).toBe(2)
+    expect(chequeBackfillPreview(c.db, { bankLedgerId: c.hdfc }).outsideBooks).toBe(4)
   })
 })
 

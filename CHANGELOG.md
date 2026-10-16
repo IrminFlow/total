@@ -398,9 +398,11 @@ Read these before filing from the next release.
   the bank had a cheque book carry their cheque number on the voucher but were never in the
   register, so after an upgrade the register was empty and "Leaves left" / the next leaf were
   wrong. The new panel lists every payment (post-dated ones included — their leaf has left the
-  book too) whose cheque number field, a digits-only reference, or a "chq no. …" in the narration
+  book too) whose cheque number field, a digits-only reference (not one that is a voucher number —
+  a bounced cheque's charges entry carries the original's there), or a "chq no. …" in the narration
   falls inside one of the bank's cheque books and is not yet in the register — read with the same
-  rule Print cheque uses. Optionally, any 6-digit number outside a book (off by default). The
+  rule Print cheque uses. Optionally, a 6-digit number outside a book (off by default) — from the
+  cheque number field or the narration only, never a bare reference (UTRs, bill numbers). The
   owner records the ticked ones in one step: each becomes an issued cheque against its voucher,
   exactly as Print cheque would have recorded it, audited per leaf plus one summary row. Vouchers
   and figures are not changed (a voucher typed "458" keeps "458"; the register shows 000458). A

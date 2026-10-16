@@ -34,7 +34,7 @@ function renderModal(onFilled = vi.fn()): void {
 beforeEach(() => {
   invoke.mockReset()
   invoke.mockImplementation(async (channel: string, payload?: { includeOutside?: boolean; voucherIds?: number[] }) => {
-    if (channel === 'cheques:backfillPreview') return { ok: true, data: payload?.includeOutside ? { ...PREVIEW, rows: [...PREVIEW.rows, row(14, '900123', { bookId: null, bookName: null })] } : PREVIEW }
+    if (channel === 'cheques:backfillPreview') return { ok: true, data: payload?.includeOutside ? { ...PREVIEW, rows: [...PREVIEW.rows, row(14, '900123', { bookId: null, bookName: null })], outsideBooks: 0 } : PREVIEW }
     if (channel === 'cheques:backfill') return { ok: true, data: { filled: payload?.voucherIds?.length ?? 0, conflicts: 1, rows: [] } }
     return { ok: false, error: `unmocked channel ${channel}` }
   })
