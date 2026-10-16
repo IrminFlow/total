@@ -2,17 +2,25 @@ import { useEffect } from 'react'
 import { useIsFetching } from '@tanstack/react-query'
 import type { CompanyFeatures } from '@shared/features'
 import { useScreen, type Screen } from '../state/stores'
-import { ACCOUNTANT_NAV, SIMPLE_ENTRIES } from '../lib/screens'
+import { ACCOUNTANT_NAV, SCREENS, SIMPLE_ENTRIES } from '../lib/screens'
 import { useFeatures } from '../lib/useFeatures'
 import { useChunkLoading } from '../lib/chunkLoading'
 import { prefetchWhenIdle } from '../lib/lazyScreen'
 import { SCREEN_CHUNKS } from '../lazyScreens'
 
-/** The screens the sidebar lists (accountant NAV, or every simple section's entries). */
+const SIMPLE_NATIVE = new Set<string>(SCREENS.filter((d) => d.simpleView).map((d) => d.name))
+
+/**
+ * The screens the sidebar leads to (accountant NAV, or every simple section's entries). In a
+ * simple company only the simple screens: the entries that open the full app (Masters, Trial
+ * balance, Settings …) are rare there and their chunks are the biggest, so they load on first
+ * visit instead of competing with Home's own reads on a slow machine.
+ */
 export function sidebarScreens(simple: boolean, features: CompanyFeatures): Screen['name'][] {
   const on = (f: keyof CompanyFeatures | undefined): boolean => !f || !!features[f]
   if (simple) {
-    return ['simple-section', ...SIMPLE_ENTRIES.filter((e) => e.features.every(on)).map((e) => e.screen.name)]
+    const names = SIMPLE_ENTRIES.filter((e) => e.features.every(on)).map((e) => e.screen.name)
+    return [...new Set(['simple-section' as Screen['name'], ...names])].filter((n) => SIMPLE_NATIVE.has(n))
   }
   return ACCOUNTANT_NAV.filter((s) => on(s.feature)).flatMap((s) => s.items.filter((i) => on(i.feature)).map((i) => i.screen.name))
 }

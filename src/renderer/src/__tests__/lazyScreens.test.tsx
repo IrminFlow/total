@@ -6,6 +6,8 @@ import { resolve } from 'path'
 import { act, render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { SCREENS } from '../lib/screens'
+import { DEFAULT_FEATURES } from '@shared/features'
+import { sidebarScreens } from '../components/HomePrefetch'
 import { SCREEN_CHUNKS, SIMPLE_VIEW_CHUNKS } from '../lazyScreens'
 import { lazyScreen, prefetchWhenIdle } from '../lib/lazyScreen'
 import { useChunkLoading } from '../lib/chunkLoading'
@@ -27,9 +29,63 @@ describe('lazy screen registry', () => {
     expect(rendered.length).toBeGreaterThan(80)
     for (const name of rendered) if (!EAGER.has(name)) expect(SCREEN_CHUNKS[name as keyof typeof SCREEN_CHUNKS], name).toBeDefined()
   })
+
+  it('App.tsx imports no screen eagerly but the first-paint ones', () => {
+    // A new screen imported straight into App.tsx would ship in the start bundle unnoticed.
+    const app = readFileSync(resolve(__dirname, '../App.tsx'), 'utf8')
+    const from = [...app.matchAll(/^import [^;]*? from '(\.\/(?:screens|simple)\/[^']+)'/gms)].map((m) => m[1])
+    expect(from.sort()).toEqual(['./screens/CompanySelect', './screens/Gateway', './simple/SimpleHome', './simple/UpdateNotice', './simple/kitLabels'])
+  })
+
+  it('every registry screen with a view App.tsx draws lazily has a chunk', () => {
+    const app = readFileSync(resolve(__dirname, '../App.tsx'), 'utf8')
+    for (const d of SCREENS) {
+      if (EAGER.has(d.name) || !app.includes(`screen.name === '${d.name}'`)) continue
+      expect(SCREEN_CHUNKS[d.name as keyof typeof SCREEN_CHUNKS], d.name).toBeDefined()
+    }
+  })
+
+  it('a simple company warms only simple screens (bounded); the full app its sidebar', () => {
+    const simple = sidebarScreens(true, DEFAULT_FEATURES)
+    expect(simple.length).toBeGreaterThan(10)
+    for (const n of simple) expect(SCREENS.find((d) => d.name === n)?.simpleView, n).toBeTruthy()
+    expect(new Set(simple).size).toBe(simple.length)
+    expect(sidebarScreens(false, DEFAULT_FEATURES)).toContain('voucher-entry')
+  })
 })
 
 describe('lazyScreen', () => {
+  it('leaving a screen before its chunk lands never draws it, and stops counting', async () => {
+    type M = { Page: (p: { who: string }) => React.JSX.Element }
+    let resolveA!: (m: M) => void
+    let resolveB!: (m: M) => void
+    const A = lazyScreen(() => new Promise<M>((r) => (resolveA = r)), 'Page')
+    const B = lazyScreen(() => new Promise<M>((r) => (resolveB = r)), 'Page')
+    const { rerender, unmount } = render(<A key="a" who="A" />)
+    expect(useChunkLoading.getState().count).toBe(1)
+    rerender(<B key="b" who="B" />)
+    expect(useChunkLoading.getState().count).toBe(1)
+    await act(async () => resolveA({ Page: ({ who }) => <p>page {who}</p> }))
+    expect(screen.queryByText('page A')).toBeNull()
+    expect(useChunkLoading.getState().count).toBe(1)
+    await act(async () => resolveB({ Page: ({ who }) => <p>page {who}</p> }))
+    expect(screen.getByText('page B')).toBeTruthy()
+    expect(screen.queryByText('page A')).toBeNull()
+    expect(useChunkLoading.getState().count).toBe(0)
+    unmount()
+  })
+
+  it('unmounting while the chunk loads (company closed, lock) leaves nothing counted', async () => {
+    let resolveLoad!: (m: { X: () => React.JSX.Element }) => void
+    const X = lazyScreen(() => new Promise<{ X: () => React.JSX.Element }>((r) => (resolveLoad = r)), 'X')
+    const { unmount } = render(<X />)
+    expect(useChunkLoading.getState().count).toBe(1)
+    unmount()
+    expect(useChunkLoading.getState().count).toBe(0)
+    await act(async () => resolveLoad({ X: () => <p>x</p> }))
+    expect(useChunkLoading.getState().count).toBe(0)
+  })
+
   it('counts as loading until the chunk is in, then renders (and at once on the next mount)', async () => {
     let resolveLoad!: (m: { Hello: (p: { who: string }) => React.JSX.Element }) => void
     const load = vi.fn(() => new Promise<{ Hello: (p: { who: string }) => React.JSX.Element }>((r) => (resolveLoad = r)))
