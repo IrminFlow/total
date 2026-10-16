@@ -168,6 +168,7 @@ await scenario('64-hindi', async (h) => {
     assert(text.includes('नब्बे'), 'ninety rupees in Hindi words')
     assert(!/Amount in words/.test(text), 'no English label left on the Hindi print')
     assert(!/�/.test(text), 'no replacement characters (no boxes)')
+    assert(/पृष्ठ\s*1\s*\/\s*1/.test(text), 'the PDF footer says "पृष्ठ 1 / 1" (printToPDF footer, system Devanagari font)')
   } finally {
     fs.rmSync(reader.dir, { recursive: true, force: true })
   }
