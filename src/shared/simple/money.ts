@@ -16,6 +16,9 @@ import { chargesGstOn, type GstRegistrationFacts } from '../gst/registration'
 import { solveTaxable } from '../pricing'
 import { allocateToBills, SIMPLE_MAX_DAYS_AHEAD, type IntentOpenBill, type MoneyHow, type SimpleIntentInput } from './intents'
 import { addDaysISO } from '../dates'
+import { categoriesFor } from './accountKinds'
+import type { CategoryKey } from './categories'
+import type { AssistPrefill } from '../assist'
 
 /** The ways money moves, as the screens offer them (intents.ts MONEY_HOW). */
 export const MONEY_HOWS: readonly MoneyHow[] = ['cash', 'upi', 'bank', 'card']
@@ -27,6 +30,31 @@ export type MoneyInWho = (typeof MONEY_IN_WHO)[number]
 /** "Paid to" on Money out (salary only while Payroll is on). */
 export const MONEY_OUT_WHO = ['supplier', 'expense', 'owner', 'salary'] as const
 export type MoneyOutWho = (typeof MONEY_OUT_WHO)[number]
+
+/** Goods bought to sell or make: paid from Money out they would book no goods (no stock, no
+ *  supplier bill) — Money out offers "Record a purchase instead" in their place. */
+export const MONEY_OUT_GOODS_KEYS: readonly CategoryKey[] = ['purchases', 'raw_material']
+/** Not a cost you pay out: "Discount given" is what a sale gives away (kept for the bill screens). */
+const MONEY_OUT_NOT_PAID: readonly CategoryKey[] = ['discount_given']
+
+/** The expense tiles Money out offers: `categoriesFor('expense')` without the goods-bought and
+ *  the sales-side ones (Record a purchase's own picker keeps them all). */
+export const MONEY_OUT_EXPENSE_KEYS: readonly CategoryKey[] = categoriesFor('expense').filter((k) => !MONEY_OUT_GOODS_KEYS.includes(k) && !MONEY_OUT_NOT_PAID.includes(k))
+
+/** "Buying goods? Record a purchase instead": Record a purchase opened with what Money out had —
+ *  the supplier (the GST bill's, else the one picked), the amount (as a total with GST), how it
+ *  was paid, the date and the note. */
+export function purchaseFromMoneyOut(f: MoneyOutForm): Extract<AssistPrefill, { screen: 'simple-buy' }> {
+  const party = f.billSupplierId ?? f.supplierId
+  return {
+    screen: 'simple-buy',
+    ...(party != null ? { party } : {}),
+    ...(f.amount != null && f.amount > 0 ? { amount: f.amount } : {}),
+    how: f.how,
+    date: f.date,
+    ...(f.note.trim() ? { note: f.note.trim() } : {})
+  }
+}
 
 type WithoutClientId<T> = T extends unknown ? Omit<T, 'clientId'> : never
 export type MoneyIntentDraft = WithoutClientId<Extract<SimpleIntentInput, { kind: 'money_in' | 'money_out' | 'purchase' | 'move_money' }>>
