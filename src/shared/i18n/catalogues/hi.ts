@@ -2800,6 +2800,21 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.lock.privacy.passphraseText': 'खोलने के लिए इस बिज़नेस का पासफ़्रेज़ लिखें।',
   'simple.lock.privacy.passphrase': 'पासफ़्रेज़',
   'simple.lock.privacy.unlock': 'खोलें',
+  // "Remember on this computer" (the passphrase prompt, Settings → Security, the picker)
+  'errors.security.rememberUnavailable': 'इस कंप्यूटर में सुरक्षित जगह नहीं है, इसलिए Total पासफ़्रेज़ याद नहीं रख सकता। हर बार टाइप करें।',
+  'errors.security.rememberedStale': 'इस कंप्यूटर पर याद रखा पासफ़्रेज़ अब इस हिसाब को नहीं खोलता, इसलिए Total ने उसे भुला दिया। पासफ़्रेज़ टाइप करें।',
+  'simple.passphrase.remember': 'इस कंप्यूटर पर याद रखें',
+  'simple.passphrase.rememberHint': 'जो भी इस कंप्यूटर में साइन इन कर सकता है, वह बिना पासफ़्रेज़ के यह हिसाब खोल लेगा। इसे सिर्फ़ उसी कंप्यूटर पर चुनें जिसे केवल आप इस्तेमाल करते हैं।',
+  'simple.passphrase.remembered': 'इस कंप्यूटर पर याद रखा गया। यहाँ हिसाब बिना पासफ़्रेज़ के खुलेगा।',
+  'simple.passphrase.rememberPending': 'मालिक के साइन इन करते ही Total इसे याद रख लेगा।',
+  'simple.passphrase.rememberedBadge': 'इस कंप्यूटर पर याद है',
+  'simple.passphrase.forget': 'भुला दें',
+  'simple.passphrase.forgotten': 'भुला दिया। अगली बार Total पासफ़्रेज़ पूछेगा।',
+  'simple.security.remember.title': 'इस कंप्यूटर पर याद है',
+  'simple.security.remember.on': 'यह कंप्यूटर पासफ़्रेज़ याद रखता है: जो भी इस कंप्यूटर में साइन इन कर सकता है, उसके लिए हिसाब यहाँ बिना पासफ़्रेज़ के खुलता है। स्क्रीन लॉक पहले जैसा काम करता है।',
+  'simple.security.remember.pending': 'मालिक के साइन इन करते ही यह याद रखा जाएगा।',
+  'simple.security.remember.off': 'याद नहीं रखा: Total हर बार पासफ़्रेज़ पूछता है। याद रखने के लिए, बिज़नेस खोलते समय “इस कंप्यूटर पर याद रखें” चुनें।',
+  'simple.security.remember.forget': 'इस कंप्यूटर पर भुला दें',
   // ---------- end WP 7.2 ----------
   // ---------- data folder (Settings → Where Total keeps your books) ----------
   'simple.dataFolder.title': 'Total आपका हिसाब कहाँ रखता है',

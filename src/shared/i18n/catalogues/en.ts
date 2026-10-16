@@ -2908,6 +2908,21 @@ export const en = {
   'simple.lock.privacy.passphraseText': 'Type this business’s passphrase to unlock.',
   'simple.lock.privacy.passphrase': 'Passphrase',
   'simple.lock.privacy.unlock': 'Unlock',
+  // "Remember on this computer" (the passphrase prompt, Settings → Security, the picker)
+  'errors.security.rememberUnavailable': 'This computer has no secure storage, so Total cannot remember the passphrase. Type it each time.',
+  'errors.security.rememberedStale': 'The passphrase remembered on this computer no longer opens these books, so Total forgot it. Type the passphrase.',
+  'simple.passphrase.remember': 'Remember on this computer',
+  'simple.passphrase.rememberHint': 'Anyone who can sign in to this computer will open these books without the passphrase. Tick it only on a computer that only you use.',
+  'simple.passphrase.remembered': 'Remembered on this computer. The books will open without the passphrase here.',
+  'simple.passphrase.rememberPending': 'Total will remember it once the owner signs in.',
+  'simple.passphrase.rememberedBadge': 'Remembered on this computer',
+  'simple.passphrase.forget': 'Forget',
+  'simple.passphrase.forgotten': 'Forgotten. Total will ask for the passphrase next time.',
+  'simple.security.remember.title': 'Remembered on this computer',
+  'simple.security.remember.on': 'This computer remembers the passphrase: the books open here without it, for anyone who can sign in to this computer. The screen lock still works as before.',
+  'simple.security.remember.pending': 'It will be remembered once the owner signs in.',
+  'simple.security.remember.off': 'Not remembered: Total asks for the passphrase every time. To remember it, tick “Remember on this computer” when you open the business.',
+  'simple.security.remember.forget': 'Forget on this computer',
   // ---------- end WP 7.2 ----------
   // ---------- data folder (Settings → Where Total keeps your books) ----------
   'simple.dataFolder.title': 'Where Total keeps your books',

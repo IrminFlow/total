@@ -42,7 +42,19 @@ export function CompanySelect(): React.JSX.Element {
   const showWizard = wizard || (registry != null && companies.length === 0 && !creating && !importing)
 
   // WP 7.2: a business locked with a passphrase asks for it before it opens.
-  const [askPassphrase, setAskPassphrase] = useState<{ slug: string; name: string } | null>(null)
+  const [askPassphrase, setAskPassphrase] = useState<{ slug: string; name: string; notice?: string } | null>(null)
+  // "Remember on this computer": the businesses that open here without their passphrase.
+  const { data: remembered } = useQuery({ queryKey: ['company-remembered'], queryFn: api.company.remembered })
+  const forgetRemembered = async (slug: string): Promise<void> => {
+    try {
+      await api.company.forgetRemembered(slug)
+      toast.push('success', t('simple.passphrase.forgotten'))
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      await queryClient.invalidateQueries({ queryKey: ['company-remembered'] })
+    }
+  }
 
   const finishOpen = (r: Awaited<ReturnType<typeof api.company.open>>): void => {
     if (!r.integrity.ok) {
@@ -56,8 +68,10 @@ export function CompanySelect(): React.JSX.Element {
     try {
       finishOpen(await api.company.open(slug))
     } catch (err) {
-      if (err instanceof IpcError && err.code === 'passphrase_required') {
-        setAskPassphrase({ slug, name: companies.find((c) => c.slug === slug)?.name ?? slug })
+      if (err instanceof IpcError && (err.code === 'passphrase_required' || err.code === 'remembered_key_stale')) {
+        const notice = err.code === 'remembered_key_stale' ? t('errors.security.rememberedStale') : undefined
+        setAskPassphrase({ slug, name: companies.find((c) => c.slug === slug)?.name ?? slug, notice })
+        void queryClient.invalidateQueries({ queryKey: ['company-remembered'] })
         return
       }
       // Upgrade guard: a file from a newer Total, or no safe copy before an upgrade — plain words
@@ -151,6 +165,22 @@ export function CompanySelect(): React.JSX.Element {
                   {GST_STATES[c.stateCode] ?? c.stateCode}
                   {c.gstin ? ` · ${c.gstin}` : ' · Unregistered'}
                 </p>
+                {remembered?.includes(c.slug) && (
+                  <p className="mt-0.5 text-caption text-muted" data-testid={`company-remembered-${c.slug}`}>
+                    {t('simple.passphrase.rememberedBadge')} ·{' '}
+                    <button
+                      type="button"
+                      className="underline hover:text-ink focus-visible:outline-2 focus-visible:outline-amber/70"
+                      data-testid={`btn-company-forget-${c.slug}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        void forgetRemembered(c.slug)
+                      }}
+                    >
+                      {t('simple.passphrase.forget')}
+                    </button>
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <span className="text-hint text-muted">Enter ↵</span>
@@ -202,10 +232,15 @@ export function CompanySelect(): React.JSX.Element {
       {askPassphrase && (
         <PassphrasePrompt
           name={askPassphrase.name}
+          notice={askPassphrase.notice}
           onCancel={() => setAskPassphrase(null)}
-          onSubmit={async (passphrase) => {
-            const r = await api.company.open(askPassphrase.slug, passphrase)
+          onSubmit={async (passphrase, remember) => {
+            const r = await api.company.open(askPassphrase.slug, passphrase, { remember })
             setAskPassphrase(null)
+            if (r.remember === 'saved') toast.push('success', t('simple.passphrase.remembered'))
+            else if (r.remember === 'pending') toast.push('info', t('simple.passphrase.rememberPending'))
+            else if (r.remember === 'unavailable') toast.push('warning', t('errors.security.rememberUnavailable'))
+            void queryClient.invalidateQueries({ queryKey: ['company-remembered'] })
             finishOpen(r)
           }}
         />

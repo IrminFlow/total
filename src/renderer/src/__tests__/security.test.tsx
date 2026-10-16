@@ -29,10 +29,17 @@ function renderUi(ui: React.ReactElement): void {
 }
 
 beforeEach(() => {
-  view = { encrypted: false, keyFile: false, usersExist: true, autoLockMinutes: null, autoLockChoices: [1, 5, 10, 15, 30, 60], lastCheck: null }
+  view = { encrypted: false, keyFile: false, usersExist: true, autoLockMinutes: null, autoLockChoices: [1, 5, 10, 15, 30, 60], lastCheck: null, remembered: false, rememberPending: false }
   invoke.mockImplementation(async (channel: string, payload: Record<string, unknown>) => {
     switch (channel) {
       case 'security:get': return { ok: true, data: view }
+      case 'security:remember:forget':
+        view = { ...view, remembered: false }
+        return { ok: true, data: view }
+      case 'company:remembered': return { ok: true, data: view.remembered ? ['sharma'] : [] }
+      case 'company:forgetRemembered':
+        view = { ...view, remembered: false }
+        return { ok: true, data: null }
       case 'security:passphrase:on':
         if (payload.passphrase !== payload.confirm) return { ok: false, error: 'differ', code: 'passphrase_mismatch', field: 'confirm' }
         view = { ...view, encrypted: true, keyFile: true }
@@ -263,4 +270,104 @@ describe('deleting a business locked with a passphrase (WP 7.2 review)', () => {
     await waitFor(() => expect(deletes).toHaveLength(3))
     expect(deletes[2]).toEqual({ slug: 'locked-co', confirmName: 'Locked Co', pin: '4321', passphrase: 'monsoon ledger 77' })
   })
+})
+
+describe('remember on this computer', () => {
+  it('the prompt offers it unticked; ticking it sends remember with the passphrase; a notice is said above', async () => {
+    const onSubmit = vi.fn(async () => {})
+    renderUi(<PassphrasePrompt name="Sharma Traders" notice="It was forgotten." onSubmit={onSubmit} onCancel={() => {}} />)
+    expect(screen.getByTestId('passphrase-notice').textContent).toBe('It was forgotten.')
+    const box = screen.getByTestId('check-passphrase-remember') as HTMLInputElement
+    expect(box.checked).toBe(false)
+    expect(visible()).toContain('Anyone who can sign in to this computer')
+    fireEvent.change(screen.getByTestId('input-passphrase'), { target: { value: 'mango season' } })
+    fireEvent.click(screen.getByTestId('btn-passphrase-open'))
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('mango season', false))
+    fireEvent.click(box)
+    fireEvent.change(screen.getByTestId('input-passphrase'), { target: { value: 'mango season' } })
+    fireEvent.click(screen.getByTestId('btn-passphrase-open'))
+    await waitFor(() => expect(onSubmit).toHaveBeenLastCalledWith('mango season', true))
+    expect(bannedWordsIn(visible())).toEqual([])
+  })
+
+  it('the picker: a ticked open sends remember; a remembered business shows Forget; a stale key brings the prompt back with a note', async () => {
+    const { CompanySelect } = await import('../screens/CompanySelect')
+    const opens: Record<string, unknown>[] = []
+    let rememberedSlugs: string[] = []
+    let stale = false
+    invoke.mockImplementation(async (channel: string, payload: Record<string, unknown>) => {
+      if (channel === 'company:list') return { ok: true, data: { companies: [{ slug: 'locked-co', name: 'Locked Co', stateCode: '27', gstin: null, lastOpenedAt: null }] } }
+      if (channel === 'company:remembered') return { ok: true, data: rememberedSlugs }
+      if (channel === 'company:forgetRemembered') {
+        rememberedSlugs = []
+        return { ok: true, data: null }
+      }
+      if (channel === 'company:open') {
+        opens.push(payload)
+        if (!payload.passphrase) {
+          return stale
+            ? { ok: false, error: 'stale', code: 'remembered_key_stale', field: 'passphrase' }
+            : { ok: false, error: 'Type it', code: 'passphrase_required', field: 'passphrase' }
+        }
+        if (payload.remember) rememberedSlugs = ['locked-co']
+        return { ok: true, data: { slug: 'locked-co', info, integrity: { ok: true, quickCheck: 'ok', unbalancedVoucherIds: [] }, locked: false, ui: { mode: 'simple' }, encrypted: true, openedWith: 'passphrase', remember: 'saved' } }
+      }
+      return { ok: true, data: null }
+    })
+    renderUi(<CompanySelect />)
+    await waitFor(() => expect(screen.getByText('Locked Co')).toBeTruthy())
+    expect(screen.queryByTestId('company-remembered-locked-co')).toBeNull()
+    fireEvent.click(screen.getByText('Locked Co'))
+    await waitFor(() => expect(screen.getByTestId('passphrase-prompt')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('check-passphrase-remember'))
+    fireEvent.change(screen.getByTestId('input-passphrase'), { target: { value: 'mango season' } })
+    fireEvent.click(screen.getByTestId('btn-passphrase-open'))
+    await waitFor(() => expect(opens).toHaveLength(2))
+    expect(opens[1]).toEqual({ slug: 'locked-co', passphrase: 'mango season', remember: true })
+    await waitFor(() => expect(screen.getByTestId('company-remembered-locked-co').textContent).toContain('Remembered on this computer'))
+    fireEvent.click(screen.getByTestId('btn-company-forget-locked-co'))
+    await waitFor(() => expect(screen.queryByTestId('company-remembered-locked-co')).toBeNull())
+    expect(calls('company:forgetRemembered')).toEqual([{ slug: 'locked-co' }])
+    stale = true
+    fireEvent.click(screen.getByText('Locked Co'))
+    await waitFor(() => expect(screen.getByTestId('passphrase-notice').textContent).toContain('no longer opens'))
+  })
+
+  it('Lock and safety: "Remembered on this computer" with Forget (owner); not remembered says how', async () => {
+    view = { ...view, encrypted: true, keyFile: true, usersExist: false, remembered: true }
+    renderUi(<SecuritySettings />)
+    await waitFor(() => expect(screen.getByTestId('security-remember').getAttribute('data-remembered')).toBe('on'))
+    expect(screen.getByTestId('security-remember-text').textContent).toContain('anyone who can sign in to this computer')
+    fireEvent.click(screen.getByTestId('btn-security-forget'))
+    await waitFor(() => expect(screen.getByTestId('security-remember').getAttribute('data-remembered')).toBe('off'))
+    expect(calls('security:remember:forget')).toHaveLength(1)
+    expect(screen.queryByTestId('btn-security-forget')).toBeNull()
+    expect(screen.getByTestId('security-remember-text').textContent).toContain('Remember on this computer')
+    expect(bannedWordsIn(visible())).toEqual([])
+  })
+
+  it('Lock and safety: a plaintext business shows no remember card', async () => {
+    renderUi(<SecuritySettings />)
+    await waitFor(() => expect(screen.getByTestId('security-passphrase')).toBeTruthy())
+    expect(screen.queryByTestId('security-remember')).toBeNull()
+  })
+
+  for (const mode of ['simple', 'accountant'] as const) {
+    it(`${mode}: the screen lock's passphrase prompt offers Forget while remembered`, async () => {
+      view = { ...view, encrypted: true, usersExist: false, remembered: true }
+      act(() => {
+        useSession.setState({ locked: true, user: null, ui: { mode } })
+        useLockReason.getState().set('manual', 'passphrase')
+      })
+      try {
+        renderUi(<LockScreen />)
+        await waitFor(() => expect(screen.getByTestId('lock-remembered')).toBeTruthy())
+        fireEvent.click(screen.getByTestId('btn-lock-forget'))
+        await waitFor(() => expect(screen.queryByTestId('lock-remembered')).toBeNull())
+        expect(calls('company:forgetRemembered')).toEqual([{ slug: 'sharma' }])
+      } finally {
+        act(() => useLockReason.getState().set(null))
+      }
+    })
+  }
 })

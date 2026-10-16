@@ -8,6 +8,7 @@ import { useMode } from '../lib/mode'
 import { SimpleLockScreen } from '../simple/SimpleLockScreen'
 import { unlockNoPeople, useLockReason } from '../lib/sessionLock'
 import { SimplePrivacyLock } from '../simple/SimplePrivacyLock'
+import { RememberedForget } from '../simple/RememberedForget'
 
 /** Full-viewport PIN lock, shown whenever a company has users but no one has signed in yet
  *  (see App.tsx: `slug && locked`) — and after ⌘L / the idle auto-lock (WP 7.2). A simple-mode
@@ -90,6 +91,7 @@ function PrivacyLockScreen({ passphrase }: { passphrase: boolean }): React.JSX.E
           <Button variant="primary" autoFocus={!passphrase} data-testid="btn-unlock" disabled={busy || (passphrase && !value)} onClick={() => void submit()}>
             {busy ? 'Checking…' : 'Unlock'}
           </Button>
+          {passphrase && <RememberedForget />}
         </div>
         <div className="mt-6 flex justify-center">
           <button

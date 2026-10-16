@@ -835,8 +835,18 @@ export const api = {
       call<null>('company:delete', { slug, confirmName, pin, ...(passphrase ? { passphrase } : {}) }),
     /** WP 7.2: `passphrase` for a business locked with one (company:open fails with code
      *  'passphrase_required' without it). */
-    open: (slug: string, passphrase?: string) =>
-      call<{ slug: string; info: CompanyInfo; integrity: IntegrityResult; locked: boolean; ui: UiSettings; encrypted?: boolean }>('company:open', passphrase ? { slug, passphrase } : { slug }),
+    open: (slug: string, passphrase?: string, opts: { remember?: boolean } = {}) =>
+      call<{
+        slug: string; info: CompanyInfo; integrity: IntegrityResult; locked: boolean; ui: UiSettings; encrypted?: boolean
+        /** How a locked business was unlocked: its passphrase, or the key remembered on this computer. */
+        openedWith?: 'passphrase' | 'remembered'
+        /** "Remember on this computer": stored, waiting for an owner's sign-in, or no secure storage. */
+        remember?: 'saved' | 'pending' | 'unavailable'
+      }>('company:open', passphrase ? { slug, passphrase, ...(opts.remember ? { remember: true } : {}) } : { slug }),
+    /** Slugs whose data key is remembered on this computer (presence only). */
+    remembered: () => call<string[]>('company:remembered'),
+    /** Forget the key remembered on this computer for `slug` (the passphrase is asked again). */
+    forgetRemembered: (slug: string) => call<null>('company:forgetRemembered', { slug }),
     close: () => call<null>('company:close'),
     current: () => call<{ slug: string; info: CompanyInfo; locked: boolean; lockKind?: LockKind; ui: UiSettings; encrypted?: boolean } | null>('company:current'),
     updateInfo: (input: CompanyCreateInput) => call<CompanyInfo>('company:updateInfo', input),
@@ -1462,7 +1472,9 @@ export const api = {
     setAutoLock: (minutes: number | null) => call<SecurityView>('security:autoLock:set', { minutes }),
     passphraseOn: (passphrase: string, confirm: string) => call<SecurityChangeResult>('security:passphrase:on', { passphrase, confirm }),
     passphraseOff: (passphrase: string) => call<SecurityChangeResult>('security:passphrase:off', { passphrase }),
-    passphraseChange: (current: string, passphrase: string, confirm: string) => call<SecurityView>('security:passphrase:change', { current, passphrase, confirm })
+    passphraseChange: (current: string, passphrase: string, confirm: string) => call<SecurityView>('security:passphrase:change', { current, passphrase, confirm }),
+    /** Forget the key remembered on this computer (owner). */
+    forgetRemembered: () => call<SecurityView>('security:remember:forget')
   },
   users: {
     list: () => call<UserRow[]>('users:list'),
