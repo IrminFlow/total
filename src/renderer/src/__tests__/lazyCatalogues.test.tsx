@@ -10,9 +10,11 @@ import {
 import { hi } from '@shared/i18n/catalogues/hi'
 import { hinglish } from '@shared/i18n/catalogues/hinglish'
 import {
-  LANGUAGE_KEY, languageStorageKey, languagesToPreload, loadCatalogue, preloadCatalogues, setCatalogueLoaderForTests, useLanguage, useLanguagePending, useT
+  LANGUAGE_KEY, languageStorageKey, languagesToPreload, loadCatalogue, preloadCatalogues, setCatalogueLoaderForTests, useCatalogue, useLanguage, useLanguagePending, useT
 } from '../lib/i18n'
 import { AppearanceSection } from '../screens/settings/AppearanceSection'
+import { ReminderPanel } from '../simple/people/ReminderPanel'
+import type { PersonView } from '@shared/simple/people'
 import { useSession } from '../state/stores'
 
 function deferred(cat: Catalogue): { loader: () => Promise<Catalogue>; resolve: () => void; calls: () => number } {
@@ -177,5 +179,69 @@ describe('switching language', () => {
       await loadCatalogue('hi')
     })
     expect(result.current[0]).toBe('hinglish')
+  })
+})
+
+// A component that shows a language OTHER than the user's (the People reminder's language chips,
+// e2e 59): the chosen catalogue is loaded on demand and the panel never shows English text under
+// a Hindi / Hinglish chip — it keeps the language it shows, with the loading note, until it arrives.
+describe('a language other than the user\'s (useCatalogue)', () => {
+  const bill = { name: '1', voucherId: 101, date: '2026-09-04', dueDate: '2026-09-19', amount: 100_000, pending: 100_000, overdueDays: 25 }
+  const person: PersonView = {
+    ledgerId: 10, name: 'Ramesh', side: 'customer', phone: '98765 43210', whatsapp: null, creditDays: 15, onHold: false, open: 100_000, ahead: 0,
+    late: 100_000, lateBills: 1, maxLateDays: 25, walkIn: false, email: null, bills: [bill],
+    reminder: { bucket: 'gentle', bills: [bill], amount: 100_000, lastSent: null, allowed: true, nextAllowed: null },
+    holdReason: null, company: 'Sharma Traders', today: '2026-10-14'
+  }
+  const text = (): string => (screen.getByTestId('reminder-text') as HTMLTextAreaElement).value
+  const chip = (lang: string): string | null => screen.getByTestId(`reminder-lang-${lang}`).getAttribute('aria-checked')
+
+  it('the reminder switched to Hinglish before its chunk arrives shows Hinglish once it does, never English under the Hinglish chip', async () => {
+    const d = deferred(hinglish)
+    setCatalogueLoaderForTests('hinglish', d.loader)
+    const seen: { text: string; hinglishChip: string | null }[] = []
+    render(<ReminderPanel person={person} reminder={person.reminder!} startLang="en" onSent={() => {}} />)
+    expect(text()).toContain('Hello Ramesh,')
+    fireEvent.click(screen.getByTestId('reminder-lang-hinglish'))
+    expect(d.calls()).toBe(1)
+    // Still loading: the English text stays under the English chip, and the panel says so.
+    seen.push({ text: text(), hinglishChip: chip('hinglish') })
+    expect(text()).toContain('Hello Ramesh,')
+    expect(chip('en')).toBe('true')
+    expect(chip('hinglish')).not.toBe('true')
+    expect(screen.getByTestId('reminder-lang-loading').textContent).toBe(en['simple.looks.languageLoading'])
+    await act(async () => {
+      d.resolve()
+      await loadCatalogue('hinglish')
+    })
+    expect(text()).toContain('Namaste Ramesh ji,')
+    expect(chip('hinglish')).toBe('true')
+    expect(screen.queryByTestId('reminder-lang-loading')).toBeNull()
+    for (const s of seen) if (s.hinglishChip === 'true') expect(s.text).not.toContain('Hello Ramesh,')
+  })
+
+  it('a cached catalogue switches at once, with no loading note and no load', () => {
+    registerCatalogue('hi', hi)
+    const loader = vi.fn(async () => hi)
+    setCatalogueLoaderForTests('hi', loader)
+    render(<ReminderPanel person={person} reminder={person.reminder!} startLang="en" onSent={() => {}} />)
+    fireEvent.click(screen.getByTestId('reminder-lang-hi'))
+    expect(text()).toContain('नमस्ते')
+    expect(screen.queryByTestId('reminder-lang-loading')).toBeNull()
+    expect(loader).not.toHaveBeenCalled()
+  })
+
+  it('useCatalogue: false until the chunk arrives, then true (one load)', async () => {
+    const d = deferred(hi)
+    setCatalogueLoaderForTests('hi', d.loader)
+    const { result } = renderHook(() => useCatalogue('hi'))
+    expect(result.current).toBe(false)
+    await act(async () => {
+      d.resolve()
+      await loadCatalogue('hi')
+    })
+    expect(result.current).toBe(true)
+    expect(d.calls()).toBe(1)
+    expect(renderHook(() => useCatalogue('en')).result.current).toBe(true)
   })
 })
