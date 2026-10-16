@@ -9,7 +9,7 @@ every change) are explained where they first appear.
 ## 1. Where we are today
 
 - **The planned building work is merged.** The "simple for everyone" revamp (Phases 8, 9 and 10) and the Phase 7 hardening (speed, security, Windows, tests, documents, clean-up) are all in the main copy of the code, and the automatic tests pass. Some acceptance checks are still open: real beginner testing, a native Hindi review, a full check on a real Windows PC, the launch-speed target and some deferred coverage (`to-do.md` sections 3, 6 and 8).
-- **A test copy is on your Desktop:** `~/Desktop/Total-dev-401b5d9a.dmg`. It is unsigned (Apple doesn't know who made it yet) and its About screen still says **0.11.0**, because the version number has not been raised.
+- **A test copy is on your Desktop:** `~/Desktop/Total-dev-6f90647f.dmg`. It is unsigned (Apple doesn't know who made it yet) and its About screen still says **0.11.0**, because the version number has not been raised. This build includes the 29 pull requests merged on 16–17 October: fixes across the simple screens, security checks, faster launch, bank / money / returns / stock polish, Hindi leftovers, data-folder move, remember-on-this-computer, CLI passphrase, and trade and reports fixes. The test kit in `~/Desktop/Total-test-kit` is unchanged.
 - **Nothing has been published.** No new version number, no tag, no GitHub release, no release notes, no website change. That is your standing rule: nothing goes out until you have tested it on your laptop and said "go".
 - **The full list of open items is `to-do.md`** at the top of the repo (180 items in 8 sections). This document picks out what matters for the next few weeks and turns it into steps.
 - **The next two steps are publishing 1.0.0 (plan item 7.6) and the website message (plan item 10.7).** Both wait for your test.
@@ -31,7 +31,7 @@ Total keeps all its data in the folder **Documents → total** on your Mac.
 
 ### 2.2 Install the test build
 
-- [ ] Double-click `Total-dev-401b5d9a.dmg` on your Desktop.
+- [ ] Double-click `Total-dev-6f90647f.dmg` on your Desktop.
 - [ ] Drag **Total** into the **Applications** folder (say "Replace" if it asks).
 - [ ] Open the **Terminal** app (press ⌘ Space, type "Terminal", press Enter) and paste this line, then press Enter:
 
