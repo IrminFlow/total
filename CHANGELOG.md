@@ -197,6 +197,11 @@ what you typed, and a **Back to simple** button.
   gets its figures in one request instead of four. Measured on a busy laptop with 100,000 entries,
   from starting Total to a ready Home: the full app's dashboard went from 22.2 s to 12.0 s, simple
   Home from 24.9 s to 11.3 s. No figure changed. [#131](https://github.com/IrminFlow/total/pull/131)
+- **Total no longer freezes while it checks a backup.** After a backup Total checks that it could
+  be restored. On a business with 100,000 entries that check froze the app for 9 to 13 seconds on a
+  busy laptop; now it runs in the background and the app keeps answering (the longest pause
+  measured: under a third of a second). It checks the same things and gives the same answer.
+  [#136](https://github.com/IrminFlow/total/pull/136)
 - **The tour of Home no longer hides what it points at.** Its card sits below, above or beside the
   button or tile it is about, inside the window, on small screens too. And Home's "entries added
   for an earlier, closed date" now counts only entries that really went into a closed month or the
@@ -383,6 +388,12 @@ Read these before filing from the next release.
   sidebar's chunks are prefetched once Home is idle (`components/HomePrefetch.tsx`; simple companies only their simple screens); `vendor`
   chunk via `manualChunks`; `scripts/perf-launch.mjs --boot` times the renderer alone.
   `FOCUS_SEARCH_EVENT` moved to `lib/searchEvents.ts` (re-exported). [#135](https://github.com/IrminFlow/total/pull/135)
+- The backup restore check (`services/backupVerify.ts`) runs as a `verify` job in the check worker
+  (`db/checkWorker.ts`; `checkHost.runCheckJob`, also tracked under the live company file for
+  `stopChecks`); `checkBackupIfDue` is async and takes the audit user; a dead worker is a failed
+  check with the reason. `out/main/checkWorker.js` is no longer a rollup input: it is bundled
+  standalone by `scripts/build-check-worker.mjs` (no Electron, AI or MCP code —
+  `checkWorkerBundle.test.ts`). [#136](https://github.com/IrminFlow/total/pull/136)
 - "I've filed" lives in company meta `gstFiled`, not in `assistant_marks` (which has no room for an
   ARN). [#94](https://github.com/IrminFlow/total/pull/94)
 - i18n: `Translate.lang`, `toPlainDate(d, lang)`, `amountInWords(paise, lang)`; the glossary is
