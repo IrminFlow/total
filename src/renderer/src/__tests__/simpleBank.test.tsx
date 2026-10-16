@@ -110,6 +110,8 @@ describe('simple Bank (WP 9.6)', () => {
     expect(within(lineCard(1)).getByTestId('bank-line-because').textContent).toBe('Suggested because the bank’s description names Ramesh Traders')
     expect(within(lineCard(2)).getByTestId('bank-line-because').textContent).toContain('earlier lines starting “SMS CHARGES” went to Bank charges')
     expect(lineCard(3).dataset.choice).toBe('')
+    // The reader's language goes with the request (the "because …" dates are written in it).
+    expect(invoke.mock.calls.find(([c]) => c === 'simple:bank:lines')?.[1]).toMatchObject({ lang: 'en' })
     // A customer's money: what it settles comes from simple:preview, never worked out here.
     await waitFor(() => expect(within(lineCard(1)).getByTestId('bank-line-preview').textContent).toContain('owes nothing now'))
     expect(calls('simple:preview')[0]).toMatchObject({ intent: { kind: 'money_in', customerId: 10, amount: 400_000, into: { how: 'bank', accountId: 31 } } })

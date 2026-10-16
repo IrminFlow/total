@@ -19,6 +19,7 @@
 //   reported per line with the structured error (plain message on its row).
 import type { DB } from '../db/connection'
 import { companyLanguage } from '../i18n'
+import type { Language } from '@shared/i18n'
 import type { CompanyInfo } from '@shared/domain'
 import { toPlainDate } from '@shared/dates'
 import { AppError, structuredOf } from '@shared/errors'
@@ -67,7 +68,8 @@ export function bankSetup(db: DB): BankSetup {
 }
 
 /** The simple Bank screen for one bank account: its lines, suggestions and the sentence's facts. */
-export async function bankView(db: DB, bankLedgerId: number, today: string): Promise<BankView> {
+/** `lang` = the reader's language for the dates in the "because …" (default the company's). */
+export async function bankView(db: DB, bankLedgerId: number, today: string, lang: Language = companyLanguage(db)): Promise<BankView> {
   const bankName = assertBank(db, bankLedgerId)
   const ws = statementWorkspace(db, bankLedgerId, { includeDone: true })
   const accounts = new Map(bankAccounts(db).map((a) => [a.id, a]))
@@ -92,7 +94,7 @@ export async function bankView(db: DB, bankLedgerId: number, today: string): Pro
     if (p && !p.ambiguous && p.entries.length) {
       const first = p.entries[0]!
       match = { name: first.particulars, date: first.date, amount: p.entries.reduce((s, e) => s + e.amount, 0) }
-      suggestion = { choice: { kind: 'existing' }, source: 'match', because: becauseFor('match', { name: first.particulars, date: toPlainDate(first.date, companyLanguage(db)) }) }
+      suggestion = { choice: { kind: 'existing' }, source: 'match', because: becauseFor('match', { name: first.particulars, date: toPlainDate(first.date, lang) }) }
     } else {
       const row = catBy.get(l.id)
       const acc = row?.ledgerId ? accounts.get(row.ledgerId) : undefined

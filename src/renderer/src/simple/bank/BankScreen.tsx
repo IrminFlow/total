@@ -61,8 +61,8 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
     if (bankLedgerId == null && setup?.banks.length) setBankLedgerId(setup.banks[0]!.id)
   }, [setup, bankLedgerId])
   const { data: view, isLoading } = useQuery({
-    queryKey: ['simpleBankLines', bankLedgerId, workingDate], // i18n-technical
-    queryFn: () => api.simpleBank.lines(bankLedgerId!, workingDate),
+    queryKey: ['simpleBankLines', bankLedgerId, workingDate, t.lang], // i18n-technical
+    queryFn: () => api.simpleBank.lines(bankLedgerId!, workingDate, t.lang),
     enabled: bankLedgerId != null
   })
 

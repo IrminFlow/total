@@ -5,6 +5,7 @@ import type {
   Voucher, VoucherTransport, VoucherType, TradeDocType, SaveVoucherWarnings
 } from '@shared/domain'
 import type { UiMode, UiPatch, UiSettings } from '@shared/simple/uiMode'
+import type { Language } from '@shared/i18n'
 import type { QuickItemInput } from '@shared/schemas'
 import type { CaughtError, ErrorIssue, ErrorParams } from '@shared/errors'
 import type { SaveSummary } from '@shared/simple/saveCard'
@@ -807,7 +808,7 @@ export const api = {
    *  facts, and accepting lines (each its own transaction; failures come back per line). */
   simpleBank: {
     setup: () => call<BankSetup>('simple:bank:setup'),
-    lines: (bankLedgerId: number, today?: string) => call<BankView>('simple:bank:lines', { bankLedgerId, ...(today ? { today } : {}) }),
+    lines: (bankLedgerId: number, today?: string, lang?: Language) => call<BankView>('simple:bank:lines', { bankLedgerId, ...(today ? { today } : {}), ...(lang ? { lang } : {}) }),
     accept: (bankLedgerId: number, items: BankAcceptItem[], today?: string) =>
       call<BankAcceptResult>('simple:bank:accept', { bankLedgerId, items, ...(today ? { today } : {}) })
   },

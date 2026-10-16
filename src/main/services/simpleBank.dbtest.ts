@@ -96,6 +96,20 @@ describe('simple Bank (WP 9.6)', () => {
     expect(setup.ids).toEqual({ bankCharges: ids.charges, interest: null, ownerMoney: ids.owner, drawings: ids.drawings })
   })
 
+  it('Hindi leftovers: the "because …" date is in the reader\'s language (default: the company\'s)', async () => {
+    statement(ROWS)
+    const dateOf = (v: BankView): string => String(lineOf(v, 'KUMAR').suggestion?.because.vars?.date ?? '')
+    const en = dateOf(await view())
+    expect(en).toMatch(/^\d{1,2} [A-Z][a-z]{2} 2025$/)
+    const hi = dateOf(await bankView(db, ids.bank, TODAY, 'hi'))
+    expect(hi).toMatch(/[\u0900-\u097F]/)
+    expect(dateOf(await bankView(db, ids.bank, TODAY, 'hinglish'))).toBe(en)
+    // No language sent → the company's, as before.
+    db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('ui', ?)").run(JSON.stringify({ mode: 'simple', language: 'hi' }))
+    expect(dateOf(await view())).toBe(hi)
+    expect(dateOf(await bankView(db, ids.bank, TODAY, 'en'))).toBe(en)
+  })
+
   it('a saved suggestion reconciles its statement line; the BRS agrees; an import undo keeps the confirmed match’s voucher', async () => {
     statement(ROWS)
     const v = await view()
