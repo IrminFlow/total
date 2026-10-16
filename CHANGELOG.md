@@ -131,6 +131,11 @@ what you typed, and a **Back to simple** button.
   can't be changed is readable. Someone who can only look (a viewer) is told so at
   the top of every bill, purchase, return and money form, and sees a short note instead of
   "Back up now". [#119](https://github.com/IrminFlow/total/pull/119)
+- **More "Why?" answers.** A composition business's GST tile on Home explains the CMP-08 and
+  GSTR-4 dates, and a quarterly filer's tile explains the PMT-06 dates. Both open Taxes. People →
+  Bills to pay explains "due this week" and "due this month" (which bills, from how many suppliers,
+  and how much is already late). Reports → by month has a "Why?" for every month that opens the
+  sales and purchase lists on that month. [#120](https://github.com/IrminFlow/total/pull/120)
 
 ### For accountants (figures that changed)
 
@@ -200,6 +205,16 @@ Read these before filing from the next release.
 - **Simple Taxes and Home skip periods before the books begin** (a month before your books or GST
   registration began is not asked for); a running month's files wait for its month end. The
   accountant GST screens are unchanged. [#111](https://github.com/IrminFlow/total/pull/111)
+- **No figure changed in these fixes** [#120](https://github.com/IrminFlow/total/pull/120):
+  - A credit or debit note's e-invoice "preceding document" is now its own party's bill of that
+    number, from the note's FY first. Before, it could be another party's newer bill once numbers
+    restart each year.
+  - ITC-reversal "apply to GSTR-3B" and "post" each leave an edit-log row of their own
+    (`itc_reversal`).
+  - The Stock summary's ageing and reorder panel shows its as-on date and says when the summary
+    runs to a later date. The panel still runs to today.
+  - Report-pack folders are named after the pack ("Con" becomes `_Con/`, not `con-company/`).
+    Folders that already exist keep being used.
 - The UNVERIFIED items listed under 0.11.0 (QRMP details, GSTR-1 amendment notifications, the
   2025/2026 slab sources) still apply.
 
@@ -282,6 +297,11 @@ Read these before filing from the next release.
   longer prune the only copy the previous Total can open; a timed-out open quick_check stays
   visible to `stopChecks` until its thread has exited (terminate cannot interrupt SQLite); the
   on-open auto-purge of the bin commits with its summary audit row too.
+- Audit entity `itc_reversal` (`gst:itcReversalApply` / `gst:itcReversalPost`). `SimpleHomeData.gst`
+  has optional `pmt06` (regular, quarterly) and `composition` (`CompositionDue`), both additive. The
+  `registers` screen takes optional `from` / `to`. `reportPacks.packFolderName`. New pure sentences:
+  `billsToPayWhy` (`explainPeople.ts`), `byMonthBarWhy`, `pmt06Why`.
+  [#120](https://github.com/IrminFlow/total/pull/120)
 
 ## [0.11.0] - 2026-10-13
 

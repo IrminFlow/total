@@ -77,7 +77,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - ~~Taxes: after "I've filed", Home's GST tile and the Gateway 3B chip still show the period's amount / date~~ DONE — PR #119 (the tile moves on to the running period) — PR #94
 - Taxes: quarterly (QRMP) file preparation and the PMT-06 amount are full-app only — PR #94
 - Home: "entries added for an earlier, closed date" also fires for ordinary entries 30 days late; one-column profit "Purchases" includes direct expenses (freight, wages) — PR #94
-- Why?: no link on composition / PMT-06 dates and advance tax; no Why on Bills to pay "due this week"; one Why per by-month chart; quarterly filers' GSTR-1 / 3B links open the quarter's first month — PR #99
+- ~~Why?: no link on composition / PMT-06 dates; no Why on Bills to pay "due this week"; one Why per by-month chart~~ DONE — Home's composition / PMT-06 Why opens Taxes, Bills to pay tiles and each month explained — PR #120. Still open: advance tax has no link (Total doesn't work it out); quarterly filers' GSTR-1 / 3B links open the quarter's first month; the Taxes screen's own CMP-08 / GSTR-4 / PMT-06 Whys have no link (it would open the same screen) — PR #99
 - Ask Total: drafts stay open until discarded in Settings → AI drafts; "5000 Ramesh" (no verb) gets "try these" instead of asking in / out; payroll / TDS amount / bill-by-number questions not understood; an Ask Total draft opened from Settings opens the accountant editor — PR #98
 - Tour card can cover part of Home under its anchor; help-link params (`filter=`, `tab=`) aren't validated per screen — PR #100
 - ~~Viewer sees Sell / Buy forms and Save, then a generic "no permission"; sidebar "Back up now" shown to a viewer~~ DONE — PR #119 (note at the top of each form, no Create / Add-account buttons, a note instead of Back up now) — shots-86 / PR #111
@@ -95,9 +95,9 @@ done on main were dropped. One line each; the pointer says where to look.
 - Cheque register is empty after upgrade (old instrument numbers not backfilled); cash forecast ignores pending post-dated cheques; ledger form has no credit-hold control — WP 4.4 upgrade check
 - Companies that closed a year on 0.4.0 show a permanent "Profit & Loss A/c (opening)" residual; a guided re-close would fix it — upgrade notes
 - Pre-0.6 manufacture vouchers don't appear in the Manufacture register (Day book / Stock movements only) — by design, release notes
-- e-invoice original-bill lookup takes the newest sales voucher with that number at ANY party (wrong once numbers restart yearly) — PR #89, `services/edocs.ts` refStmt
+- ~~e-invoice original-bill lookup takes the newest sales voucher with that number at ANY party (wrong once numbers restart yearly)~~ DONE — the note's own party, its FY first — PR #120
 - Import undo keeps a party ledger whose opening bill has a user receipt against it (openings stay unequal until fixed by hand) — PR #107, `services/dataImport.ts`
-- Stock summary analysis panel runs as on today while the summary runs to the period end (no date shown) — PR #107
+- ~~Stock summary analysis panel runs as on today while the summary runs to the period end (no date shown)~~ DONE — the date and a note are shown; the panel stays as on today (running it to a future period end would change what it shows) — PR #120
 - Barcode labels date / price by the period END — PR #110
 - Cash flow statement has no drill-down; labels PDF, CA pack and e-invoice export write to `exports/` with no save dialog; e-invoice export is whole-period only — e2e 68–71 notes
 - Items created over IPC after a screen loaded don't appear in screens that cache the item list (Labels tab) — e2e 68 notes
@@ -107,9 +107,9 @@ done on main were dropped. One line each; the pointer says where to look.
 - TCS not modelled: 206C(1G) 20 % slab, 206C(1C), LRS — WP 3.3
 - Cash & finance not done: MSME deadlines in the forecast, loan disbursement posting, foreign opening balances — WP 4.4
 - NIC follow-ups needing a migration: store signed QR / signed invoice; cancel IRN / cancel + extend e-way UI — WP 3.5
-- ITC-reversal apply has no audit row of its own — WP 3.8, `services/gst.ts`
+- ~~ITC-reversal apply has no audit row of its own~~ DONE — `itc_reversal` rows on apply and post — PR #120
 - ~~Backup file names use UTC timestamps~~ DONE — local time since PR #114; one stamp helper + old-name test PR #118 (the list reads mtime) — PR #111
-- Report-pack / saved-report folders use the company slug ("Con" → `con-company/`) — PR #109
+- ~~Report-pack / saved-report folders use the company slug ("Con" → `con-company/`)~~ DONE — pack folders via `portableFileName`, old folders kept (files inside still slugified, e.g. a saved report "Con" → `NN-con-company.csv`) — PR #120
 
 ### GST / tax
 - Historical documents depend on mutable masters (item / ledger rates, HSN, party class): changing a master can change an old return or print; snapshot tax facts per document — GPT review, `services/gst.ts`, `services/edocs.ts`
