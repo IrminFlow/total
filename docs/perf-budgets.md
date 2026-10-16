@@ -296,7 +296,7 @@ CLI and the vitest setups import `@shared/i18n/all` (both registered synchronous
 messages, bank suggestions unchanged); the renderer loads each as its own chunk with a dynamic
 import (`lib/i18n.ts` `loadCatalogue`). `main.tsx` awaits `preloadCatalogues()` before the first
 render for every language stored on this computer (app-wide and every user's key — a sign-in must
-not flash English either; the OS suggestion when nothing is stored, so the WP 10.4 wizard still
+not flash English either; the OS suggestion while no app-wide choice is stored, so the WP 10.4 wizard still
 starts in Hindi), bounded by `PRELOAD_TIMEOUT_MS` = 2 s (then English paints and the screen
 switches when the chunk arrives). An English user requests no chunk. A switch to a language not
 loaded yet keeps the current one on screen with a "Loading the language…" note until it arrives
@@ -392,11 +392,9 @@ weekly check writes only its meta stamp.
   round trip; measure on a machine that can cache the file.
 - Full-text search (FTS5 table + triggers) for voucher text — a schema change beyond CREATE INDEX.
 - Launch ≤ 2 s: the Gateway's four reads are one round trip and the backup restore check waits
-  for Home (PR #131), and the restore check runs in a worker thread (PR #136); left: lazy-loaded
-  renderer screens (boot), and the open backup's verification could be moved after the reply if its audit row may
-  for Home (PR #131), screens are lazy (PR #135) and so are the hi / hinglish catalogues
-  (PR #143); left: the hi / hinglish help articles in the entry, the restore check in a worker
-  thread, and the open backup's verification could be moved after the reply if its audit row may
-  follow the open's housekeeping rows (an ordering change — owner decision).
+  for Home (PR #131), screens are lazy (PR #135), the restore check runs in a worker thread
+  (PR #136) and the hi / hinglish catalogues are lazy (PR #143); left: the hi / hinglish help
+  articles in the entry, and the open backup's verification could be moved after the reply if its
+  audit row may follow the open's housekeeping rows (an ordering change — owner decision).
 - Server-side paging for the Sales / People DataTables — not needed: both are under budget at 100k
   (and the Sales list at 500k).
