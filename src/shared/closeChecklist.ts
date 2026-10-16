@@ -185,10 +185,9 @@ export function nextMonthDay(period: string, day: number): string {
 export const GSTR1_DUE_DAY = 11
 export const GSTR3B_DUE_DAY = 20
 /** WP 8.3 — QRMP: GSTR-1 for the quarter by the 13th of the next month (Notification
- *  83/2020-CT; shared/gst/filing.ts). Quarterly GSTR-3B: the 22nd or 24th by state (rule
- *  61(1)(ii), gstr3bDueDate); 22 is the day used when the state is in neither Table entry. */
+ *  83/2020-CT; shared/gst/filing.ts). Quarterly GSTR-3B (the 22nd or 24th by state, rule
+ *  61(1)(ii)) is dated by gstr3bDueDate in shared/gst/filing.ts. */
 export const GSTR1_QRMP_DUE_DAY = 13
-export const GSTR3B_QRMP_DUE_DAY = 22
 export const isQuarterEnd = (period: string): boolean => Number(period.slice(5, 7)) % 3 === 0
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
