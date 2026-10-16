@@ -241,7 +241,7 @@ what you typed, and a **Back to simple** button.
   language you use: a Hindi or Hinglish user's words are loaded before the first screen shows
   (about 5 ms — you never see English first), and picking another language in Settings says
   "Loading the language…" for a moment the first time. The start code is another 0.55 MB
-  smaller. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  smaller. [#143](https://github.com/IrminFlow/total/pull/143)
 
 - **Quarterly GST filers prepare their files on the Taxes screen.** If you file GST every
   quarter, step 3 no longer sends you to the full app: "Prepare the GSTR-1 files for the quarter"
@@ -477,7 +477,7 @@ Read these before filing from the next release.
   `PRELOAD_TIMEOUT_MS`; `useLanguagePending` for the pickers). `t()` in an unregistered language
   renders `en` and reports `not-loaded` once per language in dev. `lazyCatalogues.test.ts` fails on
   a static import of them from renderer / shared code. `perf-launch.mjs --boot --lang hi|hinglish`.
-  [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  [#143](https://github.com/IrminFlow/total/pull/143)
 - "I've filed" lives in company meta `gstFiled`, not in `assistant_marks` (which has no room for an
   ARN). [#94](https://github.com/IrminFlow/total/pull/94)
 - i18n: `Translate.lang`, `toPlainDate(d, lang)`, `amountInWords(paise, lang)`; the glossary is

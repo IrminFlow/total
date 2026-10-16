@@ -243,7 +243,7 @@ fallback was shown, which would have cost up to 0.3 s on each first visit.
 `out/renderer/assets`: 1 JS file (5,745 kB) → 146 — the entry 1,955 kB + vendor 748 kB load at
 startup (2.7 MB); screens are 1–217 kB (median chunk 11 kB; Settings 217 kB, VoucherEntry 182 kB,
 Banking 160 kB, Masters 119 kB). What is left in the entry: react-dom (553 kB, vendor), the three
-i18n catalogues (en 200 kB, hi 195 kB, hinglish 209 kB — hi / hinglish moved out in PR #PRNUM,
+i18n catalogues (en 200 kB, hi 195 kB, hinglish 209 kB — hi / hinglish moved out in PR #143,
 below), zod, the registry, DataTable, the
 AI panel, the palette.
 
@@ -288,7 +288,7 @@ first `verify` job only, so the open-time quick_check (a `pragma` job) starts as
 seed's check reports "entries do not balance" — a pre-existing false failure for multi-year books
 without a closing journal (to-do.md, Performance); every step still runs, so the timing holds.
 
-### Lazy catalogues (PR #PRNUM)
+### Lazy catalogues (PR #143)
 
 The Hindi and Hinglish catalogues were in the startup bundle for every user. Now only `en` is:
 `src/shared/i18n/index.ts` keeps a registry (`registerCatalogue`, `isCatalogueLoaded`); main, the
@@ -395,7 +395,7 @@ weekly check writes only its meta stamp.
   for Home (PR #131), and the restore check runs in a worker thread (PR #136); left: lazy-loaded
   renderer screens (boot), and the open backup's verification could be moved after the reply if its audit row may
   for Home (PR #131), screens are lazy (PR #135) and so are the hi / hinglish catalogues
-  (PR #PRNUM); left: the hi / hinglish help articles in the entry, the restore check in a worker
+  (PR #143); left: the hi / hinglish help articles in the entry, the restore check in a worker
   thread, and the open backup's verification could be moved after the reply if its audit row may
   follow the open's housekeeping rows (an ordering change — owner decision).
 - Server-side paging for the Sales / People DataTables — not needed: both are under budget at 100k
