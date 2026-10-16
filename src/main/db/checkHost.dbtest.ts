@@ -13,8 +13,8 @@ import { migrate } from './migrate'
 import { seedCompany } from './seed'
 import { TEST_INFO, postSimpleVoucher } from './testdb'
 import { quickCheckOk, runWeeklyIntegrityCheck, runWeeklyIntegrityCheckAsync, snapshotTo, INTEGRITY_CHECK_META_KEY } from './backup'
-import { checkIntegrity, checkIntegrityAsync } from './integrity'
-import { pragmaCheck, quickCheckOkAsync, runningChecks, setCheckWorkerFile, stopChecks } from './checkHost'
+import { checkIntegrity, checkIntegrityAsync, QUICK_CHECK_TIMED_OUT } from './integrity'
+import { CheckTimeoutError, pragmaCheck, quickCheckOkAsync, runningChecks, setCheckWorkerFile, stopChecks } from './checkHost'
 
 function fileDb(): { db: Database.Database; path: string; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'total-checkhost-'))
@@ -121,6 +121,49 @@ describe('the check worker thread', () => {
     db.close()
     rmSync(dir, { recursive: true, force: true })
   })
+
+  it('the open-time quick_check gives up after its timeout; the open is not held (to-do §4)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'total-checkworker-silent-'))
+    const silent = join(dir, 'silent.js')
+    writeFileSync(silent, 'setInterval(() => {}, 1000)\n')
+    setCheckWorkerFile(silent)
+    const { db, path } = fileDb()
+    await expect(pragmaCheck(path, 'quick_check', null, { timeoutMs: 50 })).rejects.toBeInstanceOf(CheckTimeoutError)
+    await stopChecks(path) // the terminated thread is tracked until it has exited
+    expect(runningChecks(path)).toBe(0)
+    const started = Date.now()
+    const result = await checkIntegrityAsync(db, path, { timeoutMs: 50 })
+    expect(Date.now() - started).toBeLessThan(5_000)
+    // Not checked is not damaged: the balance check alone decides `ok`; nothing re-ran on `db`.
+    expect(result).toEqual({ ok: true, quickCheck: QUICK_CHECK_TIMED_OUT, unbalancedVoucherIds: [] })
+    await stopChecks(path)
+    expect(runningChecks(path)).toBe(0)
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('a timed-out check still reading in native code stays visible to stopChecks until its thread is gone', async () => {
+    // terminate() cannot interrupt a pragma inside SQLite: this worker stands for a slow
+    // quick_check — one native query of ~1 s — and answers only after it.
+    const dir = mkdtempSync(join(tmpdir(), 'total-checkworker-slow-'))
+    const slow = join(dir, 'slow.js')
+    const sqlite = createRequire(import.meta.url).resolve('better-sqlite3-multiple-ciphers')
+    writeFileSync(
+      slow,
+      `const { parentPort } = require('worker_threads')\nconst Database = require(${JSON.stringify(sqlite)})\n` +
+        `parentPort.on('message', (m) => { const db = new Database(':memory:'); const t = Date.now(); let n = 0\n` +
+        `  while (Date.now() - t < 1000) n += db.prepare('WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 3000000) SELECT count(*) AS k FROM c').get().k\n` +
+        `  db.close(); parentPort.postMessage({ id: m.id, ok: true, result: 'ok' }) })\n`
+    )
+    setCheckWorkerFile(slow)
+    const { db, path } = fileDb()
+    await expect(pragmaCheck(path, 'quick_check', null, { timeoutMs: 50 })).rejects.toBeInstanceOf(CheckTimeoutError)
+    expect(runningChecks(path)).toBe(1)
+    await stopChecks(path)
+    expect(runningChecks(path)).toBe(0)
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  }, 30_000)
 
   it('stopChecks ends a running check; the weekly check then reports and stamps nothing', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'total-checkworker-hang-'))

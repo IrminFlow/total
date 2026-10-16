@@ -24,7 +24,7 @@ import { assertNotNewer } from './db/migrate'
 import * as attachments from './services/attachments'
 import { embedAttachments, restoreAttachmentFiles, restoreAttachmentFilesAt, type RestoreFilesResult, type StashResult } from './db/attachmentBackup'
 import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheckAsync, type BackupInfo } from './db/backup'
-import { checkIntegrity, checkIntegrityAsync } from './db/integrity'
+import { checkIntegrity, checkIntegrityAsync, QUICK_CHECK_TIMED_OUT } from './db/integrity'
 import { stopChecks } from './db/checkHost'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
@@ -883,6 +883,10 @@ export function registerIpc(): void {
     const integrity = await integrityDone
     if (!integrity.ok) {
       log('warn', 'integrity', { slug, quickCheck: integrity.quickCheck, unbalanced: integrity.unbalancedVoucherIds })
+    } else if (integrity.quickCheck === QUICK_CHECK_TIMED_OUT) {
+      // The open went on without the quick_check (OPEN_QUICK_CHECK_TIMEOUT_MS); the weekly
+      // integrity_check below still covers the file.
+      log('warn', 'integrity-quick-check-timeout', { slug })
     }
     // [lane-Q] scheduled weekly FULL integrity check (task Q3 #99) — the check above is the cheap
     // quick_check; this one is `PRAGMA integrity_check`, throttled to once per 7 days via meta.

@@ -263,6 +263,18 @@ Read these before filing from the next release.
   newest 2 are kept. The restore reopen passes `preUpgradeCopy: false`. A cached perf seed at the
   current version takes no copy; one behind takes one (correct, and large).
   [#116](https://github.com/IrminFlow/total/pull/116)
+- **Small fixes** ([#118](https://github.com/IrminFlow/total/pull/118)): binning, restoring,
+  purging and maturing a PDC write their audit row inside the same transaction as the change;
+  company:open stops waiting for its worker quick_check after 60 s (`OPEN_QUICK_CHECK_TIMEOUT_MS`,
+  reported as `not checked (timed out)` and logged; the weekly integrity_check and backup checks
+  keep no limit); the unused `GSTR3B_QRMP_DUE_DAY` is gone; backup and pre-upgrade stamps share
+  `localStampParts`; new dbtests for an upgrade over several migrations that fails midway (the
+  runner was already correct) and for old UTC-named backups (the list reads mtime, not the name).
+  Review: pre-upgrade copies are kept per source version (the newest copy of each of the 2 most
+  recent), so retries of a failing upgrade — each a copy from the half-upgraded version — no
+  longer prune the only copy the previous Total can open; a timed-out open quick_check stays
+  visible to `stopChecks` until its thread has exited (terminate cannot interrupt SQLite); the
+  on-open auto-purge of the bin commits with its summary audit row too.
 
 ## [0.11.0] - 2026-10-13
 

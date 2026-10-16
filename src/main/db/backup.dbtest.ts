@@ -82,6 +82,31 @@ describe('listBackupsIn / tagOf / backupStamp', () => {
     expect(tagOf(`${backupStamp(at)}-manual.db`)).toBe('manual')
     expect(backupStamp(new Date(2026, 11, 31, 23, 59, 59)) > backupStamp(new Date(2026, 11, 31, 23, 59, 58))).toBe(true)
   })
+
+  it('old UTC-named backups beside local-time ones: the list orders by mtime and reads every tag; pruning keeps the newest', () => {
+    // Nothing reads a date back out of a backup's name — BackupInfo.mtime is the file's own time —
+    // so a file named by the old UTC stamp (01:05 IST was "…T19-35-09" the day before) sorts by
+    // when it was written, not by its name.
+    const dir = tmpDir()
+    const files = [
+      { name: '2026-10-14T19-35-09-open.db', at: new Date(2026, 9, 15, 1, 5, 9) }, // old UTC name
+      { name: `${backupStamp(new Date(2026, 9, 15, 0, 30, 0))}-auto.db`, at: new Date(2026, 9, 15, 0, 30, 0) }, // local, earlier
+      { name: `${backupStamp(new Date(2026, 9, 15, 9, 0, 0))}-manual.db`, at: new Date(2026, 9, 15, 9, 0, 0) }
+    ]
+    for (const f of files) {
+      const p = join(dir, f.name)
+      writeFileSync(p, 'x')
+      utimesSync(p, f.at, f.at)
+    }
+    const list = listBackupsIn(dir)
+    // The UTC name sorts BEFORE the local 00:30 name as text, yet it is the newer file.
+    expect(files[0]!.name < files[1]!.name).toBe(true)
+    expect(list.map((b) => b.file)).toEqual([files[2]!.name, files[0]!.name, files[1]!.name])
+    expect(list.map((b) => b.tag)).toEqual(['manual', 'open', 'auto'])
+    expect(list[1]!.mtime).toBe(files[0]!.at.getTime())
+    pruneBackupsIn(dir, 2)
+    expect(listBackupsIn(dir).map((b) => b.file)).toEqual([files[2]!.name, files[0]!.name])
+  })
 })
 
 function basename(p: string): string {

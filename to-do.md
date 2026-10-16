@@ -108,7 +108,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Cash & finance not done: MSME deadlines in the forecast, loan disbursement posting, foreign opening balances — WP 4.4
 - NIC follow-ups needing a migration: store signed QR / signed invoice; cancel IRN / cancel + extend e-way UI — WP 3.5
 - ITC-reversal apply has no audit row of its own — WP 3.8, `services/gst.ts`
-- Backup file names use UTC timestamps — PR #111
+- ~~Backup file names use UTC timestamps~~ DONE — local time since PR #114; one stamp helper + old-name test PR #118 (the list reads mtime) — PR #111
 - Report-pack / saved-report folders use the company slug ("Con" → `con-company/`) — PR #109
 
 ### GST / tax
@@ -120,7 +120,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - MSME deadlines run from the bill date; the law uses acceptance / deemed acceptance — GPT review, `shared/payables/msme.ts`
 - Several rate-less lines at different true rates in one voucher get one blended rate (flagged off-slab); discounts debited to a ledger under Sales Accounts are ignored in the taxable value — PR #93
 - Off-standard implied rate stays a warning (no source on what the portal accepts) — PR #93
-- Unused constant `GSTR3B_QRMP_DUE_DAY = 22` still exported from the close checklist (nothing reads it; remove) — `src/shared/closeChecklist.ts:191`
+- ~~Unused constant `GSTR3B_QRMP_DUE_DAY = 22` still exported from the close checklist~~ DONE — PR #118
 - "Exporting JSON" is treated as "prepared"; filing / payment evidence is a manual mark only — GPT review, `services/gst.ts`
 
 ### Windows (needs a real machine — CI can't check)
@@ -139,7 +139,8 @@ done on main were dropped. One line each; the pointer says where to look.
 - Launch to Home 6.5 s vs the 2 s target (Electron + renderer ~1.9 s; the Gateway's four reads could be one) — PR #104
 - At 500k vouchers many reports take > 3 s on this laptop: stream stock lines into the valuation pass, share one pass / one Outstandings run per request, re-measure on a machine with more RAM — PR #104
 - Voucher text search needs a full-text index (FTS5 + triggers); search budget 600 ms at 500k — PR #104
-- No timeout on the company-open quick_check worker — PR #104 review
+- ~~No timeout on the company-open quick_check worker~~ DONE — 60 s, then "not checked (timed out)" — PR #118
+- company:open still waits, unbounded, for the open backup (`backupCompany`: snapshot + its own worker quick_check of the copy) before purge — on the slow disk / huge file the #118 timeout is for, that wait is as long; bounding it needs a rule for an unverified backup (purge must not run before the snapshot) — PR #118 review, `src/main/ipc.ts` openCompanyNow
 - Synchronous SQLite and valuation run in the main process; cold start, save latency and UI responsiveness at 100k / 500k not gated — GPT review
 
 ### Security
@@ -149,8 +150,8 @@ done on main were dropped. One line each; the pointer says where to look.
 - `canSeeProfit` doesn't cover the trial balance, report builder or AI tools; the UI doesn't hide buttons by flag (main refuses) — PR #112
 - Session lock needs a user with a PIN — PR #112
 - Renderer sandbox is off (`sandbox: false`) and IPC handlers don't validate the sender frame — GPT review, `src/main/index.ts:93`, `src/main/ipc.ts`
-- deleteVoucher writes its audit row after (outside) the deleting transaction — GPT review, `src/main/services/vouchers.ts` deleteVoucher
-- ~~A company file migrates on open before any pre-upgrade snapshot is taken~~ DONE — `backups/pre-upgrade-*.db` before every migration, no copy = no migration (PR #116); interrupted multi-migration upgrades still untested — GPT review, `src/main/db/connection.ts`
+- ~~deleteVoucher writes its audit row after (outside) the deleting transaction~~ DONE — restore / purge / PDC maturing too — PR #118
+- ~~A company file migrates on open before any pre-upgrade snapshot is taken~~ DONE — `backups/pre-upgrade-*.db` before every migration, no copy = no migration (PR #116); interrupted multi-migration upgrades tested in PR #118 — GPT review, `src/main/db/connection.ts`
 - The audit hash chain detects but can't prevent tampering (whoever holds the file can recompute it) — WP 3.8
 - In a company without users anyone can change the app-wide update setting; real signed / unsigned macOS update behaviour unverified until a release — PR #108
 
@@ -216,7 +217,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - No live-model run of AI evals, capture or Ask Total escalation — PR #98 / #101
 - No live NIC sandbox scenario — WP 3.5, `docs/e2e-coverage.md`
 - 500k-voucher run and the packaged DMG / EXE perf not verified by the reviewer — PR #104
-- Interrupted multi-migration upgrade not tested — GPT review
+- ~~Interrupted multi-migration upgrade not tested~~ DONE — `db/interruptedUpgrade.dbtest.ts`, no runner bug — PR #118
 - Receivables interest on an amount-only bill at its real GST rate not pinned — PR #93
 - PowerShell Documents fallback and locked capture-inbox path only unit-tested on macOS — PR #109
 - CI e2e takes ~18–20 min (sharding is ready if needed) — PR #110
