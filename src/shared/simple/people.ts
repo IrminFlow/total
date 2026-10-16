@@ -120,7 +120,7 @@ export interface BillsToPay {
 export const REMINDER_VIA = ['whatsapp', 'sms', 'copied'] as const
 export type ReminderVia = (typeof REMINDER_VIA)[number]
 
-/** reminder_log's channel per way (PR #146: the log has 'whatsapp' and 'sms' channels — logged
+/** reminder_log's channel per way (PR #148: the log has 'whatsapp' and 'sms' channels — logged
  *  as 'phone' before); a copied text is 'other'. The exact way (and `forced`) stays in the audit
  *  row as before. */
 export const REMINDER_LOG_CHANNEL: Record<ReminderVia, ReminderLogChannel> = { whatsapp: 'whatsapp', sms: 'sms', copied: 'other' }

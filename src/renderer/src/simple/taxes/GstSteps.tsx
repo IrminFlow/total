@@ -191,7 +191,7 @@ function PrepareFiles({ x }: { x: Regular }): React.JSX.Element {
     quarterly
       ? form === 'gstr1' ? t('simple.taxes.step3.prepare1Quarter') : t('simple.taxes.step3.prepare3bQuarter')
       : form === 'gstr1' ? t('simple.taxes.step3.prepare1') : t('simple.taxes.step3.prepare3b')
-  // #146: a sign-in the owner refused canExport can't save the files (main refuses them too).
+  // #148: a sign-in the owner refused canExport can't save the files (main refuses them too).
   if (exportRefused) {
     return (
       <p className="text-detail text-muted" data-testid="taxes-export-refused">

@@ -93,7 +93,7 @@ export function ReturnsTab({ fyStartYear, initialQuarter, kind = 'tds' }: { fySt
   const due = tcs ? tcsStatementDueDate(fyStartYear, quarter) : null
   const { data, isLoading } = useQuery({ queryKey: [k, 'form26q', fyStartYear, quarter], queryFn: () => wapi.returnData(fyStartYear, quarter) })
   const { data: f16 } = useQuery({ queryKey: [k, 'form16a', fyStartYear, quarter], queryFn: () => wapi.certificateData(fyStartYear, quarter) })
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportCsv = async (): Promise<void> => {
     try {
       const r = await wapi.exportReturn(fyStartYear, quarter)

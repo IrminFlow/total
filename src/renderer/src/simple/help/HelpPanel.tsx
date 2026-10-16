@@ -81,7 +81,7 @@ function HelpDrawer({ context }: { context: HelpArticleId }): React.JSX.Element 
     }
   }
   const language = lang as Language
-  // #146: Hindi / Hinglish are lazy chunks — the article shows in English until its language
+  // #148: Hindi / Hinglish are lazy chunks — the article shows in English until its language
   // lands (never blank); a search loads every language, since it covers them all.
   const searching = !!query.trim()
   const langReady = useHelpLanguage(language)

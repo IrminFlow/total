@@ -112,7 +112,7 @@ function AnswerView({ turn, onAsk, onOpen, onEntry, busy }: {
   // WP 10.3: a question Total can't answer also searches the help articles (the glossary stays
   // below as the second source).
   const unanswered = !!a && !a.understood
-  const helpReady = useHelpLanguage(lang as Language, unanswered) // #146: loads the translations for the search
+  const helpReady = useHelpLanguage(lang as Language, unanswered) // #148: loads the translations for the search
   const helpHits = useMemo(() => (unanswered ? HELP.search(turn.text, lang as Language, 3) : []), [unanswered, turn.text, lang, helpReady])
   return (
     <div className="flex flex-col gap-2" data-testid="ask-turn">

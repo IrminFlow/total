@@ -254,10 +254,10 @@ what you typed, and a **Back to simple** button.
 - **The help in Hindi and Hinglish is loaded when you open it.** The translated help articles
   are no longer part of the start code (another 69 kB smaller); they load the first time the help
   panel opens in Hindi or Hinglish, or when you search the help. Until then — a moment — the
-  English article shows, never an empty panel. [#146](https://github.com/IrminFlow/total/pull/146)
+  English article shows, never an empty panel. [#148](https://github.com/IrminFlow/total/pull/148)
 - **A reminder sent on WhatsApp or by SMS is listed as WhatsApp or SMS.** People → Send a
   reminder used to record both as "phone" in the reminder list (Credit control). Reminders sent
-  before this change keep "phone". [#146](https://github.com/IrminFlow/total/pull/146)
+  before this change keep "phone". [#148](https://github.com/IrminFlow/total/pull/148)
 
 - **Quarterly GST filers prepare their files on the Taxes screen.** If you file GST every
   quarter, step 3 no longer sends you to the full app: "Prepare the GSTR-1 files for the quarter"
@@ -473,7 +473,7 @@ Read these before filing from the next release.
   the simple Taxes screen's "prepare the files" step says the owner turned it off
   (`simple.taxes.step3.exportRefused`, en / hi / hinglish). Owners and users without flags see no
   change; main still refuses. Owner-only exports (encrypted backup, recovery copy) are unchanged.
-  `exportGating.test.tsx`. [#146](https://github.com/IrminFlow/total/pull/146)
+  `exportGating.test.tsx`. [#148](https://github.com/IrminFlow/total/pull/148)
 - Migration 053 (last; `-- @foreign-keys-off` table rebuild, every row and id kept, index
   recreated): `reminder_log.channel` accepts `whatsapp` and `sms`. `REMINDER_LOG_CHANNELS` /
   `ReminderLogChannel` (shared/receivables/config.ts) type the log; the letter's
@@ -482,7 +482,7 @@ Read these before filing from the next release.
   unchanged and the cadence reads every channel as before. `migrationReminderChannels.dbtest.ts`.
   The help articles' lazy chunks: `help/hiFiles.ts` / `hinglishFiles.ts`, `loadHelpLanguage`,
   `useHelpLanguage` (help/useHelp.ts); `HELP_FILES` now holds `en` only.
-  [#146](https://github.com/IrminFlow/total/pull/146)
+  [#148](https://github.com/IrminFlow/total/pull/148)
 - **Locked businesses from `total-cli`, MCP and consolidation.** Every `--company` command
   (including `mcp` and `inbox`) opens a business locked with a passphrase from the environment
   variable `TOTAL_PASSPHRASE` — never a flag (command lines are visible in `ps`) — through the app's

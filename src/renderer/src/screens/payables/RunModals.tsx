@@ -83,7 +83,7 @@ export function RunSummary({ run }: { run: PaymentRun }): React.JSX.Element {
       setPrinting(false)
     }
   }
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportCsv = async (): Promise<void> => {
     try {
       const r = await payablesApi.runExportCsv(run.id)

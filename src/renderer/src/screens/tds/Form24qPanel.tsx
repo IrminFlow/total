@@ -41,7 +41,7 @@ export const SALARY_24Q_COLUMNS = defineColumns<Form24qSalaryRow>([
 export function Form24qPanel({ fyStartYear, quarter, label }: { fyStartYear: number; quarter: 1 | 2 | 3 | 4; label: string }): React.JSX.Element {
   const toast = useToasts()
   const { data, isLoading } = useQuery({ queryKey: ['tds', 'form24q', fyStartYear, quarter], queryFn: () => statApi.form24q(fyStartYear, quarter) })
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportCsv = async (): Promise<void> => {
     try {
       const r = await statApi.form24qCsv(fyStartYear, quarter)

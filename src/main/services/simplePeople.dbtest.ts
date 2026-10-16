@@ -4,7 +4,7 @@
 // debit notes) in the books — and their sums are Home's "customers owe you" / "you owe
 // suppliers" tiles (and their advances). Plus: a person's open bills = the Outstandings rows;
 // Bills to pay = every supplier's open bill with the week / month totals; a sent reminder is a
-// reminder_log row with its audit row (WhatsApp → 'whatsapp', SMS → 'sms' since PR #146, copied → 'other'; refused when
+// reminder_log row with its audit row (WhatsApp → 'whatsapp', SMS → 'sms' since PR #148, copied → 'other'; refused when
 // nothing is late); phone / WhatsApp / days to pay go through masters.updateLedger (one audited
 // `ledger` update; a bad number refused on its field, nothing written); a viewer reads the
 // People channels and can't write through them.

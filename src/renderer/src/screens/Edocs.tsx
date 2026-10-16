@@ -219,7 +219,7 @@ function EdocsDocuments(): React.JSX.Element {
   const [einvTo, setEinvTo] = useState('')
   const einvRange = einvFrom || einvTo ? { from: einvFrom || from, to: einvTo || to } : undefined
   const einvRangeBad = !!einvRange && (einvRange.from > einvRange.to || einvRange.from < from || einvRange.to > to)
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportEinv = async (): Promise<void> => {
     if (einvRangeBad) {
       toast.push('error', `The e-invoice dates must lie within ${toDisplayDate(from)} → ${toDisplayDate(to)}, the first on or before the last`)

@@ -122,7 +122,7 @@ export function ReportBuilderScreen({
     }
   }
 
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const menuItems = [
     { label: 'New report', testId: 'rb-menu-new', onSelect: () => nav.go({ name: 'report-builder' }) },
     { label: 'Save as new…', testId: 'rb-menu-save-as', onSelect: () => void save(true) },
@@ -149,7 +149,7 @@ export function ReportBuilderScreen({
               }
             })()
           },
-          // #146: the shared JSON is a file of the books — not for a sign-in refused canExport.
+          // #148: the shared JSON is a file of the books — not for a sign-in refused canExport.
           ...(exportRefused ? [] : [{
             label: 'Share as JSON', testId: 'rb-menu-share',
             onSelect: () => void (async () => {

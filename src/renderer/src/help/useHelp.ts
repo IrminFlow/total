@@ -1,4 +1,4 @@
-// #146: the help articles in a language, loading its lazy chunk on first use. Returns whether the
+// #148: the help articles in a language, loading its lazy chunk on first use. Returns whether the
 // language (or, with `all`, every language — search covers them all) has landed; the index itself
 // is `HELP`, which answers in English until then. Components re-render when a chunk lands.
 import { useEffect, useSyncExternalStore } from 'react'

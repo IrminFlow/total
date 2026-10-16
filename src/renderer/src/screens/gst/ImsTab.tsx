@@ -82,7 +82,7 @@ export function ImsTab({ period, periodLabel, pairs }: { period: string; periodL
     }
     await save(list.map((r) => decision(r, action, action == null ? null : note ?? r.note)), action ? `${list.length} marked ${IMS_ACTION_LABELS[action].toLowerCase()}` : `${list.length} cleared`)
   }
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const doExport = async (): Promise<void> => {
     try {
       const r = await api.gst.imsExport(period)

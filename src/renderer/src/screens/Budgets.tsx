@@ -286,7 +286,7 @@ export function BudgetsScreen(): React.JSX.Element {
     }
   }
 
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportCsv = async (): Promise<void> => {
     if (!selected) return
     try {

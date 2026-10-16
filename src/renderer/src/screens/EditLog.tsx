@@ -216,7 +216,7 @@ export function EditLogScreen({ voucherId: initialVoucherId }: { voucherId?: num
       return next
     })
 
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const doExport = async (kind: 'csv' | 'pdf'): Promise<void> => {
     setExporting(kind)
     try {

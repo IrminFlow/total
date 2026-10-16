@@ -204,7 +204,7 @@ function StatementsSection({ parties, onPreview }: { parties: OutstandingParty[]
   const [pick, setPick] = useState<number | ''>('')
   const [busy, setBusy] = useState(false)
   const from = fyOf(to).from
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const bulk = async (pickFolder: boolean): Promise<void> => {
     if (busy) return
     setBusy(true)

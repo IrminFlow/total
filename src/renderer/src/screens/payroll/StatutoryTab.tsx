@@ -100,7 +100,7 @@ export function StatutoryTab({ fyStartYear }: { fyStartYear: number }): React.JS
   const outstanding = (k: StatutoryDueRow['kind']): number => (dues ?? []).filter((d) => d.kind === k).reduce((s, d) => s + d.outstandingPaise, 0)
   const overdue = (k: StatutoryDueRow['kind']): number => (dues ?? []).filter((d) => d.kind === k && d.status === 'overdue').length
 
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportDue = async (d: StatutoryDueRow): Promise<void> => {
     try {
       if (d.kind === 'tds') return nav.go({ name: 'tds' })

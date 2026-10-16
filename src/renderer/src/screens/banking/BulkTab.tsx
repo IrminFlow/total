@@ -116,7 +116,7 @@ export function BulkTab({ bankLedgerId, bankName }: { bankLedgerId: number; bank
   const invalidate = (): Promise<unknown> =>
     Promise.all(['bulkTemplates', 'bulkCandidates', 'bulkBeneficiaries', 'bulkBatches'].map((k) => queryClient.invalidateQueries({ queryKey: [k] })))
 
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportFile = async (): Promise<void> => {
     if (!template) return
     const repeat = selected.some((c) => c.exportedIn.length > 0 || c.chequeNo)

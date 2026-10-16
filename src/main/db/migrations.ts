@@ -3470,7 +3470,7 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_backup_runs_checked ON backup_runs(checked_at);
   ALTER TABLE users ADD COLUMN capabilities_json TEXT;
   `,
-  // PR #146 (last — after WP 7.2's security; number by position) — reminder_log's channel CHECK
+  // PR #148 (last — after WP 7.2's security; number by position) — reminder_log's channel CHECK
   // gains 'whatsapp' and 'sms': the simple People screen (WP 9.8) logged a WhatsApp / SMS
   // reminder as 'phone' because the WP 4.2 list had no such channel (REMINDER_LOG_CHANNEL). Table
   // rebuild for the CHECK — every row kept with its id (nothing references reminder_log; its own

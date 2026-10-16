@@ -23,7 +23,7 @@ export function StatementModal({ ledgerId, name, onClose }: { ledgerId: number; 
     enabled: from <= to
   })
 
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const save = async (email: boolean): Promise<void> => {
     if (busy) return
     setBusy(true)

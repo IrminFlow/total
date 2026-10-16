@@ -158,7 +158,7 @@ export function PriceListsTab(): React.JSX.Element {
       toast.push('error', (err as Error).message)
     }
   }
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportCsv = async (l?: PriceLevel): Promise<void> => {
     try {
       const { csv } = await pricingApi.exportCsv(l?.id)

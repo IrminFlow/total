@@ -104,7 +104,7 @@ export function Gstr9Screen(): React.JSX.Element {
   const { data, isLoading } = useQuery({ queryKey: ['gstr9', fy], queryFn: () => api.gst.gstr9(fy) })
   const diffs = (data?.compare ?? []).filter((c) => diffTotal(c) !== 0)
 
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const doExport = async (): Promise<void> => {
     try {
       const r = await api.gst.exportGstr9(fy)

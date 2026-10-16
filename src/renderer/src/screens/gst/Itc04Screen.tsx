@@ -85,7 +85,7 @@ export function Itc04Screen(): React.JSX.Element {
   const shownKind = r?.period.kind ?? kind
   const empty = r && r.sent.length + r.received.length + r.supplied.length === 0
 
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const doExport = async (): Promise<void> => {
     try {
       const x = await api.gst.exportItc04({ fyStartYear: fy, kind: shownKind, periodicity })

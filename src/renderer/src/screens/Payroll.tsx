@@ -1115,7 +1115,7 @@ export function RunActions({ run, onPt }: { run: PayrollRun; onPt: (run: Payroll
   const [payslipsOpen, setPayslipsOpen] = useState(false)
   const payslipsRef = useRef<HTMLButtonElement>(null)
 
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportFile = async (kind: 'ecr' | 'esi'): Promise<void> => {
     try {
       const r = kind === 'ecr' ? await api.payroll.ecr(run.id) : await api.payroll.esiCsv(run.id)
@@ -1182,7 +1182,7 @@ export function RunActions({ run, onPt }: { run: PayrollRun; onPt: (run: Payroll
           </ScrollList>
         </Popover>
       )}
-      {/* #146: the upload files are exports — not for a sign-in the owner refused canExport. */}
+      {/* #148: the upload files are exports — not for a sign-in the owner refused canExport. */}
       {exportRefused ? (
         <span className="text-muted opacity-60" data-testid="payroll-export-refused" title={CAPABILITY_REFUSED_TEXT.canExport}>
           PF ECR · ESI CSV
@@ -1221,7 +1221,7 @@ export function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () 
     queryFn: () => api.payroll.ptSummary(run.id)
   })
 
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportState = async (state: string): Promise<void> => {
     try {
       const r = await statApi.ptReturnCsv(run.id, state)

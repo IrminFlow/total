@@ -147,7 +147,7 @@ export function MsmeTab({ tabs }: { tabs: ReactNode }): React.JSX.Element {
     for (let k = 0; k < i; k++) p = formMsme1Period(addDays(p.from, -1))
     return p
   })
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportForm = async (): Promise<void> => {
     try {
       const r = await payablesApi.msmeForm1Csv(q)

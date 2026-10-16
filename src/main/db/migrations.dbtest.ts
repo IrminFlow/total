@@ -161,7 +161,7 @@ describe('migrate', () => {
     expect(empty.map((m) => m.n)).toEqual([])
   })
 
-  it('the reminder_log channel rebuild (PR #146) is the last migration (number by position)', () => {
+  it('the reminder_log channel rebuild (PR #148) is the last migration (number by position)', () => {
     const last = MIGRATIONS.at(-1)!
     expect(last.startsWith('-- @foreign-keys-off')).toBe(true)
     expect(last).toContain('CREATE TABLE reminder_log_new')

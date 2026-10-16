@@ -267,7 +267,7 @@ export function Gstr1Screen({ initialMonth }: { initialMonth?: string } = {}): R
       ? `Export blocked — ${blocking.length} blocking issue${blocking.length === 1 ? '' : 's'} below must be fixed first.`
       : null
 
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const doExport = async (): Promise<void> => {
     if (!month) return
     try {
@@ -529,7 +529,7 @@ export function Gstr3bScreen({ initialMonth }: { initialMonth?: string } = {}): 
     enabled: !!month
   })
 
-  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const doExport = async (): Promise<void> => {
     if (!month) return
     try {

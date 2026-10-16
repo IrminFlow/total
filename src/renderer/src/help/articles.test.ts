@@ -13,11 +13,11 @@ import { resolveHelpLink } from './links'
 import { en } from '@shared/i18n/catalogues/en'
 import { STATEMENT_EXTENSIONS } from '@shared/simple/bank'
 
-// #146: Hindi / Hinglish are lazy chunks in the app; the tests read all three sets directly.
+// #148: Hindi / Hinglish are lazy chunks in the app; the tests read all three sets directly.
 const HELP_FILES = { ...EN_ONLY, hi: HI_FILES, hinglish: HINGLISH_FILES }
 const HELP = createHelpIndex(HELP_FILES.en, HELP_FILES.hi, HELP_FILES.hinglish)
 
-describe('lazy translations (#146)', () => {
+describe('lazy translations (#148)', () => {
   it('the app index answers in English until a language lands, then in that language', async () => {
     // (This must run before anything else loads the chunks in this file's module instance.)
     expect(isHelpLanguageLoaded('en')).toBe(true)

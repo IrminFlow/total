@@ -367,7 +367,7 @@ describe('reminders', () => {
     expect(auditRows(f.db, 'reminder')).toHaveLength(2)
   })
 
-  it('a WhatsApp / SMS reminder (PR #146 channels) counts for the letter cadence and is listed with its channel', async () => {
+  it('a WhatsApp / SMS reminder (PR #148 channels) counts for the letter cadence and is listed with its channel', async () => {
     const f = fixture({ rateBp: null })
     invoice(f, '2026-04-01', 50_000, 'INV-1')
     const base = { party_ledger_id: f.party, bucket: 'gentle' as const, amount_paise: 59_000, oldest_bill: 'INV-1', max_overdue_days: 9, document_path: null }

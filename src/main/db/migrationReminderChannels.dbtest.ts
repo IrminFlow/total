@@ -1,4 +1,4 @@
-// PR #146 — reminder_log's channel CHECK gains 'whatsapp' and 'sms' (the simple People screen's
+// PR #148 — reminder_log's channel CHECK gains 'whatsapp' and 'sms' (the simple People screen's
 // ways, logged as 'phone' before). A table rebuild: every row is kept as it was (ids included),
 // the index comes back, the old channels and the CHECK on unknown ones still hold, and the next
 // id follows the old rows.

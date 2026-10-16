@@ -194,7 +194,7 @@ describe('the restore check of a backup', () => {
 })
 
 describe('the WP 7.2 migration', () => {
-  it('comes right before PR #146 reminder channels (the last; number by position) and leaves every existing user as the role says', () => {
+  it('comes right before PR #148 reminder channels (the last; number by position) and leaves every existing user as the role says', () => {
     const m = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE backup_runs'))
     expect(m).toBe(MIGRATIONS.length - 2)
     const path = companyFile(MIGRATIONS.slice(0, m))

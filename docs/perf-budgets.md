@@ -320,9 +320,9 @@ the digits. `--lang hi` stores Hindi app-wide before the measured reloads; "cata
 | Catalogue wait before first paint | — | 0 (none) | — | 4.7 ms |
 
 A Hindi user pays ~5 ms for the chunk before the first paint; everyone else stops parsing ~555 kB.
-Not moved by #143: the Hindi / Hinglish HELP articles — done in PR #146 (below).
+Not moved by #143: the Hindi / Hinglish HELP articles — done in PR #148 (below).
 
-### Lazy help translations (PR #146)
+### Lazy help translations (PR #148)
 
 The Hindi and Hinglish help articles (`help/hi`, `help/hinglish`) were bundled into the entry by
 `help/articles.ts`'s eager `import.meta.glob(?raw)`. Each set is now its own chunk
@@ -408,7 +408,7 @@ weekly check writes only its meta stamp.
 - Launch ≤ 2 s: the Gateway's four reads are one round trip and the backup restore check waits
   for Home (PR #131), screens are lazy (PR #135), the restore check runs in a worker thread
   (PR #136), the hi / hinglish catalogues are lazy (PR #143) and so are the hi / hinglish help
-  articles (PR #146); left: the open backup's verification could be moved after the reply if its
+  articles (PR #148); left: the open backup's verification could be moved after the reply if its
   audit row may follow the open's housekeeping rows (an ordering change — owner decision).
 - Server-side paging for the Sales / People DataTables — not needed: both are under budget at 100k
   (and the Sales list at 500k).

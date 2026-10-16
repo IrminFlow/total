@@ -1,4 +1,4 @@
-// #146: the Hindi / Hinglish help articles are lazy chunks — its own file, so no other test has
+// #148: the Hindi / Hinglish help articles are lazy chunks — its own file, so no other test has
 // loaded them into this module instance first.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -55,8 +55,8 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 
-describe('lazy help translations (#146)', () => {
-  it('Hindi help is a lazy chunk (#146): English while it loads (never blank, no "in English" note), then Hindi', async () => {
+describe('lazy help translations (#148)', () => {
+  it('Hindi help is a lazy chunk (#148): English while it loads (never blank, no "in English" note), then Hindi', async () => {
     expect(isHelpLanguageLoaded('hi')).toBe(false)
     localStorage.setItem(languageStorageKey('ramesh', null), 'hi')
     wrap(<><Keys /><HelpPanel /></>)
