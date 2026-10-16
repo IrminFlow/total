@@ -15,7 +15,7 @@ import { fyOf, fyFromStartYear } from '@shared/dates'
 import {
   addTdsToLines, candidateSections, classifyTdsVoucher, removeTdsFromLines, TDS_KINDS, undeductedCreditsBefore, type TdsLedgerFacts
 } from '@shared/tdsEligibility'
-import { lateDepositInterest, LATE_DEPOSIT_RATE_BP } from '@shared/tdsInterest'
+import { lateDeductionOnPayment, lateDepositInterest, LATE_DEPOSIT_RATE_BP } from '@shared/tdsInterest'
 import { collecteeCodeForReturn, tcsDepositDueDate, TCS_KINDS, TCS_LATE_PAYMENT_RATE_BP } from '@shared/tcs'
 import { KIND, type WithholdingKind } from './withholdingKind'
 import { rateRowOn, tdsQuarterBounds, tdsQuarterOf, IT_ACT_2025_FROM, type DeducteeType } from '@shared/tds'
@@ -25,6 +25,7 @@ import type {
   TdsLedgerSummaryRow, TdsPaymentCandidate
 } from '@shared/tdsTypes'
 import { buildEventGroups, ledgerTdsFacts, loadTdsVouchers, partySectionWalk, ratesBySection, walkGroup } from './tdsEvents'
+import type { WalkResult } from '@shared/tdsEligibility'
 import { allocateEntries, challanKind, listChallans, payableTagMap, resolveTds, saveChallan } from './tds'
 import { getLockDate, getVoucher, IN_BOOKS, NOT_DELETED, saveVoucher, YEAR_END_CLOSE_IMMUTABLE } from './vouchers'
 import { writeAudit } from './audit'
@@ -294,10 +295,33 @@ export function tdsDeducted(db: DB, from: string, to: string, kind: WithholdingK
        ORDER BY v.date, v.id`
     )
     .all(from, to, kind) as (Omit<TdsDeductedRow, 'isManual' | 'challanStatus'> & { isManual: number; paidBy: number | null })[]
+  const late = kind === 'tds' ? lateCoverByVoucher(db, rows.filter((r) => r.kind === 'payment').map((r) => r.date), to) : new Map()
   return rows.map(({ paidBy, ...r }) => {
     const challanStatus: ChallanStatus = r.challanId == null ? 'unallocated' : paidBy != null ? 'paid' : 'allocated'
-    return { ...r, deducteeType: r.deducteeType as DeducteeType | null, isManual: !!r.isManual, challanStatus }
+    const row: TdsDeductedRow = { ...r, deducteeType: r.deducteeType as DeducteeType | null, isManual: !!r.isManual, challanStatus }
+    const lateDeduction = r.kind === 'payment'
+      ? lateDeductionOnPayment(r.tdsPaise, r.basePaise, r.date, late.get(`${r.voucherId}|${r.partyLedgerId}|${r.sectionId}`))
+      : null
+    return lateDeduction ? { ...row, lateDeduction } : row
   })
+}
+
+/** The walk's `lateCover` of every deduction on payment, by voucher | party | section — walked
+ *  per financial year of the given payment dates, from its start (as tdsEligible walks). */
+function lateCoverByVoucher(db: DB, paymentDates: string[], to: string): Map<string, NonNullable<WalkResult['lateCover']>> {
+  const out = new Map<string, NonNullable<WalkResult['lateCover']>>()
+  if (paymentDates.length === 0) return out
+  const facts = ledgerTdsFacts(db)
+  const rates = ratesBySection(db)
+  for (const fy of new Map(paymentDates.map((d) => { const f = fyOf(d); return [f.from, f] as const })).values()) {
+    const upTo = fy.to < to ? fy.to : to
+    for (const g of buildEventGroups(loadTdsVouchers(db, fy.from, upTo), facts).values()) {
+      for (const r of walkGroup(g, rates, facts.get(g.partyLedgerId)?.deducteeType ?? null)) {
+        if (r.lateCover) out.set(`${r.voucherId}|${g.partyLedgerId}|${g.sectionId}`, r.lateCover)
+      }
+    }
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------------------------

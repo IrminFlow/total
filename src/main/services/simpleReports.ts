@@ -106,7 +106,9 @@ const SOURCE_OF: Record<ForecastSource, CashFlowSource> = {
   item: 'other',
   adjustment: 'other',
   statutory: 'taxes',
-  emi: 'loans'
+  emi: 'loans',
+  // Never reached: Cash next 30 days keeps the forecast's default (post-dated cheques off).
+  pdc: 'other'
 }
 
 /** Cash in the next 30 days: the Cash forecast's expected scenario, from today. */

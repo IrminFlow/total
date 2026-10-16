@@ -926,12 +926,13 @@ export function registerIpc(): void {
     // Post-dated vouchers whose date has arrived flip into the books (audited per voucher).
     // PDCs dated inside a locked period are refused, not silently posted — they stay in the
     // PDC register until the lock is lifted (v0.3 review F3).
-    const { matured, blockedByLock } = runAsAuditUser(SYSTEM_AUDIT_USER, () => vouchers.maturePostDated(db, todayISO()))
+    const { matured, blockedByLock, blockedByHold } = runAsAuditUser(SYSTEM_AUDIT_USER, () => vouchers.maturePostDated(db, todayISO()))
     mark('mature')
     if (matured.length > 0) log('info', 'pdc-mature', { count: matured.length, ids: matured })
     if (blockedByLock.length > 0) {
       log('warn', 'pdc-mature-blocked-by-lock', { count: blockedByLock.length, ids: blockedByLock })
     }
+    if (blockedByHold?.length) log('warn', 'pdc-mature-blocked-by-hold', { count: blockedByHold.length, ids: blockedByHold })
     // [lane-Q audit, WP 3.8] retention: only when the company is NOT flagged audit-trail-required
     // (default: required → never pruned) and a window is set; never inside the s.128(5) floor.
     // pruneAudit logs its own 'prune' row as 'system'.
@@ -1566,7 +1567,11 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('pdc:list', () => vouchers.pdcRegister(requireCompany().db), 'viewer')
   handle('pdc:mature', (p) => {
-    vouchers.maturePdcNow(requireCompany().db, idSchema.parse(p).id)
+    const { id, creditHoldOverride } = idSchema.extend({ creditHoldOverride: creditOverrideSchema.strict().optional() }).strict().parse(p)
+    const c = requireCompany()
+    // WP 4.2: a post-dated sales invoice maturing to a held party creates credit — owner override only.
+    if (creditHoldOverride && c.usersExist && sessionUser?.role !== 'owner') throw new Error('Only an owner can override a credit hold')
+    vouchers.maturePdcNow(c.db, id, creditHoldOverride ? { creditHoldOverride } : {})
     return null
   })
 
@@ -1628,7 +1633,13 @@ export function registerIpc(): void {
   handle('voucher:delete', (p) => vouchers.deleteVoucher(requireCompany().db, idSchema.parse(p).id))
   handle('voucher:bin', () => vouchers.listBin(requireCompany().db), 'viewer')
   // WP 8.5: a voucher undone with others comes back with its whole undo group.
-  handle('voucher:restore', (p) => undo.restoreFromBin(requireCompany().db, idSchema.parse(p).id))
+  handle('voucher:restore', (p) => {
+    const { id, creditHoldOverride } = idSchema.extend({ creditHoldOverride: creditOverrideSchema.strict().optional() }).strict().parse(p)
+    const c = requireCompany()
+    // WP 4.2: restoring a sales invoice / challan to a held party creates credit — owner override only.
+    if (creditHoldOverride && c.usersExist && sessionUser?.role !== 'owner') throw new Error('Only an owner can override a credit hold')
+    return undo.restoreFromBin(c.db, id, creditHoldOverride ? { creditHoldOverride } : {})
+  })
   const undoIdsSchema = z.object({ voucherIds: z.array(z.number().int().positive()).min(1).max(undo.UNDO_MAX) })
   handle('voucher:undoSave', (p) => undo.undoSave(requireCompany().db, undoIdsSchema.parse(p).voucherIds))
   handle('voucher:saveSummary', (p) => undo.saveSummary(requireCompany().db, undoIdsSchema.parse(p).voucherIds), 'viewer')

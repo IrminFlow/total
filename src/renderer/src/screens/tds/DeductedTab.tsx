@@ -6,6 +6,8 @@ import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { DEDUCTEE_TYPE_LABELS } from '@shared/tds'
 import { formatPaise } from '@shared/money'
+import { LATE_DEDUCTION_CITATION } from '@shared/tdsInterest'
+import { toDisplayDate } from '@shared/dates'
 import type { TdsDeductedRow } from '../../lib/client'
 import { Badge, Button } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
@@ -37,6 +39,24 @@ export function deductedColumns(kind: WithholdingKind) {
     // TCS rates don't vary by collectee type and lower-collection certificates are rare: hidden.
     { id: 'deductee', header: `${w.party} type`, kind: 'text', value: (r) => (r.deducteeType ? DEDUCTEE_TYPE_LABELS[r.deducteeType] : null), width: 112, defaultHidden: kind === 'tcs' },
     { id: 'certificate', header: 'Certificate', kind: 'text', value: (r) => r.certificateNo, width: 96, text: (r) => r.certificateNo ?? '—', defaultHidden: kind === 'tcs' },
+    // WP 3.2: s.201(1A)(i) late-deduction interest — TDS only, indicative, never posted.
+    ...(kind === 'tds'
+      ? defineColumns<TdsDeductedRow>([{
+          id: 'lateInterest', header: 'Late-deduction interest (s.201(1A))', kind: 'money', value: (r) => r.lateDeduction?.interestPaise ?? null,
+          aggregate: 'sum', width: 132, explainable: false,
+          cell: (r) => r.lateDeduction
+            ? (
+                <span
+                  className="num"
+                  data-testid={`tds-late-interest-${r.entryId}`}
+                  title={`Deductible ${toDisplayDate(r.lateDeduction.deductibleOn)}, deducted ${toDisplayDate(r.date)}: ${r.lateDeduction.months} month(s) × ${r.lateDeduction.rateBp / 100}% — s.201(1A)(i), indicative, not posted`}
+                >
+                  {formatPaise(r.lateDeduction.interestPaise)}
+                </span>
+              )
+            : <span className="text-muted">—</span>
+        }])
+      : []),
     {
       id: 'challan', header: 'Challan', kind: 'enum', value: (r) => r.challanStatus, width: 140,
       options: Object.entries(STATUS).map(([value, s]) => ({ value, label: s.label })),
@@ -80,7 +100,9 @@ export function DeductedTab({ period, kind = 'tds' }: { period: TdsPeriod; kind?
     await run(() => wapi.removeFromVoucher(r.voucherId), `${w.noun[0]!.toUpperCase()}${w.noun.slice(1)} removed from ${r.voucherNumber}`)
   }
 
+  const late = kind === 'tds' ? (rows ?? []).filter((r) => r.lateDeduction) : []
   return (
+    <>
     <DataTable
       viewId={`${k}-deducted`}
       testId={`${k}-deducted`}
@@ -112,5 +134,11 @@ export function DeductedTab({ period, kind = 'tds' }: { period: TdsPeriod; kind?
           : undefined
       }
     />
+    {late.length > 0 && (
+      <p className="mt-2 text-small text-muted" data-testid="tds-late-interest-note">
+        {`${late.length} deduction${late.length === 1 ? ' was' : 's were'} made on payment for bills already liable when booked — late-deduction interest ${formatPaise(late.reduce((s, r) => s + r.lateDeduction!.interestPaise, 0), { symbol: true })}. ${LATE_DEDUCTION_CITATION}.`}
+      </p>
+    )}
+    </>
   )
 }

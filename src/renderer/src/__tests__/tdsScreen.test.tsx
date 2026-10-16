@@ -163,6 +163,21 @@ describe('TDS screen', () => {
     await waitFor(() => expect(calls('tds:removeFromVoucher')).toEqual([{ voucherId: 11 }]))
   })
 
+  it('Deducted: a deduction made late on payment shows its s.201(1A) interest (display only)', async () => {
+    const late: TdsDeductedRow = {
+      ...DEDUCTED[0]!, entryId: 91, voucherId: 15, voucherNumber: 'PY-9', date: '2025-06-01', kind: 'payment', basePaise: 4000000, tdsPaise: 80000,
+      lateDeduction: { deductibleOn: '2025-05-10', months: 2, rateBp: 100, interestPaise: 1600, parts: [{ voucherId: 14, deductibleOn: '2025-05-10', tdsPaise: 80000, months: 2, interestPaise: 1600 }] }
+    }
+    handlers['tds:deducted'] = () => [...DEDUCTED, late]
+    renderScreen()
+    fireEvent.click(await screen.findByTestId('tab-tds-deducted'))
+    const cell = await screen.findByTestId('tds-late-interest-91')
+    expect(cell.textContent).toBe('16.00')
+    expect(cell.getAttribute('title')).toMatch(/2 month\(s\) × 1% — s\.201\(1A\)\(i\), indicative, not posted/)
+    expect(screen.queryByTestId('tds-late-interest-90')).toBeNull()
+    expect(screen.getByTestId('tds-late-interest-note').textContent).toMatch(/1 deduction was made on payment .* ₹16\.00\. Income-tax Act 1961 s\.201\(1A\)\(i\)/)
+  })
+
   it('Challans: lists challans with interest and creates one from a payment voucher', async () => {
     renderScreen()
     fireEvent.click(await screen.findByTestId('tab-tds-challans'))

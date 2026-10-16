@@ -18,7 +18,9 @@ import type { CompanyInfo } from '@shared/domain'
 import { computeGst } from '@shared/gst/calc'
 import { simpleInterest } from '@shared/receivables/interest'
 import { createLedger } from './masters'
-import { saveVoucher, deleteVoucher, restoreVoucher, getVoucher, CREDIT_HOLD_PREFIX } from './vouchers'
+import { saveVoucher, deleteVoucher, restoreVoucher, getVoucher, CREDIT_HOLD_PREFIX, maturePostDated, maturePdcNow } from './vouchers'
+import { restoreFromBin, undoSave } from './undo'
+import { pdcRegisterFull } from './pdc'
 import { ledgerStatement } from './reports'
 import { outstandings } from './analysis'
 import { extractOutwardDocs } from './gst'
@@ -217,6 +219,98 @@ describe('credit hold', () => {
     expect(JSON.parse(ov[0]!.after_json!).overrideReason).toBe('Owner approved: advance received')
     rx.setCreditHold(f.db, f.party, false, '')
     invoice(f, '2026-04-05', 10_000)
+  })
+
+  it('refuses restoring a binned invoice to a held party unless an owner overrides (audited)', () => {
+    const f = fixture()
+    const inv = invoice(f, '2026-04-01', 10_000)
+    const rec = receipt(f, '2026-04-02', 1_000)
+    deleteVoucher(f.db, inv)
+    deleteVoucher(f.db, rec)
+    rx.setCreditHold(f.db, f.party, true, 'Over limit')
+    let code: string | undefined
+    try { restoreVoucher(f.db, inv) } catch (e) { code = (e as { code?: string }).code; expect((e as Error).message).toContain(CREDIT_HOLD_PREFIX) }
+    expect(code).toBe('credit_hold')
+    expect(getVoucher(f.db, inv)!.deletedAt).not.toBeNull()
+    expect(auditRows(f.db, 'credit_override')).toHaveLength(0)
+    // A receipt creates no credit: it restores as before.
+    restoreVoucher(f.db, rec)
+    expect(getVoucher(f.db, rec)!.deletedAt).toBeNull()
+    restoreFromBin(f.db, inv, { creditHoldOverride: { reason: 'Owner: paid in advance' } })
+    expect(getVoucher(f.db, inv)!.deletedAt).toBeNull()
+    const ov = auditRows(f.db, 'credit_override')
+    expect(ov.map((a) => [a.entity_id, a.action])).toEqual([[inv, 'create']])
+    expect(JSON.parse(ov[0]!.after_json!)).toMatchObject({ overrideReason: 'Owner: paid in advance', restore: true, holdReason: 'Over limit' })
+  })
+
+  it('an undo group holding an invoice to a held party restores all or nothing', () => {
+    const f = fixture()
+    const inv = invoice(f, '2026-04-01', 10_000)
+    const rec = receipt(f, '2026-04-01', 2_000)
+    undoSave(f.db, [inv, rec])
+    rx.setCreditHold(f.db, f.party, true, 'Over limit')
+    const count = (sql: string): number => (f.db.prepare(sql).get() as { n: number }).n
+    const trace = (): number[] => [count('SELECT COUNT(*) AS n FROM audit_log'), count('SELECT COUNT(*) AS n FROM undo_groups'), count('SELECT COUNT(*) AS n FROM undo_group_vouchers'), count('SELECT COUNT(*) AS n FROM vouchers WHERE deleted_at IS NULL')]
+    const before = trace()
+    // The receipt (restored first) is rolled back with the refused invoice: no trace at all.
+    expect(() => restoreFromBin(f.db, rec)).toThrow(CREDIT_HOLD_PREFIX)
+    expect(getVoucher(f.db, rec)!.deletedAt).not.toBeNull()
+    expect(getVoucher(f.db, inv)!.deletedAt).not.toBeNull()
+    expect(trace()).toEqual(before)
+    expect(restoreFromBin(f.db, rec, { creditHoldOverride: { reason: 'Owner: agreed' } }).restored.sort()).toEqual([inv, rec].sort())
+    expect(auditRows(f.db, 'credit_override').map((a) => a.entity_id)).toEqual([inv])
+  })
+
+  it('maturing never creates credit for cheques; a post-dated invoice to a held party waits for an override', () => {
+    const f = fixture()
+    const pdcIn = saveVoucher(f.db, {
+      voucherTypeId: vtId(f.db, 'receipt'), date: '2026-05-10', partyLedgerId: f.party, postDated: true,
+      lines: [{ ledgerId: f.bank, drCr: 'dr', amount: 3_000 }, { ledgerId: f.party, drCr: 'cr', amount: 3_000 }]
+    }).id
+    const pdcOut = saveVoucher(f.db, {
+      voucherTypeId: vtId(f.db, 'payment'), date: '2026-05-10', partyLedgerId: f.party, postDated: true,
+      lines: [{ ledgerId: f.party, drCr: 'dr', amount: 500 }, { ledgerId: f.bank, drCr: 'cr', amount: 500 }]
+    }).id
+    const g = computeGst(10_000, 18, 'intra')
+    const pdInvoice = saveVoucher(f.db, {
+      voucherTypeId: vtId(f.db, 'sales'), date: '2026-05-10', partyLedgerId: f.party, postDated: true,
+      lines: [
+        { ledgerId: f.party, drCr: 'dr', amount: 10_000 + g.cgst + g.sgst },
+        { ledgerId: f.sales, drCr: 'cr', amount: 10_000 },
+        { ledgerId: f.cgst, drCr: 'cr', amount: g.cgst },
+        { ledgerId: f.sgst, drCr: 'cr', amount: g.sgst }
+      ]
+    }).id
+    const pdcLater = saveVoucher(f.db, {
+      voucherTypeId: vtId(f.db, 'receipt'), date: '2026-06-10', partyLedgerId: f.party, postDated: true,
+      lines: [{ ledgerId: f.bank, drCr: 'dr', amount: 1_000 }, { ledgerId: f.party, drCr: 'cr', amount: 1_000 }]
+    }).id
+    rx.setCreditHold(f.db, f.party, true, 'Cheque bounced')
+    const res = maturePostDated(f.db, '2026-05-15')
+    expect(res.matured.sort()).toEqual([pdcIn, pdcOut].sort())
+    expect(res.blockedByHold).toEqual([pdInvoice])
+    expect(getVoucher(f.db, pdInvoice)!.postDated).toBe(true)
+    // The PDC register says why it is still waiting (not only the open-time log).
+    const reg = pdcRegisterFull(f.db, '2026-05-15')
+    expect(reg.find((r) => r.voucherId === pdInvoice)).toMatchObject({ status: 'due', onHold: true })
+    expect(reg.filter((r) => r.onHold).map((r) => r.voucherId)).toEqual([pdInvoice])
+    // Mature now: a received cheque early is fine; the invoice needs the owner's reason.
+    maturePdcNow(f.db, pdcLater)
+    expect(getVoucher(f.db, pdcLater)!.postDated).toBe(false)
+    expect(() => maturePdcNow(f.db, pdInvoice)).toThrow(CREDIT_HOLD_PREFIX)
+    maturePdcNow(f.db, pdInvoice, { creditHoldOverride: { reason: 'Owner: goods already gone' } })
+    expect(getVoucher(f.db, pdInvoice)!.postDated).toBe(false)
+    expect(pdcRegisterFull(f.db, '2026-05-15').some((r) => r.onHold)).toBe(false)
+    const ov = auditRows(f.db, 'credit_override')
+    expect(ov.map((a) => a.entity_id)).toEqual([pdInvoice])
+    expect(JSON.parse(ov[0]!.after_json!)).toMatchObject({ mature: true, overrideReason: 'Owner: goods already gone' })
+    // Without a hold nothing is held back (the key is absent, as before).
+    const f2 = fixture()
+    saveVoucher(f2.db, {
+      voucherTypeId: vtId(f2.db, 'receipt'), date: '2026-05-10', partyLedgerId: f2.party, postDated: true,
+      lines: [{ ledgerId: f2.bank, drCr: 'dr', amount: 3_000 }, { ledgerId: f2.party, drCr: 'cr', amount: 3_000 }]
+    })
+    expect(maturePostDated(f2.db, '2026-05-15')).toEqual({ matured: [expect.any(Number)], blockedByLock: [] })
   })
 
   it('lists parties by exposure with utilisation, hold and promises', () => {

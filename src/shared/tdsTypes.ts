@@ -11,6 +11,7 @@ export type WithholdingKind = 'tds' | 'tcs'
 import type { VoucherKind } from './domain'
 import type { DeducteeType } from './tds'
 import type { EligibleReason } from './tdsEligibility'
+import type { LateDeduction } from './tdsInterest'
 
 /** Eligible tab: a voucher that should carry TDS and does not. */
 export interface TdsEligibleRow {
@@ -64,6 +65,10 @@ export interface TdsDeductedRow {
   challanId: number | null
   challanNo: string | null
   challanStatus: ChallanStatus
+  /** TDS only: a deduction on payment that covered bills already liable at credit — the
+   *  indicative s.201(1A)(i) interest (tdsInterest.ts). Display only, never posted; absent when
+   *  the deduction was not late. */
+  lateDeduction?: LateDeduction
 }
 
 /** The TDS ledger summary card: a section's tagged payable ledger(s) for the quarter. */

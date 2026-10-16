@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  billHistory, buildForecast, collectionProfile, DEFAULT_BUCKET_BP, forecastPeriods, itemFlows, itemOccurrences, payableFlows,
+  billHistory, buildForecast, netPdcAgainstBills, collectionProfile, DEFAULT_BUCKET_BP, forecastPeriods, itemFlows, itemOccurrences, payableFlows,
   receivableFlows, scenarioProbability, SCENARIO_PRESETS, type ForecastFlow, type HistoryBill
 } from './cashForecast'
 
@@ -149,5 +149,51 @@ describe('flow builders', () => {
       ['adjustment', 'out', '2026-10-10', 5_000_00],
       ['item', 'out', '2026-11-05', 20_000_00]
     ])
+  })
+})
+
+describe('pending post-dated cheques (includePdc)', () => {
+  const flows: ForecastFlow[] = [
+    flow({ source: 'receivable', date: '2026-10-08', amount: 1_000_00, probabilityBp: 8_000, ledgerId: 7 }),
+    flow({ source: 'receivable', date: '2026-10-20', amount: 500_00, probabilityBp: 8_000, ledgerId: 7 }),
+    flow({ source: 'receivable', date: '2026-10-09', amount: 300_00, probabilityBp: 8_000, ledgerId: 8 }),
+    flow({ source: 'payable', direction: 'out', date: '2026-10-10', amount: 400_00, ledgerId: 9 }),
+    // Cheque received from party 7 for ₹1,200 on 15 Oct; cheque issued to 9 for ₹600 on 12 Oct.
+    flow({ source: 'pdc', date: '2026-10-15', amount: 1_200_00, ledgerId: 7 }),
+    flow({ source: 'pdc', direction: 'out', date: '2026-10-12', amount: 600_00, ledgerId: 9 })
+  ]
+  const run = (includePdc?: boolean) => buildForecast({ asOn: ASON, unit: 'week', count: 3, openingCash: 0, scenario: SCENARIO_PRESETS.expected, flows, ...(includePdc === undefined ? {} : { includePdc }) })
+
+  it('off by default: the cheques are ignored and the result equals the one without them', () => {
+    const without = buildForecast({ asOn: ASON, unit: 'week', count: 3, openingCash: 0, scenario: SCENARIO_PRESETS.expected, flows: flows.filter((f) => f.source !== 'pdc') })
+    const { contributions: _c, ...a } = run()
+    const { contributions: _d, ...b } = without
+    expect(a).toEqual(b)
+    expect(run(false).contributions.some((c) => c.source === 'pdc')).toBe(false)
+  })
+
+  it('nets each cheque against its party\'s bills, earliest first; the excess stays an advance', () => {
+    const net = netPdcAgainstBills(flows)
+    // Party 7: ₹1,200 covers the ₹1,000 bill and ₹200 of the ₹500 one → ₹300 left. Party 8 untouched.
+    expect(net.filter((f) => f.source === 'receivable').map((f) => [f.ledgerId, f.amount])).toEqual([[7, 300_00], [8, 300_00]])
+    // Party 9: the ₹600 cheque covers the ₹400 bill; ₹600 still flows out as the cheque.
+    expect(net.some((f) => f.source === 'payable')).toBe(false)
+    expect(net.filter((f) => f.source === 'pdc').map((f) => f.amount)).toEqual([1_200_00, 600_00])
+  })
+
+  it('on: cheques count at 100 % on their date, in place of the bills (hand-worked)', () => {
+    const r = run(true)
+    // Week 1 (7–13 Oct): bills ₹300 (party 8) × 80 % = ₹240 in; cheque out ₹600.
+    expect(r.periods[0]).toMatchObject({ inflow: 240_00, outflow: 600_00 })
+    expect(r.periods[0]!.bySource.pdc).toBe(600_00)
+    // Week 2 (14–20 Oct): cheque in ₹1,200 + party 7's remaining ₹300 × 80 % = ₹240 → ₹1,440.
+    expect(r.periods[1]).toMatchObject({ inflow: 1_440_00, outflow: 0 })
+    expect(r.totals.closing).toBe(240_00 - 600_00 + 1_440_00)
+  })
+
+  it('on, but the cheques excluded: the bills are not netted (nothing dropped)', () => {
+    const r = buildForecast({ asOn: ASON, unit: 'week', count: 3, openingCash: 0, scenario: SCENARIO_PRESETS.expected, flows, includePdc: true, exclude: ['pdc'] })
+    const without = buildForecast({ asOn: ASON, unit: 'week', count: 3, openingCash: 0, scenario: SCENARIO_PRESETS.expected, flows: flows.filter((f) => f.source !== 'pdc') })
+    expect(r.totals).toEqual(without.totals)
   })
 })

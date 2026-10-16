@@ -10,10 +10,15 @@ import { DataTable, defineColumns } from '../../components/table'
 import { AmountInput, Badge, Button, Checkbox, DateInput, Field, Modal, Money, Panel, StatGrid, StatTile, TextInput } from '../../components/ui'
 import { LedgerPicker } from '../../components/pickers'
 import { LedgerLink, VoucherLink } from '../../components/links'
-import { useNav, useToasts } from '../../state/stores'
+import { useNav, useSession, useToasts } from '../../state/stores'
 import { confirmDialog } from '../../lib/dialogs'
+import { withCreditHoldOverride } from '../../lib/creditHoldOverride'
+import { isOwnerOrNoUsers } from '../../lib/roles'
 
 const STATUS_LABEL: Record<PdcRegisterRow['status'], string> = { pending: 'Pending', due: 'Due — locked period', matured: 'Matured', bounced: 'Bounced' }
+/** A held invoice / challan waits for the owner, not for its date or a lock (WP 4.2). */
+const statusLabel = (r: PdcRegisterRow): string =>
+  r.onHold && (r.status === 'pending' || r.status === 'due') ? (r.status === 'due' ? 'Due — party on credit hold' : 'Pending — party on credit hold') : STATUS_LABEL[r.status]
 const STATUS_TONE: Record<PdcRegisterRow['status'], 'info' | 'warning' | 'success' | 'danger'> = { pending: 'info', due: 'warning', matured: 'success', bounced: 'danger' }
 
 const PDC_COLUMNS = defineColumns<PdcRegisterRow>([
@@ -62,7 +67,7 @@ const PDC_COLUMNS = defineColumns<PdcRegisterRow>([
     width: 150,
     cell: (r) => (
       <span title={r.bounceReason ?? undefined}>
-        <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Badge>
+        <Badge tone={STATUS_TONE[r.status]}>{statusLabel(r)}</Badge>
       </span>
     )
   }
@@ -80,6 +85,7 @@ export function PdcTab(): React.JSX.Element {
   const invalidate = (): Promise<unknown> =>
     Promise.all(['pdc', 'bankRecon', 'brs', 'dashboard'].map((k) => queryClient.invalidateQueries({ queryKey: [k] })))
 
+  const { user } = useSession()
   const mature = async (r: PdcRegisterRow): Promise<void> => {
     const proceed = await confirmDialog({
       title: 'Mature now',
@@ -88,7 +94,8 @@ export function PdcTab(): React.JSX.Element {
     })
     if (!proceed) return
     try {
-      await api.pdc.mature(r.voucherId)
+      const done = await withCreditHoldOverride((o) => api.pdc.mature(r.voucherId, o).then(() => true), { canOverride: isOwnerOrNoUsers(user), what: 'Maturing it' })
+      if (done === null) return
       await invalidate()
       toast.push('success', `${r.number} matured into the books`)
     } catch (err) {

@@ -192,6 +192,30 @@ describe('tdsEligible — thresholds over every qualifying credit', () => {
     const advance = payment(db, fx, '2025-08-01', other, 3500000)
     expect(tdsEligible(db, FY.from, FY.to)).toMatchObject([{ voucherId: advance, reason: 'advance', basePaise: 3500000 }])
   })
+
+  it('WP 3.2 gap: a deduction on payment of bills liable at credit shows the s.201(1A)(i) interest', () => {
+    const db = seededDb()
+    const fx = fixture(db)
+    // Four bills each under the ₹30,000 single limit; the fourth takes the year past ₹1,00,000,
+    // so all four become liable on 10 Jul (the walk's aggregate_later).
+    journal(db, '2025-04-10', fx.contractor, fx.labour, 2500000)
+    journal(db, '2025-05-10', fx.contractor, fx.labour, 2500000)
+    journal(db, '2025-06-10', fx.contractor, fx.labour, 2500000)
+    journal(db, '2025-07-10', fx.contractor, fx.labour, 2900000)
+    const pay = payment(db, fx, '2025-08-05', fx.contractor, 10400000)
+    applyTdsToVoucher(db, { voucherId: pay })
+    const rows = tdsDeducted(db, FY.from, FY.to)
+    // ₹2,080 on ₹1,04,000 = ₹500 + ₹500 + ₹500 + ₹580, all deductible 10 Jul, deducted 5 Aug:
+    // Jul + Aug = 2 months × 1% = ₹10 + ₹10 + ₹10 + ₹11.60 (→ ₹12, rupee per bill) = ₹42.
+    expect(rows).toHaveLength(1)
+    expect(rows[0]!.tdsPaise).toBe(208000)
+    expect(rows[0]!.lateDeduction).toMatchObject({ deductibleOn: '2025-07-10', months: 2, interestPaise: 4200 })
+    expect(rows[0]!.lateDeduction!.parts.map((p) => [p.tdsPaise, p.interestPaise])).toEqual([[50000, 1000], [50000, 1000], [50000, 1000], [58000, 1200]])
+    // A bill deducted at credit: no late-deduction figure on its row.
+    const bill = journal(db, '2025-09-10', fx.contractor, fx.labour, 4000000)
+    applyTdsToVoucher(db, { voucherId: bill })
+    expect(tdsDeducted(db, FY.from, FY.to).find((r) => r.voucherId === bill)!.lateDeduction).toBeUndefined()
+  })
 })
 
 describe('tds:applyToVoucher / tds:removeFromVoucher — per voucher kind', () => {

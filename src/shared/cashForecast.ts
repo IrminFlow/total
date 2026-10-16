@@ -16,6 +16,10 @@
  * - known items (rent, salaries …, the user's `forecast_items`): every occurrence of the cadence
  *   inside the horizon, 100 %; adjustments are one-off signed amounts.
  * - statutory dues (GST, TDS, TCS, PF, ESI, PT) and loan EMIs on their due dates, 100 %.
+ * - pending post-dated cheques (`pdc`, OFF unless `includePdc`): a received cheque in, an issued
+ *   one out, on the cheque's date at 100 %. A PDC is not in the books, so the bills it settles are
+ *   still open — with PDCs on, each one takes its amount off the same party's receivable (in) /
+ *   payable (out) flows, earliest first (`netPdcAgainstBills`), so nothing is counted twice.
  * Anything dated before today lands in the first period (it is overdue — expected now). Flows
  * past the horizon are reported as "beyond" and left out of the periods.
  *
@@ -196,7 +200,7 @@ export function bucketOf(overdueDays: number): 0 | 1 | 2 | 3 {
 
 // ---------- flows ----------
 
-export type ForecastSource = 'receivable' | 'payable' | 'sales_order' | 'purchase_order' | 'item' | 'adjustment' | 'statutory' | 'emi'
+export type ForecastSource = 'receivable' | 'payable' | 'sales_order' | 'purchase_order' | 'item' | 'adjustment' | 'statutory' | 'emi' | 'pdc'
 
 export const SOURCE_LABELS: Record<ForecastSource, string> = {
   receivable: 'Receivables',
@@ -206,7 +210,8 @@ export const SOURCE_LABELS: Record<ForecastSource, string> = {
   item: 'Known items',
   adjustment: 'Adjustments',
   statutory: 'Statutory dues',
-  emi: 'Loan EMIs'
+  emi: 'Loan EMIs',
+  pdc: 'Post-dated cheques'
 }
 
 export interface ForecastFlow {
@@ -378,11 +383,49 @@ export interface ForecastInput {
   minBalance?: number
   /** Sources left out (screen toggles). */
   exclude?: readonly ForecastSource[]
+  /** Pending post-dated cheques count (netted against the bills they settle). Default false:
+   *  `pdc` flows are ignored and every other flow is exactly as before. */
+  includePdc?: boolean
 }
 
 const emptyBySource = (): Record<ForecastSource, number> => ({
-  receivable: 0, payable: 0, sales_order: 0, purchase_order: 0, item: 0, adjustment: 0, statutory: 0, emi: 0
+  receivable: 0, payable: 0, sales_order: 0, purchase_order: 0, item: 0, adjustment: 0, statutory: 0, emi: 0, pdc: 0
 })
+
+/** With PDCs on: each pending cheque (a `pdc` flow with its party's ledgerId) takes its amount
+ *  off that party's open bills — receivable flows for a cheque received, payable flows for one
+ *  issued — earliest expected date first; a bill fully covered drops out. What a cheque exceeds
+ *  the party's bills by stays as the cheque's own flow (an advance). Pure. */
+export function netPdcAgainstBills(flows: readonly ForecastFlow[]): ForecastFlow[] {
+  const left = new Map<string, number>()
+  for (const f of flows) {
+    if (f.source !== 'pdc' || f.ledgerId == null) continue
+    const key = `${f.direction}|${f.ledgerId}`
+    left.set(key, (left.get(key) ?? 0) + f.amount)
+  }
+  if (left.size === 0) return [...flows]
+  const billSource = (f: ForecastFlow): boolean => (f.direction === 'in' ? f.source === 'receivable' : f.source === 'payable')
+  const order = flows
+    .map((f, i) => ({ f, i }))
+    .filter(({ f }) => billSource(f) && f.ledgerId != null)
+    .sort((a, b) => a.f.date.localeCompare(b.f.date) || a.i - b.i)
+  const reduced = new Map<number, number>()
+  for (const { f, i } of order) {
+    const key = `${f.direction}|${f.ledgerId}`
+    const avail = left.get(key) ?? 0
+    if (avail <= 0) continue
+    const take = Math.min(avail, f.amount)
+    left.set(key, avail - take)
+    reduced.set(i, f.amount - take)
+  }
+  const out: ForecastFlow[] = []
+  flows.forEach((f, i) => {
+    const amount = reduced.get(i)
+    if (amount === undefined) out.push(f)
+    else if (amount > 0) out.push({ ...f, amount })
+  })
+  return out
+}
 
 export function buildForecast(input: ForecastInput): ForecastResult {
   const periods = forecastPeriods(input.asOn, input.unit, input.count)
@@ -393,8 +436,11 @@ export function buildForecast(input: ForecastInput): ForecastResult {
   const perPeriod = new Map(periods.map((p) => [p.key, { inflow: 0, outflow: 0, bySource: emptyBySource() }]))
   const beyond = { inflow: 0, outflow: 0 }
 
-  for (const f of input.flows) {
-    if (excluded.has(f.source)) continue
+  // Netting only while the cheques themselves count — excluding 'pdc' must not drop the bills too.
+  const withPdc = !!input.includePdc && !excluded.has('pdc')
+  const flows = withPdc ? netPdcAgainstBills(input.flows) : input.flows
+  for (const f of flows) {
+    if (excluded.has(f.source) || (f.source === 'pdc' && !withPdc)) continue
     const delayed = f.direction === 'in' && (f.source === 'receivable' || f.source === 'sales_order') ? addDaysISO(f.date, input.scenario.delayDays) : f.date
     const effectiveDate = delayed < input.asOn ? input.asOn : delayed
     const effectiveBp = scenarioProbability(f, input.scenario)
