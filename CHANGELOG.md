@@ -225,6 +225,11 @@ what you typed, and a **Back to simple** button.
   return. The "Open GSTR-1 / GSTR-3B" links of a quarter now open its last month (the month the
   return is filed for) and say so, not its first. No figure changed. [#134](https://github.com/IrminFlow/total/pull/134)
 
+- **People: a viewer can save a customer's or supplier's Statement too**, not only see History. And
+  sending a reminder inside your "don't remind again within N days" window now asks first: "You
+  reminded them 3 days ago. Send again?" (Send again / Not now) — it never stops you.
+  [#140](https://github.com/IrminFlow/total/pull/140)
+
 ### For accountants (figures that changed)
 
 Read these before filing from the next release.
@@ -334,8 +339,24 @@ Read these before filing from the next release.
 - The UNVERIFIED items listed under 0.11.0 (QRMP details, GSTR-1 amendment notifications, the
   2025/2026 slab sources) still apply.
 
+- **Cash flow statement drill-down.** Each line now opens the Day book on the vouchers it was
+  computed from (a chip names the line; ✕ shows the whole period again), and ▸ lists the ledgers
+  behind it, each opening its statement. A depreciation run sits behind the depreciation add-back
+  only; the stock change has no drill (it is the valuation engine's). No figure changed — pinned to
+  the previous code's output on a 1,500-voucher seed. [#140](https://github.com/IrminFlow/total/pull/140)
+- **e-invoice number warning.** For a company that e-invoices (NIC live filing set up for
+  e-invoices, an IRN in the books, or an e-invoice JSON exported), a sales invoice number longer
+  than 16 characters, with characters other than letters, digits, `/` and `-`, or starting with
+  0, `/` or `-` is warned about in the GST issues panel (`einvoice_doc_no`) and under the number in
+  the sales editor — never refused. Source: NIC e-invoice schema, Generate IRN v1.03, `DocDtls.No`
+  (read 2026-10-17). [#140](https://github.com/IrminFlow/total/pull/140)
+
 ### For developers
 
+- `receivables:statementPdf` is a viewer read. New viewer read `gst:einvoicing`
+  (`services/gst.ts einvoicingOn`). `CashFlowRow` gained optional `parts` (ledger id, name, cash
+  effect — they add up to the line) and `voucherIds`; the `daybook` screen takes optional
+  `voucherIds` + `source`. [#140](https://github.com/IrminFlow/total/pull/140)
 - **Locked businesses from `total-cli`, MCP and consolidation.** Every `--company` command
   (including `mcp` and `inbox`) opens a business locked with a passphrase from the environment
   variable `TOTAL_PASSPHRASE` — never a flag (command lines are visible in `ps`) — through the app's
