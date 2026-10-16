@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { hasStoredLanguage, osLanguage, useLanguage, useT } from '../lib/i18n'
 import { Button, Segmented } from '../components/ui'
-import { LANGUAGES, type Language } from '@shared/i18n'
+import { LANGUAGES, languagePickerLabel, type Language } from '@shared/i18n'
 import { SimpleKitLabels } from './kitLabels'
 import { TotalLogo } from '../components/TotalLogo'
 import { handleRadioArrows, syncRovingRadios, useRovingRadios } from '../lib/simpleKeys'
@@ -47,7 +47,8 @@ export function SetupWizard({
     if (os) setLanguage(os)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  const languageName = (v: Language): string => (v === 'hi' ? t('simple.looks.lang.hi') : v === 'hinglish' ? t('simple.looks.lang.hinglish') : t('simple.looks.lang.en'))
+  const languageName = (v: Language): string =>
+    languagePickerLabel(v, v === 'hi' ? t('simple.looks.lang.hi') : v === 'hinglish' ? t('simple.looks.lang.hinglish') : t('simple.looks.lang.en'))
   const [draft, setDraft] = useState<SetupDraft>(emptySetupDraft)
   const [stepIdx, setStepIdx] = useState(0)
   const [errors, setErrors] = useState<Partial<Record<keyof SetupDraft, SetupErrorKey>>>({})
