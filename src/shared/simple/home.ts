@@ -14,7 +14,7 @@
 import type { BackupCheck } from '../backupCheck'
 import type { DashGst, DashSetup } from '../dashboard'
 import type { CloseCheck, CloseCheckKey } from '../closeChecklist'
-import type { AnomalyKind, AnomalySeverity } from '../anomalies'
+import { isEntryIntoClosedPeriod, type AnomalyKind, type AnomalySeverity } from '../anomalies'
 import type { Deadline } from '../compliance'
 import type { GstFilingFrequency } from '../gst/filing'
 import type { DoingLines, DoingPart } from './reports'
@@ -234,6 +234,10 @@ export function attentionItems(
   const byKind = new Map<AnomalyKind, HomeAttentionItem>()
   for (const a of anomalies) {
     if (a.dismissed || !HOME_ANOMALY_SEVERITIES.has(a.severity)) continue
+    // "Added for an earlier, closed date": only entries into a closed month / locked period after
+    // it was closed / locked — an entry merely made 30+ days after its date in an open period is
+    // an Assistants finding, not something Home calls closed.
+    if (a.kind === 'backdated' && !isEntryIntoClosedPeriod(a)) continue
     const level = a.severity === 'high' ? 'high' : 'medium'
     const it = byKind.get(a.kind) ?? { source: 'anomaly' as const, key: a.kind, count: 0, amount: null, level }
     it.count++

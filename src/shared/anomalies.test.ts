@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bpOf, findAnomalies, isqrt, normaliseBillNo, rateText, rupeeText, sigmaText, zScoreMilli, type AnomalyInput, type AnomalyVoucher, type LedgerRole } from './anomalies'
+import { bpOf, findAnomalies, isEntryIntoClosedPeriod, isqrt, normaliseBillNo, rateText, rupeeText, sigmaText, zScoreMilli, type AnomalyInput, type AnomalyVoucher, type LedgerRole } from './anomalies'
 
 const L = new Map<number, { name: string; role: LedgerRole }>([
   [1, { name: 'Cash', role: 'cashBank' }],
@@ -194,6 +194,18 @@ describe('WP 5.5 review fixes', () => {
     const lock = { lockHistory: [{ setOn: '2026-06-05', lockDate: '2026-05-31' }], backdatedDays: 60 }
     const out = findAnomalies(input([before, after, imported]), lock).filter((x) => x.kind === 'backdated')
     expect(out.map((x) => [x.voucherId, x.severity])).toEqual([[after.voucherId, 'high']])
+    expect(out.every(isEntryIntoClosedPeriod)).toBe(true)
+  })
+
+  it('merely entered late in an open period is a medium finding, not an entry into a closed period; keys unchanged', () => {
+    const late = v({ date: '2026-05-05', amount: 10_00, createdOn: '2026-06-20' })
+    const intoClosed = v({ date: '2026-05-06', amount: 20_00, createdOn: '2026-06-02' })
+    const out = findAnomalies(input([late, intoClosed]), { closedPeriods: [{ period: '2026-05', closedOn: '2026-06-01' }], lockHistory: [], backdatedDays: 30 })
+      .filter((x) => x.kind === 'backdated')
+    const open = findAnomalies(input([v({ date: '2026-05-05', amount: 10_00, createdOn: '2026-06-20' })])).filter((x) => x.kind === 'backdated')
+    expect(open.map(isEntryIntoClosedPeriod)).toEqual([false])
+    expect(out.filter(isEntryIntoClosedPeriod).map((x) => x.voucherId).sort()).toEqual([late.voucherId, intoClosed.voucherId].sort()) // both after the close
+    expect(open[0]!.key).toBe(`backdated:${open[0]!.voucherId}:1000`)
   })
 
   it('GST rate: cess left out, the goods side only (RCM), taxable ledger lines in the base', () => {

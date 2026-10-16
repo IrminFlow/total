@@ -212,6 +212,13 @@ describe('home rules (WP 8.6)', () => {
     expect(attentionItems([], [])).toEqual([])
   })
 
+  it('attentionItems: "added for an earlier, closed date" only for entries into a closed / locked period (high), never one merely entered late (medium)', () => {
+    const late = { kind: 'backdated' as const, severity: 'medium' as const, amount: 10 }
+    const intoClosed = { kind: 'backdated' as const, severity: 'high' as const, amount: 20 }
+    expect(attentionItems([], [late, late])).toEqual([])
+    expect(attentionItems([], [late, intoClosed])).toEqual([{ source: 'anomaly', key: 'backdated', count: 1, amount: null, level: 'high' }])
+  })
+
   it('overdue rows come from the tiles, one per side, placed after the high findings', () => {
     const rows = owedAttention(owed({ overdue: 500, overdueBills: 2 }), owed({ overdue: 0, overdueBills: 0 }))
     expect(rows).toEqual([{ source: 'owed', key: 'receivable', count: 2, amount: 500, level: 'medium' }])

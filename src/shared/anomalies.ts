@@ -462,6 +462,17 @@ function baselines(vs: readonly AnomalyVoucher[], input: AnomalyInput, o: Anomal
   return out
 }
 
+/** A back-dated finding is HIGH exactly when the entry went into a closed month or a locked
+ *  period after that close / lock (audit order); merely entered `backdatedDays` late is MEDIUM. */
+const INTO_CLOSED_SEVERITY: AnomalySeverity = 'high'
+
+/** The entry was added to a month already marked closed, or into the locked period after the lock
+ *  was set — not just entered late in an open period (that stays a medium Assistants finding).
+ *  Simple Home's "added for an earlier, closed date" counts only these. */
+export function isEntryIntoClosedPeriod(a: Pick<Anomaly, 'kind' | 'severity'>): boolean {
+  return a.kind === 'backdated' && a.severity === INTO_CLOSED_SEVERITY
+}
+
 function perVoucher(vs: readonly AnomalyVoucher[], input: AnomalyInput, o: AnomalyOptions): Anomaly[] {
   const out: Anomaly[] = []
   const holidays = new Set(o.holidays)
@@ -484,7 +495,7 @@ function perVoucher(vs: readonly AnomalyVoucher[], input: AnomalyInput, o: Anoma
           : locked
             ? `entered on ${v.createdOn}, after the books were locked up to ${lock!.lockDate} (on ${lock!.setOn})`
             : `entered on ${v.createdOn}, ${late} days after its date`
-        out.push(base(v, 'backdated', closed || locked ? 'high' : 'medium', `Dated ${v.date} but ${why}`, { metric: late }))
+        out.push(base(v, 'backdated', closed || locked ? INTO_CLOSED_SEVERITY : 'medium', `Dated ${v.date} but ${why}`, { metric: late }))
       }
     }
     // GST charged vs the items' / ledgers' rates (cess left out; goods side only).
