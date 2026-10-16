@@ -142,6 +142,20 @@ export async function preloadCatalogues(timeoutMs: number = PRELOAD_TIMEOUT_MS):
   return langs
 }
 
+/** A language a component shows OTHER than the user's own (the reminder panel's language chips):
+ *  loads its catalogue (once — `loadCatalogue`) and re-renders when it arrives. Returns whether
+ *  it is there; while it is not, `t()` / `translator(lang)` would give English, so the caller
+ *  keeps what it showed and says "Loading the language…" (never English text under a Hindi /
+ *  Hinglish label). A cached catalogue is ready on the first render. */
+export function useCatalogue(lang: Language): boolean {
+  useLanguageVersion((s) => s.version)
+  const ready = isCatalogueLoaded(lang)
+  useEffect(() => {
+    if (!ready) loadCatalogue(lang).catch(() => {})
+  }, [lang, ready])
+  return ready
+}
+
 /** The language in effect for the signed-in user, and a setter that stores it for them.
  *  Choosing a language whose catalogue is not loaded keeps the current one on screen until it
  *  is (see `useLanguagePending`). */

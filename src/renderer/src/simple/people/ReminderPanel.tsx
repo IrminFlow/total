@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
-import { LANGUAGES, type Language, type MessageKey } from '@shared/i18n'
+import { isCatalogueLoaded, LANGUAGES, type Language, type MessageKey } from '@shared/i18n'
 import { toPlainDate } from '@shared/dates'
 import { reminderMessage, reminderSms, whatsappLink, whatsappNumber, type PersonReminder, type PersonView, type ReminderVia } from '@shared/simple/people'
 import type { ReminderBucket } from '@shared/receivables/config'
 import { daysBetweenIso } from '@shared/receivables/interest'
 import { api } from '../../lib/client'
-import { useT } from '../../lib/i18n'
+import { useCatalogue, useT } from '../../lib/i18n'
 import { useToasts } from '../../state/stores'
 import { Button, Segmented, Textarea } from '../../components/ui'
 
@@ -33,7 +33,15 @@ export function ReminderPanel({ person, reminder, startLang, onSent }: { person:
   const t = useT()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed tables above
   const toast = useToasts()
-  const [lang, setLang] = useState<Language>(startLang)
+  // `chosen` = the chip clicked last; `lang` = the language on screen. Hindi / Hinglish are loaded
+  // on demand (lib/i18n.ts): until the chosen one's catalogue is there the panel keeps the
+  // language it shows (chip and text together) and says so — reminderMessage would otherwise
+  // give English text under a Hinglish chip, which Copy / WhatsApp would send.
+  const [chosen, setChosen] = useState<Language>(startLang)
+  const ready = useCatalogue(chosen)
+  const [lang, setLang] = useState<Language>(() => (isCatalogueLoaded(startLang) ? startLang : 'en'))
+  if (ready && lang !== chosen) setLang(chosen)
+  const loading = !ready && chosen !== lang
   const [note, setNote] = useState<string | null>(null)
   const facts = useMemo(() => ({ company: person.company, party: person.name, bucket: reminder.bucket, bills: reminder.bills }), [person, reminder])
   const text = useMemo(() => reminderMessage(facts, lang), [facts, lang])
@@ -100,9 +108,14 @@ export function ReminderPanel({ person, reminder, startLang, onSent }: { person:
           testId="reminder-lang"
           options={LANGUAGES.map((l) => ({ value: l, label: lbl(LANG_TEXT[l]) }))}
           value={lang}
-          onChange={setLang}
+          onChange={setChosen}
         />
       </div>
+      {loading && (
+        <p role="status" className="mt-1 text-right text-hint text-muted" data-testid="reminder-lang-loading">
+          {t('simple.looks.languageLoading')}
+        </p>
+      )}
       {reminder.lastSent && (
         <p className="mt-2 text-detail text-muted" data-testid="reminder-last">
           {reminder.lastSent === person.today ? (
@@ -117,13 +130,13 @@ export function ReminderPanel({ person, reminder, startLang, onSent }: { person:
       )}
       <Textarea className="mt-3 font-sans" rows={11} readOnly value={text} data-testid="reminder-text" aria-label={t('simple.people.reminder.title', { name: person.name })} />
       <div className="mt-3 flex flex-wrap gap-2">
-        <Button variant="primary" data-testid="btn-reminder-whatsapp" onClick={() => askFirst(onWhatsapp)}>
+        <Button variant="primary" data-testid="btn-reminder-whatsapp" disabled={loading} onClick={() => askFirst(onWhatsapp)}>
           {t('simple.people.reminder.whatsapp')}
         </Button>
-        <Button data-testid="btn-reminder-copy" onClick={() => askFirst(() => onCopy(COPIED))}>
+        <Button data-testid="btn-reminder-copy" disabled={loading} onClick={() => askFirst(() => onCopy(COPIED))}>
           {t('simple.people.reminder.copy')}
         </Button>
-        <Button data-testid="btn-reminder-sms" onClick={() => askFirst(() => onCopy(SMS))}>
+        <Button data-testid="btn-reminder-sms" disabled={loading} onClick={() => askFirst(() => onCopy(SMS))}>
           {t('simple.people.reminder.sms')}
         </Button>
       </div>
