@@ -152,6 +152,45 @@ describe('edocs service — transport, per-bill EWB, service invoices, preceding
     expect(orphanDoc.precedingDoc).toBeNull()
   })
 
+  it("a note's preceding invoice is its own party's bill of that number, in the note's FY first", () => {
+    const s = setup()
+    const groupId = (s.db.prepare("SELECT id FROM groups WHERE name = 'Sundry Debtors'").get() as { id: number }).id
+    const other = createLedger(s.db, {
+      name: 'Other Buyer', groupId, gstin: '27AAACR5055K1Z7', stateCode: '27', address: 'Pune'
+    }).id
+    const sale = (date: string, party: number) => {
+      const v = s.post('sales', date, party, [
+        { ledgerId: party, drCr: 'dr', amount: 118000 },
+        { ledgerId: s.sales, drCr: 'cr', amount: 100000 },
+        { ledgerId: s.cgstL, drCr: 'cr', amount: 9000 },
+        { ledgerId: s.sgstL, drCr: 'cr', amount: 9000 }
+      ])
+      // Numbers restart every FY: every bill below is number 7.
+      s.db.prepare("UPDATE vouchers SET number = '7' WHERE id = ?").run(v.id)
+      return v.id
+    }
+    const note = (date: string, party: number) => s.post('credit_note', date, party, [
+      { ledgerId: party, drCr: 'cr', amount: 11800 },
+      { ledgerId: s.sales, drCr: 'dr', amount: 10000 },
+      { ledgerId: s.cgstL, drCr: 'dr', amount: 900 },
+      { ledgerId: s.sgstL, drCr: 'dr', amount: 900 }
+    ], [], '7').id
+    sale('2025-05-01', s.buyer)      // FY 2025-26
+    sale('2026-05-01', s.buyer)      // FY 2026-27
+    sale('2026-06-01', other)        // newest bill 7 overall — another party's
+    const nowFy = note('2026-07-10', s.buyer)
+    const lastFy = note('2026-03-15', s.buyer)
+    const beforeThisFysBill = note('2026-04-10', s.buyer)
+    const others = note('2026-07-10', other)
+
+    const docs = extractEdocInvoices(s.db, INFO, '2025-04-01', '2027-03-31')
+    const prec = (id: number) => docs.find((d) => d.voucherId === id)!.precedingDoc
+    expect(prec(nowFy)).toEqual({ invNo: '7', invDate: '2026-05-01' })
+    expect(prec(lastFy)).toEqual({ invNo: '7', invDate: '2025-05-01' })
+    expect(prec(beforeThisFysBill)).toEqual({ invNo: '7', invDate: '2025-05-01' })
+    expect(prec(others)).toEqual({ invNo: '7', invDate: '2026-06-01' })
+  })
+
   it('exportEInvoices excludes purchase-side debit notes (no spurious IRN for purchase returns)', () => {
     const s = setup()
     const groupId = (name: string): number =>

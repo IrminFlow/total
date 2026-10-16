@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'fs'
 import { chargesGstOn } from '@shared/gst/registration'
+import { fyOf } from '@shared/dates'
 import { join } from 'path'
 import type { DB } from '../db/connection'
 import type { CompanyInfo, TradePurpose, VoucherTransport } from '@shared/domain'
@@ -283,10 +284,18 @@ export function extractEdocInvoices(
      WHERE vl.voucher_id = ? AND l.tax_type IN ('cgst', 'sgst', 'igst', 'cess') LIMIT 1`
   )
   // Original invoice for a note's RefDtls.PrecDocDtls: match voucher.reference against a
-  // sales voucher number (null-safe — omitted when it doesn't resolve).
+  // sales voucher number of the NOTE'S OWN PARTY (null-safe — omitted when it doesn't resolve).
+  // Numbers restart every FY, so the bill dated on / before the note in the note's FY comes
+  // first, then the newest on / before it in an earlier FY, and a bill dated after the note only
+  // last (the nearest). Another party's bill of that number is never taken.
   const refStmt = db.prepare(
     `SELECT v.number, v.date FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
-     WHERE vt.kind = 'sales' AND v.number = ? AND ${NOT_DELETED} ORDER BY v.date DESC LIMIT 1`
+     WHERE vt.kind = 'sales' AND v.number = @number AND v.party_ledger_id IS @party AND ${NOT_DELETED}
+     ORDER BY CASE WHEN v.date <= @noteDate AND v.date >= @fyFrom THEN 0
+                   WHEN v.date <= @noteDate THEN 1 ELSE 2 END,
+              CASE WHEN v.date > @noteDate THEN v.date END ASC,
+              v.date DESC, v.id DESC
+     LIMIT 1`
   )
 
   return vouchers.map((v) => {
@@ -403,7 +412,9 @@ export function extractEdocInvoices(
 
     let precedingDoc: { invNo: string; invDate: string } | null = null
     if ((v.kind === 'credit_note' || v.kind === 'debit_note') && v.reference) {
-      const orig = refStmt.get(v.reference.trim()) as { number: string; date: string } | undefined
+      const orig = refStmt.get({
+        number: v.reference.trim(), party: v.partyLedgerId, noteDate: v.date, fyFrom: fyOf(v.date).from
+      }) as { number: string; date: string } | undefined
       if (orig) precedingDoc = { invNo: orig.number, invDate: orig.date }
     }
 
