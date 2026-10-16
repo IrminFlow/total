@@ -139,7 +139,7 @@ function McpPanel({ isOwner, slug }: { isOwner: boolean; slug: string }): React.
     )
   }
   const enabled = view.config.enabled
-  const opts = { repoDir: view.repoDir ?? '/path/to/total', slug, role, user: role !== 'viewer' && view.usersExist ? '<your user name>' : null, dataDir: view.dataDir }
+  const opts = { repoDir: view.repoDir ?? '/path/to/total', slug, role, user: role !== 'viewer' && view.usersExist ? '<your user name>' : null, dataDir: view.dataDir, locked: !!view.encrypted }
   const needsPin = view.usersExist && role !== 'viewer'
 
   return (
@@ -209,6 +209,13 @@ function McpPanel({ isOwner, slug }: { isOwner: boolean; slug: string }): React.
           <p className="mt-3 rounded-md border border-warning/50 bg-warning-soft px-3 py-2 text-small text-ink" data-testid="mcp-pin-warning">
             The PIN goes into the client’s configuration as TOTAL_MCP_PIN, in plain text — anyone who can read that file can draft as this user.
             Changing the user’s PIN ends any running MCP session.
+          </p>
+        )}
+        {view.encrypted && (
+          <p className="mt-3 rounded-md border border-warning/50 bg-warning-soft px-3 py-2 text-small text-ink" data-testid="mcp-passphrase-warning">
+            This business is locked with a passphrase: the server opens it only with the passphrase in TOTAL_PASSPHRASE (never on the
+            command line, where other users of this computer could see it). It goes into the client’s configuration in plain text —
+            anyone who can read that file can open these books.
           </p>
         )}
         <CopyBlock label="Claude Code" text={claudeCodeCommand(opts, needsPin)} testId="claude-code" wrap />

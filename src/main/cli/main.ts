@@ -60,7 +60,8 @@ Commands:
                                            accountant/owner (draft tools) need --role and, when the
                                            company has users, --user + TOTAL_MCP_PIN. Masking of
                                            GSTIN/PAN/bank numbers is on unless --no-mask. Nothing
-                                           it does posts to the books.
+                                           it does posts to the books. A business locked with a
+                                           passphrase needs it in TOTAL_PASSPHRASE.
   perf-seed --vouchers <n> --out <dir> [--seed <n>]
                                            WP 7.1: write the deterministic "Perf Traders"
                                            company (n vouchers, 2,000 parties, 500 items, 3 FYs)

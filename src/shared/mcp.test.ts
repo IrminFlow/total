@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { claudeCodeCommand, claudeDesktopConfig, mcpArgs, mcpAuditUser, shellQuote } from './mcp'
+import { claudeCodeCommand, claudeDesktopConfig, mcpArgs, mcpAuditUser, mcpEnv, shellQuote } from './mcp'
 
 describe('mcpAuditUser', () => {
   it('is mcp:<cleaned client name>, never a bare user name', () => {
@@ -39,6 +39,17 @@ describe('client config snippets', () => {
     const cfg = JSON.parse(claudeDesktopConfig(o, true)) as { mcpServers: Record<string, { args: string[]; env: Record<string, string> }> }
     expect(cfg.mcpServers['total-demo-traders']!.env).toEqual({ TOTAL_DATA_DIR: '/tmp/scratch dir', TOTAL_MCP_PIN: '<your PIN>' })
     expect(cfg.mcpServers['total-demo-traders']!.args.slice(-4)).toEqual(['--role', 'accountant', '--user', 'Asha K'])
+  })
+
+  it('WP 7.2: a business locked with a passphrase gets a TOTAL_PASSPHRASE placeholder — in the environment, never an argument', () => {
+    const o = { ...base, locked: true }
+    expect(mcpArgs(o).join(' ')).not.toMatch(/passphrase/i)
+    expect(claudeCodeCommand(o, false)).toBe(
+      "claude mcp add total-demo-traders -e 'TOTAL_PASSPHRASE=<the passphrase of this business>' -- node /Users/me/total/scripts/total-cli.mjs mcp --company demo-traders"
+    )
+    const cfg = JSON.parse(claudeDesktopConfig(o, false)) as { mcpServers: Record<string, { env: Record<string, string> }> }
+    expect(cfg.mcpServers['total-demo-traders']!.env).toEqual({ TOTAL_PASSPHRASE: '<the passphrase of this business>' })
+    expect(Object.keys(mcpEnv(base, false))).not.toContain('TOTAL_PASSPHRASE')
   })
 
   it('shell-quotes what needs it', () => {

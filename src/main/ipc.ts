@@ -3163,7 +3163,8 @@ export function registerIpc(): void {
       // Where the CLI runs from: the source checkout in development; a packaged app has none.
       repoDir: app.isPackaged ? null : app.getAppPath(),
       dataDir: process.env.TOTAL_DATA_DIR ? dataRoot() : null,
-      usersExist: c.usersExist
+      usersExist: c.usersExist,
+      encrypted: c.encrypted
     }
   }, 'viewer')
   handle('agent:mcp:set', (p) => {
