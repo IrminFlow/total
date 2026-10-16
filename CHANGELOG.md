@@ -477,6 +477,10 @@ Read these before filing from the next release.
   `PRELOAD_TIMEOUT_MS`; `useLanguagePending` for the pickers). `t()` in an unregistered language
   renders `en` and reports `not-loaded` once per language in dev. `lazyCatalogues.test.ts` fails on
   a static import of them from renderer / shared code. `perf-launch.mjs --boot --lang hi|hinglish`.
+  `useT()` returns a new `t` once its catalogue arrives (memos keyed on `t`, e.g. the simple kit
+  labels, re-run); the OS suggestion is preloaded while no app-wide choice is stored (the wizard's
+  rule). Banking → Import's mapping now resets during render on a new preview, not in an effect
+  (a late mount effect could undo the first mapping change — the `bankingDepth` flake under load).
   [#143](https://github.com/IrminFlow/total/pull/143)
 - "I've filed" lives in company meta `gstFiled`, not in `assistant_marks` (which has no room for an
   ARN). [#94](https://github.com/IrminFlow/total/pull/94)

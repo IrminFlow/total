@@ -173,6 +173,14 @@ describe('Import tab preview: the mapping gate', () => {
     fireEvent.change(screen.getByTestId('input-banking-map-creditCol'), { target: { value: '2' } })
     expect(screen.getByTestId('btn-banking-commit-import').textContent).toBe('Apply the mapping first')
     expect(screen.getByTestId('btn-banking-commit-import')).toHaveProperty('disabled', true)
+    // Applying it re-reads the file: the new preview's mapping replaces the edited one (reset
+    // during render, not in an effect — a late mount effect used to undo the change above).
+    // (the main side may adjust what it was sent — here it also finds the reference column)
+    handlers['bankImport:preview'] = (p) => previewOf('aug.csv', 'csv', { ...(p as { source: { profile: object } }).source.profile, refCol: 1 }, [['Date', 'Narration', 'Debit', 'Credit']])
+    fireEvent.click(screen.getByTestId('btn-banking-apply-mapping'))
+    await waitFor(() => expect(screen.getByTestId('btn-banking-commit-import').textContent).toBe('Import 2 lines'))
+    expect((screen.getByTestId('input-banking-map-creditCol') as HTMLSelectElement).value).toBe('2')
+    expect((screen.getByTestId('input-banking-map-refCol') as HTMLSelectElement).value).toBe('1')
   })
 })
 

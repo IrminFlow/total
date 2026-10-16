@@ -93,13 +93,16 @@ describe('before the first paint', () => {
     expect(loader).not.toHaveBeenCalled()
   })
 
-  it('every user on this Mac counts (a sign-in must not flash English); the OS locale only when nothing is stored', () => {
+  it('every user on this Mac counts (a sign-in must not flash English); the OS locale while no app-wide choice is stored', () => {
     localStorage.setItem(LANGUAGE_KEY, 'en')
     localStorage.setItem(languageStorageKey('alpha-co', 7), 'hinglish')
     vi.spyOn(navigator, 'language', 'get').mockReturnValue('hi-IN')
     expect(languagesToPreload()).toEqual(['hinglish'])
     localStorage.clear()
     expect(languagesToPreload()).toEqual(['hi']) // WP 10.4: a Hindi OS starts the wizard in Hindi
+    // The wizard asks the OS whenever no APP-WIDE choice is stored, even beside a user's own one.
+    localStorage.setItem(languageStorageKey('alpha-co', 7), 'en')
+    expect(languagesToPreload()).toEqual(['hi'])
   })
 
   it('waits at most the bound, then paints English and switches when the chunk arrives', async () => {
@@ -111,11 +114,14 @@ describe('before the first paint', () => {
     expect(Date.now() - started).toBeLessThan(2000)
     const { result } = renderHook(() => useT())
     expect(result.current('simple.home.moneyIn')).toBe('Money in')
+    const fallback = result.current
     await act(async () => {
       d.resolve()
       await loadCatalogue('hinglish')
     })
     expect(result.current('simple.home.moneyIn')).toBe('Paise aaye')
+    // a NEW t, so memos keyed on it (kit labels, columns) re-run rather than keep the English
+    expect(result.current).not.toBe(fallback)
     expect(d.calls()).toBe(1) // the effect re-used the running load
   })
 })

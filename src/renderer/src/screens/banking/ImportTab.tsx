@@ -506,7 +506,14 @@ function PreviewPanel({
 }): React.JSX.Element {
   const tabular = preview.format === 'csv' || preview.format === 'xlsx'
   const [profile, setProfile] = useState<ImportProfile>(preview.profile ?? defaultProfile())
-  useEffect(() => setProfile(preview.profile ?? defaultProfile()), [preview])
+  // A new preview (another file, a remap) resets the mapping DURING render, never in an effect:
+  // a mount effect still pending when the first change arrives (a loaded machine) would run after
+  // it and put the old mapping back (the bankingDepth "detected mapping" flake).
+  const [profileOf, setProfileOf] = useState(preview)
+  if (profileOf !== preview) {
+    setProfileOf(preview)
+    setProfile(preview.profile ?? defaultProfile())
+  }
   const grid = preview.grid ?? []
   const width = Math.max(0, ...grid.map((r) => r.length))
   const colOptions = Array.from({ length: width }, (_, i) => {

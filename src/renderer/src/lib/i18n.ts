@@ -92,21 +92,23 @@ export function loadCatalogue(lang: Language): Promise<void> {
 }
 
 /** Every language that may be on screen first: each stored choice (app-wide and every user's on
- *  this Mac — a sign-in must not flash English either), else the OS suggestion (WP 10.4 wizard). */
+ *  this Mac — a sign-in must not flash English either), plus the OS suggestion while no app-wide
+ *  choice is stored — the wizard's own condition (`hasStoredLanguage()` with no user), so a
+ *  wizard that starts in Hindi beside a user's stored English does not flash English first. */
 export function languagesToPreload(): Language[] {
   const found = new Set<Language>()
-  let any = false
+  let appWide = false
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i)
       if (key !== LANGUAGE_KEY && !key?.startsWith(`${LANGUAGE_KEY}:`)) continue
-      any = true
+      if (key === LANGUAGE_KEY) appWide = true
       found.add(normalizeLanguage(localStorage.getItem(key)))
     }
   } catch {
     /* no storage: English */
   }
-  if (!any) {
+  if (!appWide) {
     const os = osLanguage()
     if (os) found.add(os)
   }
@@ -192,5 +194,8 @@ export function useLanguagePending(): Language | null {
 /** `t` bound to the user's language: `const t = useT(); t('simple.nav.home')`. */
 export function useT(): Translate {
   const [language] = useLanguage()
-  return useMemo<Translate>(() => translator(language), [language])
+  // A new `t` once the catalogue arrives (a late load after a timed-out first paint), so memos
+  // keyed on `t` (kit labels, column lists) re-run instead of keeping the English fallback.
+  const loaded = isCatalogueLoaded(language)
+  return useMemo<Translate>(() => translator(language), [language, loaded])
 }
