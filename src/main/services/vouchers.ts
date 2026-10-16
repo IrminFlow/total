@@ -911,8 +911,10 @@ export function deleteVoucher(db: DB, id: number): void {
     rebuildItemSerials(db, before.inventory.map((l) => l.stockItemId))
     // WP 4.4: a forex revaluation and its reversal go to the bin together.
     binCashFinancePartners(db, id)
+    // Inside the same transaction: a binned voucher never lacks its audit row (and a failed
+    // audit write leaves the voucher where it was).
+    writeAudit(db, 'voucher', id, 'delete', before, null)
   })()
-  writeAudit(db, 'voucher', id, 'delete', before, null)
 }
 
 /** WP 4.2 — refuse to restore an interest debit note whose bill-periods overlap a live charge. */
@@ -962,8 +964,9 @@ export function restoreVoucher(db: DB, id: number): void {
     assertRestorable(db, id)
     // WP 2.3: re-apply its serials — refused (rolled back) if one has moved on meanwhile.
     rebuildItemSerials(db, before.inventory.map((l) => l.stockItemId))
+    // Same transaction as the restore (see deleteVoucher).
+    writeAudit(db, 'voucher', id, 'restore', before, { restored: true })
   })()
-  writeAudit(db, 'voucher', id, 'restore', before, { restored: true })
 }
 
 // ---------- post-dated vouchers (lane I, task 77) ----------
@@ -1013,8 +1016,10 @@ export function maturePdcNow(db: DB, id: number): void {
   if (lock && before.date <= lock) {
     throw new Error(`Books are locked up to ${lock} — this voucher (dated ${before.date}) cannot mature into the locked period`)
   }
-  db.prepare("UPDATE vouchers SET post_dated = 0, updated_at = datetime('now') WHERE id = ?").run(id)
-  writeAudit(db, 'voucher', id, 'update', before, { ...before, postDated: false, matured: true })
+  db.transaction(() => {
+    db.prepare("UPDATE vouchers SET post_dated = 0, updated_at = datetime('now') WHERE id = ?").run(id)
+    writeAudit(db, 'voucher', id, 'update', before, { ...before, postDated: false, matured: true })
+  })()
 }
 
 export interface PdcRow {
@@ -1053,7 +1058,11 @@ export function purgeVoucher(db: DB, id: number): void {
   if (!before) throw new Error('Voucher not found')
   if (!before.deletedAt) throw new Error('Voucher must be in the bin before it can be purged')
   try {
-    db.prepare('DELETE FROM vouchers WHERE id = ?').run(id)
+    // The delete and its audit row commit together (see deleteVoucher).
+    db.transaction(() => {
+      db.prepare('DELETE FROM vouchers WHERE id = ?').run(id)
+      writeAudit(db, 'voucher', id, 'purge', { ...before, purged: true }, null)
+    })()
   } catch (err) {
     // WP 2.5: line_links.from_voucher_id has no cascade — a source can't vanish under a link,
     // even one from a binned target (restoring that target would lose its goods).
@@ -1062,7 +1071,6 @@ export function purgeVoucher(db: DB, id: number): void {
     }
     throw err
   }
-  writeAudit(db, 'voucher', id, 'purge', { ...before, purged: true }, null)
 }
 
 /** Vouchers auto-purged after sitting in the bin longer than `days` (default 30). Returns the
