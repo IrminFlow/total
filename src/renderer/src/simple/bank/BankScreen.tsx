@@ -376,7 +376,16 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
 
           {view && skippedLines.length > 0 && <SkippedLines lines={skippedLines} onBringBack={bringBack} />}
 
-          {view && settled.length > 0 && <DoneLines lines={settled} />}
+          {view && settled.length > 0 && bankLedgerId != null && (
+            <DoneLines
+              lines={settled}
+              bankLedgerId={bankLedgerId}
+              onUnmatched={(n) => {
+                setNote(n)
+                void refresh()
+              }}
+            />
+          )}
         </div>
       )}
 

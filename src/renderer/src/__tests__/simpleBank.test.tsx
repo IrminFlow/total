@@ -11,6 +11,7 @@ import type { CompanyInfo, Group, Ledger } from '@shared/domain'
 import type { BankAcceptResult, BankSetup, BankView } from '@shared/simple/bank'
 import { bannedWordsIn } from '@shared/simple/bannedWords'
 import { useNav, useSession } from '../state/stores'
+import { useDialogs } from '../lib/dialogs'
 import { BankScreen } from '../simple/bank/BankScreen'
 
 const invoke = vi.fn()
@@ -252,5 +253,31 @@ describe('simple Bank (WP 9.6)', () => {
     await waitFor(() => expect(screen.getAllByTestId('bank-line')).toHaveLength(3))
     expect(screen.queryByTestId('bank-skipped')).toBeNull()
     expect(localStorage.getItem('total-bank-skipped:sharma:31')).toBeNull()
+  })
+  it('"Not this" on a Done line asks first, then uses the full app’s unmatch; a viewer is not offered it', async () => {
+    renderUi()
+    await waitFor(() => expect(screen.getByTestId('bank-done')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('btn-bank-not-this-4'))
+    await waitFor(() => expect(useDialogs.getState().queue).toHaveLength(1))
+    const ask = useDialogs.getState().queue[0]!
+    expect(ask.title).toBe('Not this entry?')
+    expect(ask.message).toContain('Kumar Stores')
+    expect(bannedWordsIn(`${ask.title} ${ask.message}`)).toEqual([])
+    // "Keep it" changes nothing.
+    act(() => useDialogs.getState().settle(ask.id, false))
+    await waitFor(() => expect(useDialogs.getState().queue).toHaveLength(0))
+    expect(calls('bankImport:unmatch')).toEqual([])
+    fireEvent.click(screen.getByTestId('btn-bank-not-this-4'))
+    await waitFor(() => expect(useDialogs.getState().queue).toHaveLength(1))
+    act(() => useDialogs.getState().settle(useDialogs.getState().queue[0]!.id, true))
+    await waitFor(() => expect(calls('bankImport:unmatch')).toEqual([{ bankLedgerId: 31, lineId: 4 }]))
+    await waitFor(() => expect(screen.getByTestId('bank-note').textContent).toContain('The entry is still in your books'))
+    expect(calls('simple:bank:lines').length).toBeGreaterThan(1) // re-read: the line comes back open
+    cleanup()
+    act(() => useSession.setState({ user: { id: 2, name: 'Asha', role: 'viewer' } as never }))
+    renderUi()
+    await waitFor(() => expect(screen.getByTestId('bank-done')).toBeTruthy())
+    expect(screen.queryByTestId('btn-bank-not-this-4')).toBeNull()
+    act(() => useSession.setState({ user: null }))
   })
 })
