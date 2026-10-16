@@ -181,6 +181,14 @@ what you typed, and a **Back to simple** button.
   read "Matches"). Undo of a count or of goods made is refused when some of that stock has been sold
   or used since and undoing would leave it below zero. Edit the entry instead.
   [#124](https://github.com/IrminFlow/total/pull/124)
+- **Recipes on a product's page.** With Made goods on, a product's page has a Recipe part: "To
+  make 1 Bread you use …". "Add a recipe" or "Change recipe" lists each material (pick the product,
+  say how much one uses, in its unit) and, if you like, the labour for each one. A changed recipe is
+  used from the day you are working on; what you made before keeps the old recipe. A product can't
+  go into itself, and two products can't go into each other. Made goods fills in the labour for the
+  number you make (you can still change it). People who can only look see the recipe but can't
+  change it. "Accountant view" opens the product in the full app with every earlier recipe. No
+  figure changed. [#PR](https://github.com/IrminFlow/total/pull/PR)
 - **Small screen fixes.** A message that pops up at the bottom right no longer covers the Save
   button (even when the Save bar takes two rows on a small window) or the question box of Ask Total
   open beside the screen. Lists keep at least about 16 letters of a customer's or product's name on
@@ -345,6 +353,15 @@ Read these before filing from the next release.
   snippets for a locked business. `consolGroup:run` takes an optional `memberPassphrases` (for that
   run only, never stored or logged); a locked member without a key is still skipped as "locked".
   [#132](https://github.com/IrminFlow/total/pull/132)
+- **Simple recipe editor** (`simple/stock/RecipeEditor.tsx`, pure half `shared/simple/stock.ts`
+  `planRecipe` / `recipeFormErrors` / `recipeInputFrom`, `services/simpleStock.ts` `saveRecipe`):
+  new channel `simple:stock:setRecipe` (accountant+, as `bom:saveVersion`; audited `bom`). Save is
+  ONE new version through `bom.saveBomVersion` — the first recipe is in force always, a change from
+  the working date (open-ended, default; `pickBomVersion` takes the latest start), scrap on a
+  material that stays is kept, unchanged answers write nothing. Labour per unit is kept per version
+  in meta `simpleRecipeLabour` (no migration; nothing posts from it — Made goods only prefills
+  labour). Refusals `simple_recipe_*` (self / twice / qty / empty / cycle / unknown) on the row.
+  [#PR](https://github.com/IrminFlow/total/pull/PR)
 - **DataTable widths (both modes).** A flexible text column with `hideable: false` is the row's
   name column: it starts at 152 px (`NAME_MIN_WIDTH`) and takes a double share of spare room; when
   the columns don't fit, money / quantity / enum columns on their kind default shrink to 128 / 112 /

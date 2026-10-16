@@ -2,14 +2,17 @@
 //   1. The setup wizard: a manufacturer that keeps stock (unregistered, starting fresh) — Stock and
 //      Made goods are on.
 //   2. Two materials and a product (the plain product dialog's service), a purchase of the
-//      materials (simple:post — the WP 9.3 intent), bread's recipe set once (½ kg flour + 1 box).
+//      materials (simple:post — the WP 9.3 intent).
 //   3. Stock → Products: quantity, worth (= the Stock summary), selling price, "Running low" on
 //      the boxes (below their level) — and Home's "Needs attention" row opens the list filtered.
 //   4. Count your stock: the flour one kg short → the difference in words → Save → the save card
 //      (no print buttons) → the list shows 99 kg, worth what the Stock summary says.
-//   5. A product's view: history in words, Change price.
+//   5. A product's view: history in words, Change price; bread's recipe added on its view (½ kg
+//      flour + 1 box, ₹5 labour each — the recipe editor → ONE BOM version through the accountant
+//      BOM service), Accountant view opens the product's full form with its BOM editor.
 //   6. Made goods: bread, the recipe in plain words, "not enough" under How many, 10 made with
-//      labour already recorded → the save card → the list (bread in, materials out).
+//      the recipe's labour (₹5 × 10, prefilled) already recorded → the save card → the list
+//      (bread in, materials out).
 // No accounting words on any simple screen. Screenshots light + dark; WP97_SHOTS=<dir> copies the
 // review set there.
 import * as fs from 'node:fs'
@@ -106,7 +109,6 @@ await scenario('58-stock-simple', async (h) => {
   await h.invoke('simple:post', {
     intent: { clientId: 'e2e58-purchase-1', kind: 'purchase', supplierId: supplier.id, billNo: 'SM/1', items: [{ itemId: flour.id, qty: '100', rate: 4000 }, { itemId: box.id, qty: '50', rate: 1000 }], payment: { how: 'credit' } }
   })
-  await h.invoke('bom:set', { itemId: bread.id, lines: [{ componentId: flour.id, qtyMilliPerUnit: 500 }, { componentId: box.id, qtyMilliPerUnit: 1000 }] })
   // The setup above went straight to main: reload so every screen reads the books afresh.
   await page.reload()
   if ((await page.$('[data-screen="company-select"]')) || !(await page.$('[data-testid="simple-home"]'))) {
@@ -180,6 +182,47 @@ await scenario('58-stock-simple', async (h) => {
   await noBanned('the product view')
   await shoot('04-product')
 
+  // Bread's recipe, added on its own view (no recipe yet → "Add a recipe").
+  await page.click('[data-testid="btn-stock-product-back"]')
+  await h.waitScreen('simple-stock')
+  await page.click(`${row(bread.id)} td >> nth=0`)
+  await attached(h, '[data-testid="stock-recipe-none"]')
+  await h.click('btn-recipe-edit')
+  await attached(h, '[data-testid="stock-recipe-editor"]')
+  const pickMaterial = async (i, name) => {
+    const input = page.locator(`[data-testid="picker-recipe-item-${i}"]`).first()
+    await input.click()
+    await input.fill(name)
+    await page.locator(PICKER_OPTION, { hasText: name }).first().click()
+  }
+  await pickMaterial(0, 'Flour')
+  await fill('input-recipe-qty-0', '0.5')
+  await pickMaterial(1, 'Box')
+  await fill('input-recipe-qty-1', '1')
+  await fill('input-recipe-labour', '5')
+  await noBanned('the recipe editor')
+  await shoot('04b-recipe-editor')
+  await h.click('btn-recipe-save')
+  await attached(h, '[data-testid="stock-product-recipe"]', 10000)
+  await page.waitForFunction(() => (document.querySelector('[data-testid="stock-product-recipe"]')?.textContent ?? '').includes('0.5 Kg Flour'), null, { timeout: 10000 })
+  assert((await text('[data-testid="stock-product-recipe"]')).includes('To make 1 Bread you use 0.5 Kg Flour, 1 Nos Box.'), 'the saved recipe in words')
+  assert((await text('[data-testid="stock-recipe-labour"]')).includes('₹5.00'), 'the labour for each one')
+  // ONE BOM version, through the accountant service: always in force (the first recipe), the default.
+  const versions = await h.invoke('bom:versions', { itemId: bread.id })
+  assertEq(versions.length, 1, 'one recipe version')
+  assertEq(JSON.stringify(versions[0].lines.map((l) => [l.componentId, l.qtyMilliPerUnit])), JSON.stringify([[flour.id, 500], [box.id, 1000]]), 'its materials per one')
+  assert(versions[0].isDefault && versions[0].effectiveFrom === null, 'the first recipe is in force always')
+  const auditRows = (await h.invoke('audit:list', { entity: 'bom' })).rows
+  assert(auditRows.some((r) => r.action === 'create' && r.entityId === bread.id && r.entity === 'bom'), 'the version is audited as the full editor’s save')
+  // Accountant view: the product's full form, where every version of the recipe is.
+  await h.click('btn-recipe-accountant-view')
+  await attached(h, '[data-testid="bom-editor"]', 15000)
+  await page.keyboard.press('Escape')
+  await page.waitForSelector('[data-testid="bom-editor"]', { state: 'detached', timeout: 10000 })
+  // Back to simple lands on the same product.
+  await h.click('btn-back-to-simple')
+  await page.waitForFunction((id) => document.querySelector('[data-testid="simple-stock-product"]')?.getAttribute('data-item') === String(id), bread.id, { timeout: 15000 })
+
   // ================= 6. Made goods =================
   await h.click('simple-nav-stock')
   await attached(h, '[data-testid="simple-entry-made-goods"]')
@@ -196,7 +239,8 @@ await scenario('58-stock-simple', async (h) => {
   await attached(h, '[data-testid="field-error-qty"]', 10000)
   assert((await text('[data-testid="field-error-qty"]')).includes('Not enough Box'), 'not enough material under How many')
   await fill('input-made-qty', '10')
-  await fill('input-made-labour', '50')
+  // The recipe's labour × 10, filled in.
+  await page.waitForFunction(() => (document.querySelector('[data-testid="input-made-labour"]')?.value ?? '').replace(/[^\d.]/g, '').startsWith('50'), null, { timeout: 10000 })
   await h.click('made-labour-yes')
   await page.waitForFunction(() => (document.querySelector('[data-testid="made-preview-lines"]')?.textContent ?? '').includes('Made 10'), null, { timeout: 10000 })
   assert((await text('[data-testid="made-preview-lines"]')).includes('worth ₹350.00: materials ₹300.00 + labour ₹50.00'), 'materials (5 kg × ₹40 + 10 × ₹10) + labour')

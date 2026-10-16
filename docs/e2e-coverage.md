@@ -116,7 +116,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 9.4 | Money in / out / move | 55 |
 | 9.5 | Returns | 56 |
 | 9.6 | Bank, simple | 57 |
-| 9.7 | Stock and Made goods | 58 |
+| 9.7 | Stock and Made goods (+ the recipe editor on a product: add a recipe, then make goods with it) | 58 |
 | 9.8 | People | 59 |
 | 9.9 | Plain reports and Taxes | 61 |
 | 9.10 | Accountant-view hand-off | 62 |
