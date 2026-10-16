@@ -14,7 +14,7 @@ import { emptyInvoiceState } from '@shared/voucherEdit'
 import { useNav, useSession, type Screen } from '../state/stores'
 import { viewOverrideKey } from '../lib/mode'
 import {
-  backToSimpleClears, dropKeptForms, factsQuery, fullCounterpart, rememberSaved, savedIdFor, simpleTargetFor, useAccountantView, useAlwaysFullRedirect, useBackToSimple, useKeptForm
+  alwaysKey, backToSimpleClears, dropKeptForms, factsQuery, fullCounterpart, rememberSaved, savedIdFor, simpleTargetFor, useAccountantView, useAlwaysFullRedirect, useBackToSimple, useKeptForm
 } from '../lib/handoff'
 import { simplePaletteRows, SIMPLE_ENTRIES } from '../lib/screens'
 import { ViewToggle } from '../simple/ViewToggle'
@@ -22,6 +22,7 @@ import { CommandPalette } from '../components/CommandPalette'
 import { HandoffBanner } from '../components/HandoffBanner'
 import { DialogHost } from '../components/dialogs'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
+import { ReportHeader } from '../simple/reports/parts'
 
 const invoke = vi.fn()
 const INFO = { name: 'Hand-off Co', stateCode: '27', gstin: '27AAPFU0939F1ZV', gstRegistrationType: 'regular', address: '', booksFrom: 2026, email: null, phone: null, pan: null, tan: null }
@@ -293,6 +294,42 @@ describe('the remembered choice', () => {
     act(() => useNav.setState({ stack: [{ name: 'gateway' }] }))
     act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow] }))
     expect(renderHook(() => useKeptForm({ customer: null as number | null, qty: '' })).result.current[0]).toEqual({ customer: null, qty: '' })
+  })
+
+  it('review: a plain report / Taxes header has the ⋯ "Always" menu — remembered per report, and never into a screen the company cannot use', async () => {
+    setSession({ mode: 'simple' })
+    const doing: Screen = { name: 'simple-reports', report: 'doing' }
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, doing] }))
+    render(withClient(<ReportHeader testId="doing" title="How is my business doing" subtitle="" accountant={{ screen: { name: 'profit-loss', from: '2026-05-01', to: '2026-05-31' }, hint: '' }} />))
+    fireEvent.click(screen.getByTestId('doing-accountant-view-more'))
+    fireEvent.click(await screen.findByTestId('doing-accountant-view-always'))
+    await waitFor(() => expect(top()).toEqual({ name: 'profit-loss', from: '2026-05-01', to: '2026-05-31' }))
+    expect(alwaysKey(doing)).toBe('simple-reports:doing')
+    expect(localStorage.getItem(KEY('simple-reports:doing' as Screen['name']))).toBe('accountant')
+    expect(localStorage.getItem(KEY('simple-reports'))).toBeNull()
+    cleanup()
+    // Arriving at that report → the full P&L; another plain report stays plain.
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-reports', report: 'cash' }] }))
+    renderHook(() => useAlwaysFullRedirect(), { wrapper: ({ children }) => withClient(<>{children}</>) })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(top()).toEqual({ name: 'simple-reports', report: 'cash' })
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, doing] }))
+    await waitFor(() => expect(top()).toEqual({ name: 'profit-loss' }))
+    // Back to simple from the P&L clears that report's choice.
+    expect(backToSimpleClears({ name: 'profit-loss' }, simpleTargetFor({ name: 'profit-loss' }, null))).toContain('simple-reports:doing')
+    cleanup()
+
+    // Taxes: remembered → GSTR-3B on arrival, but not once the business is unregistered.
+    localStorage.setItem(KEY('simple-taxes'), 'accountant')
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-taxes', period: '2026-04' }] }))
+    renderHook(() => useAlwaysFullRedirect(), { wrapper: ({ children }) => withClient(<>{children}</>) })
+    await waitFor(() => expect(top()).toEqual({ name: 'gstr3b', month: '2026-04' }))
+    cleanup()
+    act(() => useSession.setState({ info: { ...INFO, gstin: null, gstRegistrationType: 'unregistered' } as never }))
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-taxes' }] }))
+    renderHook(() => useAlwaysFullRedirect(), { wrapper: ({ children }) => withClient(<>{children}</>) })
+    await new Promise((r) => setTimeout(r, 20))
+    expect(top()).toEqual({ name: 'simple-taxes' })
   })
 
   it('the voucher a simple-mode editor just saved is what Back to simple means', async () => {

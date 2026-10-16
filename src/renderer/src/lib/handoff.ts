@@ -21,7 +21,7 @@ import type { SimpleIntentInput } from '@shared/simple/intents'
 import { api } from './client'
 import { useT } from './i18n'
 import { readRememberedOverride, setViewOverride, useMode } from './mode'
-import { screenDef, SIMPLE_ENTRIES, simpleSectionOf } from './screens'
+import { screenApplies, screenDef, SIMPLE_ENTRIES, simpleSectionOf } from './screens'
 import { nextDraftId, useNav, useScreen, useSession, useToasts, type Screen } from '../state/stores'
 import type { IntentDraft } from './simplePost'
 import { useTaxLedgers } from '../components/pickers'
@@ -59,9 +59,30 @@ export function fullCounterpart(screen: Screen): Screen | null {
       return screen.itemId != null ? { name: 'stock-movements', itemId: screen.itemId } : { name: 'stock-summary' }
     case 'simple-bank':
       return screen.bankId != null ? { name: 'banking', tab: 'import', ledgerId: screen.bankId } : { name: 'banking', tab: 'import' }
+    // WP 9.9's plain reports: the accountant report each one's Accountant view opens.
+    case 'simple-reports':
+      switch (screen.report) {
+        case 'cash':
+          return { name: 'cash-forecast' }
+        case 'owed':
+          return { name: 'outstandings', side: screen.side ?? 'receivable' }
+        case 'by-month':
+          return { name: 'registers', tab: 'sales' }
+        default:
+          return { name: 'profit-loss' }
+      }
+    case 'simple-taxes':
+      return screen.period ? { name: 'gstr3b', month: screen.period } : { name: 'gstr3b' }
     default:
       return null
   }
+}
+
+/** The name the remembered "Always open the full app for this" is stored under: one per plain
+ *  report (the Reports registry screen holds several), else the screen's own name. */
+export function alwaysKey(screen: Screen): Name {
+  if (screen.name === 'simple-reports') return `simple-reports:${screen.report ?? 'doing'}` as Name // i18n-technical
+  return screen.name
 }
 
 /** The simple flow a NEW entry of this kind is made on. */
@@ -176,7 +197,7 @@ export function factsQuery(screen: Screen, savedId: number | null): { voucherId?
 /** The simple screens whose remembered "always full" choice "Back to simple" from `screen` to
  *  `target` clears: the one it lands on, and the simple flow this full screen stands for. */
 export function backToSimpleClears(screen: Screen, target: Screen): Name[] {
-  const out = new Set<Name>([target.name])
+  const out = new Set<Name>([alwaysKey(target)])
   if (screen.name === 'voucher-entry') {
     if (screen.handoff) out.add(INTENT_SCREEN[screen.handoff.kind] as Name)
     const flow = screen.kindHint ? FLOW_FOR_KIND[screen.kindHint] : undefined
@@ -185,6 +206,7 @@ export function backToSimpleClears(screen: Screen, target: Screen): Name[] {
   if (screen.name === 'manufacture') out.add('simple-made-goods')
   if (screen.name === 'stock-summary' || screen.name === 'stock-movements') out.add('simple-stock')
   if (screen.name === 'banking') out.add('simple-bank')
+  if (screen.name === 'registers') out.add(alwaysKey({ name: 'simple-reports', report: 'by-month' }))
   return [...out]
 }
 
@@ -320,9 +342,10 @@ export interface AccountantViewRequest {
  * (simple:intentForm), without the discard question (the answers go with it); nothing usable → the
  * blank full counterpart. `always` also stores the choice for this screen.
  */
-export function useAccountantView(self: Name): (req: AccountantViewRequest) => Promise<void> {
-  // The simple screen the button is on (by name — params, if any, come with `fallback`).
-  const screen = { name: self } as Screen
+export function useAccountantView(self: Name | Screen): (req: AccountantViewRequest) => Promise<void> {
+  // The simple screen the button is on (by name — params, if any, come with `fallback` — or the
+  // screen itself where its params pick the full counterpart, e.g. a plain report).
+  const screen = typeof self === 'string' ? ({ name: self } as Screen) : self
   const nav = useNav()
   const t = useT()
   const toast = useToasts()
@@ -331,7 +354,7 @@ export function useAccountantView(self: Name): (req: AccountantViewRequest) => P
   const today = useSession((s) => s.workingDate)
   return useCallback(
     async (req: AccountantViewRequest) => {
-      if (req.always) setViewOverride(slug, userId, screen.name, true, true)
+      if (req.always) setViewOverride(slug, userId, alwaysKey(screen), true, true)
       const blank = req.fallback ?? fullCounterpart(screen) ?? section(screen)
       if (req.savedId != null) return nav.go({ name: 'voucher-entry', voucherId: req.savedId })
       if (!req.intent) return nav.go(blank)
@@ -358,7 +381,7 @@ export function useAccountantView(self: Name): (req: AccountantViewRequest) => P
         nav.go(blank, { force: kept })
       }
     },
-    [self, nav, t, toast, slug, userId, today] // eslint-disable-line react-hooks/exhaustive-deps -- `screen` is `self`
+    [typeof self === 'string' ? self : JSON.stringify(self), nav, t, toast, slug, userId, today] // eslint-disable-line react-hooks/exhaustive-deps -- `screen` is `self`
   )
 }
 
@@ -374,14 +397,17 @@ export function useAlwaysFullRedirect(): void {
   const mode = useMode()
   const slug = useSession((s) => s.slug)
   const userId = useSession((s) => s.user?.id)
+  const gstType = useSession((s) => s.info?.gstRegistrationType)
   useEffect(() => {
     const cameBack = lastDepth.current != null && depth < lastDepth.current
     lastDepth.current = depth
     if (cameBack) return
     if (mode !== 'simple' || !screenDef(screen.name)?.modes.includes('simple')) return
-    if (!readRememberedOverride(slug, userId, screen.name)) return
+    if (!readRememberedOverride(slug, userId, alwaysKey(screen))) return
     const full = fullCounterpart(screen)
-    if (full) useNav.getState().replace(full)
+    // Never into a screen the company can't use (GST returns of an unregistered business).
+    const def = full ? screenDef(full.name) : undefined
+    if (full && (!def || screenApplies(def, gstType))) useNav.getState().replace(full)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- on arrival only (the screen entry)
   }, [screen])
 }

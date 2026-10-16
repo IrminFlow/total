@@ -1,17 +1,20 @@
 import type { ReactNode } from 'react'
 import { formatPaise } from '@shared/money'
 import { useT } from '../../lib/i18n'
-import { useNav } from '../../state/stores'
+import { useNav, useScreen } from '../../state/stores'
+import { useAccountantView } from '../../lib/handoff'
+import { AccountantViewButton } from '../AccountantViewButton'
 import type { Screen } from '../../state/stores'
 import { Button, Why } from '../../components/kit'
 
 export const money = (paise: number): string => formatPaise(paise, { symbol: true })
 export const cardCls = 'rounded-lg border border-line bg-panel p-panel shadow-elev-1'
 
-/** A report's title, one plain line under it and its Accountant view (the full report). */
+/** A report's title, one plain line under it and its Accountant view (the full report) — with the
+ *  ⋯ "Always open the full app for this" beside it, as every simple screen's (WP 9.10). */
 export function ReportHeader({ title, subtitle, accountant, testId }: { title: string; subtitle: string; accountant?: { screen: Screen; hint: string }; testId: string }): React.JSX.Element {
-  const t = useT()
-  const nav = useNav()
+  const here = useScreen()
+  const openFull = useAccountantView(here)
   return (
     <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
       <div>
@@ -21,9 +24,11 @@ export function ReportHeader({ title, subtitle, accountant, testId }: { title: s
         </p>
       </div>
       {accountant && (
-        <Button variant="ghost" data-testid={`${testId}-accountant-view`} title={accountant.hint} onClick={() => nav.go(accountant.screen)}>
-          {t('common.accountantView')}
-        </Button>
+        <AccountantViewButton
+          testId={`${testId}-accountant-view`}
+          title={accountant.hint}
+          onOpen={(always) => void openFull({ intent: null, always, fallback: accountant.screen })}
+        />
       )}
     </div>
   )
