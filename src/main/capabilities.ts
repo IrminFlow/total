@@ -39,6 +39,9 @@ export const EXPORT_CHANNELS: readonly string[] = [
   'audit:exportPdf',
   'backup:exportEncrypted',
   'budget:exportCsv',
+  // PR #144 review: the bank's bulk-payment upload file (each supplier's account number and the
+  // amounts) — a file of the books, like the payables run CSV.
+  'bulkPay:export',
   'edoc:exportEInvoice',
   'edoc:exportEwb',
   'edoc:ewbJson',
@@ -54,6 +57,10 @@ export const EXPORT_CHANNELS: readonly string[] = [
   'gst:imsExport',
   'payables:msmeForm1Csv',
   'payables:runExportCsv',
+  // PR #144 review: the PF ECR and ESI upload files are statutory return files like the PT CSV
+  // (employees' wages, UAN / IP numbers) — they were missed.
+  'payroll:ecr',
+  'payroll:esi',
   'payroll:ptCsv',
   'payroll:ptReturnCsv',
   'pricing:exportCsv',
@@ -69,6 +76,27 @@ export const EXPORT_CHANNELS: readonly string[] = [
   'tds:export26q',
   'tds:form24qCsv'
 ]
+
+/**
+ * Channels audited as an 'export' (AUDIT_COVERAGE) that are NOT exports of the books, by decision
+ * — prints of one document, blank templates and test pages follow their role only
+ * (docs/security/encryption-at-rest.md). Every other 'export'-audited channel must be in
+ * EXPORT_CHANNELS (security.dbtest.ts), so a new export channel can't miss the canExport gate.
+ */
+export const NOT_EXPORTS: Readonly<Record<string, string>> = {
+  'invoice:pdf': 'print of one document',
+  'invoice:pdfBatch': 'prints of the chosen documents',
+  'counter:print': 'print of a counter bill',
+  'tradeDocs:pdf': 'print of a quotation / order',
+  'payroll:payslip': 'print of a payslip',
+  'cheque:pdf': 'cheque print',
+  'cheque:testGrid': 'cheque alignment test page',
+  'cheque:advice': 'payment advice print',
+  'cheques:print': 'cheque print (consumes leaves)',
+  'template:testPdf': 'print-template test page',
+  'import:template': 'blank import template',
+  'importwiz:sample': 'blank import sample'
+}
 
 export const AI_CHANNELS: readonly string[] = ['ai:settings:set', 'ai:notice:accept', 'ai:testConnection', 'agent:mcp:set']
 

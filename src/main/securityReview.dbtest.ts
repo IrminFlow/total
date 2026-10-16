@@ -463,10 +463,12 @@ describe('canExport: false refuses every export channel (review follow-up)', () 
     const owner = await ok<{ id: number }>('users:save', { data: { name: 'Owner', role: 'owner', pin: '1111' } })
     const acct = await ok<{ id: number }>('users:save', { data: { name: 'Esha', role: 'accountant', pin: '2222', capabilities: { canExport: false } } })
     await ok('auth:login', { userId: acct.id, pin: '2222' })
-    expect(caps.EXPORT_CHANNELS).toContain('receivables:statementsBulk')
+    // every channel the gate maps to canExport (ipc's own map, not a list kept here), each registered
+    const exportChannels = [...ipc.channelCapabilityMap()].filter(([, cap]) => cap === 'canExport').map(([ch]) => ch)
+    expect(exportChannels).toEqual(expect.arrayContaining(['receivables:statementsBulk', 'payroll:ecr', 'payroll:esi', 'bulkPay:export']))
     const leaked: string[] = []
-    for (const ch of caps.EXPORT_CHANNELS) {
-      if (!ipc.CHANNEL_ROLES.has(ch)) continue
+    for (const ch of exportChannels) {
+      expect(ipc.CHANNEL_ROLES.has(ch), ch).toBe(true)
       if ((await call(ch, undefined)).code !== 'not_permitted') leaked.push(ch)
     }
     expect(leaked).toEqual([])
@@ -479,6 +481,24 @@ describe('canExport: false refuses every export channel (review follow-up)', () 
     await ok('auth:login', { userId: acct.id, pin: '2222' })
     expect((await call('receivables:statementsBulk', fy)).ok).toBe(true)
     await ok('auth:login', { userId: owner.id, pin: '1111' })
+  })
+})
+
+describe('every export-audited channel is gated by canExport unless it is a print (PR #144 review)', () => {
+  it('AUDIT_COVERAGE entries auditing an export are in EXPORT_CHANNELS or NOT_EXPORTS (with a reason), never both', async () => {
+    const { AUDIT_COVERAGE } = await import('./auditCoverage')
+    const map = ipc.channelCapabilityMap()
+    const missed: string[] = []
+    for (const [ch, cov] of Object.entries(AUDIT_COVERAGE)) {
+      if (!('audit' in cov) || !cov.audit.includes('export')) continue
+      if (ch in caps.NOT_EXPORTS) {
+        expect(caps.EXPORT_CHANNELS.includes(ch), ch).toBe(false)
+        continue
+      }
+      if (map.get(ch) !== 'canExport' && map.get(ch) !== 'canPost') missed.push(ch)
+    }
+    expect(missed).toEqual([])
+    for (const ch of Object.keys(caps.NOT_EXPORTS)) expect(ipc.CHANNEL_ROLES.has(ch), ch).toBe(true)
   })
 })
 

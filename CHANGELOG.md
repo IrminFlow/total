@@ -400,10 +400,11 @@ Read these before filing from the next release.
   (`services/gst.ts einvoicingOn`). `CashFlowRow` gained optional `parts` (ledger id, name, cash
   effect — they add up to the line) and `voucherIds`; the `daybook` screen takes optional
   `voucherIds` + `source`. [#140](https://github.com/IrminFlow/total/pull/140)
-- Review follow-ups. `receivables:statementsBulk` is in `EXPORT_CHANNELS` (`canExport`). E-invoicing
-  is an explicit company setting, meta `einvoicing: { enabled }`: #140's heuristic
-  (`einvoicingFromHistory`) only seeds it, once, at the first read, and the result is stored without
-  an audit row (the effective value doesn't change). The new channel `einvoicing:set` is owner-only
+- Review follow-ups. `receivables:statementsBulk`, `payroll:ecr`, `payroll:esi` and `bulkPay:export`
+  are in `EXPORT_CHANNELS` (`canExport`); every channel audited as an export must be in it or in
+  `NOT_EXPORTS` (prints, templates — capabilities.ts, checked by securityReview.dbtest). E-invoicing
+  is an explicit company setting, meta `einvoicing: { enabled }`: until the owner chooses, #140's
+  heuristic (`einvoicingFromHistory`) answers live — a read never stores. The new channel `einvoicing:set` is owner-only
   and audited as a company update. `gst:einvoicing` now returns `{ enabled }`, and Company details has
   the checkbox. `simple:money:setup` takes `{ customerCredits: true }` (Zod-strict) and runs the
   receivables allocation only then (Money out). `GroupRunResult.lockedMembers` (optional) drives the

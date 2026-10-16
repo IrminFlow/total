@@ -25,7 +25,7 @@ export function CompanyInfoScreen(): React.JSX.Element {
   const [filing, setFiling] = useState<GstFilingFrequency>(savedFiling)
   useEffect(() => setFiling(savedFiling), [savedFiling])
   // Review follow-up: the e-invoicing switch (meta einvoicing) — saved with the form, owner only,
-  // regular registrations only (main stores its default from the books' history on first read).
+  // regular registrations only (unset, main answers from the books' history; only a save stores it).
   const { data: einvoicingSetting } = useQuery({ queryKey: ['einvoicing'], queryFn: api.gst.einvoicing, enabled: showFiling })
   const savedEinvoicing = einvoicingSetting?.enabled ?? false
   const [einvoicing, setEinvoicing] = useState(savedEinvoicing)

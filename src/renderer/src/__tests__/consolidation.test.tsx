@@ -13,8 +13,10 @@ import { pctToBp, bpToPct, sectionValue } from '../screens/consolidation/view'
 const invoke = vi.fn()
 let handlers: Record<string, (payload: unknown) => unknown> = {}
 
+let lastClient: QueryClient | null = null
 function renderScreen(ui: React.JSX.Element): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  lastClient = client
   render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>)
 }
 const bodyRows = (area: string): HTMLElement[] => Array.from(screen.getByTestId(`rows-${area}`).querySelectorAll<HTMLElement>('tr.dt-row'))
@@ -171,6 +173,10 @@ describe('Group consolidation screen', () => {
     // nothing of it is kept anywhere the renderer persists
     expect(JSON.stringify({ ...localStorage })).not.toContain('right one')
     expect(JSON.stringify({ ...sessionStorage })).not.toContain('right one')
+    // nor in the query cache (keys or data — what devtools would show)
+    const cached = lastClient!.getQueryCache().getAll().map((q) => ({ key: q.queryKey, data: q.state.data, error: String(q.state.error ?? '') }))
+    expect(JSON.stringify(cached)).not.toContain('right one')
+    expect(JSON.stringify(cached)).not.toContain('wrong one')
   })
 
   it('creates a group with this company as the parent', async () => {

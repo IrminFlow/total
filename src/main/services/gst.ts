@@ -803,7 +803,7 @@ export function gstr3b(db: DB, company: CompanyInfo, from: string, to: string, p
 /** What the books' history says about e-invoicing (PR #140's heuristic): a REGULAR registration
  *  and any sign of use — NIC live filing set up for e-invoices (the non-secret meta 'nic' row:
  *  mode 'einvoice' or an e-invoice base URL), an IRN on a voucher in the books, or an e-invoice
- *  JSON exported (its audit 'export' row). Read only to seed the explicit setting ONCE. */
+ *  JSON exported (its audit 'export' row). The setting's answer until the owner chooses. Read-only. */
 export function einvoicingFromHistory(db: DB, company: Pick<CompanyInfo, 'gstRegistrationType'>): boolean {
   if (company.gstRegistrationType !== 'regular') return false
   const nic = db.prepare("SELECT value FROM meta WHERE key = 'nic'").get() as { value: string } | undefined
@@ -837,32 +837,26 @@ function storedEinvoicing(db: DB): EinvoicingSetting | null {
 
 /**
  * The company's e-invoicing switch (meta `einvoicing: { enabled }`, Settings → Company details).
- * No row yet = the history heuristic's answer, computed ONCE and stored (a company that was
- * already e-invoicing stays on, every other one starts off), so the IRN / export scan never runs
- * again. That first store is not a user change — the effective value is the same before and after
- * — so it writes no audit row (like `deadline_notified`); a read-only handle just answers.
+ * No row yet = the history heuristic's answer (PR #140), read live — never stored on a read: a
+ * viewer's read writes nothing, and a company that starts e-invoicing (NIC set up, an IRN, an
+ * e-invoice exported) before anyone chose still gets the checks. Only the owner's choice
+ * (`setEinvoicing`, audited) is stored, and from then on it alone decides.
  */
 export function getEinvoicing(db: DB, company: Pick<CompanyInfo, 'gstRegistrationType'>): EinvoicingSetting {
-  const stored = storedEinvoicing(db)
-  if (stored) return stored
-  const seeded = { enabled: einvoicingFromHistory(db, company) }
-  try {
-    db.prepare('INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)').run(EINVOICING_META_KEY, JSON.stringify(seeded))
-  } catch {
-    // a read-only connection: answer without storing
-  }
-  return storedEinvoicing(db) ?? seeded
+  return storedEinvoicing(db) ?? { enabled: einvoicingFromHistory(db, company) }
 }
 
-/** Owner-only at the IPC layer; audited as a company update with the whole before / after. An
- *  unchanged value writes nothing. */
+/** Owner-only at the IPC layer; audited as a company update with the whole before / after (before
+ *  `{ einvoicing: null }` while it still followed the history, like gstProfile). An unchanged
+ *  stored value writes nothing; the first explicit choice is stored even when it equals the
+ *  history's answer (it stops following the history). */
 export function setEinvoicing(db: DB, company: Pick<CompanyInfo, 'gstRegistrationType'>, input: EinvoicingSetting): EinvoicingSetting {
-  const before = getEinvoicing(db, company)
-  if (before.enabled === input.enabled) return before
+  const stored = storedEinvoicing(db)
+  if (stored && stored.enabled === input.enabled) return stored
   const after = { enabled: input.enabled }
   db.transaction(() => {
     db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(EINVOICING_META_KEY, JSON.stringify(after))
-    writeAudit(db, 'company', 0, 'update', { einvoicing: before }, { einvoicing: after })
+    writeAudit(db, 'company', 0, 'update', { einvoicing: stored }, { einvoicing: after })
   })()
   return after
 }
