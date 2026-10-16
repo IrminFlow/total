@@ -28,7 +28,7 @@ import { SaveCard } from '../SaveCard'
 import { BillLines, type FormLine } from './BillLines'
 import { AmountLine } from './AmountLine'
 import { PaidHow } from './PaidHow'
-import { useAccountantView } from '../../lib/handoff'
+import { useAccountantView, useKeptForm } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
 import { useCanSave, ViewerNote } from '../ViewerNote'
@@ -85,7 +85,7 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
     [workingDate, startMode, slug]
   )
   // WP 10.1: an Ask Total entry request opens the bill pre-filled (askPrefill.ts — the draft's own mapping).
-  const [form, setForm] = useState<SellForm & { lines: FormLine[] }>(() =>
+  const [form, setForm] = useKeptForm<SellForm & { lines: FormLine[] }>(() =>
     ask ? sellFromAsk(blank(), ask.prefill, (l) => ({ ...l, key: ++lineSeq, auto: l.auto ?? true })) : party != null ? { ...blank(), customerId: party, paid: CREDIT } : blank()
   )
   const [savedIds, setSavedIds] = useState<number[] | null>(null)
@@ -295,7 +295,7 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
 
   // WP 9.10: the saved bill, or the full sales editor with these answers filled in.
   const openFull = useAccountantView('simple-sell') // i18n-technical: screen name
-  const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: savedIds?.[0] ?? null, always })
+  const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: savedIds?.[0] ?? null, always, keep: { form } })
 
   const basisMemo = useRef<BasisMemo | null>(null)
   const setIncl = (on: boolean): void => {

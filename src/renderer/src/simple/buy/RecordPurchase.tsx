@@ -31,7 +31,7 @@ import { SaveCard } from '../SaveCard'
 import { BuyLines } from './BuyLines'
 import { BuyAmount } from './BuyAmount'
 import { PaidNow } from './PaidNow'
-import { useAccountantView } from '../../lib/handoff'
+import { useAccountantView, useKeptForm } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
 import { useCanSave, ViewerNote } from '../ViewerNote'
@@ -104,7 +104,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
   }, [workingDate, startMode, slug, info?.gstRegistrationType])
   // WP 9.8: `party` starts the purchase for that supplier (People → Record a purchase).
   // WP 10.1: an Ask Total entry request opens the purchase pre-filled (askPrefill.ts — the draft's own mapping).
-  const [form, setForm] = useState<BuyForm>(() => (ask ? buyFromAsk(blank(), ask.prefill, (l) => ({ ...newLine(), ...l })) : party != null ? { ...blank(), supplierId: party } : blank()))
+  const [form, setForm] = useKeptForm<BuyForm>(() => (ask ? buyFromAsk(blank(), ask.prefill, (l) => ({ ...newLine(), ...l })) : party != null ? { ...blank(), supplierId: party } : blank()))
   const [savedIds, setSavedIds] = useState<number[] | null>(null)
   const [preview, setPreview] = useState<SimplePreview | null>(null)
   const [previewProblem, setPreviewProblem] = useState<string | null>(null)
@@ -280,7 +280,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
 
   // WP 9.10: the saved bill, or the full purchase editor with these answers filled in.
   const openFull = useAccountantView('simple-buy') // i18n-technical: screen name
-  const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: savedIds?.[0] ?? null, always })
+  const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: savedIds?.[0] ?? null, always, keep: { form } })
 
   const basisMemo = useRef<BasisMemo | null>(null)
   const setIncl = (on: boolean): void => {

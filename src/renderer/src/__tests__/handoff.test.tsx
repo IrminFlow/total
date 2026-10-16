@@ -14,7 +14,7 @@ import { emptyInvoiceState } from '@shared/voucherEdit'
 import { useNav, useSession, type Screen } from '../state/stores'
 import { viewOverrideKey } from '../lib/mode'
 import {
-  backToSimpleClears, factsQuery, fullCounterpart, rememberSaved, savedIdFor, simpleTargetFor, useAccountantView, useAlwaysFullRedirect, useBackToSimple
+  backToSimpleClears, dropKeptForms, factsQuery, fullCounterpart, rememberSaved, savedIdFor, simpleTargetFor, useAccountantView, useAlwaysFullRedirect, useBackToSimple, useKeptForm
 } from '../lib/handoff'
 import { simplePaletteRows, SIMPLE_ENTRIES } from '../lib/screens'
 import { ViewToggle } from '../simple/ViewToggle'
@@ -61,6 +61,7 @@ beforeEach(() => {
   intentForm = { kind: 'sale', entries: [BILL], missing: [] }
   facts = {}
   act(() => useNav.setState({ stack: [{ name: 'gateway' }] }))
+  dropKeptForms()
 })
 afterEach(() => cleanup())
 
@@ -235,6 +236,36 @@ describe('the remembered choice', () => {
     await waitFor(() => expect(top()).toEqual({ name: 'voucher-entry', kindHint: 'purchase' }))
     await act(async () => result.current({ intent: null, savedId: 44 }))
     await waitFor(() => expect(top()).toEqual({ name: 'voucher-entry', voucherId: 44 }))
+  })
+
+  it('review: Cancel / Back to simple from a handed-off editor come back to the answers typed; a fresh visit is blank', async () => {
+    setSession({ mode: 'simple' })
+    const flow: Screen = { name: 'simple-sell' }
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow] }))
+    const wrapper = ({ children }: { children: React.ReactNode }): React.JSX.Element => withClient(<>{children}</>)
+    const { result } = renderHook(() => useAccountantView('simple-sell'), { wrapper })
+    const answers = { customer: 7, qty: '2' }
+    await act(async () => result.current({ intent: { kind: 'sale', date: '2026-05-10', customerId: 7, items: [{ itemId: 4, qty: 2000, rate: 50_000 }], payment: { how: 'credit' } }, keep: { form: answers } }))
+    expect(top()).toMatchObject({ name: 'voucher-entry', handoff: { from: 'simple-sell' } })
+    // Back to simple: back to the SAME entry (not a new blank copy), which starts from the answers.
+    const back = renderHook(() => useBackToSimple(), { wrapper })
+    await act(async () => back.result.current())
+    expect(top()).toBe(flow)
+    expect(renderHook(() => useKeptForm({ customer: null as number | null, qty: '' })).result.current[0]).toEqual(answers)
+    // Taken once: the next visit of the same entry starts blank.
+    expect(renderHook(() => useKeptForm({ customer: null as number | null, qty: '' })).result.current[0]).toEqual({ customer: null, qty: '' })
+
+    // Saved in the editor instead: the answers are never offered again.
+    await act(async () => result.current({ intent: { kind: 'sale', date: '2026-05-10', customerId: 7, items: [{ itemId: 4, qty: 2000, rate: 50_000 }], payment: { how: 'credit' } }, keep: { form: answers } }))
+    rememberSaved(60)
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow] }))
+    expect(renderHook(() => useKeptForm({ customer: null as number | null, qty: '' })).result.current[0]).toEqual({ customer: null, qty: '' })
+
+    // Left the entry another way (the stack no longer holds it): dropped.
+    await act(async () => result.current({ intent: { kind: 'sale', date: '2026-05-10', customerId: 7, items: [{ itemId: 4, qty: 2000, rate: 50_000 }], payment: { how: 'credit' } }, keep: { form: answers } }))
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }] }))
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow] }))
+    expect(renderHook(() => useKeptForm({ customer: null as number | null, qty: '' })).result.current[0]).toEqual({ customer: null, qty: '' })
   })
 
   it('the voucher a simple-mode editor just saved is what Back to simple means', async () => {

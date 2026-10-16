@@ -12,7 +12,7 @@ import { NewAccountDialog } from '../NewAccountDialog'
 import { SaveCard } from '../SaveCard'
 import { Card, MoneyFooter, MoneyHeader } from './MoneyParts'
 import { useMoneyFlow } from './useMoneyFlow'
-import { useAccountantView } from '../../lib/handoff'
+import { useAccountantView, useKeptForm } from '../../lib/handoff'
 
 const F = { date: 'date', amount: 'amount', from: 'from', to: 'to' } as const // i18n-technical: form field paths
 const T_FROM = 'select-move-from' // i18n-technical: test ids
@@ -38,7 +38,7 @@ export function MoveMoney(): React.JSX.Element {
   // A business set up with the wizard has only Cash: add the bank right here (never a dead end).
   const noBank = !!setup && !accounts.some((a) => a.kind === 'bank')
   const blank = (): MoveForm => emptyMoveForm(workingDate)
-  const [form, setForm] = useState<MoveForm>(blank)
+  const [form, setForm] = useKeptForm<MoveForm>(blank)
   const update = (patch: Partial<MoveForm>): void => setForm((f) => ({ ...f, ...patch }))
   const clientErrors = useMemo(() => moveErrors(form), [form])
   const intent = useMemo(() => moveIntentFrom(form), [form])
@@ -47,7 +47,7 @@ export function MoveMoney(): React.JSX.Element {
 
   // WP 9.10: the saved move, or the full editor with these answers filled in.
   const openFull = useAccountantView('simple-move-money') // i18n-technical: screen name
-  const accountantView = (always: boolean): void => void openFull({ intent: isDirty(form) ? intent : null, savedId: flow.savedIds?.[0] ?? null, always })
+  const accountantView = (always: boolean): void => void openFull({ intent: isDirty(form) ? intent : null, savedId: flow.savedIds?.[0] ?? null, always, keep: { form } })
   const pick = (value: number | null, onPick: (id: number | null) => void, testId: string, exclude: number | null): React.JSX.Element => (
     <Select value={value ?? ''} onChange={(e) => onPick(e.target.value ? Number(e.target.value) : null)} data-testid={testId}>
       <option value="">{t('simple.money.movePick')}</option>

@@ -26,7 +26,7 @@ import { Card, Choices, MoneyFooter, MoneyHeader } from './MoneyParts'
 import { ensureCategoryAccount } from './ensureAccount'
 import { useMoneyFlow } from './useMoneyFlow'
 import { BackToBankButton, goBackToBank } from './backToBank'
-import { useAccountantView } from '../../lib/handoff'
+import { useAccountantView, useKeptForm } from '../../lib/handoff'
 
 const WHO_TEXT: Record<MoneyOutWho, MessageKey> = {
   supplier: 'simple.money.out.who.supplier',
@@ -74,7 +74,7 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
   const groups = useGroups()
   const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup'], queryFn: api.simpleMoney.setup }) // i18n-technical
   const blank = (): MoneyOutForm => emptyMoneyOutForm(workingDate)
-  const [form, setForm] = useState<MoneyOutForm>(() => {
+  const [form, setForm] = useKeptForm<MoneyOutForm>(() => {
     const f = emptyMoneyOutForm(date ?? workingDate, { supplierId: party ?? null, amount: amount ?? null, bill: bill ?? null, bankId: bankId ?? null, reference: reference ?? null, note: note ?? null })
     return ask ? moneyOutFromAsk(f, ask.prefill) : f
   })
@@ -151,7 +151,7 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
   // WP 9.10: the saved entry, or the full payment editor with these answers filled in.
   const openFull = useAccountantView('simple-money-out') // i18n-technical: screen name
   const accountantView = (always: boolean): void =>
-    void openFull({ intent: isDirty(form) ? intent : null, savedId: flow.savedIds?.[flow.savedIds.length - 1] ?? null, always })
+    void openFull({ intent: isDirty(form) ? intent : null, savedId: flow.savedIds?.[flow.savedIds.length - 1] ?? null, always, keep: { form } })
 
   const supplierOptions = useMemo(() => (setup?.suppliers ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.phone ? { sub: c.phone } : {}) })), [setup?.suppliers])
   const drawingsName = ledgers.find((l) => l.id === setup?.drawingsId)?.name ?? null

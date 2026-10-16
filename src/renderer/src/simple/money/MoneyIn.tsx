@@ -23,7 +23,7 @@ import { Card, Choices, MoneyFooter, MoneyHeader } from './MoneyParts'
 import { ensureCategoryAccount } from './ensureAccount'
 import { useMoneyFlow } from './useMoneyFlow'
 import { BackToBankButton, goBackToBank } from './backToBank'
-import { useAccountantView } from '../../lib/handoff'
+import { useAccountantView, useKeptForm } from '../../lib/handoff'
 
 const WHO_TEXT: Record<MoneyInWho, MessageKey> = {
   customer: 'simple.money.in.who.customer',
@@ -70,7 +70,7 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
   const groups = useGroups()
   const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup'], queryFn: api.simpleMoney.setup }) // i18n-technical
   const blank = (): MoneyInForm => emptyMoneyInForm(workingDate)
-  const [form, setForm] = useState<MoneyInForm>(() => {
+  const [form, setForm] = useKeptForm<MoneyInForm>(() => {
     const f = emptyMoneyInForm(date ?? workingDate, { customerId: party ?? null, amount: amount ?? null, bill: bill ?? null, bankId: bankId ?? null, reference: reference ?? null, note: note ?? null })
     return ask ? moneyInFromAsk(f, ask.prefill) : f
   })
@@ -129,7 +129,7 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
 
   // WP 9.10: the saved entry, or the full receipt editor with these answers filled in.
   const openFull = useAccountantView('simple-money-in') // i18n-technical: screen name
-  const accountantView = (always: boolean): void => void openFull({ intent: isDirty(form) ? intent : null, savedId: flow.savedIds?.[0] ?? null, always })
+  const accountantView = (always: boolean): void => void openFull({ intent: isDirty(form) ? intent : null, savedId: flow.savedIds?.[0] ?? null, always, keep: { form } })
 
   const customerOptions = useMemo(() => (setup?.customers ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.phone ? { sub: c.phone } : {}) })), [setup?.customers])
   const supplierOptions = useMemo(() => (setup?.suppliers ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.phone ? { sub: c.phone } : {}) })), [setup?.suppliers])

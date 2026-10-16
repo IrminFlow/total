@@ -12,7 +12,7 @@
 // The remembered choice: only "Always open the full app for this" stores the per-screen override
 // (lib/mode.ts); a simple flow with it set opens its full counterpart (`fullCounterpart`) straight
 // away (`useAlwaysFullRedirect`). "Back to simple" clears it (`backToSimpleClears`).
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { create } from 'zustand'
 import type { VoucherKind } from '@shared/domain'
 import { INTENT_SCREEN, type HandoffFacts, type SimpleHandoff } from '@shared/simple/handoff'
@@ -203,8 +203,64 @@ export function savedIdFor(screen: Screen): number | null {
 
 /** Record the voucher saved on the visible screen (the save card calls this). */
 export function rememberSaved(id: number): void {
+  dropKeptForms()
   const top = useNav.getState().stack.at(-1)
   if (top) useLastSaved.getState().set(top, id)
+}
+
+// ---------------------------------------------------------------- the simple form left for the editor
+
+/** The answers a simple form held when its "Accountant view" opened the full editor (review of
+ *  WP 9.10): Cancel / Esc / "Back to simple" from that editor come back to the SAME nav entry, which
+ *  then starts from these answers instead of a blank form. Keyed by the nav entry — the stack entry
+ *  object AND its depth (registry entries reuse one Screen object) — and taken once; an entry no
+ *  longer in the stack at its depth is dropped, and so is everything once the editor saves
+ *  (`rememberSaved`), so a fresh visit is always blank and saved answers never come back. */
+interface KeptForm {
+  screen: Screen
+  depth: number
+  /** By slot (`useKeptForm`'s second argument; 'form' by default). */
+  slots: Record<string, unknown>
+}
+let keptForms: KeptForm[] = []
+
+function keepForm(slots: Record<string, unknown>): void {
+  const stack = useNav.getState().stack
+  const top = stack.at(-1)
+  if (!top) return
+  const depth = stack.length - 1
+  keptForms = [...keptForms.filter((k) => k.depth !== depth), { screen: top, depth, slots }]
+}
+
+/** Forget every kept form (the hand-off editor saved). */
+export function dropKeptForms(): void {
+  keptForms = []
+}
+
+useNav.subscribe((s) => {
+  if (keptForms.length > 0) keptForms = keptForms.filter((k) => s.stack[k.depth] === k.screen)
+})
+
+/** `useState` for a simple flow's form: on arrival at the nav entry the form was handed off from,
+ *  it starts from the answers kept there (else `init`). */
+export function useKeptForm<T>(init: T | (() => T), slot = 'form'): [T, Dispatch<SetStateAction<T>>] {
+  const [here] = useState(() => {
+    const stack = useNav.getState().stack
+    return { screen: stack.at(-1), depth: stack.length - 1 }
+  })
+  const found = (): KeptForm | undefined => keptForms.find((k) => k.depth === here.depth && k.screen === here.screen)
+  // Peeked (pure, StrictMode calls it twice); taken after the mount.
+  const state = useState<T>(() => {
+    const k = found()
+    if (k && slot in k.slots) return k.slots[slot] as T
+    return typeof init === 'function' ? (init as () => T)() : init
+  })
+  useEffect(() => {
+    const k = found()
+    if (k) keptForms = keptForms.filter((x) => x !== k)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- on mount only
+  }, [])
+  return state
 }
 
 // ---------------------------------------------------------------- hooks
@@ -220,6 +276,9 @@ export interface AccountantViewRequest {
   always?: boolean
   /** Opened when there is nothing to carry (default: the screen's blank full counterpart). */
   fallback?: Screen
+  /** The form's own state by `useKeptForm` slot: kept under this nav entry, so coming back from
+   *  the editor (Cancel / Esc / Back to simple) shows these answers again. */
+  keep?: Record<string, unknown>
 }
 
 /**
@@ -242,6 +301,7 @@ export function useAccountantView(self: Name): (req: AccountantViewRequest) => P
       const blank = req.fallback ?? fullCounterpart(screen) ?? section(screen)
       if (req.savedId != null) return nav.go({ name: 'voucher-entry', voucherId: req.savedId })
       if (!req.intent) return nav.go(blank)
+      if (req.keep) keepForm(req.keep)
       try {
         const r = await api.simple.intentForm({ ...req.intent, clientId: req.clientId ?? HANDOFF_CLIENT_ID } as SimpleIntentInput, today)
         const [entry, ...rest] = r.entries
@@ -306,11 +366,16 @@ export function useBackToSimple(): () => Promise<void> {
       }
     }
     const target = simpleTargetFor(screen, facts)
+    // An unsaved hand-off whose simple form is right below: go BACK to it (its answers are kept
+    // there — useKeptForm), not to a new blank copy of the flow.
+    const stack = useNav.getState().stack
+    const below = stack.at(-2)
+    const toBelow = screen.name === 'voucher-entry' && !!screen.handoff && facts?.voucher == null && savedIdFor(screen) == null && below?.name === screen.handoff.from
     // Cleared before the move (the arrival redirect must not see it); put back when the user
     // chooses to stay on an unsaved editor.
     const names = backToSimpleClears(screen, target)
     const remembered = names.filter((name) => readRememberedOverride(slug, userId, name))
     for (const name of names) setViewOverride(slug, userId, name, false)
-    if (!(await nav.tryGo(target))) for (const name of remembered) setViewOverride(slug, userId, name, true, true)
+    if (!(await (toBelow ? nav.tryBack() : nav.tryGo(target)))) for (const name of remembered) setViewOverride(slug, userId, name, true, true)
   }, [screen, nav, slug, userId])
 }

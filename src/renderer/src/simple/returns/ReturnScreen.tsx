@@ -23,7 +23,7 @@ import { SaveCard } from '../SaveCard'
 import { BillPicker } from './BillPicker'
 import { ReturnLines } from './ReturnLines'
 import { RefundHow } from './RefundHow'
-import { useAccountantView } from '../../lib/handoff'
+import { useAccountantView, useKeptForm } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
 import { useCanSave, ViewerNote } from '../ViewerNote'
@@ -53,8 +53,8 @@ export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; 
   const items = useStockItems()
   const ledgers = useLedgers()
   const sale = side === 'sale' // i18n-technical
-  const [billId, setBillId] = useState<number | null>(initialBill ?? null)
-  const [form, setForm] = useState<ReturnForm>(() => emptyReturnForm(workingDate))
+  const [billId, setBillId] = useKeptForm<number | null>(initialBill ?? null, 'billId') // i18n-technical: slot
+  const [form, setForm] = useKeptForm<ReturnForm>(() => emptyReturnForm(workingDate))
   const [savedIds, setSavedIds] = useState<number[] | null>(null)
   const [preview, setPreview] = useState<SimplePreview | null>(null)
   const [previewProblem, setPreviewProblem] = useState<string | null>(null)
@@ -197,7 +197,7 @@ export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; 
 
   // WP 9.10: the saved note, or the full return editor with these answers filled in.
   const openFull = useAccountantView(side === 'sale' ? 'simple-return-sale' : 'simple-return-purchase') // i18n-technical: screen names
-  const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: savedIds?.[0] ?? null, always })
+  const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: savedIds?.[0] ?? null, always, keep: { form, billId } })
 
   const money = (p: number): string => formatPaise(p, { symbol: true })
   const partyLabel = (b: ReturnBill): string => (b.walkIn ? t('simple.sales.cashCustomer') : b.partyName)

@@ -14,7 +14,7 @@ import { useNav, useSession } from '../../state/stores'
 import { Button, DateInput, Field, FieldError, isAnyModalOpen, Page, TextInput, useFormErrors } from '../../components/ui'
 import { SaveCard } from '../SaveCard'
 import { useCanSave, ViewerNote } from '../ViewerNote'
-import { useAccountantView } from '../../lib/handoff'
+import { useAccountantView, useKeptForm } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 
 const F = { date: 'date', counts: 'counts' } as const satisfies Record<CountField, CountField> // i18n-technical: form field paths
@@ -36,7 +36,7 @@ export function StockCount(): React.JSX.Element {
   const workingDate = useSession((s) => s.workingDate)
   const poster = useSimplePost()
   const blank = (): CountForm => ({ date: workingDate, counted: {} })
-  const [form, setForm] = useState<CountForm>(blank)
+  const [form, setForm] = useKeptForm<CountForm>(blank)
   const [search, setSearch] = useState('')
   const [saved, setSaved] = useState<{ ids: number[]; sentences: string[] } | null>(null)
   const [preview, setPreview] = useState<SimplePreview | null>(null)
@@ -152,7 +152,7 @@ export function StockCount(): React.JSX.Element {
 
   // WP 9.10: the saved count, or the full stock count form with these counts filled in.
   const openFull = useAccountantView('simple-stock-count') // i18n-technical: screen name
-  const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: saved?.ids[0] ?? null, always })
+  const accountantView = (always: boolean): void => void openFull({ intent: dirty ? intent : null, savedId: saved?.ids[0] ?? null, always, keep: { form } })
 
   const counted = Object.values(form.counted).filter((v) => v.trim() !== '').length
 

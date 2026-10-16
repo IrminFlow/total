@@ -16,7 +16,7 @@ import { AmountInput, Button, DateInput, Field, FieldError, isAnyModalOpen, Page
 import { TypeAhead } from '../../components/pickers'
 import { SaveCard } from '../SaveCard'
 import { useCanSave, ViewerNote } from '../ViewerNote'
-import { useAccountantView } from '../../lib/handoff'
+import { useAccountantView, useKeptForm } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
 
 const F = { date: 'date', item: 'item', qty: 'qty', price: 'price', labour: 'labour', labourRecorded: 'labourRecorded' } as const satisfies Record<MakeField, MakeField> // i18n-technical: form field paths
@@ -42,7 +42,7 @@ export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
   const features = useFeatures()
   const poster = useSimplePost()
   const blank = (): MakeForm => ({ ...emptyMakeForm(workingDate), itemId: itemId ?? null })
-  const [form, setForm] = useState<MakeForm>(blank)
+  const [form, setForm] = useKeptForm<MakeForm>(blank)
   const [saved, setSaved] = useState<{ ids: number[]; sentences: string[] } | null>(null)
   const [preview, setPreview] = useState<SimplePreview | null>(null)
   const [previewProblem, setPreviewProblem] = useState<string | null>(null)
@@ -179,7 +179,7 @@ export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
   const accountantView = (always: boolean): void => {
     const q = parseCountText(form.qtyText)
     const fallback: Screen = form.itemId != null && q != null && q > 0 ? { name: 'manufacture', prefill: { itemId: form.itemId, qtyMilli: q } } : MANUFACTURE_SCREEN // i18n-technical
-    void openFull({ intent: dirty ? intent : null, savedId: saved?.ids[0] ?? null, always, fallback })
+    void openFull({ intent: dirty ? intent : null, savedId: saved?.ids[0] ?? null, always, fallback, keep: { form } })
   }
 
 
