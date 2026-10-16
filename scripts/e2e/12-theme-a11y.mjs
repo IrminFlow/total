@@ -20,7 +20,7 @@
 // scrolls, no button cut off or its label clipped, one banner / a navigation / one main, named
 // panels and dialogs that fit the window); focus indicators at 1280×800.
 import { scenario, assert } from '../lib/harness.mjs'
-import { contrast, sweepInPage, snapshotFocusablesInPage, focusedIndicatorInPage, waitForSettled, sweepSimpleShell } from '../lib/a11y.mjs'
+import { contrast, sweepInPage, snapshotFocusablesInPage, focusedIndicatorInPage, waitForSettled, sweepSimpleShell, layoutInPage, plantToastInPage } from '../lib/a11y.mjs'
 
 await scenario('12-theme-a11y', async (h) => {
   await h.createDemoCompany()
@@ -152,6 +152,28 @@ await scenario('12-theme-a11y', async (h) => {
       await h.waitIdle()
       await h.shot(`04-simple-${theme}-${width}`)
     }
+  }
+  // to-do §4: toasts keep clear of the Save bar and of the docked Ask Total's question box —
+  // 1700×900 (the panel docks beside the screen ≥ 1600 px) and 1024×700 (overlay, the bar wraps).
+  for (const [width, height] of [[1700, 900], [1024, 700]]) {
+    await h.page.setViewportSize({ width, height })
+    await h.click('simple-nav-sell')
+    await h.click('simple-entry-make-bill')
+    await h.page.waitForSelector('[data-testid="save-bar"]', { timeout: 10000 })
+    await h.click('btn-assistant')
+    await h.page.waitForSelector('[data-testid="ask-panel"] textarea', { timeout: 5000 })
+    assert(await h.page.evaluate(plantToastInPage), 'the toast stack is mounted')
+    await waitForSettled(h.page)
+    const tag = `simple/toasts/${width}x${height}`
+    const docked = await h.page.evaluate(() => !document.querySelector('aside[data-docked]')?.hasAttribute('data-overlay'))
+    if (width === 1700) assert(docked, '1700 px: Ask Total docks beside the screen')
+    for (const p of await h.page.evaluate(layoutInPage)) simpleFailures.push(`${tag} layout: ${p}`)
+    await h.shot(`05-toast-clear-${width}`)
+    await h.page.evaluate(plantToastInPage, true)
+    await h.click('btn-assistant')
+    await h.page.waitForSelector('[data-testid="ask-panel"]', { state: 'detached', timeout: 5000 })
+    await h.click('simple-nav-home')
+    await h.waitIdle()
   }
   await h.page.setViewportSize({ width: 1440, height: 900 })
   const simpleUnique = [...new Set(simpleFailures)]
