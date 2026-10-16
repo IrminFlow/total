@@ -244,7 +244,7 @@ const backfillColumns = (picked: Set<number>, toggle: (id: number) => void, conf
     },
     { id: 'payee', header: 'Payee', kind: 'text', value: (r) => r.payee, minWidth: 140 },
     { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, aggregate: 'sum', width: 120 },
-    { id: 'source', header: 'Read from', kind: 'text', value: (r) => `${BACKFILL_SOURCE[r.source]}${r.found !== r.number ? ` (${r.found})` : ''}`, width: 150 },
+    { id: 'source', header: 'Read from', kind: 'text', value: (r) => `${BACKFILL_SOURCE[r.source]}${r.found !== r.number ? ` (${r.found})` : ''}`, width: 190 },
     { id: 'book', header: 'Book', kind: 'text', value: (r) => r.bookName ?? (r.bookId == null ? 'Outside any book' : ''), width: 120 },
     ...(conflicts
       ? [{
