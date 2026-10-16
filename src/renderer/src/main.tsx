@@ -9,6 +9,7 @@ import { bindMasterEvents } from './lib/masterEvents'
 import { configureI18n } from '@shared/i18n'
 import './app.css'
 import { installPcShortcutLabels } from './lib/platform'
+import { preloadCatalogues } from './lib/i18n'
 
 applyStoredAppearance()
 // Dev builds show an unknown i18n key as itself and warn once; production falls back silently.
@@ -25,10 +26,15 @@ bindMasterEvents(queryClient)
 // WP 7.3: ⌘K / ⌥A labels read Ctrl+K / Alt+A on Windows (the handlers accept Ctrl already).
 installPcShortcutLabels()
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
-  </React.StrictMode>
-)
+// The hi / hinglish catalogues are their own chunks: a Hindi / Hinglish user's catalogue is
+// loaded BEFORE the first render (bounded by PRELOAD_TIMEOUT_MS), so the window never shows
+// English first. An English user waits for nothing (no chunk is requested).
+void preloadCatalogues().then(() => {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </React.StrictMode>
+  )
+})

@@ -1467,6 +1467,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.looks.language': 'Bhasha',
   'simple.looks.languageHint': 'Hindi aur Hinglish naye hain aur machine se likhe gaye hain — koi native speaker abhi inhe check kar raha hai.',
   'simple.looks.languageCompany': 'Owner hone ke naate, Total is business ke liye jo print karta hai, woh bhi isi bhasha mein hoga.',
+  'simple.looks.languageLoading': 'Bhasha load ho rahi hai…',
   'simple.looks.lang.en': 'English',
   'simple.looks.lang.hi': 'हिन्दी',
   'simple.looks.lang.hinglish': 'Hinglish',
@@ -2703,6 +2704,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
 
   'settings.language.hinglish': 'Hinglish',
   'settings.language.companyNote': 'Aap owner hain, isliye aapki chuni bhasha mein hi Total is business ke bill aur kaagaz print karega.',
+  'settings.language.loading': 'Bhasha load ho rahi hai…',
   // ---------- WP 7.2 security: passphrase lock, screen lock, backup checks, permissions ----------
   'errors.security.locked': 'Yeh business passphrase se lock hai. Kholne ke liye passphrase likhein.',
   'errors.security.keyMismatch': 'Yeh file is business ki chaabi se nahi khuli. Ho sakta hai yeh kisi aur business ki ho ya kharab ho gayi ho.',

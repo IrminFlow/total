@@ -13,6 +13,8 @@
  * environment, never a flag (argv is visible to every user in `ps`); see ./unlock.ts. A missing,
  * wrong or throttled passphrase exits with code 2 and the app's message.
  */
+// Prints / plain errors in a company's language: register hi / hinglish (the renderer loads them lazily).
+import '@shared/i18n/all'
 import { readFileSync, writeFileSync } from 'fs'
 import { setAuditContext } from '../services/audit'
 import { todayISO } from '@shared/dates'

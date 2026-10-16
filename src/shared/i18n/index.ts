@@ -10,10 +10,12 @@
 // - Pure: no DOM, no Electron. The renderer binds the user's language with `useT()`
 //   (renderer lib/i18n.ts); main reads the company's language (main/i18n.ts).
 // - Money and Indian digit grouping stay in money.ts: pass amounts in already formatted.
+// - Only `en` is bundled here. `hi` / `hinglish` (~560 KB of source) are REGISTERED: main and
+//   the tests import './all' (eager, synchronous); the renderer loads each one as its own chunk
+//   on demand (renderer lib/i18n.ts `loadCatalogue`). A language whose catalogue is not
+//   registered yet renders English (never blank) and reports `not-loaded` once in dev.
 
 import { en, type MessageKey } from './catalogues/en'
-import { hi } from './catalogues/hi'
-import { hinglish } from './catalogues/hinglish'
 import { formatMessage, MessageSyntaxError, type MessageVars } from './format'
 
 export type { MessageKey } from './catalogues/en'
@@ -35,7 +37,31 @@ export function languagePickerLabel(lang: Language, name: string, beta: boolean 
   return beta && lang === 'hinglish' ? `${name} (beta)` : name
 }
 
-export const CATALOGUES: Record<Language, Partial<Record<MessageKey, string>>> = { en, hi, hinglish }
+export type Catalogue = Partial<Record<MessageKey, string>>
+
+/** The catalogues registered so far: `en` always; `hi` / `hinglish` once registered (an empty
+ *  object until then — read `isCatalogueLoaded` to tell). */
+export const CATALOGUES: Record<Language, Catalogue> = { en, hi: {}, hinglish: {} }
+const loaded = new Set<Language>(['en'])
+
+/** Makes `lang`'s catalogue available to `t()` (renderer chunk loader, './all'). */
+export function registerCatalogue(lang: Language, catalogue: Catalogue): void {
+  if (lang === 'en') return
+  CATALOGUES[lang] = catalogue
+  loaded.add(lang)
+}
+
+/** Is `lang`'s catalogue registered (English always is)? */
+export function isCatalogueLoaded(lang: Language): boolean {
+  return loaded.has(lang)
+}
+
+/** Tests only: forget a registered catalogue (to exercise the not-loaded fallback). */
+export function unregisterCatalogueForTests(lang: Language): void {
+  if (lang === 'en') return
+  CATALOGUES[lang] = {}
+  loaded.delete(lang)
+}
 
 export function isLanguage(value: unknown): value is Language {
   return typeof value === 'string' && (LANGUAGES as readonly string[]).includes(value)
@@ -51,6 +77,8 @@ export type I18nProblem =
   | { kind: 'untranslated'; key: string; lang: Language }
   | { kind: 'missing-var'; key: string; lang: Language; vars: string[] }
   | { kind: 'syntax'; key: string; lang: Language; message: string }
+  /** `lang`'s catalogue is not registered yet: English is shown (reported once per language). */
+  | { kind: 'not-loaded'; key: string; lang: Language }
 
 interface I18nConfig {
   /** Dev build: unknown keys render as the key, and problems are reported. */
@@ -76,7 +104,7 @@ export function configureI18n(next: Partial<I18nConfig>): void {
 
 function report(problem: I18nProblem): void {
   if (!config.dev) return
-  const id = `${problem.kind}|${problem.lang}|${problem.key}`
+  const id = problem.kind === 'not-loaded' ? `not-loaded|${problem.lang}` : `${problem.kind}|${problem.lang}|${problem.key}`
   if (reported.has(id)) return
   reported.add(id)
   config.report(problem)
@@ -107,6 +135,10 @@ function render(key: MessageKey, message: string, vars: MessageVars | undefined,
 
 /** Translates `key` in `lang` (default English), falling back to `en` per key. */
 export function t(key: MessageKey, vars?: MessageVars, lang: Language = DEFAULT_LANGUAGE, options?: TOptions): string {
+  if (lang !== 'en' && !loaded.has(lang)) {
+    report({ kind: 'not-loaded', key, lang })
+    lang = DEFAULT_LANGUAGE
+  }
   const own = lang === 'en' ? undefined : CATALOGUES[lang][key]
   if (own != null && own !== '') {
     const text = render(key, own, vars, lang)

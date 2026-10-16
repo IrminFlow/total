@@ -1472,6 +1472,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.looks.language': 'भाषा',
   'simple.looks.languageHint': 'हिन्दी और Hinglish नए हैं और मशीन से लिखे गए हैं — कोई हिन्दी जानकार अभी इन्हें जाँच रहा है।',
   'simple.looks.languageCompany': 'मालिक होने के नाते, Total इस बिज़नेस के लिए जो प्रिंट करता है, वह भी इसी भाषा में होगा।',
+  'simple.looks.languageLoading': 'भाषा लोड हो रही है…',
   'simple.looks.lang.en': 'English',
   'simple.looks.lang.hi': 'हिन्दी',
   'simple.looks.lang.hinglish': 'Hinglish',
@@ -2708,6 +2709,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
 
   'settings.language.hinglish': 'Hinglish',
   'settings.language.companyNote': 'आप मालिक हैं, इसलिए आपकी चुनी भाषा में ही Total इस बिज़नेस के बिल और कागज़ प्रिंट करेगा।',
+  'settings.language.loading': 'भाषा लोड हो रही है…',
   // ---------- WP 7.2 security: passphrase lock, screen lock, backup checks, permissions ----------
   'errors.security.locked': 'यह बिज़नेस पासफ़्रेज़ से लॉक है। खोलने के लिए पासफ़्रेज़ लिखें।',
   'errors.security.keyMismatch': 'यह फ़ाइल इस बिज़नेस की चाबी से नहीं खुली। हो सकता है यह किसी और बिज़नेस की हो या खराब हो गई हो।',

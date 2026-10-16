@@ -243,8 +243,8 @@ fallback was shown, which would have cost up to 0.3 s on each first visit.
 `out/renderer/assets`: 1 JS file (5,745 kB) → 146 — the entry 1,955 kB + vendor 748 kB load at
 startup (2.7 MB); screens are 1–217 kB (median chunk 11 kB; Settings 217 kB, VoucherEntry 182 kB,
 Banking 160 kB, Masters 119 kB). What is left in the entry: react-dom (553 kB, vendor), the three
-i18n catalogues (en 200 kB, hi 195 kB, hinglish 209 kB — `t()` is synchronous, so the Hindi and
-Hinglish ones could only move with an async language switch), zod, the registry, DataTable, the
+i18n catalogues (en 200 kB, hi 195 kB, hinglish 209 kB — hi / hinglish moved out in PR #PRNUM,
+below), zod, the registry, DataTable, the
 AI panel, the palette.
 
 Measured on 17 Oct 2026 on a 20k Perf Traders seed (the renderer's work does not depend on the
@@ -287,6 +287,41 @@ main thread, 8–28 s in the worker). The worker file is ~530 kB; its verify cod
 first `verify` job only, so the open-time quick_check (a `pragma` job) starts as before. The perf
 seed's check reports "entries do not balance" — a pre-existing false failure for multi-year books
 without a closing journal (to-do.md, Performance); every step still runs, so the timing holds.
+
+### Lazy catalogues (PR #PRNUM)
+
+The Hindi and Hinglish catalogues were in the startup bundle for every user. Now only `en` is:
+`src/shared/i18n/index.ts` keeps a registry (`registerCatalogue`, `isCatalogueLoaded`); main, the
+CLI and the vitest setups import `@shared/i18n/all` (both registered synchronously — prints, error
+messages, bank suggestions unchanged); the renderer loads each as its own chunk with a dynamic
+import (`lib/i18n.ts` `loadCatalogue`). `main.tsx` awaits `preloadCatalogues()` before the first
+render for every language stored on this computer (app-wide and every user's key — a sign-in must
+not flash English either; the OS suggestion when nothing is stored, so the WP 10.4 wizard still
+starts in Hindi), bounded by `PRELOAD_TIMEOUT_MS` = 2 s (then English paints and the screen
+switches when the chunk arrives). An English user requests no chunk. A switch to a language not
+loaded yet keeps the current one on screen with a "Loading the language…" note until it arrives
+(`useLanguagePending`); a cached one switches at once. `t()` in a language not registered renders
+English and reports `not-loaded` once per language in dev. `lazyCatalogues.test.ts` fails on a
+static import of hi / hinglish / `all` from renderer or shared code.
+
+`out/renderer/assets`: entry `index-*.js` 1,980 kB → 1,425 kB (−555 kB, −28 %; 341 kB gzipped
+after); new chunks `hi-*.js` 344 kB (63 kB gz) and `hinglish-*.js` 215 kB (53 kB gz), loaded only
+by a user who picks them. Measured 17 Oct 2026, 2k Perf Traders seed (the renderer's work does not
+depend on the books), `perf-launch.mjs --boot [--lang hi]`, 3 runs × 5 reloads each, before
+(main at #135) then after; the laptop was loaded (load average 15–40), so read the trend, not
+the digits. `--lang hi` stores Hindi app-wide before the measured reloads; "catalogue wait" is the
+`total:catalogues` measure (the pre-paint load of the chunk):
+
+| renderer boot (median) | English, before | English, after | Hindi, before | Hindi, after |
+|---|---:|---:|---:|---:|
+| First launch DOMContentLoaded | 0.97 s | 0.59 s | 0.98 s | 0.57 s |
+| Reload → company list | 0.28 s | 0.23 s | 0.36 s | 0.22 s |
+| Reload DOMContentLoaded | 107 ms | 96 ms | 133 ms | 103 ms |
+| Catalogue wait before first paint | — | 0 (none) | — | 4.7 ms |
+
+A Hindi user pays ~5 ms for the chunk before the first paint; everyone else stops parsing ~555 kB.
+Not moved: the Hindi / Hinglish HELP articles (`help/hi`, `help/hinglish`, bundled by
+`import.meta.glob(?raw)` in `help/articles.ts`) are still in the entry — the next candidate.
 
 ## CI
 
@@ -359,6 +394,9 @@ weekly check writes only its meta stamp.
 - Launch ≤ 2 s: the Gateway's four reads are one round trip and the backup restore check waits
   for Home (PR #131), and the restore check runs in a worker thread (PR #136); left: lazy-loaded
   renderer screens (boot), and the open backup's verification could be moved after the reply if its audit row may
+  for Home (PR #131), screens are lazy (PR #135) and so are the hi / hinglish catalogues
+  (PR #PRNUM); left: the hi / hinglish help articles in the entry, the restore check in a worker
+  thread, and the open backup's verification could be moved after the reply if its audit row may
   follow the open's housekeeping rows (an ordering change — owner decision).
 - Server-side paging for the Sales / People DataTables — not needed: both are under budget at 100k
   (and the Sales list at 500k).

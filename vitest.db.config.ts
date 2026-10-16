@@ -10,6 +10,8 @@ export default defineConfig({
     }
   },
   test: {
+    // hi / hinglish are registered catalogues (the renderer loads them on demand); tests see all three.
+    setupFiles: ['src/shared/i18n/all.ts'],
     // Windows CI runners (Defender scanning fresh .db files) push I/O-heavy backup/restore
     // tests past vitest's 5s default; these suites are correctness-, not latency-, sensitive.
     testTimeout: 30000,

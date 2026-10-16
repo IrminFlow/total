@@ -5,3 +5,7 @@
 import { configure } from '@testing-library/react'
 
 configure({ asyncUtilTimeout: 10_000 })
+
+// hi / hinglish are loaded on demand in the app (lib/i18n.ts); tests see all three catalogues
+// registered up front, as before (lazyCatalogues.test.tsx unregisters them where it needs to).
+import '@shared/i18n/all'

@@ -13,6 +13,8 @@ import { startPackScheduler } from './packScheduler'
 import { cleanupOpenedCopies, sweepStaleOpenCopies } from './services/attachments'
 import { syncFolderWarning } from '@shared/syncpath'
 import { configureI18n } from '@shared/i18n'
+// Main renders hi / hinglish synchronously (prints, errors): register both catalogues.
+import '@shared/i18n/all'
 import { allowedExternalUrl } from '@shared/externalLinks'
 import { dataFolderLabel } from '@shared/updateText'
 import { MOVED_NOTE } from './services/dataRootMove'
