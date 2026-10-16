@@ -234,7 +234,8 @@ company list could draw. Now every screen App.tsx renders is its own chunk (`laz
 loaded on first visit by `lib/lazyScreen.tsx`; while a chunk is on its way `<main data-loading>`
 says "true", so the e2e harness waits for it as for a query), except what the first paint needs —
 CompanySelect + the setup wizard, Gateway, simple Home, Shell, the lock screens. Once Home is idle,
-the sidebar's screens are loaded one per idle slot (`components/HomePrefetch.tsx`), so a first click
+the sidebar's screens are loaded one per idle slot (`components/HomePrefetch.tsx`; a simple company
+only its simple screens — ~26, the full-app hand-offs load on first visit), so a first click
 renders at once. React, React Query, zustand and zod are one `vendor` chunk (`manualChunks` in
 `electron.vite.config.ts`). Not React.lazy: React holds back Suspense content until 300 ms after a
 fallback was shown, which would have cost up to 0.3 s on each first visit.

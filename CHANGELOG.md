@@ -362,7 +362,7 @@ Read these before filing from the next release.
   SimpleHome, Shell and the lock screens is a dynamic import (`src/renderer/src/lazyScreens.ts`,
   `lib/lazyScreen.tsx` — not React.lazy, whose Suspense reveal throttle costs up to 300 ms per first
   visit); `<main data-loading>` stays "true" while a chunk loads (`lib/chunkLoading.ts`); the
-  sidebar's chunks are prefetched once Home is idle (`components/HomePrefetch.tsx`); `vendor`
+  sidebar's chunks are prefetched once Home is idle (`components/HomePrefetch.tsx`; simple companies only their simple screens); `vendor`
   chunk via `manualChunks`; `scripts/perf-launch.mjs --boot` times the renderer alone.
   `FOCUS_SEARCH_EVENT` moved to `lib/searchEvents.ts` (re-exported). [#135](https://github.com/IrminFlow/total/pull/135)
 - "I've filed" lives in company meta `gstFiled`, not in `assistant_marks` (which has no room for an
