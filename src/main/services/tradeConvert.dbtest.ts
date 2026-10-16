@@ -15,7 +15,8 @@ import {
 } from '@shared/voucherEdit'
 import { convertPicks, convertTogetherProblem } from '@shared/tradeCycle/convert'
 import { createLedger, listLedgers, listStockItems } from './masters'
-import { getVoucher, saveVoucher } from './vouchers'
+import { deleteVoucher, getVoucher, saveVoucher } from './vouchers'
+import { setCreditHold } from './receivables'
 import { openSourceLines } from './tradeLinks'
 import { listStockNotes } from './tradeLists'
 import { closeStockNote } from './tradeClosure'
@@ -205,5 +206,55 @@ describe('Convert GRNs to one bill', () => {
     expect(got.movesStock).toEqual([0, 0])
     expect(stockOf(b.db)).toEqual(before)
     expect(listStockNotes(b.db, { stage: 'receipt_note', from: '2025-04-01', to: TO, filter: 'all' }).map((r) => r.status)).toEqual(['done', 'done'])
+  })
+})
+
+describe('Convert — review cases', () => {
+  it('a bill at another rate re-prices its GRN (linked costing): stock value = the hand-entered twin', () => {
+    const run = (converted: boolean) => {
+      const b = books()
+      const g1 = saveNote(b, 'receipt_note', '2025-06-01', [row(b.w, 8, 100_000, { godownId: b.godown })])
+      const g2 = saveNote(b, 'receipt_note', '2025-06-02', [row(b.w, 2, 100_000, { godownId: b.godown2 })])
+      const rows = converted
+        ? convertedRows(b, 'purchase', b.supplier, [g1, g2]).map((r) => ({ ...r, rate: 110_000 }))
+        : [
+            row(b.w, 8, 110_000, { godownId: b.godown, source: { lineUid: getVoucher(b.db, g1)!.inventory[0]!.lineUid!, linkType: 'fulfil' } }),
+            row(b.w, 2, 110_000, { godownId: b.godown2, source: { lineUid: getVoucher(b.db, g2)!.inventory[0]!.lineUid!, linkType: 'fulfil' } })
+          ]
+      const bill = saveVoucher(b.db, { ...invoicePayload(b, 'purchase', '2025-06-05', rows, b.supplier), reference: 'SUP-78' }).id
+      return { b, bill, stock: stockOf(b.db) }
+    }
+    const a = run(true)
+    const t = run(false)
+    expect(canon(a.b.db, a.bill)).toEqual(canon(t.b.db, t.bill))
+    expect(a.stock).toEqual(t.stock)
+    // 100 opening widgets worth ₹10,000 + 10 received on GRNs @ ₹1,000, re-priced by the bill @ ₹1,100:
+    // ₹10,000 + ₹11,000 = ₹21,000 (at the GRN rate it would be ₹20,000).
+    expect(a.stock.find((r) => r[0] === a.b.w)).toEqual([a.b.w, 110_000, 2_100_000])
+    // Fully billed: nothing pending (GRNI = 0).
+    expect(listStockNotes(a.b.db, { stage: 'receipt_note', from: '2025-04-01', to: TO, filter: 'pending' })).toEqual([])
+  })
+
+  it('a party on credit hold: the converted invoice is refused by saveVoucher (no override), the challan stays pending', () => {
+    const b = books()
+    const c = challans(b)
+    const rows = convertedRows(b, 'sales', b.buyer, [c.dc2])
+    setCreditHold(b.db, b.buyer, true, 'Overdue')
+    expect(() => saveVoucher(b.db, invoicePayload(b, 'sales', '2025-05-10', rows, b.buyer))).toThrow(/credit hold/)
+    const r = listStockNotes(b.db, { stage: 'delivery_note', from: '2025-04-01', to: TO, filter: 'pending' }).find((x) => x.voucherId === c.dc2)
+    expect(r).toMatchObject({ status: 'pending', pendingMilli: 2000 })
+  })
+
+  it('a partial invoice binned puts the challan back to fully pending', () => {
+    const b = books()
+    const c = challans(b)
+    const before = listStockNotes(b.db, { stage: 'delivery_note', from: '2025-04-01', to: TO, filter: 'all' }).find((x) => x.voucherId === c.dc1)!
+    expect(before).toMatchObject({ status: 'partly', pendingMilli: 11_000 })
+    const inv = (b.db.prepare("SELECT DISTINCT to_voucher_id AS id FROM line_links WHERE from_voucher_id = ?").get(c.dc1) as { id: number }).id
+    deleteVoucher(b.db, inv)
+    const after = listStockNotes(b.db, { stage: 'delivery_note', from: '2025-04-01', to: TO, filter: 'pending' }).find((x) => x.voucherId === c.dc1)!
+    expect(after).toMatchObject({ status: 'pending', pendingMilli: 15_000, targets: [] })
+    // The conversion now draws all 10 widgets again.
+    expect(convertedRows(b, 'sales', b.buyer, [c.dc1]).map((r) => r.qtyText)).toEqual(['10', '5'])
   })
 })

@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { OpenSourceLine } from '@shared/tradeCycle/types'
 import type { TradeSideKind } from '@shared/tradeCycle/rules'
 import { addFromFor, rowsFromSourcePicks, sourceLocksGoods, type SourcePick } from '@shared/voucherEdit'
+import { convertPicks } from '@shared/tradeCycle/convert'
 import type { LinkType } from '@shared/domain'
 import { api } from '../../lib/client'
 import { isAnyModalOpen } from '../../components/ui'
@@ -51,14 +52,19 @@ export function useAddFrom(opts: {
   const sourced = rows.some(own)
   const linkType: LinkType = addFrom?.linkType ?? rows.find(own)?.source?.linkType ?? 'fulfil'
   const [open, setOpen] = useState(false)
-  const { data: openLines, isLoading } = useQuery({
+  // "Convert to …" draws from FRESH open lines (read after this form opened): a cached list from
+  // a minute ago lacks a note / order line saved since (the same rule as InvoiceEntry's conversion).
+  const convertFrom = useRef(opts.convertFromTradeDocId ?? null)
+  const openedAt = useRef(Date.now())
+  const { data: openLines, isLoading, dataUpdatedAt: openLinesAt } = useQuery({
     queryKey: ['openSourceLines', partyId, kind, linkType, voucherId ?? null, tradeDocId ?? null],
     queryFn: () =>
       api.links.openSourceLines({
         partyLedgerId: partyId!, targetKind: kind, linkType,
         ...(voucherId ? { excludeVoucherId: voucherId } : {}), ...(tradeDocId ? { excludeTradeDocId: tradeDocId } : {})
       }),
-    enabled: partyId != null && (!!addFrom || sourced)
+    enabled: partyId != null && (!!addFrom || sourced),
+    ...(convertFrom.current != null ? { refetchOnMount: 'always' as const } : {})
   })
   const byUid = useMemo(() => new Map((openLines ?? []).map((l) => [l.lineUid, l])), [openLines])
   const qtyInForm = (uid: string, exceptKey?: number): number =>
@@ -116,15 +122,14 @@ export function useAddFrom(opts: {
     })
   }, [partyId, setRows])
 
-  const convertFrom = useRef(opts.convertFromTradeDocId ?? null)
   useEffect(() => {
-    if (convertFrom.current == null || !openLines) return
+    if (convertFrom.current == null || !openLines || openLinesAt < openedAt.current) return
     const docId = convertFrom.current
     convertFrom.current = null
-    const picks = openLines.filter((l) => l.tradeDocId === docId).map((line) => ({ line, qtyMilli: line.pendingMilli }))
+    const picks = convertPicks(openLines, { tradeDocId: docId })
     if (picks.length > 0) insert(picks)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openLines])
+  }, [openLines, openLinesAt])
 
   const hotkey = opts.hotkey ?? true
   useEffect(() => {
