@@ -135,6 +135,10 @@ describe('setup wizard', () => {
     // The wizard itself re-renders in Hindi.
     expect(screen.getByTestId('setup-step-label').textContent).toBe(t('simple.setup.step', { step: 1, total: 6 }, 'hi'))
     expect(screen.getByTestId('setup-next').textContent).toBe(t('common.next', undefined, 'hi'))
+    // State names in Hindi, code order and values unchanged.
+    const stateOpts = [...(screen.getByTestId('setup-state') as HTMLSelectElement).options]
+    expect(stateOpts.find((o) => o.value === '27')?.textContent).toBe('27 · महाराष्ट्र')
+    expect(stateOpts.slice(0, 2).map((o) => o.value)).toEqual(['01', '02'])
     fireEvent.change(screen.getByTestId('setup-name'), { target: { value: 'Ramesh Kirana' } })
     next()
     click('setup-type-retail')
