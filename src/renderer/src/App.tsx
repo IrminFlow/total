@@ -8,93 +8,105 @@ import { Shell } from './components/Shell'
 import { SimpleKitLabels } from './simple/kitLabels'
 import { Gateway } from './screens/Gateway'
 import { SimpleHome } from './simple/SimpleHome'
-import { SimpleSection } from './simple/SimpleSection'
-import { SimpleLooks } from './simple/SimpleLooks'
-import { SimpleBackups } from './simple/SimpleBackups'
-import { SimpleFeatures } from './simple/SimpleFeatures'
-import { AiHelper } from './simple/ai/AiHelper'
-import { Openings } from './simple/Openings'
-import { MoneyIn } from './simple/money/MoneyIn'
-import { MoneyOut } from './simple/money/MoneyOut'
-import { MoveMoney } from './simple/money/MoveMoney'
-import { MoneyList } from './simple/money/MoneyList'
-import { MakeBill } from './simple/sell/MakeBill'
-import { SalesList } from './simple/sell/SalesList'
-import { QuickBill } from './simple/sell/QuickBill'
-import { ReturnSale } from './simple/returns/ReturnSale'
-import { ReturnPurchase } from './simple/returns/ReturnPurchase'
-import { BankScreen } from './simple/bank/BankScreen'
-import { RecordPurchase } from './simple/buy/RecordPurchase'
-import { PurchaseList } from './simple/buy/PurchaseList'
-import { PeopleList } from './simple/people/PeopleList'
-import { PersonView } from './simple/people/PersonView'
-import { StockList } from './simple/stock/StockList'
-import { StockCount } from './simple/stock/StockCount'
-import { SavedCount } from './simple/stock/SavedCount'
-import { MadeGoods } from './simple/stock/MadeGoods'
-import { ReportsScreen } from './simple/reports/ReportsScreen'
-import { TaxesScreen } from './simple/taxes/TaxesScreen'
+// Screens are separate chunks, loaded on first visit (lazyScreens.ts, lib/lazyScreen.tsx).
+import {
+  SimpleSection,
+  SimpleLooks,
+  SimpleBackups,
+  SimpleFeatures,
+  AiHelper,
+  Openings,
+  MoneyIn,
+  MoneyOut,
+  MoveMoney,
+  MoneyList,
+  MakeBill,
+  SalesList,
+  QuickBill,
+  ReturnSale,
+  ReturnPurchase,
+  BankScreen,
+  RecordPurchase,
+  PurchaseList,
+  PeopleList,
+  PersonView,
+  StockList,
+  StockCount,
+  SavedCount,
+  MadeGoods,
+  ReportsScreen,
+  TaxesScreen,
+  DayBook,
+  ImportTallyScreen,
+  ImportWizardScreen,
+  BooksExportScreen,
+  VoucherEntry,
+  Masters,
+  TrialBalanceScreen,
+  ProfitLossScreen,
+  BalanceSheetScreen,
+  CashFlowScreen,
+  ExceptionsScreen,
+  StockSummaryScreen,
+  ManufactureScreen,
+  CounterBillingScreen,
+  ManufactureRegisterScreen,
+  ManufactureReportsScreen,
+  FixedAssetsScreen,
+  CashForecastScreen,
+  LoansScreen,
+  ForexScreen,
+  StockMovementsScreen,
+  StockJournalScreen,
+  StockReportsScreen,
+  LedgerStatementScreen,
+  Gstr1Screen,
+  Gstr3bScreen,
+  Gstr2bScreen,
+  Gstr9Screen,
+  Itc04Screen,
+  ItcReversalScreen,
+  CompanyInfoScreen,
+  RegistersScreen,
+  OutstandingsScreen,
+  ReceivablesScreen,
+  PayablesScreen,
+  TradePendingScreen,
+  TradeDocListScreen,
+  TradeDocEntry,
+  PendingOrdersScreen,
+  QuotationPipelineScreen,
+  ThreeWayMatchScreen,
+  ItemDemandScreen,
+  OrderBookScreen,
+  TradeReturnsScreen,
+  StaleDocumentsScreen,
+  UnbilledGoodsScreen,
+  ConsolidatedScreen,
+  ConsolidationScreen,
+  CaptureScreen,
+  BankingScreen,
+  EdocsScreen,
+  PayrollScreen,
+  TdsScreen,
+  TcsScreen,
+  CostCentresScreen,
+  BudgetsScreen,
+  ReportBuilderScreen,
+  AssistantsScreen,
+  RatiosScreen,
+  YearEndScreen,
+  Settings,
+  EditLogScreen,
+  SearchResultsScreen,
+  HelpSettings,
+  SecuritySettings,
+  PeopleRoles
+} from './lazyScreens'
+import { HomePrefetch } from './components/HomePrefetch'
 import { useScreenView } from './lib/mode'
 import { useAlwaysFullRedirect } from './lib/handoff'
-import { DayBook } from './screens/DayBook'
-import { ImportTallyScreen } from './screens/ImportTally'
-import { ImportWizardScreen } from './screens/ImportWizard'
-import { BooksExportScreen } from './screens/BooksExport'
-import { VoucherEntry } from './screens/VoucherEntry'
-import { Masters } from './screens/Masters'
-import { TrialBalanceScreen } from './screens/TrialBalance'
-import { ProfitLossScreen } from './screens/ProfitLoss'
-import { BalanceSheetScreen } from './screens/BalanceSheet'
-import { CashFlowScreen } from './screens/CashFlow'
-import { ExceptionsScreen } from './screens/Exceptions'
-import { StockSummaryScreen } from './screens/StockSummary'
-import { ManufactureScreen } from './screens/Manufacture'
-import { CounterBillingScreen } from './screens/CounterBilling'
-import { ManufactureRegisterScreen } from './screens/ManufactureRegister'
-import { ManufactureReportsScreen } from './screens/ManufactureReports'
-import { FixedAssetsScreen } from './screens/FixedAssets'
-import { CashForecastScreen } from './screens/CashForecast'
-import { LoansScreen } from './screens/Loans'
-import { ForexScreen } from './screens/Forex'
-import { StockMovementsScreen } from './screens/StockMovements'
-import { StockJournalScreen } from './screens/StockJournal'
-import { StockReportsScreen } from './screens/StockReports'
-import { LedgerStatementScreen } from './screens/LedgerStatement'
-import { Gstr1Screen, Gstr3bScreen } from './screens/GstReturns'
-import { Gstr2bScreen } from './screens/Gstr2b'
-import { Gstr9Screen } from './screens/gst/Gstr9Screen'
-import { Itc04Screen } from './screens/gst/Itc04Screen'
-import { ItcReversalScreen } from './screens/gst/ItcReversalScreen'
-import { CompanyInfoScreen } from './screens/CompanyInfo'
-import { RegistersScreen } from './screens/Registers'
-import { OutstandingsScreen } from './screens/Outstandings'
-import { ReceivablesScreen } from './screens/Receivables'
-import { PayablesScreen } from './screens/Payables'
-import { TradePendingScreen } from './screens/TradePending'
-import { TradeDocListScreen } from './screens/TradeDocList'
-import { TradeDocEntry } from './screens/TradeDocEntry'
-import { PendingOrdersScreen, QuotationPipelineScreen } from './screens/TradeOrderReports'
-import { ThreeWayMatchScreen } from './screens/ThreeWayMatch'
-import { ItemDemandScreen, OrderBookScreen } from './screens/TradeAnalysis'
-import { TradeReturnsScreen } from './screens/TradeReturns'
-import { StaleDocumentsScreen, UnbilledGoodsScreen } from './screens/TradeUnbilled'
-import { ConsolidatedScreen } from './screens/Consolidated'
-import { ConsolidationScreen } from './screens/consolidation/Consolidation'
-import { CaptureScreen } from './screens/Capture'
-import { BankingScreen } from './screens/Banking'
-import { EdocsScreen } from './screens/Edocs'
-import { PayrollScreen } from './screens/Payroll'
-import { TdsScreen } from './screens/Tds'
-import { TcsScreen } from './screens/Tcs'
-import { CostCentresScreen } from './screens/CostCentres'
-import { BudgetsScreen } from './screens/Budgets'
-import { ReportBuilderScreen } from './screens/reportBuilder/ReportBuilder'
-import { AssistantsScreen } from './screens/assistants/Assistants'
-import { RatiosScreen } from './screens/Ratios'
-import { YearEndScreen } from './screens/YearEnd'
-import { Settings } from './screens/Settings'
-import { EditLogScreen } from './screens/EditLog'
-import { SearchResultsScreen, FOCUS_SEARCH_EVENT } from './screens/SearchResults'
+import { FOCUS_SEARCH_EVENT } from './lib/searchEvents'
 import { CommandPalette } from './components/CommandPalette'
 import { useAssistantPanel } from './components/ai/AssistantPanel'
 import { ShortcutHelp } from './components/ShortcutHelp'
@@ -105,10 +117,7 @@ import { DrillHost } from './components/DrillHost'
 import { LinkedDocsHost } from './components/LinkedDocs'
 import { invalidationFamilies } from './lib/screens'
 import { handleHelpKey } from './help/keys'
-import { HelpSettings } from './simple/HelpSettings'
 import { useSessionLock } from './lib/sessionLock'
-import { SecuritySettings } from './simple/SecuritySettings'
-import { PeopleRoles } from './simple/PeopleRoles'
 
 export default function App(): React.JSX.Element {
   const { slug, locked, integrityWarning, setIntegrityWarning } = useSession()
@@ -340,6 +349,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'settings' && <Settings key={screen.tab ?? 'backups'} tab={screen.tab} />}
         </ErrorBoundary>
       </Shell>
+      <HomePrefetch simple={simpleView} />
       {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
       {helpOpen && <ShortcutHelp onClose={() => setHelpOpen(false)} />}
       <DrillHost />

@@ -5,9 +5,12 @@ import { useEffect, useRef } from 'react'
 import { useDrill, ledgerForShortcut, openLedgerEdit, openLedgerStatement } from '../lib/drill'
 import { useSession } from '../state/stores'
 import { LedgerFormModal } from './LedgerFormModal'
-import { ItemFormModal } from '../screens/Masters'
+import { lazyScreen } from '../lib/lazyScreen'
 import { useStockItems } from './pickers'
 import { Modal, isAnyModalOpen } from './ui'
+
+// The item form lives in the Masters screen's chunk; loaded the first time an item is edited from a drill.
+const ItemFormModal = lazyScreen(() => import('../screens/Masters'), 'ItemFormModal')
 
 export function DrillHost(): React.JSX.Element {
   const ledgerEditId = useDrill((s) => s.ledgerEditId)

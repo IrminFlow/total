@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useIsFetching } from '@tanstack/react-query'
+import { useChunkLoading } from '../lib/chunkLoading'
 import { switchCompany, useNav, usePeriodPicker, useScreen, useSession, useTheme, useToasts } from '../state/stores'
 import { api } from '../lib/client'
 import { Button, DateInput, Kbd, Modal } from './ui'
@@ -37,6 +38,8 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   const { theme, toggle } = useTheme()
   const { open: periodOpen, setOpen: setPeriodOpen } = usePeriodPicker()
   const fetching = useIsFetching()
+  // A lazily loaded screen still waiting for its code counts as loading (lib/lazyScreen.tsx).
+  const chunksLoading = useChunkLoading((s) => s.count)
   const features = useFeatures()
   const sections = useNavSections(screen.name)
   const dynamicNav = useDynamicNav()
@@ -279,7 +282,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
           id="main"
           tabIndex={-1}
           data-screen={screen.name}
-          data-loading={fetching > 0 ? 'true' : 'false'}
+          data-loading={fetching > 0 || chunksLoading > 0 ? 'true' : 'false'}
           className="min-h-0 flex-1 overflow-auto p-page outline-none"
         >
           {children}
