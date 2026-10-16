@@ -300,8 +300,17 @@ describe('cash flow', () => {
     fa.postRun(db, '2025-04-01', '2026-03-31') // ₹9,500
     const cf = cashFlow(db, '2025-04-01', '2026-03-31')
     // The desk (cash) and the beforeEach laptop (on credit) — and no +9,500 inflow from the run.
-    expect(cf.investing).toEqual([{ name: 'Fixed Assets', amount: -R(160000) }])
-    expect(cf.operating).toContainEqual({ name: 'Depreciation (non-cash)', amount: R(9500) })
+    const fig = (rows: { name: string; amount: number }[]): { name: string; amount: number }[] => rows.map(({ name, amount }) => ({ name, amount }))
+    expect(fig(cf.investing)).toEqual([{ name: 'Fixed Assets', amount: -R(160000) }])
+    expect(fig(cf.operating)).toContainEqual({ name: 'Depreciation (non-cash)', amount: R(9500) })
+    // Drill-down: the run's voucher alone behind the add-back, its accumulated-depreciation ledger
+    // the part; the run's voucher is not behind the Fixed Assets line.
+    const dep = cf.operating.find((r) => r.name === 'Depreciation (non-cash)')!
+    const runs = (db.prepare('SELECT voucher_id AS id FROM depreciation_runs WHERE voucher_id IS NOT NULL AND asset_id IS NULL').all() as { id: number }[]).map((r) => r.id)
+    expect(dep.voucherIds).toEqual(runs)
+    expect(dep.parts!.reduce((s, p) => s + p.amount, 0)).toBe(R(9500))
+    expect(cf.investing[0]!.voucherIds!.some((v) => runs.includes(v))).toBe(false)
+    expect(cf.investing[0]!.parts!.reduce((s, p) => s + p.amount, 0)).toBe(-R(160000))
     expect(cf.netChange).toBe(cf.closingCash - cf.openingCash)
   })
 })

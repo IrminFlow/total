@@ -251,7 +251,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-made-goods' && <MadeGoods key={screen.itemId ?? 'new'} itemId={screen.itemId} />}
           {screen.name === 'simple-reports' && <ReportsScreen key={`${screen.report ?? 'doing'}-${screen.side ?? ''}`} report={screen.report} side={screen.side} />}
           {screen.name === 'simple-taxes' && <TaxesScreen key={screen.period ?? 'default'} period={screen.period} />}
-          {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} date={screen.date} />}
+          {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} date={screen.date} voucherIds={screen.voucherIds} source={screen.source} />}
           {screen.name === 'import-tally' && <ImportTallyScreen />}
           {screen.name === 'data-import' && <ImportWizardScreen />}
           {screen.name === 'data-export' && <BooksExportScreen />}

@@ -80,9 +80,11 @@ describe('cashFlow (#53)', () => {
 
     const cf = cashFlow(db, '2025-04-01', '2025-04-30')
     expect(cf.netProfit).toBe(35000)
-    expect(cf.operating).toEqual([{ name: 'Current Assets', amount: -5000 }])
+    // Figures only (the drill-down ids are cashFlowDrill.dbtest's).
+    const fig = (rows: { name: string; amount: number }[]): { name: string; amount: number }[] => rows.map(({ name, amount }) => ({ name, amount }))
+    expect(fig(cf.operating)).toEqual([{ name: 'Current Assets', amount: -5000 }])
     expect(cf.operatingTotal).toBe(30000)
-    expect(cf.investing).toEqual([{ name: 'Fixed Assets', amount: -10000 }])
+    expect(fig(cf.investing)).toEqual([{ name: 'Fixed Assets', amount: -10000 }])
     expect(cf.investingTotal).toBe(-10000)
     expect(cf.financing).toEqual([])
     expect(cf.netChange).toBe(20000)

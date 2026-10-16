@@ -948,7 +948,27 @@ export function cashFlow(db: DB, from: string, to: string): CashFlowStatement {
       .all(from, to) as { id: number; m: number }[]).map((r) => [r.id, r.m])
   )
 
-  const deltaByGroup = new Map<string, number>()
+  // Drill-down (what each line was computed from): per line the ledgers and their deltas, and
+  // the in-books, non-closing vouchers of the period that moved them. A depreciation run's moves
+  // all go to the depreciation line (the group line takes a − b − dep), so its vouchers belong
+  // to that line only. Nothing here changes a figure.
+  interface LineDrill { delta: number; parts: Map<number, { ledgerId: number; name: string; amount: number }>; vouchers: Set<number> }
+  const lines = new Map<string, LineDrill>()
+  const lineOf = (name: string): LineDrill => {
+    let d = lines.get(name)
+    if (!d) lines.set(name, (d = { delta: 0, parts: new Map(), vouchers: new Set() }))
+    return d
+  }
+  const addPart = (line: string, l: { id: number; name: string }, delta: number): void => {
+    const d = lineOf(line)
+    d.delta += delta
+    const p = d.parts.get(l.id)
+    if (p) p.amount += delta
+    else d.parts.set(l.id, { ledgerId: l.id, name: l.name, amount: delta })
+  }
+  const lineOfLedger = new Map<number, string>()
+  const depLedgers = new Set<number>()
+
   let openingCash = 0
   let closingCash = 0
   for (const l of ledgers) {
@@ -965,22 +985,57 @@ export function cashFlow(db: DB, from: string, to: string): CashFlowStatement {
     if (a === b && dep === 0) continue
     const top = topOf(l.groupId)
     if (top.nature !== 'asset' && top.nature !== 'liability') continue // P&L ledgers live in netProfit
-    if (dep !== 0) deltaByGroup.set(DEPRECIATION_ADD_BACK, (deltaByGroup.get(DEPRECIATION_ADD_BACK) ?? 0) + dep)
-    deltaByGroup.set(top.name, (deltaByGroup.get(top.name) ?? 0) + (a - b - dep))
+    if (dep !== 0) {
+      addPart(DEPRECIATION_ADD_BACK, l, dep)
+      depLedgers.add(l.id)
+    }
+    addPart(top.name, l, a - b - dep)
+    lineOfLedger.set(l.id, top.name)
+  }
+  if (lines.size > 0) {
+    const depVouchers = new Set(
+      (db.prepare(`SELECT voucher_id AS id FROM depreciation_runs WHERE voucher_id IS NOT NULL AND asset_id IS NULL`).all() as { id: number }[]).map((r) => r.id)
+    )
+    const moved = db
+      .prepare(
+        `SELECT DISTINCT vl.ledger_id, v.id
+         FROM vouchers v CROSS JOIN voucher_lines vl ON vl.voucher_id = v.id
+         WHERE v.date BETWEEN ? AND ? AND ${IN_BOOKS} AND ${NOT_YEAR_END_CLOSE}`
+      )
+      .raw()
+    for (const [ledgerId, voucherId] of moved.iterate(from, to) as IterableIterator<[number, number]>) {
+      if (depVouchers.has(voucherId)) {
+        if (depLedgers.has(ledgerId)) lineOf(DEPRECIATION_ADD_BACK).vouchers.add(voucherId)
+        continue
+      }
+      const line = lineOfLedger.get(ledgerId)
+      if (line) lineOf(line).vouchers.add(voucherId)
+    }
   }
   // WP 1.3: a period containing the books' first day counts the stored openings of income/
   // expense ledgers in net profit (pnlLedgerAmounts). They are opening balances, not cash moved
   // in the period, so add them back as a non-cash operating item to keep the reconciliation.
   const { storedIncluded } = pnlLedgerAmounts(db, from, to)
   if (storedIncluded !== 0) {
-    deltaByGroup.set('Income/expense opening balances', -storedIncluded)
+    const stored = db
+      .prepare(
+        `SELECT l.id, l.name, l.opening_balance AS ob FROM ledgers l JOIN groups g ON g.id = l.group_id
+         WHERE g.nature IN ('income', 'expense') AND l.opening_balance <> 0`
+      )
+      .all() as { id: number; name: string; ob: number }[]
+    for (const r of stored) addPart('Income/expense opening balances', r, -r.ob)
   }
 
   return buildCashFlow({
     period: { from, to },
     netProfit: pnl.netProfit,
     stockDelta: pnl.closingStock - pnl.openingStock,
-    groupDeltas: [...deltaByGroup].map(([name, delta]) => ({ name, delta })),
+    groupDeltas: [...lines].map(([name, d]) => ({
+      name,
+      delta: d.delta,
+      parts: [...d.parts.values()],
+      ...(name === 'Income/expense opening balances' ? {} : { voucherIds: [...d.vouchers] })
+    })),
     openingCash,
     closingCash
   })

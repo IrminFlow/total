@@ -106,7 +106,9 @@ function dayBookTotalsLabel({ rows }: DataTableFooterContext<DayBookRow>): strin
 }
 
 /** `date` (WP 8.6): one day's entries — the simple Home's Money in / out today. */
-export function DayBook({ month, kind, date }: { month?: string; kind?: string; date?: string } = {}): React.JSX.Element {
+/** `voucherIds` + `source`: a drill from another report (the cash flow statement's line) — only
+ *  those vouchers, with a chip naming where they came from. */
+export function DayBook({ month, kind, date, voucherIds, source }: { month?: string; kind?: string; date?: string; voucherIds?: number[]; source?: string } = {}): React.JSX.Element {
   const { from, to } = useSession()
   const nav = useNav()
   const toast = useToasts()
@@ -121,6 +123,10 @@ export function DayBook({ month, kind, date }: { month?: string; kind?: string; 
   useEffect(() => {
     setDrill({ month, kind, date })
   }, [month, kind, date])
+  const [only, setOnly] = useState<{ ids: Set<number>; source: string } | null>(voucherIds ? { ids: new Set(voucherIds), source: source ?? '' } : null)
+  useEffect(() => {
+    setOnly(voucherIds ? { ids: new Set(voucherIds), source: source ?? '' } : null)
+  }, [voucherIds, source])
   const { data, isLoading } = useQuery({
     queryKey: ['daybook', from, to, 'all'],
     queryFn: () => api.reports.dayBook(from, to, true)
@@ -135,8 +141,9 @@ export function DayBook({ month, kind, date }: { month?: string; kind?: string; 
     if (drill.month) all = all.filter((r) => r.date.startsWith(drill.month!))
     if (drill.kind) all = all.filter((r) => r.kind === drill.kind)
     if (drill.date) all = all.filter((r) => r.date === drill.date)
+    if (only) all = all.filter((r) => only.ids.has(r.voucherId))
     return all
-  }, [data, scope, drill])
+  }, [data, scope, drill, only])
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
   // WP 6.4: multi-select → bulk edit (preview / apply / undo), and the row's attachments. Only the
@@ -172,7 +179,7 @@ export function DayBook({ month, kind, date }: { month?: string; kind?: string; 
           )
         }}
       />
-      {(scope !== 'books' || drill.month || drill.kind || drill.date) && (
+      {(scope !== 'books' || drill.month || drill.kind || drill.date || only) && (
         <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="daybook-filters">
           {scope !== 'books' && (
             <Chip onRemove={() => opts.set('scope', 'books')} removeLabel={`Show in-books vouchers only (now: ${scopeLabel})`} testId="daybook-scope-chip">
@@ -198,6 +205,12 @@ export function DayBook({ month, kind, date }: { month?: string; kind?: string; 
               </span>
               {!drill.date && <span className="text-hint text-muted">Filtered from Registers</span>}
             </>
+          )}
+          {only && (
+            <Chip onRemove={() => setOnly(null)} removeLabel="Show every voucher of the period" testId="daybook-only-chip">
+              {only.source ? `${only.source} · ` : ''}
+              {only.ids.size} {only.ids.size === 1 ? 'voucher' : 'vouchers'}
+            </Chip>
           )}
         </div>
       )}
