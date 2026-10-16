@@ -147,8 +147,8 @@ done on main were dropped. One line each; the pointer says where to look.
 - Attachments, capture files, exports, logs and the temporary plaintext snapshot inside an encrypted export are not encrypted — PR #112
 - `total-cli` / MCP refuse a locked business (no `--passphrase`); consolidation reads a locked member only while it is the open business — PR #112
 - No "remember on this Mac" — the passphrase is asked on every open — PR #112
-- ~~`canSeeProfit` doesn't cover the trial balance, report builder or AI tools; the UI doesn't hide buttons by flag (main refuses)~~ DONE — trial balance redacted, report builder / packs / AI tools / Ask Total refuse profit, export / Save / AI-settings buttons follow the flags — PR #NNN (from PR #112)
-- ~~Session lock needs a user with a PIN~~ DONE — a business without users locks to a privacy screen (its passphrase when it has one; `session:unlock`) — PR #NNN (from PR #112)
+- ~~`canSeeProfit` doesn't cover the trial balance, report builder or AI tools; the UI doesn't hide buttons by flag (main refuses)~~ DONE — trial balance redacted, report builder / packs / AI tools / Ask Total refuse profit, export / Save / AI-settings buttons follow the flags — PR #127 (from PR #112)
+- ~~Session lock needs a user with a PIN~~ DONE — a business without users locks to a privacy screen (its passphrase when it has one; `session:unlock`) — PR #127 (from PR #112)
 - Renderer sandbox is off (`sandbox: false`) and IPC handlers don't validate the sender frame — GPT review, `src/main/index.ts:93`, `src/main/ipc.ts`
 - ~~deleteVoucher writes its audit row after (outside) the deleting transaction~~ DONE — restore / purge / PDC maturing too — PR #118
 - ~~A company file migrates on open before any pre-upgrade snapshot is taken~~ DONE — `backups/pre-upgrade-*.db` before every migration, no copy = no migration (PR #116); interrupted multi-migration upgrades tested in PR #118 — GPT review, `src/main/db/connection.ts`

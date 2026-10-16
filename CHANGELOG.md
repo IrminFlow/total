@@ -121,11 +121,11 @@ what you typed, and a **Back to simple** button.
   the screen says why), a custom report, a report pack, the AI assistant or Ask Total ("Profit is
   not shown to your sign-in"). Someone who can't export or can't record entries sees those buttons
   greyed out with the reason, instead of finding out after pressing them. Nothing changes for the
-  owner or for anyone whose switches were never touched. [#NNN](https://github.com/IrminFlow/total/pull/NNN)
+  owner or for anyone whose switches were never touched. [#127](https://github.com/IrminFlow/total/pull/127)
 - **Lock the screen without setting up people.** Ctrl/Cmd+L and the idle timeout now work in a
   business with no sign-ins: with a passphrase lock it asks for the passphrase, otherwise it is a
   privacy screen that anyone can unlock (it says so, and points to People and roles for a real
-  lock). [#NNN](https://github.com/IrminFlow/total/pull/NNN)
+  lock). [#127](https://github.com/IrminFlow/total/pull/127)
 - **Updates ask first.** Total never downloads or installs an update without a click ("Download
   now", "Later", "Skip this version"; "Install when I quit" is a choice). Settings, "How Total
   looks" (in the full app: Settings, About), has "Check for updates automatically" (on by default);
@@ -311,7 +311,7 @@ Read these before filing from the next release.
   `backup:check`, `backup:checks`; `company:open` takes `passphrase`; `users:save` takes capability
   flags. Window-open allow-list (`shared/externalLinks.ts`) and a stricter CSP. Decision record:
   `docs/security/encryption-at-rest.md`. Not encrypted: attachments, capture files, exports, logs.
-- **Capability gaps (WP 7.2 follow-up)**, [#NNN](https://github.com/IrminFlow/total/pull/NNN): `canSeeProfit: false` now also redacts
+- **Capability gaps (WP 7.2 follow-up)**, [#127](https://github.com/IrminFlow/total/pull/127): `canSeeProfit: false` now also redacts
   `report:trialBalance` (`TrialBalance.profitHidden`, `reports.trialBalanceFor` /
   `shared/profitRedaction.ts redactTrialBalance`), refuses `rb:run` models that show the profit
   (`reportBuilder.profitRevealedBy`: the `profit` measure, or debit / credit / net / balance over
