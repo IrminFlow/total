@@ -169,6 +169,8 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.handoff.otherReceived': 'अभी मिले {amount} इस फ़ॉर्म में नहीं हैं। सेव करने के बाद इन्हें “पैसे आए” में जोड़ें।',
   'simple.handoff.otherPaid': 'अभी दिए {amount} इस फ़ॉर्म में नहीं हैं। सेव करने के बाद इन्हें “पैसे गए” में जोड़ें।',
   'simple.handoff.missing': 'अभी बना नहीं है: {names}। {count, plural, one {इसे} other {इन्हें}} यहाँ चुनें या बनाएँ।',
+  'simple.handoff.addedOnSave': 'अभी बना नहीं है: {names}। सेव करते ही {count, plural, one {यह} other {ये}} अपने-आप बन {count, plural, one {जाएगा} other {जाएँगे}}, जैसे पूरा ऐप पहली बार करता है।',
+  'simple.handoff.addedOnSaveField': '{name} (सेव करने पर बनेगा)',
   'simple.handoff.notCarried': 'कुछ जवाब आगे नहीं ले जाए जा सके — पूरा फ़ॉर्म खाली खुलेगा।',
   'simple.palette.title': 'आसान स्क्रीन',
   'simple.palette.move': 'चलें',

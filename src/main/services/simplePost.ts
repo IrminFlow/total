@@ -32,7 +32,7 @@ import { pickTaxLedger, taxLedgerIdsFrom, taxSideOf, voucherCarriesGst, voucherT
 import { companyT } from '../i18n'
 import { createLedger, findOrCreateLedger, listLedgers, listStockItems, listVoucherTypes } from './masters'
 import { getLockDate, getVoucher, IN_BOOKS, lockedError, nextVoucherNumber, NOT_DELETED, saveVoucher } from './vouchers'
-import { counterAccounts, ensureWalkIn } from './counter'
+import { counterAccounts, ensureWalkIn, WALK_IN_NAME } from './counter'
 import { pricingLoader, rememberSalePrices } from './pricing'
 import { openBills, partyAllocation, partyAllocationWithCredits } from './analysis'
 import { fyIsClosed } from './cashFinanceCommon'
@@ -46,7 +46,7 @@ import { stockSummary } from './stockAnalysis'
 import { listBomVersions } from './bom'
 import { costPreview, saveManufacture, suggestedSaleRate } from './manufacture'
 import { recipeRows } from '@shared/simple/stock'
-import { sanitiseHandoffEntry, type HandoffEntry, type IntentFormResult } from '@shared/simple/handoff'
+import { sanitiseHandoffEntry, type HandoffCreate, type HandoffEntry, type IntentFormResult } from '@shared/simple/handoff'
 import { LABOUR_CREDIT_GROUP, LABOUR_CREDIT_LEDGER, LABOUR_EXPENSE_GROUP, LABOUR_EXPENSE_LEDGER } from '@shared/manufacture'
 
 // ---------------------------------------------------------------- context
@@ -621,6 +621,21 @@ export function postIntent(db: DB, company: CompanyInfo, raw: unknown, today: st
 /** The total an entry moves (its debits) — what the hand-off says about the parts it leaves out. */
 const entryAmount = (entry: MappedEntry): number => entry.payload.lines.filter((l) => l.drCr === 'dr').reduce((t, l) => t + l.amount, 0)
 
+interface CreatedLedger {
+  id: number
+  name: string
+  taxType: string | null
+  groupName: string
+}
+
+/** How the full editor makes a ledger the rehearsal created, the way it does on first use (null =
+ *  the user picks or creates it there): the counter's walk-in customer (ensureWalkIn's name and
+ *  group). */
+function createdOnFirstUse(r: CreatedLedger, _kind: VoucherKind): HandoffCreate | null {
+  if (r.name === WALK_IN_NAME && r.groupName === 'Sundry Debtors') return { kind: 'walkIn' }
+  return null
+}
+
 /**
  * simple:intentForm (WP 9.10) — the editors' own form state for the CURRENT answers of a simple
  * screen, so its "Accountant view" opens the full editor pre-filled. The same mapping simple:post
@@ -634,15 +649,22 @@ export function intentForm(db: DB, company: CompanyInfo, raw: unknown, today: st
   const before = new Set((db.prepare('SELECT id FROM ledgers').all() as { id: number }[]).map((r) => r.id))
   const { mapped, created } = rehearse(db, () => {
     const m = mapWithLedgers(db, company, n)
-    const rows = db.prepare('SELECT id, name FROM ledgers').all() as { id: number; name: string }[]
-    return { mapped: m, created: new Map(rows.filter((r) => !before.has(r.id)).map((r) => [r.id, r.name])) }
+    const rows = db
+      .prepare('SELECT l.id, l.name, l.tax_type AS taxType, g.name AS groupName FROM ledgers l JOIN groups g ON g.id = l.group_id')
+      .all() as CreatedLedger[]
+    return { mapped: m, created: new Map(rows.filter((r) => !before.has(r.id)).map((r) => [r.id, r])) }
   })
   const missing: string[] = []
+  const addedOnSave: string[] = []
   const entries = mapped.entries.map((e) => {
     const entry = { role: e.role, kind: e.kind, voucherTypeId: e.voucherTypeId, form: e.form, state: e.state, amount: entryAmount(e) } as HandoffEntry
-    const out = sanitiseHandoffEntry(entry, (id) => before.has(id), (id) => created.get(id) ?? null)
+    const out = sanitiseHandoffEntry(entry, (id) => before.has(id), (id) => {
+      const r = created.get(id)
+      return r ? { name: r.name, create: createdOnFirstUse(r, e.kind) } : null
+    })
     for (const m of out.missing) if (!missing.includes(m)) missing.push(m)
+    for (const m of out.addedOnSave) if (!addedOnSave.includes(m)) addedOnSave.push(m)
     return out.entry
   })
-  return { kind: n.kind, entries, missing }
+  return { kind: n.kind, entries, missing, addedOnSave }
 }

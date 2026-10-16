@@ -384,13 +384,13 @@ export function VoucherEntry({
         ) : handoffHere ? (
           // WP 9.10: the simple form's answers in this editor's own form state (as an AI draft opens).
           handoffHere.entry.form === 'invoice' ? (
-            <InvoiceEntry key="handoff" typeId={currentType.id} kind={currentType.kind} initial={handoffHere.entry.state} />
+            <InvoiceEntry key="handoff" typeId={currentType.id} kind={currentType.kind} initial={handoffHere.entry.state} pending={handoffHere.entry.pending} />
           ) : handoffHere.entry.form === 'manufacture' ? (
             <ManufactureForm key="handoff" typeId={currentType.id} initial={handoffHere.entry.state} handedOff />
           ) : handoffHere.entry.form === 'physical' ? (
             <PhysicalStockEntry key="handoff" typeId={currentType.id} initial={handoffHere.entry.state} />
           ) : (
-            <AccountingEntry key="handoff" typeId={currentType.id} kind={currentType.kind} initial={handoffHere.entry.state} />
+            <AccountingEntry key="handoff" typeId={currentType.id} kind={currentType.kind} initial={handoffHere.entry.state} pending={handoffHere.entry.pending} />
           )
         ) : aiForm && aiDraft && currentType.id === aiDraft.payload.voucherTypeId ? (
           // WP 5.3: the draft's own editor, pre-filled with the state the draft tool built.

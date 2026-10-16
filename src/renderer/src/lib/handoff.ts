@@ -14,8 +14,9 @@
 // away (`useAlwaysFullRedirect`). "Back to simple" clears it (`backToSimpleClears`).
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { create } from 'zustand'
+import { useQueryClient } from '@tanstack/react-query'
 import type { VoucherKind } from '@shared/domain'
-import { INTENT_SCREEN, type HandoffFacts, type SimpleHandoff } from '@shared/simple/handoff'
+import { INTENT_SCREEN, type HandoffCreate, type HandoffFacts, type HandoffPending, type SimpleHandoff } from '@shared/simple/handoff'
 import type { SimpleIntentInput } from '@shared/simple/intents'
 import { api } from './client'
 import { useT } from './i18n'
@@ -23,6 +24,7 @@ import { readRememberedOverride, setViewOverride, useMode } from './mode'
 import { screenDef, SIMPLE_ENTRIES, simpleSectionOf } from './screens'
 import { nextDraftId, useNav, useScreen, useSession, useToasts, type Screen } from '../state/stores'
 import type { IntentDraft } from './simplePost'
+import { useTaxLedgers } from '../components/pickers'
 
 type Name = Screen['name']
 
@@ -208,6 +210,38 @@ export function rememberSaved(id: number): void {
   if (top) useLastSaved.getState().set(top, id)
 }
 
+// ---------------------------------------------------------------- accounts the editor makes on save
+
+/**
+ * The editor's first-use creation for a hand-off's pending accounts (shared/simple/handoff.ts
+ * HandoffPending): the walk-in customer as counter.ts ensureWalkIn makes it (found by its name,
+ * else created under Sundry Debtors), a GST / round-off ledger as InvoiceEntry's save does
+ * (useTaxLedgers). Called on SAVE only — opening the editor writes nothing.
+ */
+export function useHandoffLedgers(): (pending: HandoffPending) => Promise<number> {
+  const queryClient = useQueryClient()
+  const { ensure, ensureRoundOff } = useTaxLedgers()
+  return useCallback(
+    async ({ name, create: how }: HandoffPending): Promise<number> => {
+      const c: HandoffCreate = how
+      if (c.kind === 'tax') return ensure(c.taxType, c.side)
+      if (c.kind === 'roundOff') return ensureRoundOff()
+      const found = (await api.ledgers.list()).find((l) => l.name === name)
+      if (found) return found.id
+      const debtors = (await api.groups.list()).find((g) => g.name === 'Sundry Debtors')
+      if (!debtors) throw new Error('Sundry Debtors group missing')
+      const created = await api.ledgers.create({
+        name, groupId: debtors.id, openingBalance: 0, gstin: null, stateCode: null, address: null, taxType: null,
+        gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null
+      })
+      await queryClient.invalidateQueries({ queryKey: ['ledgers'] })
+      return created.id
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- ensure / ensureRoundOff are rebuilt each render; they only read the client
+    [queryClient]
+  )
+}
+
 // ---------------------------------------------------------------- the simple form left for the editor
 
 /** The answers a simple form held when its "Accountant view" opened the full editor (review of
@@ -312,7 +346,8 @@ export function useAccountantView(self: Name): (req: AccountantViewRequest) => P
           kind: r.kind,
           entry,
           others: rest.map((e) => ({ role: e.role, kind: e.kind, amount: e.amount })),
-          missing: r.missing
+          missing: r.missing,
+          ...(r.addedOnSave?.length ? { addedOnSave: r.addedOnSave } : {})
         }
         nav.go({ name: 'voucher-entry', handoff, draftId: nextDraftId() }, { force: true })
       } catch {

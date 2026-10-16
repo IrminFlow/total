@@ -130,10 +130,25 @@ describe('the full → simple table', () => {
   })
 
   it('the hand-off never points at a ledger the rehearsal created; the bill name follows the number again', () => {
-    const out = sanitiseHandoffEntry({ ...BILL, state: { ...BILL.state, number: '7', billName: '7', partyId: 99 } }, (id) => id !== 99, () => 'Cash sale')
-    expect(out.missing).toEqual(['Cash sale'])
+    const out = sanitiseHandoffEntry({ ...BILL, state: { ...BILL.state, number: '7', billName: '7', partyId: 99 } }, (id) => id !== 99, () => ({ name: 'Ramesh', create: null }))
+    expect(out.missing).toEqual(['Ramesh'])
+    expect(out.addedOnSave).toEqual([])
     if (out.entry.form !== 'invoice') throw new Error('invoice')
     expect(out.entry.state).toMatchObject({ partyId: null, number: '', billName: '', accountId: 9 })
+    expect(out.entry.pending).toBeUndefined()
+  })
+
+  it('review: an account the editor makes on first use (the walk-in) is pending — named in the pick, created on save', () => {
+    const walkIn = { name: 'Cash sale', create: { kind: 'walkIn' as const } }
+    const out = sanitiseHandoffEntry({ ...BILL, state: { ...BILL.state, partyId: 99 } }, (id) => id !== 99, () => walkIn)
+    expect(out.missing).toEqual([])
+    expect(out.addedOnSave).toEqual(['Cash sale'])
+    expect(out.entry.pending).toEqual({ party: walkIn })
+    // An existing ledger (the counter's own "Cash sale") is kept as it is.
+    const kept = sanitiseHandoffEntry({ ...BILL, state: { ...BILL.state, partyId: 12 } }, () => true, () => walkIn)
+    if (kept.entry.form !== 'invoice') throw new Error('invoice')
+    expect(kept.entry.state.partyId).toBe(12)
+    expect(kept.entry.pending).toBeUndefined()
   })
 })
 
@@ -299,6 +314,10 @@ describe('the remembered choice', () => {
     expect(screen.getByTestId('handoff-banner').textContent).toContain('Your answers are filled in')
     expect(screen.getByTestId('handoff-other').textContent).toBe('The ₹500.00 you got now is not part of this form. After you save, add it under Money in.')
     expect(screen.getByTestId('handoff-missing').textContent).toBe('Not set up yet: Cash sale. Pick or create it here.')
+    cleanup()
+    render(withClient(<HandoffBanner handoff={{ from: 'simple-sell', kind: 'sale', entry: BILL, others: [], missing: [], addedOnSave: ['Cash sale'] }} />))
+    expect(screen.getByTestId('handoff-added-on-save').textContent).toBe('Not set up yet: Cash sale. It is added when you save, as the full app does the first time.')
+    expect(screen.queryByTestId('handoff-missing')).toBeNull()
   })
 })
 

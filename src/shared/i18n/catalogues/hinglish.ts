@@ -164,6 +164,8 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.handoff.otherReceived': 'Abhi mile {amount} is form mein nahi hain. Save karne ke baad inhein “Paise aaye” mein jodein.',
   'simple.handoff.otherPaid': 'Abhi diye {amount} is form mein nahi hain. Save karne ke baad inhein “Paise gaye” mein jodein.',
   'simple.handoff.missing': 'Abhi bana nahi hai: {names}. {count, plural, one {Ise} other {Inhein}} yahan chunein ya banayein.',
+  'simple.handoff.addedOnSave': 'Abhi bana nahi hai: {names}. Save karte hi {count, plural, one {yeh} other {yeh sab}} apne-aap ban {count, plural, one {jaayega} other {jaayenge}}, jaise full app pehli baar karta hai.',
+  'simple.handoff.addedOnSaveField': '{name} (save karne par banega)',
   'simple.handoff.notCarried': 'Kuch jawab aage nahi le jaa sake — poora form khaali khulega.',
   'simple.palette.title': 'Simple screens',
   'simple.palette.move': 'chalein',

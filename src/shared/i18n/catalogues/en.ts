@@ -180,6 +180,8 @@ export const en = {
   'simple.handoff.otherReceived': 'The {amount} you got now is not part of this form. After you save, add it under Money in.',
   'simple.handoff.otherPaid': 'The {amount} you paid now is not part of this form. After you save, add it under Money out.',
   'simple.handoff.missing': 'Not set up yet: {names}. Pick or create {count, plural, one {it} other {them}} here.',
+  'simple.handoff.addedOnSave': 'Not set up yet: {names}. {count, plural, one {It is} other {They are}} added when you save, as the full app does the first time.',
+  'simple.handoff.addedOnSaveField': '{name} (added when you save)',
   'simple.handoff.notCarried': 'Some answers could not be carried over — the full form opens empty.',
   'simple.palette.title': 'Simple screens',
   'simple.palette.move': 'move',

@@ -17,6 +17,9 @@ import { SaveCard } from '../../simple/SaveCard'
 import { CategoryPicker } from '../../simple/CategoryPicker'
 import { categoriesFor } from '@shared/simple/accountKinds'
 import { useMode } from '../../lib/mode'
+import { useT } from '../../lib/i18n'
+import { useHandoffLedgers } from '../../lib/handoff'
+import type { HandoffPending, HandoffPendingRefs } from '@shared/simple/handoff'
 import { LedgerPicker, useGroups, useLedgers } from '../../components/pickers'
 import { LedgerFormModal } from '../../components/LedgerFormModal'
 import { useFeatures } from '../../lib/useFeatures'
@@ -38,6 +41,9 @@ import { CarriedStockLines } from './CarriedStockLines'
 interface AcctRow extends AccountingRowState {
   /** Stable React key — survives applyTds splicing a payable line in mid-list (never an index). */
   key: number
+  /** WP 9.10 hand-off: the account this row needs that does not exist yet — named in the pick and
+   *  created on save (lib/handoff.ts useHandoffLedgers). Ignored once a ledger is picked. */
+  pending?: HandoffPending | null
 }
 
 const blankAcctRow = (drCr: 'dr' | 'cr'): AcctRow => ({ key: nextLineKey(), drCr, ledgerId: null, amount: null, costAllocations: [] })
@@ -52,7 +58,8 @@ export function AccountingEntry({
   draft,
   voucher,
   initial,
-  fallbackReason
+  fallbackReason,
+  pending
 }: {
   typeId: number
   kind: VoucherKind
@@ -63,7 +70,13 @@ export function AccountingEntry({
   initial?: AccountingFormState
   /** Set when a trading voucher opens here because the invoice form can't show it faithfully. */
   fallbackReason?: string | null
+  /** WP 9.10 hand-off: rows whose account is created on save (by row index of `initial`). */
+  pending?: HandoffPendingRefs
 }): React.JSX.Element {
+  const t = useT()
+  const createPending = useHandoffLedgers()
+  /** Set while pending accounts are being created: the save runs again once they are in. */
+  const resave = useRef(false)
   const { workingDate, setWorkingDate } = useSession()
   const toast = useToasts()
   const nav = useNav()
@@ -77,7 +90,7 @@ export function AccountingEntry({
   const [rows, setRows] = useState<AcctRow[]>(() =>
     initial
       ? // A new voucher from an AI draft (WP 5.3) gets the usual trailing blank row.
-        [...initial.rows.map((r) => ({ ...r, key: nextLineKey() })), ...(voucherId ? [] : [blankAcctRow('cr')])]
+        [...initial.rows.map((r, i) => ({ ...r, key: nextLineKey(), pending: pending?.rows?.[i] ?? null })), ...(voucherId ? [] : [blankAcctRow('cr')])]
       : draft?.lines?.length
         ? [...draft.lines.map((l) => ({ ...l, key: nextLineKey(), costAllocations: [] as AcctRow['costAllocations'] })), blankAcctRow('cr')]
         : [blankAcctRow('dr'), blankAcctRow('cr')]
@@ -366,7 +379,7 @@ export function AccountingEntry({
     () => ({
       date,
       number: voucherId ? alterNumber : numberField.forPayload,
-      rows: rows.map(({ key: _key, ...r }) => r),
+      rows: rows.map(({ key: _key, pending: _pending, ...r }) => r),
       narration,
       instrumentNo,
       billRefs,
@@ -413,6 +426,26 @@ export function AccountingEntry({
 
   const save = useCallback(async (): Promise<void> => {
     if (saving) return
+    if (rows.some((r) => r.ledgerId == null && r.pending)) {
+      // The hand-off's accounts that don't exist yet: created now (first use, once per account),
+      // then this save runs again with them.
+      setSaving(true)
+      try {
+        const ids = new Map<string, number>()
+        for (const r of rows) {
+          if (r.ledgerId != null || !r.pending) continue
+          const k = JSON.stringify(r.pending)
+          if (!ids.has(k)) ids.set(k, await createPending(r.pending))
+        }
+        resave.current = true
+        setRows((rs) => rs.map((r) => (r.ledgerId == null && r.pending ? { ...r, ledgerId: ids.get(JSON.stringify(r.pending)) ?? null, pending: null } : r)))
+      } catch (err) {
+        toast.push('error', (err as Error).message)
+      } finally {
+        setSaving(false)
+      }
+      return
+    }
     const input = buildPayload()
     if (!input) return void formErrors.set('lines', errorShell.simple ? errorShell.t('errors.twoSides') : 'Enter at least one debit and one credit')
     setSaving(true)
@@ -465,7 +498,12 @@ export function AccountingEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, leave, numberField.reset, tdsDeduction.reset, tdsDeduction.afterSave, tcsCollection.reset, tcsCollection.afterSave, features.tcs, kind, draft?.aiDraftId, formErrors, errorShell, saveCard])
+  }, [saving, buildPayload, date, typeId, voucherId, toast, setWorkingDate, queryClient, leave, numberField.reset, tdsDeduction.reset, tdsDeduction.afterSave, tcsCollection.reset, tcsCollection.afterSave, features.tcs, kind, draft?.aiDraftId, formErrors, errorShell, saveCard, rows, createPending])
+  useEffect(() => {
+    if (!resave.current || saving || rows.some((r) => r.ledgerId != null && !ledgers.some((l) => l.id === r.ledgerId))) return
+    resave.current = false
+    void save()
+  }, [rows, ledgers, saving, save])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -633,8 +671,9 @@ export function AccountingEntry({
                   ) : (
                   <LedgerPicker
                     value={r.ledgerId}
-                    onPick={(id) => setRow(i, { ledgerId: id })}
+                    onPick={(id) => setRow(i, { ledgerId: id, pending: null })}
                     autoFocus={i === 0 && !voucherId}
+                    {...(r.pending ? { placeholder: t('simple.handoff.addedOnSaveField', { name: r.pending.name }) } : {})}
                     filter={
                       kind === 'contra'
                         ? (l, groups) => {
