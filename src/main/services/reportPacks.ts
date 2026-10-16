@@ -130,6 +130,7 @@ export function listRuns(db: DB, packId?: number, limit = 50): PackRun[] {
 
 export interface PackTable {
   title: string
+  /** The report's slug (kept for callers); pack FILES are named by `packFileBase` from the title. */
   filename: string
   columns: ReportColumnSpec[]
   rows: ReportRowSpec[]
@@ -315,6 +316,22 @@ export function packFolderName(root: string, packName: string): string {
   return portableFileName(packName.replace(/[\\/]/g, '-'), { fallback: 'pack', maxLength: 80 })
 }
 
+/**
+ * The name (without extension) of a pack's `index`-th file: `NN-` + the report's own title made
+ * safe for Windows and macOS by the same rule as the folder (portableFileName — "Trial balance"
+ * stays "01-Trial balance", a saved report "Con" is "02-Con", never "02-con-company"; a slash a
+ * dash). Two names that differ only in case get "-x" (macOS and Windows folders ignore case).
+ * Files an earlier version wrote with slugify ("01-trial-balance.csv") are left where they are —
+ * a re-run of that period writes (and later overwrites) the new name beside them.
+ */
+export function packFileBase(index: number, title: string): string {
+  const prefix = `${String(index + 1).padStart(2, '0')}-`
+  // The prefix keeps the whole name off the reserved device names ("02-Con" is a plain name), so
+  // the rule runs over prefix + title; a title with nothing usable left is "report".
+  const name = portableFileName(`${prefix}${title.replace(/[\\/]/g, '-').trim()}`, { maxLength: 80 })
+  return name.length > prefix.length ? name : `${prefix}report`
+}
+
 /** Render one pack for its period rule into its folder; logs the run and audits it. */
 export async function runPack(db: DB, slug: string, info: CompanyInfo, packId: number, opts: RunPackOptions): Promise<PackRun> {
   const pack = getPack(db, packId)
@@ -343,9 +360,9 @@ export async function runPack(db: DB, slug: string, info: CompanyInfo, packId: n
       }
       try {
         const t = packTable(db, info, ref, range, today, opts.canSeeProfit !== false)
-        let base = `${String(i + 1).padStart(2, '0')}-${t.filename || 'report'}`
-        while (used.has(base)) base += '-x'
-        used.add(base)
+        let base = packFileBase(i, t.title)
+        while (used.has(base.toLowerCase())) base += '-x'
+        used.add(base.toLowerCase())
         if (pack.formats.includes('csv')) {
           const path = join(dir, `${base}.csv`)
           writeFileSync(path, rowsToCsv(t.columns.map((c) => c.label), t.rows.map((r) => r.cells)), 'utf8')

@@ -4,7 +4,7 @@
 // movements); migration 038; ratio values on a hand-computed fixture; the pack scheduler runs a
 // missed job exactly once.
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { DB } from '../db/connection'
@@ -27,7 +27,7 @@ import {
   deleteReport, duplicateReport, getSavedReport, listSavedReports, renameReport, runReport, saveReport, setReportPinned
 } from './reportBuilder'
 import { budgetAmounts, comparativePnl, ratioReport } from './reportAnalytics'
-import { listRuns, packFolderName, packTable, runDuePacks, runPack, savePack } from './reportPacks'
+import { listRuns, packFileBase, packFolderName, packTable, runDuePacks, runPack, savePack } from './reportPacks'
 import { runDuePacksInBackground } from '../packScheduler'
 import { postClose } from './yearEnd'
 import { noteVoucherRows } from './analysis'
@@ -350,7 +350,7 @@ describe('saved reports and scheduled packs', () => {
       expect(runs[0]).toMatchObject({ trigger: 'schedule', status: 'ok', periodFrom: '2025-05-01', periodTo: '2025-05-31' })
       expect(runs[0]!.files).toHaveLength(6)
       for (const f of runs[0]!.files) expect(existsSync(f)).toBe(true)
-      const csv = readFileSync(runs[0]!.files.find((f) => f.endsWith('03-fees-by-month.csv'))!, 'utf8')
+      const csv = readFileSync(runs[0]!.files.find((f) => f.endsWith('03-Fees by month.csv'))!, 'utf8')
       expect(csv).toContain('May 2025')
       expect(csv).toContain('300.00')
       expect(rendered[0]).toContain('Trial balance')
@@ -655,6 +655,39 @@ describe('pack folders are named after the pack, not by the company-folder rule 
       const run2 = await runPack(db, 'test-co', TEST_INFO, old.id, { trigger: 'manual', now: new Date('2026-05-15T10:00:00'), renderPdf: async () => Buffer.from('') })
       expect(run2.outputDir!.startsWith(join(out, 'year-end'))).toBe(true)
       for (const f of run2.files) expect(existsSync(f)).toBe(true)
+    } finally {
+      rmSync(out, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('pack FILES are named after their report like the folder, keeping the NN- prefix (#120 note)', () => {
+  it('a saved report "Con" is 02-Con.csv (never 02-con-company.csv); an old slugified file is left beside the new one', async () => {
+    expect(packFileBase(0, 'Trial balance')).toBe('01-Trial balance')
+    expect(packFileBase(1, 'Con')).toBe('02-Con')
+    expect(packFileBase(2, 'Sales/Purchases')).toBe('03-Sales-Purchases')
+    expect(packFileBase(3, 'a:b?')).toBe('04-a-b-')
+    expect(packFileBase(4, '..')).toBe('05-report')
+    expect(packFileBase(5, '   ')).toBe('06-report')
+    const db = seededDb()
+    const cash = ledger(db, 'Till', 'Cash-in-Hand')
+    const fees = ledger(db, 'Fees', 'Direct Incomes')
+    voucher(db, 'receipt', '2026-04-05', [[cash, 'dr', 30_000], [fees, 'cr', 30_000]])
+    const con = saveReport(db, { name: 'Con', model: { source: 'accounts', dimensions: [{ key: 'month' }], measures: ['credit'], filters: { ledgerIds: [fees] } } }, undefined, null)
+    const out = mkdtempSync(join(tmpdir(), 'total-pack-files-'))
+    try {
+      const pack = savePack(db, { name: 'Month end', reports: [{ kind: 'builtin', key: 'trialBalance' }, { kind: 'saved', id: con.id }], periodRule: 'fyToDate', frequency: 'monthly', formats: ['csv'], outputDir: out })
+      const now = new Date('2026-05-15T10:00:00')
+      // A file an earlier version wrote into this period's folder (slugify) stays untouched.
+      const run0 = await runPack(db, 'test-co', TEST_INFO, pack.id, { trigger: 'manual', now, renderPdf: async () => Buffer.from('') })
+      const legacy = join(run0.outputDir!, '02-con-company.csv')
+      writeFileSync(legacy, 'old', 'utf8')
+      const run = await runPack(db, 'test-co', TEST_INFO, pack.id, { trigger: 'manual', now, renderPdf: async () => Buffer.from('') })
+      expect(run.status).toBe('ok')
+      expect(run.files.map((f) => f.split(/[\\/]/).pop())).toEqual(['01-Trial balance.csv', '02-Con.csv'])
+      expect(readdirSync(run.outputDir!).sort()).toEqual(['01-Trial balance.csv', '02-Con.csv', '02-con-company.csv'])
+      expect(readFileSync(legacy, 'utf8')).toBe('old')
+      expect(readFileSync(join(run.outputDir!, '02-Con.csv'), 'utf8')).toContain('300.00')
     } finally {
       rmSync(out, { recursive: true, force: true })
     }
