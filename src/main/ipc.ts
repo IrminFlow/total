@@ -147,6 +147,7 @@ import * as consolidated from './services/consolidated'
 import * as caPack from './services/caPack'
 import { writeExportPdf, writePdfFile } from './services/pdf'
 import { chooseExportPath, hermeticRun, type ExportTargetRequest } from './exportTarget'
+import { MASTERS_CHANGED_EVENT, masterEntitiesOf } from './masterEvents'
 import { reportHtml } from './services/reportHtml'
 import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
@@ -469,6 +470,14 @@ export function ipcStructuredError(err: unknown): Partial<StructuredError> {
  *  scripts/perf-launch.mjs reads it to say where opening a big company goes. Channel names only. */
 const TRACE_IPC = process.env.TOTAL_IPC_TRACE === '1' && !!process.env.TOTAL_DATA_DIR
 
+/** to-do §4: after a write that can change masters, every window refetches those cached lists
+ *  (masterEvents.ts) — so a screen sees an item created elsewhere without being reopened. */
+function notifyMastersChanged(channel: string): void {
+  const entities = masterEntitiesOf(channel)
+  if (!entities.length) return
+  for (const w of BrowserWindow.getAllWindows?.() ?? []) if (!w.isDestroyed()) w.webContents.send(MASTERS_CHANGED_EVENT, { entities })
+}
+
 function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): void {
   CHANNEL_ROLES.set(channel, minRole)
   ipcMain.handle(`total:${channel}`, async (_event, payload: unknown) => {
@@ -504,6 +513,7 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
         }
       }
       const data = await fn(payload)
+      notifyMastersChanged(channel)
       if (TRACE_IPC) console.log(`[ipc] ${channel} ${(performance.now() - t0).toFixed(0)} ms`)
       return { ok: true, data }
     } catch (err) {

@@ -39,6 +39,14 @@ const api = {
       ipcRenderer.removeListener('total:session:locked', wrapped)
     }
   },
+  /** Masters changed by a write (to-do §4, main/masterEvents.ts) — the cached lists to refetch. Returns an unsubscribe. */
+  onMastersChanged: (listener: (event: { entities: string[] }) => void): (() => void) => {
+    const wrapped = (_e: unknown, event: { entities: string[] }): void => listener(event)
+    ipcRenderer.on('total:masters:changed', wrapped)
+    return () => {
+      ipcRenderer.removeListener('total:masters:changed', wrapped)
+    }
+  },
   /** Update notices (available / downloading / ready, or null), pushed by main. Returns an unsubscribe. */
   onUpdateEvent: (listener: (notice: unknown) => void): (() => void) => {
     const wrapped = (_e: unknown, notice: unknown): void => listener(notice)
