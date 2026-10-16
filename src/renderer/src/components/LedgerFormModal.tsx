@@ -5,7 +5,8 @@ import type { Group, Ledger } from '@shared/domain'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { chargesGst } from '@shared/gst/registration'
-import { AmountInput, Button, Field, Modal, Select, TextInput } from './ui'
+import { AmountInput, Button, Checkbox, Field, Modal, Select, TextInput } from './ui'
+import { receivablesApi } from '../lib/receivablesClient'
 import { useGroups } from './pickers'
 import { GST_STATES, GST_STATE_LIST } from '@shared/gst/states'
 import { validateGstin } from '@shared/gst/validate'
@@ -183,6 +184,12 @@ function LedgerForm({
   const [creditLimit, setCreditLimit] = useState<number | null>(ledger?.creditLimit ?? null)
   const [interestPct, setInterestPct] = useState(bpToPercent(ledger?.interestRateBp ?? null))
   const [graceDays, setGraceDays] = useState(ledger?.interestGraceDays ? String(ledger.interestGraceDays) : '')
+  // WP 4.2: the credit hold (an existing customer) — owner only, through receivables:setHold after
+  // the form's own save, like Credit control; everyone else sees it read-only.
+  const sessionUser = useSession((s) => s.user)
+  const canHold = sessionUser == null || sessionUser.role === 'owner'
+  const [hold, setHold] = useState<boolean>(!!ledger?.creditHold)
+  const [holdReason, setHoldReason] = useState(ledger?.creditHoldReason ?? '')
   const { data: priceLevelList } = useQuery({ queryKey: ['priceLevels'], queryFn: api.priceLevels.list, enabled: features.inventory })
   const [partyRatesOpen, setPartyRatesOpen] = useState(false)
   // WP 4.3: a supplier's MSME facts and payment terms (creditors only).
@@ -217,6 +224,9 @@ function LedgerForm({
       if (isParty && (phoneError || whatsappError)) return void toast.push('error', phoneError ?? whatsappError!)
       const termsError = isCreditor ? supplierTermsError(supplierTerms) : null
       if (termsError) return void toast.push('error', termsError)
+      const holdChange = ledger && isDebtor && canHold
+        && (hold !== !!ledger.creditHold || (hold && holdReason.trim() !== (ledger.creditHoldReason ?? '')))
+      if (holdChange && hold && !holdReason.trim()) return void toast.push('error', 'Give a reason for the hold')
       const effectiveState = stateCode || (gstinCheck?.valid ? gstinCheck.stateCode : null)
       const data = {
         name: name.trim(),
@@ -258,6 +268,7 @@ function LedgerForm({
       }
       if (ledger) await api.ledgers.update(ledger.id, data)
       else await api.ledgers.create(data)
+      if (ledger && holdChange) await receivablesApi.setHold(ledger.id, hold, hold ? holdReason.trim() : '')
       // A ledger edit (name, group, opening balance, GST flags) can change any open report, so
       // refresh everything — same as the delete path. Only active queries refetch; the rest are
       // marked stale and refetch when their screen next mounts.
@@ -521,9 +532,23 @@ function LedgerForm({
                 </Field>
               </div>
             )}
-            {ledger?.creditHold && (
-              <p className="text-small text-cr" data-testid="ledger-credit-hold">
-                On credit hold{ledger.creditHoldReason ? ` — ${ledger.creditHoldReason}` : ''}. Release it from Credit control.
+            {ledger && isDebtor && canHold && (
+              <div className="grid grid-cols-3 gap-3" data-testid="ledger-credit-hold-edit">
+                <Field label="Credit hold" hint="New sales invoices and challans are refused (an owner can override one)">
+                  <Checkbox label="On credit hold" checked={hold} onChange={setHold} testId="ledger-credit-hold-toggle" />
+                </Field>
+                {hold && (
+                  <Field label="Reason for the hold" className="col-span-2">
+                    <TextInput data-testid="ledger-credit-hold-reason" value={holdReason} onChange={(e) => setHoldReason(e.target.value)} placeholder="e.g. 90+ days overdue" />
+                  </Field>
+                )}
+              </div>
+            )}
+            {ledger && (isDebtor || ledger.creditHold) && !canHold && (
+              <p className={`text-small ${ledger.creditHold ? 'text-cr' : 'text-muted'}`} data-testid="ledger-credit-hold">
+                {ledger.creditHold
+                  ? `On credit hold${ledger.creditHoldReason ? ` — ${ledger.creditHoldReason}` : ''}. Only an owner can release it.`
+                  : 'Not on credit hold. Only an owner can put a party on hold.'}
               </p>
             )}
             {isCreditor && <SupplierTermsFields value={supplierTerms} onChange={setSupplierTerms} />}
