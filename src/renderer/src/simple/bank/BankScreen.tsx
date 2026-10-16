@@ -28,7 +28,7 @@ import { useCanSave, ViewerNote } from '../ViewerNote'
 
 const BRS_TAB = 'brs' as const // i18n-technical
 const IMPORT_TAB = 'import' as const // i18n-technical
-const LINE_FIELDS = ['party', 'to', 'from', 'choice'] as const // i18n-technical: fields a line shows
+const LINE_FIELDS = ['party', 'to', 'from', 'choice', 'gstBill', 'billSupplier', 'billNo', 'gstRate', 'gstin'] as const // i18n-technical: fields a line shows
 const BANK_CONTEXT = { field: 'line', voucherKind: 'receipt', drCr: 'dr' } as const // i18n-technical: money in → a bank
 const CONTRA_CONTEXT = { field: 'line', voucherKind: 'contra', drCr: 'dr' } as const // i18n-technical
 const REFRESH = ['simpleBankLines', 'simpleBankSetup', 'ledgers', 'bankWorkspace', 'brs', 'dashboard', 'simpleHome'] // i18n-technical: query keys

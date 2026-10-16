@@ -10,8 +10,9 @@ import { bannedWordsIn } from './bannedWords'
 import { normaliseIntent } from './intents'
 import {
   billAllocation, defaultTicks, emptyMoneyInForm, emptyMoneyOutForm, emptyMoveForm, moneyInErrors, moneyInIntentFrom, moneyOutErrors,
-  linkedBillName, moneyOutFieldOf, moneyOutIntentFrom, moveErrors, moveIntentFrom, ticksToBills, type MoneyOpenBill
+  linkedBillName, MONEY_OUT_EXPENSE_KEYS, moneyOutFieldOf, moneyOutIntentFrom, moveErrors, moveIntentFrom, purchaseFromMoneyOut, ticksToBills, type MoneyOpenBill
 } from './money'
+import { categoriesFor } from './accountKinds'
 
 const TODAY = '2025-08-14'
 const bill = (name: string, date: string, pending: number): MoneyOpenBill => ({ name, date, pending, voucherId: null, dueDate: null, overdueDays: 0 })
@@ -153,5 +154,20 @@ describe('words', () => {
     const keys = Object.keys(en).filter((k) => k.startsWith('simple.money.'))
     expect(keys.length).toBeGreaterThan(100)
     for (const k of keys) expect(bannedWordsIn(en[k as keyof typeof en]), k).toEqual([])
+  })
+})
+
+describe('Money out’s expense tiles (goods bought are a purchase)', () => {
+  it('drop Purchases, Raw material purchases and Discount given; Record a purchase keeps every one', () => {
+    for (const k of ['purchases', 'raw_material', 'discount_given'] as const) {
+      expect(MONEY_OUT_EXPENSE_KEYS).not.toContain(k)
+      expect(categoriesFor('expense')).toContain(k)
+    }
+    expect(MONEY_OUT_EXPENSE_KEYS).toEqual(categoriesFor('expense').filter((k) => !['purchases', 'raw_material', 'discount_given'].includes(k)))
+  })
+  it('“Record a purchase instead” carries the supplier (the GST bill’s first), the amount, how and the date', () => {
+    const f = { ...emptyMoneyOutForm(TODAY), who: 'expense' as const, amount: 50_000, how: 'bank' as const, supplierId: 7, billSupplierId: 9, note: ' tea ' }
+    expect(purchaseFromMoneyOut(f)).toEqual({ screen: 'simple-buy', party: 9, amount: 50_000, how: 'bank', date: TODAY, note: 'tea' })
+    expect(purchaseFromMoneyOut(emptyMoneyOutForm(TODAY))).toEqual({ screen: 'simple-buy', how: 'cash', date: TODAY })
   })
 })

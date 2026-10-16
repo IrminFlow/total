@@ -159,6 +159,8 @@ export const ERROR_MAP = {
   simple_return_before_bill: e('errors.intent.returnBeforeBill', 'date', ['date'], 'errors.intent.returnBeforeBillPlain'),
   simple_return_amount: e('errors.intent.returnAmount', 'amount', ['amount'], 'errors.intent.returnAmountPlain'),
   simple_refund_not_due: e('errors.intent.refundNotDue', 'refund', ['bill'], 'errors.intent.refundNotDuePlain'),
+  simple_refund_no_credit: e('errors.intent.refundNoCredit', 'party', ['name'], 'errors.intent.refundNoCreditPlain'),
+  simple_customer_no_credit: e('errors.intent.customerNoCredit', 'party', ['name'], 'errors.intent.customerNoCreditPlain'),
   simple_before_books: e('errors.intent.beforeBooks', 'date', ['date'], 'errors.intent.beforeBooksPlain'),
   simple_far_future: e('errors.intent.farFuture', 'date'),
   simple_save_refused: e('errors.intent.saveRefused'),
@@ -172,6 +174,8 @@ export const ERROR_MAP = {
   simple_bank_wrong_choice: e('errors.bank.wrongChoice', 'choice'),
   simple_bank_no_match: e('errors.bank.noMatch', 'choice'),
   simple_bank_not_matched: e('errors.bank.notMatched', 'line'),
+  simple_bank_bill_incomplete: e('errors.bank.billIncomplete', 'gstBill'),
+  simple_bank_bad_gstin: e('errors.bank.badGstin', 'gstin'),
   simple_items_no_gst: e('errors.intent.itemsNoGst', 'gstOnBill'),
   // WP 9.8: the simple People screens (services/simplePeople.ts).
   simple_people_not_party: e('errors.people.notParty'),

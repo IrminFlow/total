@@ -3,12 +3,14 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Ledger } from '@shared/domain'
 import type { MessageKey } from '@shared/i18n'
 import { toPlainDate } from '@shared/dates'
+import { formatPaise } from '@shared/money'
 import { gstRegistrationOf } from '@shared/gst/registration'
 import { slabsOn } from '@shared/gst/rateTable'
-import { categoriesFor, type AccountContext } from '@shared/simple/accountKinds'
+import type { AccountContext } from '@shared/simple/accountKinds'
 import type { CategoryKey } from '@shared/simple/categories'
 import {
-  billAllocation, emptyMoneyOutForm, linkedBillName, expenseGstApplies, MONEY_OUT_WHO, moneyOutErrors, moneyOutFieldOf, moneyOutIntentFrom,
+  billAllocation, emptyMoneyOutForm, linkedBillName, expenseGstApplies, MONEY_OUT_EXPENSE_KEYS, MONEY_OUT_WHO, moneyOutErrors, moneyOutFieldOf, moneyOutIntentFrom,
+  purchaseFromMoneyOut,
   type MoneyOutField, type MoneyOutForm, type MoneyOutWho
 } from '@shared/simple/money'
 import { api } from '../../lib/client'
@@ -32,9 +34,11 @@ const WHO_TEXT: Record<MoneyOutWho, MessageKey> = {
   supplier: 'simple.money.out.who.supplier',
   expense: 'simple.money.out.who.expense',
   owner: 'simple.money.out.who.owner',
-  salary: 'simple.money.out.who.salary'
+  salary: 'simple.money.out.who.salary',
+  refund: 'simple.money.out.who.refund'
 }
-const EXPENSE_KEYS = categoriesFor('expense') // i18n-technical
+const EXPENSE_KEYS = MONEY_OUT_EXPENSE_KEYS
+const GOODS_GROUP = 'Purchase Accounts' // i18n-technical: group name
 const SALARY_KEYS: readonly CategoryKey[] = ['salary'] // i18n-technical: category key
 const DRAWINGS = 'owner_drawings' as const // i18n-technical: category key
 const F = { date: 'date', party: 'party', amount: 'amount', from: 'from', bills: 'bills', gstBill: 'gstBill', billSupplier: 'billSupplier', billNo: 'billNo', gstRate: 'gstRate' } as const // i18n-technical: form field paths
@@ -42,7 +46,7 @@ const OUT_SIDE = 'out' as const // i18n-technical
 const EXPENSE_SIDE = 'expense' as const // i18n-technical
 const EXPENSE_CTX: AccountContext = { field: 'line', voucherKind: 'payment', drCr: 'dr' } // i18n-technical
 
-const isDirty = (f: MoneyOutForm): boolean => f.amount != null || f.supplierId != null || f.payeeId != null || f.note.trim() !== '' || f.billNo.trim() !== ''
+const isDirty = (f: MoneyOutForm): boolean => f.amount != null || f.supplierId != null || f.customerId != null || f.payeeId != null || f.note.trim() !== '' || f.billNo.trim() !== ''
 
 /**
  * WP 9.4 — Money out (plan §3): paid to a supplier (their bills oldest first), an expense
@@ -116,7 +120,7 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
 
   const errors = useFormErrors<MoneyOutField>(
     {
-      date: form.date, party: `${form.who}|${form.supplierId}|${form.payeeId}`, amount: form.amount, from: `${form.how}|${form.accountId}`,
+      date: form.date, party: `${form.who}|${form.supplierId}|${form.payeeId}|${form.customerId}`, amount: form.amount, from: `${form.how}|${form.accountId}`,
       bills: `${form.ticks?.join(',')}|${form.advance}|${form.amount}`, gstBill: form.gstBill, billSupplier: form.billSupplierId, billNo: form.billNo, gstRate: form.gstRate
     },
     { simple: true, t }
@@ -155,8 +159,20 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
 
   const supplierOptions = useMemo(() => (setup?.suppliers ?? []).map((c) => ({ id: c.id, label: c.name, ...(c.phone ? { sub: c.phone } : {}) })), [setup?.suppliers])
   const drawingsName = ledgers.find((l) => l.id === setup?.drawingsId)?.name ?? null
-  const whoChoices = MONEY_OUT_WHO.filter((w) => w !== 'salary' || setup?.payroll)
+  const credits = setup?.customerCredits ?? []
+  const whoChoices = MONEY_OUT_WHO.filter((w) => (w !== 'salary' || setup?.payroll) && (w !== 'refund' || credits.length > 0 || form.who === 'refund'))
+  const refundOptions = useMemo(() => credits.map((c) => ({ id: c.id, label: c.name, sub: t('simple.money.holdsCredit', { amount: formatPaise(c.credit, { symbol: true }) }) })), [credits, t])
   const slabs = useMemo(() => slabsOn(form.date), [form.date])
+  // Goods bought (an account under Purchase Accounts, picked through "Search all accounts"): a
+  // payment books no goods — the purchase flow does.
+  const boughtGoods = useMemo(() => {
+    if (form.who !== 'expense' || form.payeeId == null) return false
+    const l = ledgers.find((x) => x.id === form.payeeId)
+    for (let g = groups.find((x) => x.id === l?.groupId); g; g = g.parentId ? groups.find((x) => x.id === g!.parentId) : undefined) if (g.name === GOODS_GROUP) return true
+    return false
+  }, [form.who, form.payeeId, ledgers, groups])
+  // "Buying goods? Record a purchase instead": the purchase flow with what was typed here.
+  const recordPurchase = (): void => nav.go({ name: 'simple-buy', ask: { draftId: null, prefill: purchaseFromMoneyOut(form) } }, { force: true }) // i18n-technical: screen name
 
   return (
     <Page data-testid="simple-money-out">
@@ -173,7 +189,7 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
               label={t('simple.money.out.who')}
               value={form.who}
               options={whoChoices.map((w) => ({ value: w, label: lbl(WHO_TEXT[w]) }))}
-              onPick={(who) => update({ who, payeeId: null, ticks: null, advance: false, gstBill: null })}
+              onPick={(who) => update({ who, payeeId: null, customerId: null, ticks: null, advance: false, gstBill: null })}
               testId="money-out-who"
             />
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr]">
@@ -192,8 +208,38 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
                   </Field>
                 )}
                 {form.who === 'expense' && (
-                  <Field label={t('simple.money.expense')} name={F.party} error={errors.get(F.party)}>
-                    <CategoryPicker value={form.payeeId} onPick={(id) => update({ payeeId: id })} keys={EXPENSE_KEYS} side={EXPENSE_SIDE} context={EXPENSE_CTX} testId="picker-money-expense" />
+                  <>
+                    <Field label={t('simple.money.expense')} name={F.party} error={errors.get(F.party)}>
+                      <CategoryPicker
+                        value={form.payeeId}
+                        onPick={(id) => update({ payeeId: id })}
+                        keys={EXPENSE_KEYS}
+                        side={EXPENSE_SIDE}
+                        context={EXPENSE_CTX}
+                        testId="picker-money-expense"
+                        insteadRow={{ label: t('simple.money.buyingGoods'), onPick: recordPurchase }}
+                      />
+                    </Field>
+                    {boughtGoods && (
+                      <p className="mt-1.5 text-hint text-muted" data-testid="money-goods-hint">
+                        {t('simple.money.goodsHint')}{' '}
+                        <button type="button" className="text-amber underline" data-testid="btn-money-record-purchase" onClick={recordPurchase}>
+                          {t('simple.money.buyingGoodsLink')}
+                        </button>
+                      </p>
+                    )}
+                  </>
+                )}
+                {form.who === 'refund' && (
+                  <Field label={t('simple.money.refundCustomer')} name={F.party} error={errors.get(F.party)} hint={t('simple.money.refundCustomerHint')}>
+                    <TypeAhead
+                      options={refundOptions}
+                      value={form.customerId}
+                      onPick={(id) => update({ customerId: id, amount: form.amount ?? credits.find((c) => c.id === id)?.credit ?? null })}
+                      placeholder={t('simple.money.customerPlaceholder')}
+                      testId="picker-money-refund-customer"
+                      autoFocus
+                    />
                   </Field>
                 )}
                 {form.who === 'salary' && (

@@ -293,6 +293,23 @@ describe('Money in: the form’s ticks equal the Outstandings allocation', () =>
     expect(out.facts).toMatchObject({ side: 'supplier', balance: 0 })
     roundTrips(v.id)
   })
+
+  it('a supplier who owes us nothing back: refused on the supplier (no trace); “paying us for something else” posts it on account, = the hand-entered receipt', () => {
+    const before = trace()
+    expect(() => moneyIn({ who: 'refund', supplierId: L('Bharat Steel'), amount: 20_000, how: 'cash' })).toThrow(expect.objectContaining({ code: 'simple_refund_no_credit', field: 'party' }))
+    expect(trace()).toEqual(before)
+    const preview = (): unknown => previewIntent(db, INFO, { clientId: 'refund-none-01', kind: 'money_in', supplierId: L('Bharat Steel'), amount: 20_000, into: { how: 'cash' } }, TODAY)
+    expect(preview).toThrow(expect.objectContaining({ code: 'simple_refund_no_credit', params: { name: 'Bharat Steel' } }))
+    const { out } = moneyIn({ who: 'refund', supplierId: L('Bharat Steel'), amount: 20_000, how: 'cash', refundOther: true })
+    const v = getVoucher(db, out.voucherIds[0]!)!
+    expect(v.billRefs).toEqual([])
+    roundTrips(v.id)
+    const { twin, ids } = handEntered([{ kind: 'receipt', state: blank(TODAY, [r('dr', L('Cash'), 20_000), r('cr', L('Bharat Steel'), 20_000)], []) }])
+    expect(rows(twin, ids[0]!)).toEqual(rows(db, v.id))
+    // Now we owe them ₹200 (the money is on their account) — and a later refund is refused again.
+    expect(out.facts).toMatchObject({ side: 'supplier', balance: 20_000 })
+    expect(() => moneyIn({ who: 'refund', supplierId: L('Bharat Steel'), amount: 1_000, how: 'cash' })).toThrow(expect.objectContaining({ code: 'simple_refund_no_credit' }))
+  })
 })
 
 describe('Money out', () => {
@@ -405,6 +422,59 @@ describe('Money out', () => {
     // Under the threshold: nothing to say.
     setFeatures(db, { ...getFeatures(db), tds: true })
     expect(previewIntent(db, INFO, { ...intent, amount: 1_000_000 }, TODAY).tds).toBeUndefined()
+  })
+})
+
+describe('Money out: a refund to a customer', () => {
+  it('against the advance they paid: = the hand-entered payment in a twin company, and the Outstandings allocation agrees', () => {
+    const adv = moneyIn({ customerId: L('Ramesh'), amount: 50_000, advance: true }).out
+    const advName = getVoucher(db, adv.voucherIds[0]!)!.number
+    expect(allocation('Ramesh')).toEqual({ bills: {}, credit: 50_000 })
+    expect(moneySetup(db).customerCredits).toEqual([{ id: L('Ramesh'), name: 'Ramesh', credit: 50_000 }])
+    const { out } = moneyOut({ who: 'refund', customerId: L('Ramesh'), amount: 30_000, how: 'bank' })
+    const v = getVoucher(db, out.voucherIds[0]!)!
+    expect(v.billRefs.map((x) => [x.kind, x.name, x.amount])).toEqual([['against', advName, 30_000]])
+    // Where they stand after: ₹200 of theirs still with us — the allocation, and the sentence says so.
+    expect(allocation('Ramesh')).toEqual({ bills: {}, credit: 20_000 })
+    expect(out.facts).toMatchObject({ kind: 'money_out', side: 'customer', balance: -20_000 })
+    expect(out.sentences.at(-1)).toContain('₹200.00')
+    roundTrips(v.id)
+    const { twin, ids } = handEntered([
+      { kind: 'receipt', state: blank(TODAY, [r('dr', L('Cash'), 50_000), r('cr', L('Ramesh'), 50_000)], [{ kind: 'new', name: advName, amount: 50_000, dueDate: null }]) },
+      { kind: 'payment', state: blank(TODAY, [r('dr', L('Ramesh'), 30_000), r('cr', L('HDFC Bank'), 30_000)], [{ kind: 'against', name: advName, amount: 30_000, dueDate: null }]) }
+    ])
+    expect(rows(twin, ids[1]!)).toEqual(rows(db, v.id))
+    const ta = partyAllocation(twin, L('Ramesh', twin), TODAY)
+    expect({ bills: ta.bills.length, credit: ta.unappliedCredit }).toEqual({ bills: 0, credit: 20_000 })
+  })
+
+  it('more than the credit held: the excess opens a bill named after the payment — the customer now owes it (the supplier-refund mirror)', () => {
+    const adv = moneyIn({ customerId: L('Ramesh'), amount: 50_000, advance: true }).out
+    const advName = getVoucher(db, adv.voucherIds[0]!)!.number
+    const { out } = moneyOut({ who: 'refund', customerId: L('Ramesh'), amount: 60_000, how: 'cash' })
+    const v = getVoucher(db, out.voucherIds[0]!)!
+    expect(v.billRefs.map((x) => [x.kind, x.name, x.amount])).toEqual([['against', advName, 60_000]])
+    expect(allocation('Ramesh')).toEqual({ bills: { [v.number]: 10_000 }, credit: 0 })
+    expect(out.facts).toMatchObject({ side: 'customer', balance: 10_000 })
+  })
+
+  it('a customer whose credit is unnamed (money received on account, no advance flag) counts as credit held: the refund nets it off, no bill opens', () => {
+    twoBills()
+    post({ kind: 'money_in', customerId: L('Ramesh'), amount: 190_000, into: { how: 'cash' } })
+    expect(allocation('Ramesh')).toEqual({ bills: {}, credit: 30_000 })
+    expect(moneySetup(db).customerCredits).toEqual([{ id: L('Ramesh'), name: 'Ramesh', credit: 30_000 }])
+    const { out } = moneyOut({ who: 'refund', customerId: L('Ramesh'), amount: 30_000, how: 'cash' })
+    expect(getVoucher(db, out.voucherIds[0]!)!.billRefs).toEqual([])
+    expect(allocation('Ramesh')).toEqual({ bills: {}, credit: 0 })
+    expect(out.facts).toMatchObject({ side: 'customer', balance: 0 })
+  })
+
+  it('a customer holding no credit: refused on the customer, no trace; not offered by the setup', () => {
+    twoBills()
+    expect(moneySetup(db).customerCredits).toEqual([])
+    const before = trace()
+    expect(() => post({ kind: 'money_out', customerId: L('Ramesh'), amount: 1_000, from: { how: 'cash' } })).toThrow(expect.objectContaining({ code: 'simple_customer_no_credit', field: 'party' }))
+    expect(trace()).toEqual(before)
   })
 })
 

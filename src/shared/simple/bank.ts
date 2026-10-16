@@ -14,6 +14,8 @@ import type { MessageKey } from '../i18n'
 import type { StructuredError } from '../errors/appError'
 import type { CategorySource } from '../capture/categorise'
 import type { IntentLedgerClass, SimpleIntentInput } from './intents'
+import type { GstRegistrationFacts } from '../gst/registration'
+import { emptyMoneyOutForm, moneyOutIntentFrom } from './money'
 
 export type BankSide = 'deposit' | 'withdrawal'
 
@@ -23,15 +25,31 @@ export const BANK_CHOICE_KINDS = ['existing', 'customer', 'supplier', 'expense',
 export type BankChoiceKind = (typeof BANK_CHOICE_KINDS)[number]
 
 const id = z.number().int().positive()
+
+/** "Do you have a GST bill?" on a bank expense (as Money out asks it), and the optional "GST on
+ *  the charge" of a bank charge — the bank is then the supplier (its GSTIN optional; no bill number
+ *  needed). Saved as Money out's purchase intent of just an amount, paid from this bank. */
+export const bankGstBillSchema = z
+  .object({
+    /** Who the bill is from (an expense); a charge's supplier is the bank (found or added by main). */
+    supplierId: id.optional(),
+    billNo: z.string().trim().max(80).optional(),
+    gstRate: z.number().min(0).max(100).optional(),
+    /** A charge: the bank's GSTIN (optional). */
+    gstin: z.string().trim().max(15).optional()
+  })
+  .strict()
+export type BankGstBill = z.infer<typeof bankGstBillSchema>
+
 export const bankChoiceSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('existing') }).strict(),
   z.object({ kind: z.literal('customer'), partyId: id }).strict(),
   z.object({ kind: z.literal('supplier'), partyId: id }).strict(),
-  z.object({ kind: z.literal('expense'), accountId: id }).strict(),
+  z.object({ kind: z.literal('expense'), accountId: id, gstBill: bankGstBillSchema.optional() }).strict(),
   z.object({ kind: z.literal('income'), accountId: id }).strict(),
   z.object({ kind: z.literal('transfer'), accountId: id }).strict(),
   z.object({ kind: z.literal('owner'), accountId: id }).strict(),
-  z.object({ kind: z.literal('charges'), accountId: id }).strict(),
+  z.object({ kind: z.literal('charges'), accountId: id, gstBill: bankGstBillSchema.optional() }).strict(),
   z.object({ kind: z.literal('skip') }).strict()
 ])
 export type BankChoice = z.infer<typeof bankChoiceSchema>
@@ -84,11 +102,31 @@ export function choiceLabelKey(kind: BankChoiceKind, side: BankSide): MessageKey
   }
 }
 
-/** A choice is complete when it names what it needs (the customer, the category, the account). */
+/** A choice is complete when it names what it needs (the customer, the category, the account;
+ *  a GST bill: who it is from, its number and rate — a charge's GST: its rate). */
 export function choiceComplete(c: BankChoice | null): c is Exclude<BankChoice, { kind: 'skip' }> {
   if (!c || c.kind === 'skip') return false
   if (c.kind === 'existing') return true
+  if (!gstBillComplete(c)) return false
   return 'partyId' in c ? c.partyId > 0 : c.accountId > 0
+}
+
+/** The GST bill part of an expense / charge answer is complete (absent = no bill, complete). */
+export function gstBillComplete(c: BankChoice): boolean {
+  if ((c.kind !== 'expense' && c.kind !== 'charges') || !c.gstBill) return true
+  const b = c.gstBill
+  if (b.gstRate == null) return false
+  return c.kind === 'charges' || ((b.supplierId ?? 0) > 0 && !!b.billNo?.trim())
+}
+
+/** What turns a GST bill into Money out's purchase intent: the registration facts (whether the
+ *  line's date charges GST), the company's state and each supplier's; a charge's supplier — the
+ *  bank as a supplier — as main found or added it. */
+export interface BankGstContext {
+  facts: GstRegistrationFacts
+  companyStateCode: string
+  supplierState: (id: number) => string | null
+  chargesSupplierId?: number | null
 }
 
 /** What the screen knows about an account (setup): its class (ai/ledgerClass.ts), its simple
@@ -286,9 +324,29 @@ export interface BankLineFacts {
  *  dated the line's date, for exactly its amount, on this bank on the line's side, the bank's
  *  description as the note and its reference as the cheque / UTR number. A customer's money is
  *  set against their bills oldest first, a supplier's likewise (simple:post's money in / out). */
-export function intentForChoice(line: BankLineFacts, choice: BankChoice, bankLedgerId: number, clientId: string): SimpleIntentInput | null {
+export function intentForChoice(line: BankLineFacts, choice: BankChoice, bankLedgerId: number, clientId: string, gst?: BankGstContext): SimpleIntentInput | null {
   if (choice.kind === 'existing' || choice.kind === 'skip') return null
   const into = line.side === 'deposit'
+  // A bank expense with a GST bill (or a charge with its GST): Money out's own mapping — the
+  // purchase of just an amount on that account, paid now from this bank (moneyOutIntentFrom: the
+  // line's amount is the bill's total with GST, its value before GST solveTaxable's). On a date
+  // that charges no GST it is the plain payment Money out would make.
+  if (!into && gst && (choice.kind === 'expense' || choice.kind === 'charges') && choice.gstBill) {
+    const b = choice.gstBill
+    const supplier = choice.kind === 'charges' ? (gst.chargesSupplierId ?? null) : (b.supplierId ?? null)
+    const form = {
+      ...emptyMoneyOutForm(line.date, { bankId: bankLedgerId, reference: line.reference.trim().slice(0, 60), note: line.description.trim().slice(0, 500) }),
+      who: 'expense' as const,
+      payeeId: choice.accountId,
+      amount: line.amount,
+      gstBill: true,
+      billSupplierId: supplier,
+      billNo: b.billNo?.trim() ?? '',
+      gstRate: b.gstRate ?? null
+    }
+    const draft = moneyOutIntentFrom(form, [], { cash: null, upi: null, card: null, bank: bankLedgerId }, { facts: gst.facts, companyStateCode: gst.companyStateCode, supplierState: gst.supplierState, drawingsId: null })
+    return { ...draft, clientId } as SimpleIntentInput
+  }
   const money = { how: 'bank' as const, accountId: bankLedgerId, ...(line.reference.trim() ? { reference: line.reference.trim().slice(0, 60) } : {}) }
   const base = { clientId, date: line.date, amount: line.amount, ...(line.description.trim() ? { narration: line.description.trim().slice(0, 500) } : {}) }
   switch (choice.kind) {

@@ -117,7 +117,7 @@ function partyOf(n: NormalIntent, walkInId: number | null): number | null {
     case 'money_in':
       return n.customerId ?? n.supplierId
     case 'money_out':
-      return n.supplierId
+      return n.supplierId ?? n.customerId
     default:
       return null
   }
@@ -296,8 +296,15 @@ export function loadIntentContext(db: DB, company: CompanyInfo, n: NormalIntent)
     bills.set(partyId, openBills(db, partyId, n.date).filter((b) => b.pending > 0).map((b) => ({ name: b.number, date: b.date, pending: b.pending, voucherId: b.voucherId })))
   }
   // WP 9.4: a supplier's refund is set against their named credits (oldest first).
+  // A refund needs credit held with us at all (named or not): `heldCredit` (simple_refund_no_credit).
   const openCredits = new Map<number, { name: string; amount: number }[]>()
-  if (n.kind === 'money_in' && n.supplierId != null) openCredits.set(n.supplierId, partyAllocationWithCredits(db, n.supplierId, n.date).credits)
+  const heldCredit = new Map<number, number>()
+  const refundParty = n.kind === 'money_in' ? n.supplierId : n.kind === 'money_out' ? n.customerId : null
+  if (refundParty != null) {
+    const a = partyAllocationWithCredits(db, refundParty, n.date)
+    openCredits.set(refundParty, a.credits)
+    heldCredit.set(refundParty, a.unappliedCredit)
+  }
   return {
     invoice: {
       companyStateCode: company.stateCode,
@@ -322,6 +329,7 @@ export function loadIntentContext(db: DB, company: CompanyInfo, n: NormalIntent)
     prices,
     openBills: bills,
     openCredits,
+    heldCredit,
     original,
     takenNames,
     ...loadStockContext(db, n)

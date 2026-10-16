@@ -147,3 +147,50 @@ describe('simple Bank — one transaction per line (WP 9.6 review)', () => {
     expect(after).toMatchObject({ status: 'open', repeat: true, suggestion: null })
   })
 })
+
+describe('a bank charge with GST (PR #139): the bank-as-supplier creditor lives inside the line’s transaction', () => {
+  const REG: CompanyInfo = { ...TEST_INFO, name: 'Bank Rollback GST Co', gstin: '27AAPFU0939F1ZV', stateCode: '27', gstRegistrationType: 'regular' }
+  const CHARGE = '16/08/2025,SMS CHARGES JUL-SEP INCL GST,S2,"118.00",,'
+  let charges = 0
+  const regular = (): void => {
+    db = seededDb()
+    writeCompanyInfo(db, REG)
+    bank = ledger('HDFC Bank', 'Bank Accounts')
+    charges = ledger('Bank charges', 'Indirect Expenses', { simpleCategory: 'bank_charges' })
+    for (const [name, t] of [['Input CGST', 'cgst'], ['Input SGST', 'sgst'], ['Input IGST', 'igst']] as const) ledger(name, 'Duties & Taxes', { taxType: t })
+    ledger('Round Off', 'Indirect Expenses')
+    commitStatement(db, bank, { fileName: 'hdfc.csv', text: [HEADER, CHARGE].join('\n') })
+  }
+  const creditors = (): number => n("SELECT COUNT(*) AS n FROM ledgers WHERE name LIKE '% (charges)'")
+  const acceptReg = (item: Omit<BankAcceptItem, 'clientId'>, clientId: string) => acceptLines(db, REG, bank, [{ ...item, clientId } as BankAcceptItem], TODAY)
+
+  it('a refused reconcile rolls the new "<bank> (charges)" creditor back with everything else; the retry adds it once', async () => {
+    regular()
+    const line = lineOf(await view(), 'SMS CHARGES')
+    const before = traces()
+    refuse.on = true
+    const r = acceptReg({ lineId: line.id, choice: { kind: 'charges', accountId: charges, gstBill: { gstRate: 18 } } }, 'bank-chg-rb-0001')
+    expect(r.failed[0]!.error).toMatchObject({ code: 'simple_bank_not_matched', field: 'line' })
+    expect(traces()).toEqual(before)
+    expect(creditors()).toBe(0)
+    refuse.on = false
+    const ok = acceptReg({ lineId: line.id, choice: { kind: 'charges', accountId: charges, gstBill: { gstRate: 18 } } }, 'bank-chg-rb-0001')
+    expect(ok.failed).toEqual([])
+    expect(ok.done[0]!.voucherIds).toHaveLength(2)
+    expect(creditors()).toBe(1)
+    // No input tax on the cash side: the money that left the bank is exactly the line.
+    expect(n(`SELECT SUM(amount) AS n FROM voucher_lines WHERE voucher_id = ${ok.done[0]!.voucherIds[1]} AND ledger_id = ${bank} AND dr_cr = 'cr'`)).toBe(11_800)
+  })
+
+  it('an unregistered company: the charge’s GST answer saves the plain payment — no input tax, no creditor added', async () => {
+    const line = lineOf(await view(), 'STATIONERY')
+    const chargesAcct = ledger('Bank charges', 'Indirect Expenses', { simpleCategory: 'bank_charges' })
+    const before = traces()
+    const r = accept({ lineId: line.id, choice: { kind: 'charges', accountId: chargesAcct, gstBill: { gstRate: 18, gstin: '27AAPFU0939F1ZV' } } })
+    expect(r.failed).toEqual([])
+    expect(r.done[0]!.voucherIds).toHaveLength(1)
+    expect(creditors()).toBe(0)
+    expect(traces().ledgers).toBe(before.ledgers)
+    expect(n(`SELECT COUNT(*) AS n FROM voucher_lines WHERE voucher_id = ${r.done[0]!.voucherIds[0]} AND ledger_id NOT IN (${bank}, ${chargesAcct})`)).toBe(0)
+  })
+})

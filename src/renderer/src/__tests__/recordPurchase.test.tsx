@@ -12,6 +12,7 @@ import type { CompanyInfo, Group, Ledger } from '@shared/domain'
 import { DEFAULT_FEATURES } from '@shared/features'
 import type { IntentFacts, SimplePostResult, SimplePreview } from '@shared/simple/intents'
 import type { BuySetup } from '@shared/simple/buy'
+import { emptyMoneyOutForm, purchaseFromMoneyOut } from '@shared/simple/money'
 import { bannedWordsIn } from '@shared/simple/bannedWords'
 import { useNav, useSession } from '../state/stores'
 import { useExplain } from '../lib/explain'
@@ -54,11 +55,11 @@ let features = { ...DEFAULT_FEATURES }
 let postReply: () => { ok: boolean; data?: unknown; error?: string; code?: string; field?: string; params?: Record<string, unknown> }
 const calls = (ch: string): unknown[] => invoke.mock.calls.filter(([c]) => c === ch).map(([, p]) => p)
 
-function renderUi(): void {
+function renderUi(props: Parameters<typeof RecordPurchase>[0] = {}): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={client}>
-      <RecordPurchase />
+      <RecordPurchase {...props} />
     </QueryClientProvider>
   )
 }
@@ -117,6 +118,20 @@ const visibleText = (): string => document.body.textContent ?? ''
 const lastScreen = (): unknown => useNav.getState().stack.at(-1)
 
 describe('Record a purchase (WP 9.3)', () => {
+  it('PR #139: Money out’s "Record a purchase instead" lands here with the supplier, amount (with GST), way paid, date and note filled in', async () => {
+    useSession.setState({ info: info('regular') })
+    const form = { ...emptyMoneyOutForm('2026-10-13'), who: 'expense' as const, amount: 118_000, how: 'upi' as const, supplierId: 10, note: 'tea' }
+    renderUi({ ask: { draftId: null, prefill: purchaseFromMoneyOut(form) } })
+    await screen.findByTestId('buy-amount-line')
+    await waitFor(() => expect((screen.getByTestId('picker-buy-supplier') as HTMLInputElement).value).toBe('Bharat Steel'))
+    expect((screen.getByTestId('input-buy-amount') as HTMLInputElement).value).toBe('1,180.00')
+    expect(screen.getByTestId('buy-paid-upi').getAttribute('aria-checked')).toBe('true')
+    expect((screen.getByTestId('input-buy-date') as HTMLInputElement).value).toBe('13 Oct 2026')
+    expect((screen.getByTestId('input-buy-note') as HTMLInputElement).value).toBe('tea')
+    // The amount Money out had was the total with GST: the bill keeps it as such.
+    expect(screen.getByTestId('buy-prices-incl').getAttribute('aria-checked')).toBe('true')
+  })
+
   it('an empty Save: the problems under their questions, nothing posted', async () => {
     renderUi()
     await ready()

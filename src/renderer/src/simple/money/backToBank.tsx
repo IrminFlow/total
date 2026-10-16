@@ -9,13 +9,16 @@ import { Button } from '../../components/ui'
  * bank (its own pick is not kept across screens); with none below, it opens.
  */
 export function goBackToBank(bankId: number): void {
+  // Both callers are past the unsaved question (the entry is saved, or the user chose to discard
+  // it), so this never asks again: the form's unsaved guard is released in a passive effect AFTER
+  // the save card is on screen, and a click in between went through nav.back's "discard?" and
+  // left the Money screen on top (CI, PR #139). One stack write, like `replace` after a save.
   const { stack } = useNav.getState()
   const prev = stack[stack.length - 2]
   if (prev?.name === 'simple-bank') {
-    useNav.setState({ stack: [...stack.slice(0, -2), { ...prev, bankId }, stack[stack.length - 1]!] })
-    useNav.getState().back()
+    useNav.setState({ stack: [...stack.slice(0, -2), { ...prev, bankId }] })
   } else {
-    useNav.getState().go({ name: 'simple-bank', bankId }) // i18n-technical: screen name
+    useNav.setState({ stack: [...stack, { name: 'simple-bank', bankId }] }) // i18n-technical: screen name
   }
 }
 

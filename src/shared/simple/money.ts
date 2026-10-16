@@ -16,6 +16,9 @@ import { chargesGstOn, type GstRegistrationFacts } from '../gst/registration'
 import { solveTaxable } from '../pricing'
 import { allocateToBills, SIMPLE_MAX_DAYS_AHEAD, type IntentOpenBill, type MoneyHow, type SimpleIntentInput } from './intents'
 import { addDaysISO } from '../dates'
+import { categoriesFor } from './accountKinds'
+import type { CategoryKey } from './categories'
+import type { AssistPrefill } from '../assist'
 
 /** The ways money moves, as the screens offer them (intents.ts MONEY_HOW). */
 export const MONEY_HOWS: readonly MoneyHow[] = ['cash', 'upi', 'bank', 'card']
@@ -24,9 +27,35 @@ export const MONEY_HOWS: readonly MoneyHow[] = ['cash', 'upi', 'bank', 'card']
 export const MONEY_IN_WHO = ['customer', 'owner', 'loan', 'income', 'refund'] as const
 export type MoneyInWho = (typeof MONEY_IN_WHO)[number]
 
-/** "Paid to" on Money out (salary only while Payroll is on). */
-export const MONEY_OUT_WHO = ['supplier', 'expense', 'owner', 'salary'] as const
+/** "Paid to" on Money out (salary only while Payroll is on; a customer's refund only while some
+ *  customer holds credit with us — `MoneySetup.customerCredits`). */
+export const MONEY_OUT_WHO = ['supplier', 'expense', 'owner', 'salary', 'refund'] as const
 export type MoneyOutWho = (typeof MONEY_OUT_WHO)[number]
+
+/** Goods bought to sell or make: paid from Money out they would book no goods (no stock, no
+ *  supplier bill) — Money out offers "Record a purchase instead" in their place. */
+export const MONEY_OUT_GOODS_KEYS: readonly CategoryKey[] = ['purchases', 'raw_material']
+/** Not a cost you pay out: "Discount given" is what a sale gives away (kept for the bill screens). */
+const MONEY_OUT_NOT_PAID: readonly CategoryKey[] = ['discount_given']
+
+/** The expense tiles Money out offers: `categoriesFor('expense')` without the goods-bought and
+ *  the sales-side ones (Record a purchase's own picker keeps them all). */
+export const MONEY_OUT_EXPENSE_KEYS: readonly CategoryKey[] = categoriesFor('expense').filter((k) => !MONEY_OUT_GOODS_KEYS.includes(k) && !MONEY_OUT_NOT_PAID.includes(k))
+
+/** "Buying goods? Record a purchase instead": Record a purchase opened with what Money out had —
+ *  the supplier (the GST bill's, else the one picked), the amount (as a total with GST), how it
+ *  was paid, the date and the note. */
+export function purchaseFromMoneyOut(f: MoneyOutForm): Extract<AssistPrefill, { screen: 'simple-buy' }> {
+  const party = f.billSupplierId ?? f.supplierId
+  return {
+    screen: 'simple-buy',
+    ...(party != null ? { party } : {}),
+    ...(f.amount != null && f.amount > 0 ? { amount: f.amount } : {}),
+    how: f.how,
+    date: f.date,
+    ...(f.note.trim() ? { note: f.note.trim() } : {})
+  }
+}
 
 type WithoutClientId<T> = T extends unknown ? Omit<T, 'clientId'> : never
 export type MoneyIntentDraft = WithoutClientId<Extract<SimpleIntentInput, { kind: 'money_in' | 'money_out' | 'purchase' | 'move_money' }>>
@@ -51,6 +80,9 @@ export interface MoneyInForm extends MoneyFormBase {
   sourceId: number | null
   /** A refund from this supplier. */
   supplierId: number | null
+  /** "They are paying us for something else" (a supplier's money that is not a refund): kept on
+   *  their account even when they owe us nothing back (intent `onAccount`). */
+  refundOther: boolean
   /** null = untouched (the bills are settled oldest first); else the bill names the user ticked. */
   ticks: string[] | null
   /** "Is this for a bill you haven't made yet?" — what the bills don't take is an advance. */
@@ -60,6 +92,8 @@ export interface MoneyInForm extends MoneyFormBase {
 export interface MoneyOutForm extends MoneyFormBase {
   who: MoneyOutWho
   supplierId: number | null
+  /** A refund to this customer (set against the credit they hold with us). */
+  customerId: number | null
   /** The expense / salary account. */
   payeeId: number | null
   ticks: string[] | null
@@ -102,6 +136,7 @@ export const emptyMoneyInForm = (date: string, init: { customerId?: number | nul
   customerId: init.customerId ?? null,
   sourceId: null,
   supplierId: null,
+  refundOther: false,
   amount: init.amount ?? null,
   ticks: init.bill ? [init.bill] : null,
   advance: false
@@ -111,6 +146,7 @@ export const emptyMoneyOutForm = (date: string, init: { supplierId?: number | nu
   ...fromBank(date, init),
   who: 'supplier',
   supplierId: init.supplierId ?? null,
+  customerId: null,
   payeeId: null,
   amount: init.amount ?? null,
   ticks: init.bill ? [init.bill] : null,
@@ -206,7 +242,7 @@ export function moneyInIntentFrom(
     const bills = f.amount != null && f.amount > 0 ? ticksToBills(open, f.amount, f.ticks) : null
     return { ...head, ...(f.customerId != null ? { customerId: f.customerId } : {}), ...(bills ? { bills } : {}), ...(f.advance ? { advance: true } : {}) }
   }
-  if (f.who === 'refund') return { ...head, ...(f.supplierId != null ? { supplierId: f.supplierId } : {}) }
+  if (f.who === 'refund') return { ...head, ...(f.supplierId != null ? { supplierId: f.supplierId } : {}), ...(f.refundOther ? { onAccount: true } : {}) }
   const sourceId = f.who === 'owner' ? (f.sourceId ?? sources.ownerId) : f.sourceId
   return { ...head, ...(sourceId != null ? { sourceId } : {}) }
 }
@@ -248,6 +284,7 @@ export function moneyOutIntentFrom(
     return { ...head, ...(f.supplierId != null ? { supplierId: f.supplierId } : {}), ...(bills ? { bills } : {}), ...(f.advance ? { advance: true } : {}) }
   }
   if (f.who === 'owner') return { ...head, drawings: true }
+  if (f.who === 'refund') return { ...head, ...(f.customerId != null ? { customerId: f.customerId } : {}) }
   return { ...head, ...(f.payeeId != null ? { payeeId: f.payeeId } : {}) }
 }
 
@@ -280,7 +317,8 @@ const PARTY_MISSING_OUT: Record<MoneyOutWho, MessageKey> = {
   supplier: 'simple.money.err.pickSupplier',
   expense: 'simple.money.err.pickExpense',
   owner: 'simple.money.err.noDrawings',
-  salary: 'simple.money.err.pickSalary'
+  salary: 'simple.money.err.pickSalary',
+  refund: 'simple.money.err.pickRefundCustomer'
 }
 
 export function moneyInErrors(f: MoneyInForm, open: readonly MoneyOpenBill[], defaults: Record<MoneyHow, number | null>, sources: { ownerId: number | null }): Partial<Record<MoneyInField, MessageKey>> {
@@ -301,7 +339,7 @@ export function moneyOutErrors(
 ): Partial<Record<MoneyOutField, MessageKey>> {
   const out: Partial<Record<MoneyOutField, MessageKey>> = {}
   // Owner's drawings: a missing account is added on Save (never a dead end), so not an error here.
-  const who = f.who === 'supplier' ? f.supplierId : f.who === 'owner' ? 0 : f.payeeId
+  const who = f.who === 'supplier' ? f.supplierId : f.who === 'owner' ? 0 : f.who === 'refund' ? f.customerId : f.payeeId
   if (who == null) out.party = PARTY_MISSING_OUT[f.who]
   if (f.amount == null || f.amount <= 0) out.amount = 'simple.money.err.amount'
   if (accountFor(f, defaults) == null) out.from = f.how === 'cash' ? 'simple.money.err.noCash' : 'simple.money.err.noBank'
@@ -362,6 +400,9 @@ export interface MoneySetup {
   /** Features: TDS (the read-only hint) and Payroll (the Salary choice). */
   tds: boolean
   payroll: boolean
+  /** Customers holding credit with us as on today (the Outstandings allocation's unapplied
+   *  credit, largest first) — Money out's "A customer (refund)". Absent = none. */
+  customerCredits?: { id: number; name: string; credit: number }[]
 }
 
 export type MoneyDirection = 'in' | 'out' | 'move'

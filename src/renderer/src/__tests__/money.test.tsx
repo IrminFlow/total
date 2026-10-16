@@ -15,6 +15,7 @@ import type { MoneyOpenBill, MoneyRow, MoneySetup } from '@shared/simple/money'
 import { bannedWordsIn } from '@shared/simple/bannedWords'
 import { useNav, useSession } from '../state/stores'
 import { useDialogs } from '../lib/dialogs'
+import { hasUnsavedChanges } from '../lib/useUnsavedGuard'
 import { MoneyIn } from '../simple/money/MoneyIn'
 import { MoneyOut } from '../simple/money/MoneyOut'
 import { MoveMoney } from '../simple/money/MoveMoney'
@@ -99,6 +100,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   invoke.mockReset()
+  act(() => useDialogs.setState({ queue: [] })) // a question left open must not answer for the next test
 })
 
 const click = (id: string): void => void fireEvent.click(screen.getByTestId(id))
@@ -225,6 +227,37 @@ describe('review fixes', () => {
   })
 })
 
+describe('Money in: a refund from a supplier who owes nothing back', () => {
+  it('main refuses it: the plain reason, "Record it as other money in"; ticking "something else" sends onAccount', async () => {
+    previewReply = () => ({ ok: false, error: 'Bharat Steel owes you nothing back', code: 'simple_refund_no_credit', field: 'party', params: { name: 'Bharat Steel' } } as never)
+    renderUi(<MoneyIn />)
+    await ready()
+    click('money-in-who-refund')
+    await pick('picker-money-supplier', 'Bharat')
+    typeAmount('200')
+    await waitFor(() => expect(screen.getByTestId('money-refund-no-credit').textContent).toContain('Bharat Steel owes you nothing back, so this is not a refund.'))
+    expect(bannedWordsIn(visible())).toEqual([])
+    click('check-money-refund-other')
+    await waitFor(() => expect(screen.queryByTestId('money-refund-no-credit')).toBeNull())
+    previewReply = () => ({ ok: true, data: PREVIEW })
+    click('btn-money-save')
+    await waitFor(() => expect(calls('simple:post')).toHaveLength(1))
+    expect((calls('simple:post')[0] as { intent: Record<string, unknown> }).intent).toMatchObject({ kind: 'money_in', supplierId: 20, onAccount: true, amount: 20_000 })
+  })
+
+  it('"Record it as other money in" switches to other income', async () => {
+    previewReply = () => ({ ok: false, error: 'no', code: 'simple_refund_no_credit', field: 'party', params: { name: 'Bharat Steel' } } as never)
+    renderUi(<MoneyIn />)
+    await ready()
+    click('money-in-who-refund')
+    await pick('picker-money-supplier', 'Bharat')
+    typeAmount('200')
+    fireEvent.click(await screen.findByTestId('btn-money-refund-as-income'))
+    await waitFor(() => expect(screen.getByTestId('picker-money-income')).toBeTruthy())
+    expect(screen.queryByTestId('picker-money-supplier')).toBeNull()
+  })
+})
+
 describe('Money out (WP 9.4)', () => {
   it('an expense, regular registration: the GST bill question, its fields under their questions, then ONE purchase intent paid now', async () => {
     renderUi(<MoneyOut />)
@@ -275,6 +308,58 @@ describe('Money out (WP 9.4)', () => {
     const sent = calls('simple:post')[0] as { intent: Record<string, unknown>; aiDraftId?: number }
     expect(sent.intent).toMatchObject({ kind: 'money_out', payeeId: 40, amount: 50_000, from: { how: 'cash', accountId: 30 }, narration: 'tea' })
     expect(sent.aiDraftId).toBe(41)
+  })
+
+  it('expense tiles: no Purchases / Raw material purchases / Discount given — “Buying goods? Record a purchase instead” opens Record a purchase with the amount carried', async () => {
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-money-out' }] }))
+    renderUi(<MoneyOut />)
+    await ready()
+    click('money-out-who-expense')
+    typeAmount('1180')
+    click('money-how-upi')
+    click('picker-money-expense')
+    await screen.findByTestId('category-rent')
+    for (const k of ['purchases', 'raw_material', 'discount_given']) expect(screen.queryByTestId(`category-${k}`)).toBeNull()
+    expect(screen.getByTestId('category-electricity')).toBeTruthy()
+    const row = screen.getByTestId('picker-money-expense-instead')
+    expect(row.textContent).toBe('Buying goods? Record a purchase instead')
+    expect(bannedWordsIn(visible())).toEqual([])
+    fireEvent.click(row)
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({
+      name: 'simple-buy', ask: { draftId: null, prefill: { screen: 'simple-buy', amount: 118_000, how: 'upi', date: '2026-10-13' } }
+    }))
+    expect(calls('simple:post')).toEqual([])
+  })
+
+  it('“A customer (refund)” only while a customer holds credit: their credit shown, the amount pre-filled, posts customerId', async () => {
+    renderUi(<MoneyOut />)
+    await ready()
+    expect(screen.queryByTestId('money-out-who-refund')).toBeNull()
+    cleanup()
+    invoke.mockImplementation(async (channel: string) => {
+      switch (channel) {
+        case 'master:groups:list': return { ok: true, data: GROUPS }
+        case 'master:ledgers:list': return { ok: true, data: LEDGERS }
+        case 'config:features:get': return { ok: true, data: DEFAULT_FEATURES }
+        case 'simple:money:setup': return { ok: true, data: { ...SETUP, customerCredits: [{ id: 10, name: 'Ramesh', credit: 50_000 }] } }
+        case 'simple:preview': return previewReply()
+        case 'simple:post': return postReply()
+        case 'voucher:saveSummary': return { ok: true, data: { entries: [{ voucherId: 7, kind: 'payment', number: '1', amount: 50_000 }], parties: [], undo: { undoable: true, reason: null } } }
+        default: return { ok: true, data: [] }
+      }
+    })
+    renderUi(<MoneyOut />)
+    await ready()
+    click('money-out-who-refund')
+    expect(visible()).toContain('Which customer are you paying back?')
+    fireEvent.change(screen.getByTestId('picker-money-refund-customer'), { target: { value: 'Ram' } })
+    const opt = await option('Ramesh')
+    expect(opt.textContent).toContain('₹500.00 of theirs with you')
+    fireEvent.mouseDown(opt)
+    expect(bannedWordsIn(visible())).toEqual([])
+    click('btn-money-save')
+    await waitFor(() => expect(calls('simple:post')).toHaveLength(1))
+    expect((calls('simple:post')[0] as { intent: Record<string, unknown> }).intent).toMatchObject({ kind: 'money_out', customerId: 10, amount: 50_000, from: { how: 'cash', accountId: 30 } })
   })
 
   it('Salary only with Payroll on; the owner took money = drawings; the TDS hint says it plainly', async () => {
@@ -360,6 +445,31 @@ describe('opened from a bank line ("Pick the bills yourself")', () => {
     click('btn-money-back-to-bank')
     await waitFor(() => expect(useNav.getState().stack).toEqual([{ name: 'simple-bank', bankId: 32 }]))
     expect(bannedWordsIn(visible())).toEqual([])
+  })
+  it('"Back to Bank" clicked the moment the save card shows (before the form lets go of its unsaved guard) still goes back, without asking', async () => {
+    // CI on PR #139: the card is committed before the passive effect that releases the guard, so a
+    // click in between went through nav.back's "discard?" and left Money in on top. A
+    // MutationObserver clicks inside that window every time.
+    act(() => useNav.setState({ stack: [{ name: 'simple-bank' }, { name: 'simple-money-in', ...FROM_LINE }] }))
+    renderUi(<MoneyIn {...FROM_LINE} />)
+    await ready()
+    const guardHeld: boolean[] = []
+    const watch = new MutationObserver(() => {
+      const button = document.querySelector<HTMLButtonElement>('[data-testid="btn-money-back-to-bank"]')
+      if (!button || guardHeld.length) return
+      guardHeld.push(hasUnsavedChanges())
+      button.click()
+    })
+    watch.observe(document.body, { childList: true, subtree: true })
+    try {
+      click('btn-money-save')
+      await waitFor(() => expect(guardHeld).toHaveLength(1))
+    } finally {
+      watch.disconnect()
+    }
+    expect(guardHeld).toEqual([true]) // the window this test is about really was open
+    expect(useNav.getState().stack).toEqual([{ name: 'simple-bank', bankId: 32 }])
+    expect(useDialogs.getState().queue).toEqual([])
   })
   it('Esc → discard goes back to the Bank on that bank too; with no Bank below it opens one', async () => {
     act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-money-out', ...FROM_LINE, party: 20 }] }))

@@ -5,20 +5,27 @@ import { toPlainDate } from '@shared/dates'
 import { categoriesFor } from '@shared/simple/accountKinds'
 import { CATEGORIES, type CategoryKey } from '@shared/simple/categories'
 import type { AccountContext } from '@shared/simple/accountKinds'
-import { choiceComplete, choiceLabelKey, choicesFor, intentForChoice, type BankChoice, type BankChoiceKind, type BankLineView, type BankSetup, type BankSuggestion } from '@shared/simple/bank'
+import { choiceComplete, choiceLabelKey, choicesFor, intentForChoice, type BankChoice, type BankChoiceKind, type BankGstBill, type BankLineView, type BankSetup, type BankSuggestion } from '@shared/simple/bank'
+import { chargesGstOn, gstRegistrationOf } from '@shared/gst/registration'
+import { slabsOn } from '@shared/gst/rateTable'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession } from '../../state/stores'
 import { moneyInScreen, moneyOutScreen } from '../money/moneyLinks'
-import { Button, Field, FieldError, Select } from '../../components/ui'
+import { Button, Checkbox, Field, FieldError, Select, TextInput } from '../../components/ui'
 import { TypeAhead } from '../../components/pickers'
 import { CategoryPicker } from '../CategoryPicker'
+import { NewAccountDialog } from '../NewAccountDialog'
 import { useCanSave } from '../ViewerNote'
 
 const EXPENSE_CONTEXT: AccountContext = { field: 'line', voucherKind: 'payment', drCr: 'dr' } // i18n-technical
 const INCOME_CONTEXT: AccountContext = { field: 'account', side: 'sales' } // i18n-technical
 const PREVIEW_ID = 'bank-preview-' // i18n-technical: clientId prefix for the rehearsal
 const EXPENSE_KEYS = categoriesFor('expense')
+const SUPPLIER_CONTEXT: AccountContext = { field: 'party', side: 'purchase' } // i18n-technical
+const YES = 'yes' // i18n-technical
+const NO = 'no' // i18n-technical
+const CHARGE_RATE = 18 // the usual GST on bank charges — pre-picked, the user can change it
 const INCOME_KEYS = categoriesFor('income')
 
 export interface LineProblem {
@@ -54,8 +61,15 @@ export function categoryFor(kind: 'owner' | 'charges', side: BankLineView['side'
 
 /** Save is possible: the answer is complete, or an owner / bank shortcut whose account is added on save. */
 export function canSave(c: BankChoice | null): boolean {
-  if (c?.kind === 'owner' || c?.kind === 'charges') return true
+  if (c?.kind === 'owner') return true
+  if (c?.kind === 'charges') return !c.gstBill || c.gstBill.gstRate != null
   return choiceComplete(c)
+}
+
+/** The answer without its GST bill ("No bill, or no GST on it" / the charge's GST unticked). */
+function noBill<C extends Extract<BankChoice, { kind: 'expense' | 'charges' }>>(c: C): C {
+  const { gstBill: _b, ...rest } = c
+  return rest as C
 }
 
 const sameChoice = (a: BankChoice | null, b: BankChoice | null): boolean => !!a && !!b && JSON.stringify(a) === JSON.stringify(b)
@@ -93,6 +107,12 @@ export function LineCard({
   const t = useT()
   const mayWrite = useCanSave()
   const workingDate = useSession((s) => s.workingDate)
+  const info = useSession((s) => s.info)
+  // "Do you have a GST bill?" / "GST on the charge": money going out, a regular registration on
+  // the line's date (Money out's rule, expenseGstApplies).
+  const gstAsk = line.side === 'withdrawal' && !!info && chargesGstOn(gstRegistrationOf(info), line.date)
+  const slabs = useMemo(() => slabsOn(line.date), [line.date])
+  const [newSupplier, setNewSupplier] = useState<string | null>(null)
   const nav = useNav()
   const label = (k: MessageKey, vars?: Record<string, string | number>): string => t(k, vars) // i18n-technical: keys from shared/simple/bank.ts
   const deposit = line.side === 'deposit'
@@ -218,7 +238,7 @@ export function LineCard({
           <Field label={choice.kind === 'expense' ? t('simple.bank.pickExpense') : t('simple.bank.pickIncome')} name="party" error={problem?.fields.party ?? null}>
             <CategoryPicker
               value={choice.accountId || null}
-              onPick={(id) => onChoice({ kind: choice.kind, accountId: id ?? 0 })}
+              onPick={(id) => onChoice({ ...choice, accountId: id ?? 0 })}
               keys={choice.kind === 'expense' ? EXPENSE_KEYS : INCOME_KEYS}
               context={choice.kind === 'expense' ? EXPENSE_CONTEXT : INCOME_CONTEXT}
               side={choice.kind}
@@ -254,6 +274,43 @@ export function LineCard({
           </p>
         )}
         {choice?.kind === 'skip' && <p className="text-small text-muted">{t('simple.bank.skipped')}</p>}
+        {gstAsk && choice?.kind === 'expense' && (
+          <GstBillQuestion
+            lineId={line.id}
+            bill={choice.gstBill}
+            slabs={slabs}
+            suppliers={suppliers}
+            problem={problem}
+            onBill={(gstBill) => onChoice(gstBill ? { ...choice, gstBill } : noBill(choice))}
+            onNewSupplier={mayWrite ? (name) => setNewSupplier(name) : undefined}
+          />
+        )}
+        {gstAsk && choice?.kind === 'charges' && (
+          <div className="mt-3" data-testid={`bank-charge-gst-${line.id}`}>
+            <Checkbox
+              label={t('simple.bank.gstOnCharge')}
+              hint={t('simple.bank.gstOnChargeHint')}
+              checked={!!choice.gstBill}
+              onChange={(on) => onChoice(on ? { ...choice, gstBill: { gstRate: slabs.some((x) => x.rate === CHARGE_RATE) ? CHARGE_RATE : undefined } } : noBill(choice))}
+              testId={`check-bank-charge-gst-${line.id}`}
+            />
+            {choice.gstBill && (
+              <div className="mt-2 flex flex-col gap-2">
+                <RateChips lineId={line.id} slabs={slabs} rate={choice.gstBill.gstRate ?? null} onRate={(gstRate) => onChoice({ ...choice, gstBill: { ...choice.gstBill, gstRate } })} error={problem?.fields.gstRate ?? null} />
+                <Field label={t('simple.bank.bankGstin')} name="gstin" error={problem?.fields.gstin ?? null}>
+                  <TextInput
+                    value={choice.gstBill.gstin ?? ''}
+                    onChange={(e) => {
+                      const { gstin: _g, ...rest } = choice.gstBill ?? {}
+                      onChoice({ ...choice, gstBill: e.target.value.trim() ? { ...rest, gstin: e.target.value.toUpperCase() } : rest })
+                    }}
+                    data-testid={`input-bank-charge-gstin-${line.id}`}
+                  />
+                </Field>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {sentences.length > 0 && (
@@ -272,6 +329,17 @@ export function LineCard({
       )}
       <FieldError name="choice" error={problem?.fields.choice ?? null} />
 
+      {newSupplier != null && choice?.kind === 'expense' && (
+        <NewAccountDialog
+          name={newSupplier}
+          context={SUPPLIER_CONTEXT}
+          onClose={() => setNewSupplier(null)}
+          onCreated={(l) => {
+            setNewSupplier(null)
+            onChoice({ ...choice, gstBill: { ...choice.gstBill, supplierId: l.id } })
+          }}
+        />
+      )}
       {mayWrite && choice && choice.kind !== 'skip' && (
         <div className="mt-3 flex justify-end">
           <Button variant="primary" disabled={busy || !canSave(choice)} data-testid="btn-bank-line-save" onClick={onSave}>
@@ -280,5 +348,89 @@ export function LineCard({
         </div>
       )}
     </article>
+  )
+}
+
+/** The GST rate chips (the slabs in force on the line's date). */
+function RateChips({ lineId, slabs, rate, onRate, error }: { lineId: number; slabs: readonly { rate: number }[]; rate: number | null; onRate: (r: number) => void; error: string | null }): React.JSX.Element {
+  const t = useT()
+  return (
+    <div>
+      <span className="mb-1 block text-caption font-semibold tracking-[0.08em] text-muted uppercase">{t('simple.money.gstRate')}</span>
+      <div role="radiogroup" aria-label={t('simple.money.gstRate')} className="flex flex-wrap gap-1.5">
+        {slabs.map((x) => (
+          <button
+            key={x.rate}
+            type="button"
+            role="radio"
+            aria-checked={rate === x.rate}
+            data-testid={`bank-gst-rate-${lineId}-${x.rate}`}
+            onClick={() => onRate(x.rate)}
+            className={`rounded-md border px-2.5 py-1 text-detail ${rate === x.rate ? 'border-amber bg-amberbar/15 font-semibold text-ink' : 'border-line bg-panel text-ink hover:border-amber/60'}`}
+          >
+            {x.rate === 0 ? t('simple.money.gstNil') : `${x.rate}%`}
+          </button>
+        ))}
+      </div>
+      <FieldError name="gstRate" error={error} />
+    </div>
+  )
+}
+
+/** Money out's "Do you have a GST bill?" on a bank expense: who it is from, its number, its rate. */
+function GstBillQuestion({
+  lineId, bill, slabs, suppliers, problem, onBill, onNewSupplier
+}: {
+  lineId: number
+  bill: BankGstBill | undefined
+  slabs: readonly { rate: number }[]
+  suppliers: { id: number; label: string }[]
+  problem: LineProblem | null
+  onBill: (b: BankGstBill | null) => void
+  onNewSupplier?: (name: string) => void
+}): React.JSX.Element {
+  const t = useT()
+  return (
+    <div className="mt-3" data-testid={`bank-gst-bill-${lineId}`}>
+      <span className="mb-1 block text-detail font-semibold text-ink">{t('simple.money.gstBill')}</span>
+      <div role="radiogroup" aria-label={t('simple.money.gstBill')} className="flex flex-wrap gap-2">
+        {[YES, NO].map((v) => (
+          <button
+            key={v}
+            type="button"
+            role="radio"
+            aria-checked={v === YES ? !!bill : !bill}
+            data-testid={`bank-gst-bill-${lineId}-${v}`}
+            onClick={() => onBill(v === YES ? (bill ?? {}) : null)}
+            className={`rounded-md border px-3 py-1.5 text-detail ${(v === YES ? !!bill : !bill) ? 'border-amber bg-amberbar/15 font-semibold text-ink' : 'border-line bg-panel text-ink hover:border-amber/60'}`}
+          >
+            {v === YES ? t('simple.money.gstBillYes') : t('simple.money.gstBillNo')}
+          </button>
+        ))}
+      </div>
+      <FieldError name="gstBill" error={problem?.fields.gstBill ?? null} />
+      {bill && (
+        <div className="mt-2 flex flex-col gap-2">
+          <p className="text-small text-muted">{t('simple.money.gstBillHint')}</p>
+          <Field label={t('simple.money.billSupplier')} name="billSupplier" error={problem?.fields.billSupplier ?? null}>
+            <TypeAhead
+              options={suppliers}
+              value={bill.supplierId ?? null}
+              onPick={(id) => {
+                const { supplierId: _s, ...rest } = bill
+                onBill(id != null ? { ...rest, supplierId: id } : rest)
+              }}
+              placeholder={t('simple.money.supplierPlaceholder')}
+              onCreate={onNewSupplier}
+              testId={`picker-bank-bill-supplier-${lineId}`}
+            />
+          </Field>
+          <Field label={t('simple.money.billNo')} name="billNo" error={problem?.fields.billNo ?? null}>
+            <TextInput value={bill.billNo ?? ''} onChange={(e) => onBill({ ...bill, billNo: e.target.value })} data-testid={`input-bank-bill-no-${lineId}`} />
+          </Field>
+          <RateChips lineId={lineId} slabs={slabs} rate={bill.gstRate ?? null} onRate={(gstRate) => onBill({ ...bill, gstRate })} error={problem?.fields.gstRate ?? null} />
+        </div>
+      )}
+    </div>
   )
 }

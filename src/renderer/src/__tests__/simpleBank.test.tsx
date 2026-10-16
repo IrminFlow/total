@@ -282,4 +282,48 @@ describe('simple Bank (WP 9.6)', () => {
     expect(screen.queryByTestId('btn-bank-not-this-4')).toBeNull()
     act(() => useSession.setState({ user: null }))
   })
+
+  it('money going out under a regular registration: “Do you have a GST bill?” on an expense, “GST on the charge” on a bank charge — sent with the answer', async () => {
+    // Unregistered (the default here): neither question.
+    renderUi()
+    await waitFor(() => expect(screen.getAllByTestId('bank-line')).toHaveLength(3))
+    expect(within(lineCard(2)).queryByTestId('bank-charge-gst-2')).toBeNull()
+    cleanup()
+    setup = { ...SETUP, accounts: [...SETUP.accounts, { id: 50, name: 'Shree Properties', cls: 'creditor', category: null, owner: false }] }
+    act(() => useSession.setState({ info: { ...(useSession.getState().info as CompanyInfo), gstin: '27AAACT1234A1Z5', gstRegistrationType: 'regular' } }))
+    renderUi()
+    await waitFor(() => expect(screen.getAllByTestId('bank-line')).toHaveLength(3))
+    // The expense: the GST bill's supplier, number and rate are needed before it can be saved.
+    fireEvent.click(within(lineCard(3)).getByTestId('bank-choice-expense'))
+    // The accounts are loaded (a tile then picks its account; it would add one otherwise).
+    await waitFor(() => expect(calls('master:ledgers:list').length).toBeGreaterThan(0))
+    await act(async () => {})
+    fireEvent.click(within(lineCard(3)).getByTestId('picker-bank-category-3'))
+    fireEvent.click(await within(lineCard(3)).findByTestId('category-bank_charges'))
+    await waitFor(() => expect(within(lineCard(3)).getByTestId('picker-bank-category-3').textContent).toBe('Bank charges'))
+    fireEvent.click(within(lineCard(3)).getByTestId('bank-gst-bill-3-yes'))
+    const save = (): HTMLButtonElement => within(lineCard(3)).getByTestId('btn-bank-line-save') as HTMLButtonElement
+    expect(save().disabled).toBe(true)
+    fireEvent.change(within(lineCard(3)).getByTestId('picker-bank-bill-supplier-3'), { target: { value: 'Shree' } })
+    let hit: HTMLElement | undefined
+    await waitFor(() => {
+      hit = within(lineCard(3)).getAllByRole('option').find((o) => !o.dataset.create && (o.textContent ?? '').includes('Shree Properties'))
+      expect(hit).toBeTruthy()
+    })
+    fireEvent.mouseDown(hit!)
+    fireEvent.change(within(lineCard(3)).getByTestId('input-bank-bill-no-3'), { target: { value: 'SP-10' } })
+    fireEvent.click(within(lineCard(3)).getByTestId('bank-gst-rate-3-18'))
+    expect(save().disabled).toBe(false)
+    expect(bannedWordsIn(visibleText())).toEqual([])
+    fireEvent.click(save())
+    await waitFor(() => expect(calls('simple:bank:accept')).toHaveLength(1))
+    expect(calls('simple:bank:accept')[0]).toMatchObject({ items: [{ lineId: 3, choice: { kind: 'expense', accountId: 40, gstBill: { supplierId: 50, billNo: 'SP-10', gstRate: 18 } } }] })
+    // The charge: optional; ticked, 18 % is pre-picked and the bank's GSTIN may be given.
+    fireEvent.click(within(lineCard(2)).getByTestId('check-bank-charge-gst-2'))
+    expect(within(lineCard(2)).getByTestId('bank-gst-rate-2-18').getAttribute('aria-checked')).toBe('true')
+    fireEvent.change(within(lineCard(2)).getByTestId('input-bank-charge-gstin-2'), { target: { value: '27aaach2702h1z1' } })
+    fireEvent.click(within(lineCard(2)).getByTestId('btn-bank-line-save'))
+    await waitFor(() => expect(calls('simple:bank:accept')).toHaveLength(2))
+    expect(calls('simple:bank:accept')[1]).toMatchObject({ items: [{ lineId: 2, choice: { kind: 'charges', accountId: 40, gstBill: { gstRate: 18, gstin: '27AAACH2702H1Z1' } } }] })
+  })
 })

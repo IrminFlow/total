@@ -47,7 +47,8 @@ export function CategoryPicker({
   filter,
   testId = 'picker-category',
   autoFocus,
-  partyTile = false
+  partyTile = false,
+  insteadRow
 }: {
   value: number | null
   onPick: (id: number | null) => void
@@ -64,6 +65,9 @@ export function CategoryPicker({
   autoFocus?: boolean
   /** Money out: the first tile is "Pay a supplier" (a party search). */
   partyTile?: boolean
+  /** A row under the tiles that leaves the picker for another flow (Money out: "Buying goods?
+   *  Record a purchase instead"). Absent = none. */
+  insteadRow?: { label: string; onPick: () => void }
 }): React.JSX.Element {
   const t = useT()
   const toast = useToasts()
@@ -218,6 +222,22 @@ export function CategoryPicker({
               </button>
             ))}
           </div>
+          {insteadRow && (
+            <button
+              type="button"
+              role="option"
+              aria-selected={false}
+              data-testid={`${testId}-instead`}
+              onClick={() => {
+                setOpen(false)
+                insteadRow.onPick()
+              }}
+              className="mt-1.5 flex w-full items-center gap-2 rounded-md border border-amber/50 bg-panel px-2 py-1.5 text-left text-detail text-ink transition-colors hover:border-amber focus-visible:outline-2 focus-visible:outline-amber/70"
+            >
+              <PlainIcon id="box" className="shrink-0 text-muted" />
+              <span className="truncate">{insteadRow.label}</span>
+            </button>
+          )}
           <div className="mt-2 flex items-center justify-between border-t border-line pt-2">
             <button
               type="button"

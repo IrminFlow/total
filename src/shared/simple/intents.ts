@@ -161,6 +161,10 @@ export const moneyInIntentSchema = z
     /** WP 9.4: a refund from a supplier — set against what they owe you back (their named
      *  credits, oldest first), the rest on account. */
     supplierId: id.optional(),
+    /** A supplier's money that is NOT a refund ("They are paying us for something else"): kept on
+     *  account even when they owe us nothing back. Omitted = a refund, refused when they hold no
+     *  credit with us (`simple_refund_no_credit`). */
+    onAccount: z.boolean().optional(),
     number: z.string().trim().min(1).max(40).optional()
   })
   .strict()
@@ -178,6 +182,12 @@ export const moneyOutIntentSchema = z
     payeeId: id.optional(),
     /** The owner took money: Owner's drawings. */
     drawings: z.boolean().optional(),
+    /** A refund TO a customer — set against the credit they hold with us (their named credits:
+     *  advances received, credit notes' own bills — oldest first), the rest on account. Refused
+     *  for a customer holding no credit (`simple_customer_no_credit`) unless `onAccount`. */
+    customerId: id.optional(),
+    /** Paying a customer for something that is not a refund: on account even with no credit held. */
+    onAccount: z.boolean().optional(),
     number: z.string().trim().min(1).max(40).optional()
   })
   .strict()
@@ -274,8 +284,8 @@ interface NBase { clientId: string; date: string; narration: string; number: str
 export type NormalIntent =
   | (NBase & { kind: 'sale'; customerId: number | null; items: NItemLine[] | null; amount: NAmountLine | null; accountId: number | null; payment: NPayment | null; dueDate: string | null })
   | (NBase & { kind: 'purchase'; supplierId: number; billNo: string | null; items: NItemLine[] | null; amount: NAmountLine | null; accountId: number | null; gstOnBill: boolean; payment: NPayment | null; dueDate: string | null })
-  | (NBase & { kind: 'money_in'; amount: number; into: NMoneyAccount; customerId: number | null; bills: NBill[] | null; advance: boolean; sourceId: number | null; supplierId: number | null })
-  | (NBase & { kind: 'money_out'; amount: number; from: NMoneyAccount; supplierId: number | null; bills: NBill[] | null; advance: boolean; payeeId: number | null; drawings: boolean })
+  | (NBase & { kind: 'money_in'; amount: number; into: NMoneyAccount; customerId: number | null; bills: NBill[] | null; advance: boolean; sourceId: number | null; supplierId: number | null; onAccount: boolean })
+  | (NBase & { kind: 'money_out'; amount: number; from: NMoneyAccount; supplierId: number | null; bills: NBill[] | null; advance: boolean; payeeId: number | null; drawings: boolean; customerId: number | null; onAccount: boolean })
   | (NBase & { kind: 'move_money'; amount: number; fromId: number; toId: number; reference: string | null })
   | (NBase & { kind: 'return_sale' | 'return_purchase'; billId: number; items: { lineUid: string; qtyMilli: number }[] | null; amount: { amount: number; gstRate: number | null } | null; refund: NMoneyAccount | null })
   | (NBase & { kind: 'stock_count'; counts: { itemId: number; qtyMilli: number }[] })
@@ -369,13 +379,16 @@ export function normaliseIntent(raw: unknown, today: string): NormalIntent {
       if (n !== 1) fail('simple_no_party', 'Say who paid — a customer, or where else the money came from', 'party')
       return {
         ...b, kind: 'money_in', amount: readAmount(i.amount, 'amount'), into: nMoney(i.into), customerId: i.customerId ?? null, bills: nBills(i.bills), advance: !!i.advance,
-        sourceId: i.sourceId ?? null, supplierId: i.supplierId ?? null
+        sourceId: i.sourceId ?? null, supplierId: i.supplierId ?? null, onAccount: !!i.onAccount
       }
     }
     case 'money_out': {
-      const n = (i.supplierId != null ? 1 : 0) + (i.payeeId != null ? 1 : 0) + (i.drawings ? 1 : 0)
-      if (n !== 1) fail('simple_no_party', 'Say who was paid — a supplier, an expense, or the owner', 'party')
-      return { ...b, kind: 'money_out', amount: readAmount(i.amount, 'amount'), from: nMoney(i.from), supplierId: i.supplierId ?? null, bills: nBills(i.bills), advance: !!i.advance, payeeId: i.payeeId ?? null, drawings: !!i.drawings }
+      const n = (i.supplierId != null ? 1 : 0) + (i.payeeId != null ? 1 : 0) + (i.drawings ? 1 : 0) + (i.customerId != null ? 1 : 0)
+      if (n !== 1) fail('simple_no_party', 'Say who was paid — a supplier, an expense, the owner or a customer', 'party')
+      return {
+        ...b, kind: 'money_out', amount: readAmount(i.amount, 'amount'), from: nMoney(i.from), supplierId: i.supplierId ?? null, bills: nBills(i.bills), advance: !!i.advance,
+        payeeId: i.payeeId ?? null, drawings: !!i.drawings, customerId: i.customerId ?? null, onAccount: !!i.onAccount
+      }
     }
     case 'move_money':
       return { ...b, kind: 'move_money', amount: readAmount(i.amount, 'amount'), fromId: i.fromId, toId: i.toId, reference: optText(i.reference) }
@@ -502,8 +515,13 @@ export interface IntentContext {
   openBills: ReadonlyMap<number, readonly IntentOpenBill[]>
   original: IntentOriginal | null
   /** WP 9.4: per party, its named credits still open, oldest first (advances paid, debit notes'
-   *  own bills — partyAllocationWithCredits); a supplier's refund is set against them. */
+   *  own bills — partyAllocationWithCredits); a supplier's refund is set against them, and so is
+   *  a refund paid to a customer (their advances, credit notes' own bills). */
   openCredits?: ReadonlyMap<number, readonly { name: string; amount: number }[]>
+  /** Per refund party (a supplier paying us back, a customer we pay back): every credit it holds
+   *  with us as on the date — the allocation's `unappliedCredit` (named + unnamed). A refund from /
+   *  to a party holding none is refused unless `onAccount`. Absent for a party = not checked. */
+  heldCredit?: ReadonlyMap<number, number>
   /** Per party: names of its bills and credits still open (a new bill must not reuse one —
    *  a settlement by name applies to the OLDEST open bill of that name). */
   takenNames: ReadonlyMap<number, ReadonlySet<string>>
@@ -938,7 +956,7 @@ export function allocateToBills(
   return { refs: [], settled, advance: extra }
 }
 
-/** A refund received against a supplier's named credits, oldest first. The Outstandings engine
+/** A refund received against a supplier's named credits — or paid against a customer's — oldest first. The Outstandings engine
  *  lets a positive event's 'against' ref use a named credit and opens a bill named after the entry
  *  for any excess — so the excess rides on the last credit's ref (refs add up to the entry). No
  *  named credit: no refs (on account — the engine nets it off unnamed credit, FIFO). */
@@ -968,18 +986,26 @@ function mapMoney(n: Extract<NormalIntent, { kind: 'money_in' | 'money_out' }>, 
   const money = into ? n.into : n.from
   const acct = moneyAccount(ctx, money.how, money.accountId, into ? 'into' : 'from')
   const facts: IntentFacts = { ...emptyFacts(n.kind), total: n.amount, paid: n.amount, how: money.how, moneyAccount: acct.name }
-  const refundFrom = into ? (n as Extract<NormalIntent, { kind: 'money_in' }>).supplierId : null
+  // A refund: from a supplier (money in, WP 9.4) or to a customer (money out) — symmetric.
+  const refundParty = into ? (n as Extract<NormalIntent, { kind: 'money_in' }>).supplierId : (n as Extract<NormalIntent, { kind: 'money_out' }>).customerId
   const partyId = into ? n.customerId : n.supplierId
   let other: IntentLedger
   let billRefs: VoucherBillRef[] = []
-  if (refundFrom != null) {
-    // WP 9.4: a refund from a supplier settles what they owe you back — their named credits
-    // (an advance paid, a debit note's own bill) oldest first, else it stays on account.
-    other = ledgerOf(ctx, refundFrom, ['creditor'], 'simple_no_party', 'party', 'supplier')
-    billRefs = refundRefs(ctx.openCredits?.get(other.id) ?? [], n.amount)
+  if (refundParty != null) {
+    // A refund settles what the party holds with us — their named credits (an advance, a note's
+    // own bill) oldest first, else it stays on account. A party holding no credit at all is not
+    // owed a refund: refused (it would only raise what one side owes) unless the user said it is
+    // for something else (`onAccount` — on account, as before).
+    other = ledgerOf(ctx, refundParty, [into ? 'creditor' : 'debtor'], 'simple_no_party', 'party', into ? 'supplier' : 'customer')
+    const held = ctx.heldCredit?.get(other.id)
+    if (!n.onAccount && held !== undefined && held <= 0) {
+      if (into) fail('simple_refund_no_credit', `${other.name} owes you nothing back — record it as other money in`, 'party', { name: other.name })
+      fail('simple_customer_no_credit', `${other.name} holds no credit with you — there is nothing to pay back`, 'party', { name: other.name })
+    }
+    billRefs = n.onAccount ? [] : refundRefs(ctx.openCredits?.get(other.id) ?? [], n.amount)
     facts.settled = billRefs.map((r) => ({ name: r.name, amount: r.amount }))
     facts.partyName = other.name
-    facts.side = 'supplier'
+    facts.side = into ? 'supplier' : 'customer'
   } else if (partyId != null) {
     other = ledgerOf(ctx, partyId, [into ? 'debtor' : 'creditor'], 'simple_no_party', 'party', into ? 'customer' : 'supplier')
     const alloc = allocateToBills(ctx.openBills.get(other.id) ?? [], n.amount, n.bills, n.advance, uniqueName(number, ctx.takenNames.get(other.id), n.date))
