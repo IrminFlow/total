@@ -164,6 +164,44 @@ describe('Tell me when it runs low (PR #91 to-do)', () => {
   })
 })
 
+describe('History rows open the entry (PR #91 to-do)', () => {
+  const HISTORY: StockProductView = {
+    ...PRODUCT,
+    history: {
+      from: '2026-04-01', openingMilli: 100_000, rows: [
+        { voucherId: 11, date: '2026-10-01', what: 'sold', party: 'Ramesh', inMilli: 0, outMilli: 5000, balanceMilli: 95_000 },
+        { voucherId: 12, date: '2026-10-02', what: 'returnedIn', party: 'Ramesh', inMilli: 1000, outMilli: 0, balanceMilli: 96_000 },
+        { voucherId: 14, date: '2026-10-03', what: 'bought', party: 'Shiv Mills', inMilli: 4000, outMilli: 0, balanceMilli: 100_000 },
+        { voucherId: 13, date: '2026-10-04', what: 'adjusted', party: null, inMilli: 0, outMilli: 2000, balanceMilli: 98_000 }
+      ]
+    }
+  }
+  const KINDS: Record<number, { kind: string; originalId: number | null }> = { 11: { kind: 'sales', originalId: null }, 12: { kind: 'credit_note', originalId: 11 }, 13: { kind: 'stock_journal', originalId: null }, 14: { kind: 'purchase', originalId: null } }
+
+  it('a sale → its bill view, a return → Returns on the original bill, a purchase → its bill view, a stock journal → the full app (simpleTargetFor)', async () => {
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload: { voucherId?: number }) => {
+      if (channel === 'simple:stock:product') return { ok: true, data: HISTORY }
+      if (channel === 'simple:handoffTarget') return { ok: true, data: { voucher: { id: payload.voucherId, ...KINDS[payload.voucherId!] } } }
+      return base(channel, payload)
+    })
+    renderUi(<StockList itemId={1} />)
+    const row = async (i: number): Promise<HTMLElement> => {
+      await waitFor(() => expect(document.querySelector(`[data-testid="rows-stock-history"] tr:nth-child(${i + 1})`)).toBeTruthy())
+      return document.querySelector(`[data-testid="rows-stock-history"] tr:nth-child(${i + 1})`) as HTMLElement
+    }
+    const opens = async (i: number, target: unknown): Promise<void> => {
+      act(() => useNav.setState({ stack: [{ name: 'simple-stock', itemId: 1 }] }))
+      fireEvent.click(await row(i))
+      await waitFor(() => expect(lastScreen()).toEqual(target))
+    }
+    await opens(0, { name: 'simple-sales', billId: 11 })
+    await opens(1, { name: 'simple-return-sale', billId: 11 })
+    await opens(2, { name: 'simple-purchases', billId: 14 })
+    await opens(3, { name: 'voucher-entry', voucherId: 13 })
+  })
+})
+
 describe('Count your stock (WP 9.7)', () => {
   it('the difference in words as you type; Save posts ONE stock_count; the save card has no print buttons', async () => {
     renderUi(<StockCount />)

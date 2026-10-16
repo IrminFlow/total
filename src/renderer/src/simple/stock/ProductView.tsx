@@ -13,6 +13,9 @@ import { AmountInput, Button, Field, Page, TextInput } from '../../components/ui
 import { DataTable, defineColumns } from '../../components/table'
 import { LevelChip } from './StockList'
 import { useCanSave } from '../ViewerNote'
+import type { HandoffFacts } from '@shared/simple/handoff'
+import { simpleTargetFor } from '../../lib/handoff'
+import type { Screen } from '../../state/stores'
 
 const WHAT_TEXT: Record<StockHistoryWhat, MessageKey> = {
   opening: 'simple.stock.what.opening',
@@ -32,6 +35,25 @@ const WHAT_TEXT: Record<StockHistoryWhat, MessageKey> = {
 const editScreen = (itemId: number): { name: 'masters'; tab: 'items'; itemId: number } => ({ name: 'masters', tab: 'items', itemId }) // i18n-technical
 const makeScreen = (itemId: number): { name: 'simple-made-goods'; itemId: number } => ({ name: 'simple-made-goods', itemId }) // i18n-technical
 const NO_MAX = 'none' // i18n-technical: the history grows with the page
+const entryScreen = (voucherId: number): Screen => ({ name: 'voucher-entry', voucherId }) // i18n-technical
+/** The simple screens that show ONE entry (simpleTargetFor's object views); anything else it
+ *  lands on (Stock, a section) is not that entry, so the row opens it in the full app. */
+const ENTRY_VIEWS: ReadonlySet<Screen['name']> = new Set(['simple-sales', 'simple-purchases', 'simple-money', 'simple-return-sale', 'simple-return-purchase']) // i18n-technical
+
+/** A History row → its entry: the simple view of the same entry where there is one (WP 9.10's
+ *  full → simple table, `simpleTargetFor` — a sale's bill view, a purchase's, a return on its
+ *  original bill), else the entry in the full app (counts, stock journals, made goods). */
+export async function historyTarget(voucherId: number): Promise<Screen> {
+  let facts: HandoffFacts | null = null
+  try {
+    facts = await api.simple.handoffTarget({ voucherId })
+  } catch {
+    facts = null
+  }
+  const target = simpleTargetFor(entryScreen(voucherId), facts)
+  return ENTRY_VIEWS.has(target.name) ? target : entryScreen(voucherId)
+}
+
 const movementsScreen = (itemId: number): { name: 'stock-movements'; itemId: number } => ({ name: 'stock-movements', itemId }) // i18n-technical
 
 /**
@@ -292,6 +314,7 @@ export function ProductView({ itemId }: { itemId: number }): React.JSX.Element {
           columns={columns}
           rows={p.history.rows}
           rowKey={(_r, i) => i}
+          onRowActivate={(r) => void historyTarget(r.voucherId).then((target) => nav.go(target))}
           toolbarFeatures={{ quickFilter: false, columns: false, groupBy: false, density: false, views: false }}
           empty={{ title: t('simple.stock.historyEmpty') }}
           totals={false}
