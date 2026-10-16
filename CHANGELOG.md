@@ -360,7 +360,10 @@ Read these before filing from the next release.
   the working date (open-ended, default; `pickBomVersion` takes the latest start), scrap on a
   material that stays is kept, unchanged answers write nothing. Labour per unit is kept per version
   in meta `simpleRecipeLabour` (no migration; nothing posts from it — Made goods only prefills
-  labour). Refusals `simple_recipe_*` (self / twice / qty / empty / cycle / unknown) on the row.
+  labour). Refusals `simple_recipe_*` (self / twice / qty / empty / cycle / unknown) on the row;
+  `simple_recipe_later` when the product already has a recipe starting after the working date
+  (the new one would lose to it from that start). Like BOMs themselves, the labour meta is not in
+  the books export (a backup keeps both).
   [#141](https://github.com/IrminFlow/total/pull/141)
 - **DataTable widths (both modes).** A flexible text column with `hideable: false` is the row's
   name column: it starts at 152 px (`NAME_MIN_WIDTH`) and takes a double share of spare room; when
