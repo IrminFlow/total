@@ -7,6 +7,7 @@ import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import Database from 'better-sqlite3-multiple-ciphers'
+import { testFileDb } from './db/testdb'
 import { addDays, addMonths } from '@shared/dashboard'
 import { fyOf, todayISO } from '@shared/dates'
 import type { DashboardSeries } from '@shared/dashboard'
@@ -321,7 +322,7 @@ describe('simple:home (WP 8.6)', () => {
     const late = await pay(addDays(prev.from, 2), 1_234_00)
     const intoLock = await pay(prev.from, 2_345_00)
     await ok('company:lock:set', { date: prev.from }) // the lock covers only the second entry's day
-    const db = new Database(join(DATA_DIR, 'companies', slug, 'company.db'))
+    const db = testFileDb(join(DATA_DIR, 'companies', slug, 'company.db'))
     // Entered 40 days after its date, in an open period; the other one entered after the lock was set.
     db.prepare('UPDATE vouchers SET created_at = ? WHERE id = ?').run(`${addDays(prev.from, 42)} 10:00:00`, late)
     db.prepare('UPDATE vouchers SET created_at = ? WHERE id = ?').run(`${addDays(TODAY, 1)} 10:00:00`, intoLock)
