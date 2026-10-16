@@ -28,6 +28,7 @@ import { useT } from '../../lib/i18n'
 import { useHandoffLedgers } from '../../lib/handoff'
 import type { HandoffPending, HandoffPendingRefs } from '@shared/simple/handoff'
 import { TransportModal } from './TransportModal'
+import { einvoiceDocNoWarning } from '@shared/gst/einvoiceSchema'
 import { useTcsCollection, useTdsDeduction, type TcsCandidate } from './useTdsDeduction'
 import { TdsBanner, TdsNotApplicableNote } from './TdsBanner'
 import { blankItemRow, ItemLineGrid, type ItemRow } from './ItemLineGrid'
@@ -278,6 +279,12 @@ export function InvoiceEntry({
   const { supply, fxActive } = computed
   // WP 8.0: a purchase / debit note that can't claim GST: rates are typed including it (the cost).
   const nonClaimable = !computed.chargesGst && (kind === 'purchase' || kind === 'debit_note')
+  // WP 2.5b: a sales invoice number the e-invoice portal would refuse (NIC schema DocDtls.No — at
+  // most 16 letters / digits / "/" / "-", not starting with 0, / or -) is warned about, never
+  // refused, while the company e-invoices and the bill's date charges GST.
+  const { data: einvoicing } = useQuery({ queryKey: ['einvoicing'], queryFn: () => api.gst.einvoicing(), enabled: kind === 'sales', staleTime: 60_000 })
+  const shownNumber = isEdit ? alterNumber : numberField.value === NUMBER_LOADING ? '' : numberField.value
+  const numberWarning = kind === 'sales' && einvoicing === true && computed.chargesGst ? einvoiceDocNoWarning(shownNumber) : null
   // WP 2.6: the grid prices sales lines through the resolver (party rate › level › scheme …).
   const linePricing = useInvoicePricing(kind, partyId, date, supply, fxActive ? currencyCode : '')
 
@@ -633,12 +640,14 @@ export function InvoiceEntry({
         />
       )}
       <div className="grid grid-cols-4 gap-3">
-        <Field label="No." name="number" error={formErrors.get('number')} hint={isEdit || numberField.value === NUMBER_LOADING ? undefined : 'Auto — edit to override'}>
+        <Field label="No." name="number" error={formErrors.get('number')} hint={numberWarning ?? (isEdit || numberField.value === NUMBER_LOADING ? undefined : 'Auto — edit to override')}>
           <TextInput
-            value={isEdit ? alterNumber : numberField.value === NUMBER_LOADING ? '' : numberField.value}
+            value={shownNumber}
             onChange={(e) => (isEdit ? setAlterNumber(e.target.value) : numberField.onChange(e.target.value))}
             placeholder="Auto"
-            className="num"
+            className={`num ${numberWarning ? '!border-cr' : ''}`}
+            data-testid="invoice-number"
+            data-warning={numberWarning ? 'einvoice' : undefined}
           />
         </Field>
         <Field label="Date" name="date" error={formErrors.get('date')}>

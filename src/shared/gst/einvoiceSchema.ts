@@ -44,6 +44,27 @@ const party = {
   Em: z.string().min(6).max(100).regex(/^[a-zA-Z0-9+_.-]+@[a-zA-Z0-9.-]+$/).optional()
 }
 
+/** DocDtls.No — generate-irn.html#JSONSchema: minLength 1, maxLength 16, pattern
+ *  `^([a-zA-Z1-9]{1}[a-zA-Z0-9\/-]{0,15})$`; Validations item 8: "Document number should not be
+ *  starting with 0, / and -. If so, then request is rejected." (both re-read 2026-10-17). */
+export const EINVOICE_DOC_NO_MAX = 16
+export const EINVOICE_DOC_NO_RE = /^([a-zA-Z1-9]{1}[a-zA-Z0-9/-]{0,15})$/
+
+/** Why the IRP would refuse `number` as an e-invoice document number (DocDtls.No), or null.
+ *  A warning only — the voucher saves; the e-invoice JSON / IRN request would be rejected. */
+export function einvoiceDocNoWarning(number: string): string | null {
+  const n = number.trim()
+  if (!n || EINVOICE_DOC_NO_RE.test(n)) return null
+  const cite = 'NIC e-invoice schema, DocDtls.No'
+  const bad = [...new Set([...n].filter((c) => !/[A-Za-z0-9/-]/.test(c)))]
+  if (bad.length) {
+    const shown = bad.map((c) => (c === ' ' ? 'space' : `“${c}”`)).join(', ')
+    return `${shown} not allowed in an e-invoice number — only letters, digits, / and - (${cite})`
+  }
+  if (n.length > EINVOICE_DOC_NO_MAX) return `${n.length} characters — an e-invoice number may have at most ${EINVOICE_DOC_NO_MAX} (${cite})`
+  return `An e-invoice number cannot start with 0, / or - (${cite}; IRP validation 8)`
+}
+
 export const einvoiceSchema = z.object({
   Version: z.string().min(1).max(6),
   TranDtls: z.object({
@@ -56,7 +77,7 @@ export const einvoiceSchema = z.object({
   DocDtls: z.object({
     Typ: z.enum(['INV', 'CRN', 'DBN']),
     /** `^([a-zA-Z1-9]{1}[a-zA-Z0-9\/-]{0,15})$` — 1–16 chars, cannot start with 0, / or -. */
-    No: z.string().min(1).max(16).regex(/^([a-zA-Z1-9]{1}[a-zA-Z0-9/-]{0,15})$/,
+    No: z.string().min(1).max(EINVOICE_DOC_NO_MAX).regex(EINVOICE_DOC_NO_RE,
       'document number: 1–16 letters/digits/"/"/"-", not starting with 0, / or -'),
     Dt: nicDate
   }),

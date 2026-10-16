@@ -639,6 +639,24 @@ describe('validateGstr1', () => {
     expect(issue.message).toContain('2 lines')
   })
 
+  it('WP 2.5b: an e-invoicing company is warned (never blocked) about sales numbers the IRP refuses (DocDtls.No)', () => {
+    const docs = fixtureDocs()
+    const sale = docs.find((d) => d.kind === 'sales')!
+    sale.number = 'INV/2026-27/000001' // 18 characters
+    expect(validateGstr1(docs, company).find((i) => i.code === 'einvoice_doc_no')).toBeUndefined() // not e-invoicing
+    const issue = validateGstr1(docs, { ...company, einvoicing: true }).find((i) => i.code === 'einvoice_doc_no')!
+    expect(issue.severity).toBe('warning')
+    expect(issue.voucherIds).toEqual([sale.voucherId])
+    expect(issue.message).toContain('INV/2026-27/000001')
+    expect(issue.message).toContain('DocDtls.No')
+    sale.number = 'INV 7'
+    expect(validateGstr1(docs, { ...company, einvoicing: true }).find((i) => i.code === 'einvoice_doc_no')?.voucherIds).toEqual([sale.voucherId])
+    sale.number = 'INV/26-27/000001' // exactly 16
+    expect(validateGstr1(docs, { ...company, einvoicing: true }).find((i) => i.code === 'einvoice_doc_no')).toBeUndefined()
+    sale.number = 'INV/2026-27/000001'
+    expect(validateGstr1(docs, { ...company, gstRegistrationType: 'composition', einvoicing: true }).find((i) => i.code === 'einvoice_doc_no')).toBeUndefined()
+  })
+
   it('invalid buyer GSTINs block', () => {
     const docs = fixtureDocs()
     docs[0]!.partyGstin = '27AAPFU0939F1ZZ' // bad checksum

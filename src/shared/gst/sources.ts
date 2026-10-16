@@ -106,6 +106,11 @@ export const GST_SOURCES = {
     id: 'circular170', title: 'Circular 170/02/2022-GST (06-07-2022) — GSTR-3B 4(B)(1) permanent reversals (rules 38/42/43, s.17(5)), 4(B)(2) reclaimable (rule 37), reclaim in 4(A)(5) + 4(D)(1)',
     url: 'https://statetax.goa.gov.in/PDF/state_notif/Circulars/No.01-2022-23-GST.pdf', accessed: ACCESSED, verified: true, note: 'Goa State mirror (Circular 01/2022-23-GST).'
   },
+  einvoiceDocNo: {
+    id: 'einvoiceDocNo', title: 'NIC e-invoice schema (Generate IRN v1.03) — DocDtls.No: 1–16 characters, letters / digits / "/" / "-", not starting with 0, / or - (Validations item 8)',
+    url: 'https://einv-apisandbox.nic.in/version1.03/generate-irn.html#JSONSchema', accessed: '2026-10-17', verified: true,
+    note: 'NIC e-invoice API reference (official). Whether the live IRP enforces exactly this pattern is UNVERIFIED (no sandbox credentials) — see einvoiceSchema.ts.'
+  },
   rule61: {
     id: 'rule61', title: 'Rule 61 CGST Rules — GSTR-3B by the 20th (monthly)',
     url: 'https://taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter8/rule61_v1.00.html', accessed: ACCESSED, verified: true

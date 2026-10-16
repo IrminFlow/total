@@ -1,6 +1,7 @@
 import { GST_STATES } from './states'
 import { B2CL_THRESHOLD_PAISE, isZeroRatedTyp, type GstDoc } from './returns'
 import { isUqc } from './uqc'
+import { einvoiceDocNoWarning } from './einvoiceSchema'
 
 const CHARS = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 
@@ -74,6 +75,7 @@ export interface GstIssue {
     | 'b2cl_edge'
     | 'zero_rated_intra_tax'
     | 'off_slab_rate'
+    | 'einvoice_doc_no'
   severity: 'blocking' | 'warning'
   message: string
   /** Vouchers to drill into from the issues panel (empty for company-level issues). */
@@ -84,6 +86,9 @@ export interface Gstr1ValidationCompany {
   stateCode: string
   gstin: string | null
   gstRegistrationType: 'regular' | 'composition' | 'unregistered'
+  /** The company e-invoices (services/gst.ts `einvoicingOn`): sales numbers the IRP would refuse
+   *  (DocDtls.No) are warned about. Absent = no such warning. */
+  einvoicing?: boolean
 }
 
 /** Booked-vs-computed invoice value differences within ±₹1 are treated as legitimate round-off. */
@@ -182,6 +187,20 @@ export function validateGstr1(docs: GstDoc[], company: Gstr1ValidationCompany): 
       message: `${zrIntraTax.length} SEZ/export document${zrIntraTax.length === 1 ? '' : 's'} carry CGST/SGST — zero-rated supplies are always inter-state (IGST only, sec 7(5)(b) IGST Act).`,
       voucherIds: zrIntraTax.map((d) => d.voucherId)
     })
+  }
+
+  // NIC e-invoice schema DocDtls.No (sources.ts einvoiceDocNo): ≤ 16 characters of A-Z a-z 0-9 / -,
+  // not starting with 0, / or -. A warning: the return files, the IRN request would be refused.
+  if (company.einvoicing && company.gstRegistrationType === 'regular') {
+    const badNo = docs.filter((d) => d.kind === 'sales' && einvoiceDocNoWarning(d.number))
+    if (badNo.length) {
+      issues.push({
+        code: 'einvoice_doc_no',
+        severity: 'warning',
+        message: `${badNo.length} sales invoice${badNo.length === 1 ? '' : 's'} with a number the e-invoice portal refuses (${badNo.slice(0, 5).map((d) => d.number).join(', ')}${badNo.length > 5 ? ', …' : ''}) — at most 16 letters, digits, / or -, not starting with 0, / or - (NIC e-invoice schema, DocDtls.No).`,
+        voucherIds: badNo.map((d) => d.voucherId)
+      })
+    }
   }
 
   const byNumber = new Map<string, GstDoc[]>()

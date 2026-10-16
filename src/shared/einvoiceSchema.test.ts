@@ -3,7 +3,8 @@
 // validator itself rejects what the published schema rejects.
 import { describe, expect, it } from 'vitest'
 import { buildEInvoiceJson, buildEwbByIrnPayload, type EdocCompany, type EdocInvoice, type EdocItem } from './gst/edocs'
-import { einvoiceIssues, einvoiceSchema, withinNicTolerance } from './gst/einvoiceSchema'
+import { EINVOICE_DOC_NO_MAX, einvoiceDocNoWarning, einvoiceIssues, einvoiceSchema, withinNicTolerance } from './gst/einvoiceSchema'
+import { GST_SOURCES } from './gst/sources'
 import { computeGst } from './gst/calc'
 
 const company: EdocCompany = {
@@ -256,5 +257,26 @@ describe('Generate e-Way Bill by IRN payload', () => {
   it('distance is clamped to the published 0–4000 range', () => {
     expect(buildEwbByIrnPayload(IRN, inv({ distanceKm: 5000 })).Distance).toBe(4000)
     expect(buildEwbByIrnPayload(IRN, inv({ distanceKm: null })).Distance).toBe(0)
+  })
+})
+
+describe('e-invoice document number (WP 2.5b — DocDtls.No)', () => {
+  it('is cited from the NIC schema: up to 16 letters / digits / "/" / "-", not starting with 0, / or -', () => {
+    expect(EINVOICE_DOC_NO_MAX).toBe(16)
+    expect(GST_SOURCES.einvoiceDocNo.url).toContain('einv-apisandbox.nic.in')
+    expect(GST_SOURCES.einvoiceDocNo.title).toContain('DocDtls.No')
+  })
+
+  it('warns on what the schema refuses and nothing else', () => {
+    for (const ok of ['INV-1', 'A', '1', 'INV/26-27/000001', 'abcDEF123/-x', '']) expect(einvoiceDocNoWarning(ok), ok).toBeNull()
+    expect(einvoiceDocNoWarning('INV/2026-27/000001')).toBe('18 characters — an e-invoice number may have at most 16 (NIC e-invoice schema, DocDtls.No)')
+    expect(einvoiceDocNoWarning('INV 1')).toBe('space not allowed in an e-invoice number — only letters, digits, / and - (NIC e-invoice schema, DocDtls.No)')
+    expect(einvoiceDocNoWarning('INV_1#2')).toContain('“_”, “#”')
+    for (const bad of ['0123', '/12', '-12']) expect(einvoiceDocNoWarning(bad), bad).toMatch(/cannot start with 0, \/ or -/)
+    // The warning agrees with the schema the export validates against, both ways.
+    for (const n of ['INV-1', 'INV/2026-27/000001', 'INV 1', '0123', 'X'.repeat(16), 'X'.repeat(17), 'ä1']) {
+      const schemaOk = einvoiceSchema.shape.DocDtls.shape.No.safeParse(n).success
+      expect(einvoiceDocNoWarning(n) === null, n).toBe(schemaOk)
+    }
   })
 })

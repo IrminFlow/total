@@ -799,13 +799,35 @@ export function gstr3b(db: DB, company: CompanyInfo, from: string, to: string, p
   return { ...result, circular170: { blocked: books.blocked, reclaimed: entered.itcReclaimed, entered } }
 }
 
+/** Does this company e-invoice? There is no switch for it, so: a REGULAR registration and any
+ *  sign of use — NIC live filing set up for e-invoices (the non-secret meta 'nic' row: mode
+ *  'einvoice' or an e-invoice base URL), an IRN on a voucher in the books, or an e-invoice JSON
+ *  exported (its audit 'export' row). Read-only. */
+export function einvoicingOn(db: DB, company: Pick<CompanyInfo, 'gstRegistrationType'>): boolean {
+  if (company.gstRegistrationType !== 'regular') return false
+  const nic = db.prepare("SELECT value FROM meta WHERE key = 'nic'").get() as { value: string } | undefined
+  if (nic) {
+    try {
+      const v = JSON.parse(nic.value) as { mode?: string; baseUrlEinvoice?: string }
+      if (v.mode === 'einvoice' || (typeof v.baseUrlEinvoice === 'string' && v.baseUrlEinvoice.trim() !== '')) return true
+    } catch {
+      // an unreadable row says nothing either way
+    }
+  }
+  if (db.prepare(`SELECT 1 FROM vouchers v WHERE v.irn IS NOT NULL AND v.irn <> '' AND ${IN_BOOKS} LIMIT 1`).get()) return true
+  return !!db
+    .prepare("SELECT 1 FROM audit_log WHERE entity = 'export' AND json_extract(after_json, '$.kind') = 'einvoice' LIMIT 1")
+    .get()
+}
+
 /** Pre-export validation over the period's extracted documents (G7 panel + export gate). */
 export function gstValidate(db: DB, company: CompanyInfo, from: string, to: string): GstIssue[] {
   const docs = extractOutwardDocs(db, company, from, to)
   return validateGstr1(docs, {
     stateCode: company.stateCode,
     gstin: company.gstin,
-    gstRegistrationType: company.gstRegistrationType
+    gstRegistrationType: company.gstRegistrationType,
+    einvoicing: einvoicingOn(db, company)
   })
 }
 
