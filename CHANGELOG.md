@@ -181,6 +181,16 @@ what you typed, and a **Back to simple** button.
   read "Matches"). Undo of a count or of goods made is refused when some of that stock has been sold
   or used since and undoing would leave it below zero. Edit the entry instead.
   [#124](https://github.com/IrminFlow/total/pull/124)
+- **Small screen fixes.** A message that pops up at the bottom right no longer covers the Save
+  button (even when the Save bar takes two rows on a small window) or the question box of Ask Total
+  open beside the screen. Lists keep at least about 16 letters of a customer's or product's name on
+  a 1024-pixel window: the money columns get narrower first, and only then does the list scroll
+  sideways; a longer name shows in full when you point at it. "Switch company" with something not
+  saved asks first: "Stay" keeps you where you were, and if you leave, the next business opens on
+  its own Home, never on the last one's screens. On "What you had on day one", a new product's GST
+  rate is picked from today's rates (the ones its next bill will use); an older rate such as 12 %
+  is still there under "Custom rate (check with your CA)". No figure changed.
+  [#130](https://github.com/IrminFlow/total/pull/130)
 
 ### For accountants (figures that changed)
 
@@ -279,6 +289,14 @@ Read these before filing from the next release.
 
 ### For developers
 
+- **DataTable widths (both modes).** A flexible text column with `hideable: false` is the row's
+  name column: it starts at 152 px (`NAME_MIN_WIDTH`) and takes a double share of spare room; when
+  the columns don't fit, money / quantity / enum columns on their kind default shrink to 128 / 112 /
+  104 px (`KIND_SHRINK_WIDTH`, never under the header label or `minWidth`) before the table scrolls
+  sideways; text cells over 16 characters get a `title`. The simple shell's toast stack reads
+  `--t-save-bar-h` / `--t-docked-w` (`kit/toastClearance.ts`); the full app's toasts are unchanged.
+  `switchCompany(close)` in stores.ts asks the unsaved question before closing, and any slug change
+  resets the nav stack to `gateway`. [#130](https://github.com/IrminFlow/total/pull/130)
 - **Migrations.** Two more migrations are appended after 050, each the last in its turn (numbered
   by position): migration 051, WP 7.1's six covering indexes (`CREATE INDEX IF NOT EXISTS` only,
   [#104](https://github.com/IrminFlow/total/pull/104)) and migration 052, WP 7.2's `backup_runs` table plus
