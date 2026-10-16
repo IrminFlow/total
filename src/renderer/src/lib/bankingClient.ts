@@ -4,7 +4,7 @@ import type { ImportProfile } from '@shared/bankFormats/types'
 import type { PaymentTemplate } from '@shared/bulkPayments'
 import type { MatchOptions } from '@shared/bankMatch'
 import type {
-  BankDetails, BeneficiaryRow, BounceInput, BounceResult, ChequeBook, ChequeBookInput, ChequeRegisterRow, ChequeStatusInput, CommitResult,
+  BankDetails, BeneficiaryRow, BounceInput, ChequeBackfillPreview, ChequeBackfillResult, BounceResult, ChequeBook, ChequeBookInput, ChequeRegisterRow, ChequeStatusInput, CommitResult,
   CreateFromLineInput, CreateResult, ExportBatchInput, ExportBatchResult, ImportSummary, LearnedRuleEdit, LearnedRuleRecord, MatchGroupInput,
   PaymentBatchRow, PaymentCandidate, PaymentTemplateRecord, PdcRegisterRow, StatementPreview, StatementSource, Workspace
 } from '@shared/bankTypes'
@@ -43,6 +43,10 @@ export const bankingApi = {
     register: (bankLedgerId: number, includeAvailable = true) => call<ChequeRegisterRow[]>('cheques:register', { bankLedgerId, includeAvailable }),
     next: (bankLedgerId: number) => call<{ bookId: number; leaf: number; label: string } | null>('cheques:next', { bankLedgerId }),
     setStatus: (input: ChequeStatusInput) => call<ChequeRegisterRow>('cheques:setStatus', input),
+    backfillPreview: (bankLedgerId: number, includeOutside = false) =>
+      call<ChequeBackfillPreview>('cheques:backfillPreview', { bankLedgerId, includeOutside }),
+    backfill: (bankLedgerId: number, includeOutside: boolean, voucherIds?: number[]) =>
+      call<ChequeBackfillResult>('cheques:backfill', { bankLedgerId, includeOutside, voucherIds }),
     print: (voucherId: number, bankLedgerId: number, number?: string | null) =>
       call<{ path: string; cheque: ChequeRegisterRow | null; number: string | null }>('cheques:print', { voucherId, bankLedgerId, number })
   },

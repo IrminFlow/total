@@ -175,6 +175,47 @@ export interface ChequeBookInput {
   active: boolean
 }
 
+/** One earlier payment the register backfill would record (or refuses, `conflict`). */
+export interface ChequeBackfillRow {
+  /** Stable key: '<voucherId>-<bankLedgerId>'. */
+  key: string
+  voucherId: number
+  voucherNumber: string
+  date: string
+  bankLedgerId: number
+  bankLedgerName: string
+  /** The register number it gets (the book's width: 457 → 000457; outside a book, as found). */
+  number: string
+  leaf: number
+  bookId: number | null
+  bookName: string | null
+  /** Where the number was read: instrument number, a digits-only reference, the narration. */
+  source: 'instrument' | 'reference' | 'narration'
+  /** The number as the entry carries it. */
+  found: string
+  payee: string
+  amount: number
+  /** Why it is skipped: the leaf is already in the register for another entry (or as a blank
+   *  cancelled / stopped leaf), or an earlier entry of this run carries the same number. */
+  conflict: null | { reason: 'in_register' | 'same_number'; status: string | null; otherVoucherId: number | null; otherVoucherNumber: string | null }
+}
+
+export interface ChequeBackfillPreview {
+  /** Entries that will be recorded, oldest first. */
+  rows: ChequeBackfillRow[]
+  /** Entries skipped because their leaf is taken — never overwritten. */
+  conflicts: ChequeBackfillRow[]
+  /** Entries whose number is outside every cheque book (recorded only with includeOutside, and
+   *  then only 6-digit numbers). */
+  outsideBooks: number
+}
+
+export interface ChequeBackfillResult {
+  filled: number
+  conflicts: number
+  rows: ChequeBackfillRow[]
+}
+
 export interface ChequeRegisterRow {
   /** Stable row key: 'c<chequeId>' or 'l<bookId>-<leaf>' for an untouched leaf. */
   key: string

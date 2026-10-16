@@ -188,6 +188,12 @@ describe('write channels really write their mapped entities (driven through IPC)
     await expectLogged('ui:mode:set', { mode: 'simple' })
     await expectLogged('ui:mode:set', { mode: 'accountant' })
     await expectLogged('import:apply', { kind: 'ledgers', csvText: 'Name,Group,Opening Balance\nImported Party,Sundry Debtors,0\n' })
+    // Cheque register backfill (upgrade check): a payment saved before its bank had a cheque book.
+    const bankId = (await ok<{ id: number }>('master:ledgers:create', { name: 'Coverage Bank', groupId: gid('Bank Accounts') })).id
+    await ok('voucher:save', { data: { ...voucher, instrumentNo: '000457', lines: [voucher.lines[0], { ...voucher.lines[1], ledgerId: bankId }] } })
+    await ok('cheques:saveBook', { data: { bankLedgerId: bankId, name: 'Book 1', fromNo: 457, toNo: 466, width: 6, receivedOn: null, active: true } })
+    const filled = await expectLogged('cheques:backfill', { bankLedgerId: bankId })
+    expect(filled.filter((r) => r.entity === 'cheque').map((r) => r.action)).toEqual(['create', 'import'])
     await expectLogged('backup:run')
     await expectLogged('audit:exportCsv', { from: '2025-01-01', to: '2030-12-31' })
     await expectLogged('config:audit:required', { required: false })

@@ -184,6 +184,9 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'cheques:saveBook': a('cheque_book'),
   'cheques:deleteBook': a('cheque_book'),
   'cheques:setStatus': a('cheque'),
+  // Register backfill (upgrade check): the preview computes; the apply records leaves (cheque rows + one summary row).
+  'cheques:backfillPreview': QUERY,
+  'cheques:backfill': a('cheque'),
   'cheques:print': a('cheque', 'voucher', 'export'),
   'pdc:bounce': a('voucher', 'pdc'),
   'bulkPay:setBankDetails': a('ledger'),
