@@ -420,7 +420,7 @@ Read these before filing from the next release.
   editor with every pending line drawn and linked, as "Add from…" would; tick several notes of one
   party to put them on one invoice. Only supply / on-approval challans and purchase GRNs convert.
   No figure changed: the pending quantity and value are the Pending challans / GRNs report's, and so
-  GDNI / GRNI's, to the paisa. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  GDNI / GRNI's, to the paisa. [#149](https://github.com/IrminFlow/total/pull/149)
 
 ### For developers
 
@@ -436,7 +436,7 @@ Read these before filing from the next release.
   the pure `shared/tradeCycle/convert.ts` `convertPicks` (the drawer's own picks) into
   `rowsFromSourcePicks`, and the editor saves through `voucher:save` (links written by the target's
   save, I1–I7 unchanged). `GDNI_PURPOSES` / `GRNI_PURPOSES` moved there (re-exported by
-  tradeAnalysis.ts). No migration. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  tradeAnalysis.ts). No migration. [#149](https://github.com/IrminFlow/total/pull/149)
 
 - `receivables:statementPdf` is a viewer read, governed by `canExport` (in `EXPORT_CHANNELS`, like
   `report:pdf`). New viewer read `gst:einvoicing`
