@@ -10,7 +10,7 @@ import { useNav } from '../state/stores'
 import { Page } from '../components/ui'
 import { Button, SkeletonTiles, Why } from '../components/kit'
 import { OpeningsHomeCard } from './OpeningsHomeCard'
-import { useCanSave, ViewerBackupNote } from './ViewerNote'
+import { useCanWrite, ViewerBackupNote } from './ViewerNote'
 import { HomeTour } from './help/Tour'
 import { HOME_TASKS, accountScreen, attentionScreen, deadlineScreen, homeReportScreen, type HomeReport } from './homeTasks'
 import { onboardingFromDashSetup, type OnboardingChecklist, type OnboardingStepId } from '@shared/onboarding'
@@ -154,7 +154,7 @@ function HomeBody({ home }: { home: SimpleHomeData }): React.JSX.Element {
     gst: link('gst', gstRegular ? gstLinkLabel(gstRegular, t) : '') // i18n-technical
   }
   const empty = isEmptyHome(home)
-  const canSave = useCanSave()
+  const canSave = useCanWrite()
   const backupsScreen = homeReportScreen('backups', home) // i18n-technical
 
   return (

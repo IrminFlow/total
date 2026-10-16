@@ -16,7 +16,7 @@ import { aiApi } from '../../lib/aiClient'
 import { cfApi } from '../../lib/cashFinanceClient'
 import { confirmDialog } from '../../lib/dialogs'
 import { useT } from '../../lib/i18n'
-import { useCanSetMode } from '../../lib/mode'
+import { useCanManageAi } from '../../lib/capabilities'
 import { useNav, useSession, useToasts } from '../../state/stores'
 import { Badge, Banner, Button, Checkbox, Field, Page, SkeletonRows, TextInput } from '../../components/ui'
 
@@ -57,7 +57,8 @@ export function AiHelper(): React.JSX.Element {
   const nav = useNav()
   const toast = useToasts()
   const queryClient = useQueryClient()
-  const canEdit = useCanSetMode()
+  // WP 7.2: an owner, or someone the owner granted "can manage the AI assistant".
+  const canEdit = useCanManageAi()
   const user = useSession((s) => s.user)
   const { data: view } = useQuery({ queryKey: SETTINGS_KEY, queryFn: aiApi.settings })
   const { data: usage } = useQuery({ queryKey: USAGE_KEY, queryFn: aiApi.usage })

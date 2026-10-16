@@ -2,8 +2,14 @@ import { useT } from '../lib/i18n'
 import { useSession } from '../state/stores'
 
 /** WP 10.8: may the signed-in user save entries? A viewer may not (main refuses it); a company
- *  without sign-ins has no viewer. */
-export const useCanSave = (): boolean => useSession((s) => s.user == null || s.user.role !== 'viewer') // i18n-technical
+ *  without sign-ins has no viewer. WP 7.2: the user's `canPost` flag decides when the owner set
+ *  one (a viewer granted it may, an accountant refused it may not); no flag = the role, as before. */
+export const useCanSave = (): boolean =>
+  useSession((s) => s.user == null || (typeof s.user.capabilities?.canPost === 'boolean' && s.user.role !== 'owner' ? s.user.capabilities.canPost : s.user.role !== 'viewer')) // i18n-technical
+
+/** May the signed-in user do the non-posting writes a viewer may not (a backup …)? The role
+ *  alone, as useCanSave was before WP 7.2's canPost flag. */
+export const useCanWrite = (): boolean => useSession((s) => s.user == null || s.user.role !== 'viewer') // i18n-technical
 
 /**
  * WP 10.8 — what a viewer sees where the Save buttons would be (the 9.2 / 9.3 review: a viewer was

@@ -34,6 +34,7 @@ import { useFeatures } from '../lib/useFeatures'
 import { nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, useVoucherNumberField } from './voucher/hooks'
 import { StockLinesEntry } from './voucher/StockLinesEntry'
 import { LineDetailOption } from './voucher/LineStockDetail'
+import { PostButton } from '../components/PostButton'
 
 interface TransferRow extends TransferRowState {
   key: number
@@ -416,9 +417,9 @@ export function TransferEntry({
         <div>{isEdit && <Button variant="danger" onClick={() => void remove()}>Delete voucher</Button>}</div>
         <div className="flex gap-2">
           {isEdit && <Button onClick={() => nav.back()}>Cancel</Button>}
-          <Button variant="primary" data-testid="btn-save-transfer" disabled={saving} onClick={() => void save()}>
+          <PostButton variant="primary" data-testid="btn-save-transfer" disabled={saving} onClick={() => void save()}>
             {isEdit ? 'Save changes' : challan ? (challan.kind === 'send' ? 'Save challan' : 'Save return') : 'Save transfer'} ⌘↵
-          </Button>
+          </PostButton>
         </div>
       </div>
     </Panel>

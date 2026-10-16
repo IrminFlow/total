@@ -5,6 +5,7 @@ import { Button, Checkbox, DrawerSection } from './ui'
 import { Segmented } from './kit/Segmented'
 import { useOptionsDrawer } from './kit/PageHeader'
 import { tableActions } from './table/tableActions'
+import { useCapabilityRefused } from '../lib/capabilities'
 
 /**
  * Per-screen options (the PageHeader Options drawer, F12). A display preference like the sidebar
@@ -176,6 +177,8 @@ export function OptionsTable({
   extra?: ReactNode
 }): React.JSX.Element {
   const drawer = useOptionsDrawer()
+  // WP 7.2: no export for a sign-in the owner refused export.
+  const exportRefused = useCapabilityRefused('canExport')
   return (
     <DrawerSection title={label} testId={`options-table-${area}`}>
       <div className="flex flex-wrap gap-2">
@@ -191,7 +194,7 @@ export function OptionsTable({
         >
           Choose columns…
         </Button>
-        {exportable && (
+        {exportable && !exportRefused && (
           <>
             <Button size="sm" variant="ghost" data-testid={`options-${area}-pdf`} onClick={() => tableActions(area)?.exportPdf?.()}>
               Export PDF
@@ -212,7 +215,10 @@ export function OptionsTable({
 }
 
 /** "Export": screen-specific export buttons (reports that aren't a DataTable). */
-export function OptionsExport({ children }: { children: ReactNode }): React.JSX.Element {
+export function OptionsExport({ children }: { children: ReactNode }): React.JSX.Element | null {
+  // WP 7.2: a screen's own export buttons go too when the owner refused this sign-in export.
+  const exportRefused = useCapabilityRefused('canExport')
+  if (exportRefused) return null
   return (
     <DrawerSection title="Export" testId="options-export">
       <div className="flex flex-wrap gap-2">{children}</div>

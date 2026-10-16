@@ -63,6 +63,7 @@ import { ExplainButton } from '../kit/ExplainButton'
 import { figureText, rowSourceIds, useAiAffordances, type ExplainInput } from '../../lib/explain'
 import { registerTableActions } from './tableActions'
 import { useKitLabels } from '../kit/labels'
+import { useCapabilityRefused } from '../../lib/capabilities'
 
 /** Fixed row heights (px) per density — virtualisation relies on every DATA row being this tall
  *  (detail rows are measured). Comfortable matches `.ledger-table td` (6px + 20px line + 6px + 1px). */
@@ -751,6 +752,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
       }
     : undefined
 
+  const exportRefused = useCapabilityRefused('canExport')
   const features: Required<ToolbarFeatures> = {
     quickFilter: true,
     columns: true,
@@ -758,7 +760,9 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
     density: true,
     views: true,
     export: true,
-    ...props.toolbarFeatures
+    ...props.toolbarFeatures,
+    // WP 7.2: no export buttons for a sign-in the owner refused export (main refuses it too).
+    ...(exportRefused ? { export: false } : {})
   }
 
   // The toolbar stays whenever the table is mounted with columns — while loading and with zero
@@ -766,7 +770,9 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
   // always be un-filtered.
   // Expose columns + export to the screen's Options drawer (tableActions.ts), by testId area.
   const actionsRef = useRef({ exportPdf, exportCsv, exportXlsx, hasRows: rows.length > 0, columns: features.columns && toolbar })
-  actionsRef.current = { exportPdf, exportCsv, exportXlsx, hasRows: rows.length > 0, columns: features.columns && toolbar }
+  actionsRef.current = exportRefused
+    ? { exportPdf: undefined, exportCsv: undefined, exportXlsx: undefined, hasRows: rows.length > 0, columns: features.columns && toolbar }
+    : { exportPdf, exportCsv, exportXlsx, hasRows: rows.length > 0, columns: features.columns && toolbar }
   useEffect(
     () =>
       registerTableActions(area, {

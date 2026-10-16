@@ -28,6 +28,8 @@ import { useAiAffordances } from '../lib/explain'
 import { useT } from '../lib/i18n'
 import { useAssistantPanel, useCurrentAiContext } from './ai/AssistantPanel'
 import { isWindows } from '../lib/platform'
+import { capabilityRefused } from '../lib/capabilities'
+import type { Capability } from '@shared/capabilities'
 
 interface Command {
   label: string
@@ -40,6 +42,8 @@ interface Command {
   requiresGstRegistration?: boolean
   /** WP 9.10: the simple rows' test id (`palette-simple-<entry id>`). */
   testId?: string
+  /** WP 7.2: hidden when the owner refused this sign-in that capability. */
+  capability?: Capability
   run: () => void | Promise<void>
 }
 
@@ -76,6 +80,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
   const { clearCompany } = useSession()
   const from = useSession((s) => s.from)
   const regType = useSession((s) => s.info?.gstRegistrationType)
+  const user = useSession((s) => s.user)
   const features = useFeatures()
   const [query, setQuery] = useState('')
   const { recents, addQuery } = useSearchRecents()
@@ -132,6 +137,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       },
       {
         label: 'Export CA pack',
+        capability: 'canExport',
         run: async () => {
           try {
             const { from, to } = useSession.getState()
@@ -144,6 +150,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       },
       {
         label: 'Export Tally XML',
+        capability: 'canExport',
         run: async () => {
           try {
             const { from, to } = useSession.getState()
@@ -210,8 +217,8 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
     () =>
       simpleMode && !searchText.trim()
         ? []
-        : matching(commands.filter((c) => (!c.feature || features[c.feature]) && screenApplies(c, regType))),
-    [commands, matching, features, regType, simpleMode, searchText]
+        : matching(commands.filter((c) => (!c.feature || features[c.feature]) && screenApplies(c, regType) && !(c.capability && capabilityRefused(user, c.capability)))),
+    [commands, matching, features, regType, simpleMode, searchText, user]
   )
   const filteredSimple = useMemo(() => matching(simpleCommands), [simpleCommands, matching])
 

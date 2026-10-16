@@ -14,6 +14,7 @@ import { confirmDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, useVoucherNumberField } from './hooks'
 import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } from './LineStockDetail'
+import { PostButton } from '../../components/PostButton'
 
 // ---------- generic stock lines (lossless fallback for stock journals / physical stock) ----------
 // One row per inventory line: item, in/out, qty, rate, amount, godown, batch. Used when a saved
@@ -291,9 +292,9 @@ export function StockLinesEntry({
         <div>{isEdit && <Button variant="danger" onClick={() => void remove()}>Delete voucher</Button>}</div>
         <div className="flex gap-2">
           {isEdit && <Button onClick={() => nav.back()}>Cancel</Button>}
-          <Button variant="primary" data-testid="btn-save-stock-lines" disabled={saving} onClick={() => void save()}>
+          <PostButton variant="primary" data-testid="btn-save-stock-lines" disabled={saving} onClick={() => void save()}>
             {isEdit ? 'Save changes' : 'Save'} ⌘↵
-          </Button>
+          </PostButton>
         </div>
       </div>
     </Panel>

@@ -20,6 +20,7 @@ import { confirmDialog } from '../../lib/dialogs'
 import { Badge, Banner, Button, Checkbox, Field, Panel, SectionTitle, Segmented, SkeletonRows, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { AiMemoryPanel } from './AiMemoryPanel'
+import { CAPABILITY_REFUSED_TEXT, canManageAi } from '../../lib/capabilities'
 
 const fmtInt = (n: number): string => n.toLocaleString('en-IN')
 /** Stored UTC ISO → local display date-time. */
@@ -83,7 +84,8 @@ export function AiSection(): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { user } = useSession()
-  const isOwner = !user || user.role === 'owner'
+  // WP 7.2: an owner, or someone the owner granted "can manage the AI assistant".
+  const isOwner = canManageAi(user)
   const { data: view } = useQuery({ queryKey: ['aiSettings'], queryFn: aiApi.settings })
   const [busy, setBusy] = useState(false)
 
@@ -118,7 +120,7 @@ export function AiSection(): React.JSX.Element {
         <SectionTitle right={<Badge tone={view.ready ? 'success' : 'neutral'} testId="ai-status">{view.ready ? 'On' : 'Off'}</Badge>}>AI assistant</SectionTitle>
         {!isOwner && (
           <Banner tone="info" className="mb-3">
-            Read-only — only owners can change the assistant’s settings.
+            {user?.capabilities?.canManageAi === false ? `Read-only — ${CAPABILITY_REFUSED_TEXT.canManageAi}.` : 'Read-only — only owners can change the assistant’s settings.'}
           </Banner>
         )}
         {view.mock && (

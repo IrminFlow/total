@@ -38,6 +38,7 @@ import type { OpenSourceLine } from '@shared/tradeCycle/types'
 import { DocLink } from '../../components/links'
 import { creditLimitWarningText } from '@shared/tradeCycle/edit'
 import { chargesGstOn, gstRegistrationOf, legacyTaxWarning, NON_CLAIMABLE_RATE_HINT, registrationOn } from '@shared/gst/registration'
+import { PostButton } from '../../components/PostButton'
 
 /** The narration hint per kind (WP 8.0: a purchase never says "goods sold"). */
 const NARRATION_PLACEHOLDER: Partial<Record<VoucherKind, string>> = {
@@ -1094,9 +1095,9 @@ export function InvoiceEntry({
               Save + invoice PDF
             </Button>
           )}
-          <Button variant="primary" data-testid="btn-save-voucher" disabled={saving} onClick={() => void save()}>
+          <PostButton variant="primary" data-testid="btn-save-voucher" disabled={saving} onClick={() => void save()}>
             {isEdit ? 'Save changes' : 'Save voucher'} ⌘↵
-          </Button>
+          </PostButton>
         </div>
       </div>
 
