@@ -13,7 +13,8 @@ import { DEFAULT_FEATURES } from '@shared/features'
 import type { IntentFacts, SimplePostResult, SimplePreview } from '@shared/simple/intents'
 import type { MoneyOpenBill, MoneyRow, MoneySetup } from '@shared/simple/money'
 import { bannedWordsIn } from '@shared/simple/bannedWords'
-import { useSession } from '../state/stores'
+import { useNav, useSession } from '../state/stores'
+import { useDialogs } from '../lib/dialogs'
 import { MoneyIn } from '../simple/money/MoneyIn'
 import { MoneyOut } from '../simple/money/MoneyOut'
 import { MoveMoney } from '../simple/money/MoveMoney'
@@ -334,5 +335,37 @@ describe('to-do §4: a viewer is told up front (Money in / out / move)', () => {
     } finally {
       act(() => useSession.setState({ user: null }))
     }
+  })
+})
+
+describe('opened from a bank line ("Pick the bills yourself")', () => {
+  const FROM_LINE = { party: 10, amount: 130_000, date: '2026-10-02', bankId: 32, reference: 'N1', note: 'NEFT RAMESH' }
+  it('after the save card, "Back to Bank" returns to the Bank screen on that bank', async () => {
+    act(() => useNav.setState({ stack: [{ name: 'simple-bank' }, { name: 'simple-money-in', ...FROM_LINE }] }))
+    renderUi(<MoneyIn {...FROM_LINE} />)
+    await ready()
+    click('btn-money-save')
+    await waitFor(() => expect(screen.getByTestId('save-card')).toBeTruthy())
+    click('btn-money-back-to-bank')
+    await waitFor(() => expect(useNav.getState().stack).toEqual([{ name: 'simple-bank', bankId: 32 }]))
+    expect(bannedWordsIn(visible())).toEqual([])
+  })
+  it('Esc → discard goes back to the Bank on that bank too; with no Bank below it opens one', async () => {
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-money-out', ...FROM_LINE, party: 20 }] }))
+    renderUi(<MoneyOut {...FROM_LINE} party={20} />)
+    await ready()
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(useDialogs.getState().queue).toHaveLength(1))
+    act(() => useDialogs.getState().settle(useDialogs.getState().queue[0]!.id, true))
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'simple-bank', bankId: 32 }))
+  })
+  it('not opened from a bank line: no "Back to Bank"', async () => {
+    renderUi(<MoneyIn />)
+    await ready()
+    await pick('picker-money-customer', 'Ramesh')
+    typeAmount('1300')
+    click('btn-money-save')
+    await waitFor(() => expect(screen.getByTestId('save-card')).toBeTruthy())
+    expect(screen.queryByTestId('btn-money-back-to-bank')).toBeNull()
   })
 })

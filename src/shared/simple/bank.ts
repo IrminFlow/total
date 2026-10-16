@@ -179,6 +179,10 @@ export interface BankLineView {
    *  repeated row in the bank's file): no answer is pre-selected for it, so "Save all" can't
    *  record the same money twice by default. Optional (absent = false). */
   repeat?: boolean
+  /** The line's per-account identity (bank_statement_lines.import_hash: date, signed amount,
+   *  narration, same-day occurrence — the same after a re-import). The screen keys what it
+   *  remembers about a line (e.g. "Skip for now") by it. Optional (absent = use the id). */
+  key?: string
 }
 
 /** Lines that repeat an earlier one exactly (same date, side, amount, non-empty reference and
