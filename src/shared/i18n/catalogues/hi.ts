@@ -2146,6 +2146,8 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'errors.recipe.qtyPlain': 'लिखें कि एक में यह कच्चा माल कितना लगता है।',
   'errors.recipe.cycle': '{name} खुद {product} से बनता है, इसलिए वह इसमें नहीं लग सकता।',
   'errors.recipe.cyclePlain': 'यह कच्चा माल खुद इसी सामान से बनता है, इसलिए वह इसमें नहीं लग सकता।',
+  'errors.recipe.later': '{date} से शुरू होने वाली सूची पहले से है, इसलिए इससे पहले के दिन से किया बदलाव तब से लागू नहीं रहेगा। इसे पूरे ऐप में बदलें।',
+  'errors.recipe.laterPlain': 'आगे की तारीख़ से शुरू होने वाली सूची पहले से है, इसलिए पहले के दिन से किया बदलाव तब से लागू नहीं रहेगा। इसे पूरे ऐप में बदलें।',
   'errors.intent.notEnoughMaterial': 'इतना बनाने के लिए स्टॉक में {names} काफ़ी नहीं है। गिनती कम करें, या पहले खरीद दर्ज करें।',
   'errors.intent.notEnoughMaterialPlain': 'इतना बनाने के लिए स्टॉक में कच्चा माल काफ़ी नहीं है। गिनती कम करें, या पहले खरीद दर्ज करें।',
   'errors.intent.noSalePrice': 'एक {name} आप कितने में बेचते हैं, वह लिखें।',

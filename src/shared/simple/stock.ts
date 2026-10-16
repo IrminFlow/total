@@ -379,6 +379,14 @@ export function planRecipe(
   ) {
     return { changed: false, versionId: inForce.id }
   }
+  // A version of this product that starts AFTER the working date (the working date was moved
+  // back, or the full editor dated one ahead) would win over the new one from its start
+  // (pickBomVersion: latest start in force) — the change would quietly stop applying then.
+  const later = own
+    .map((v) => v.effectiveFrom)
+    .filter((f): f is string => f != null && f > date)
+    .sort()[0]
+  if (later) fail('simple_recipe_later', `A recipe from ${later} is already set — change it in the full app`, undefined, { date: later })
   const scrap = new Map((inForce?.lines ?? []).map((l) => [l.componentId, l.scrapPctBp]))
   const first = own.length === 0
   return {

@@ -2141,6 +2141,8 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'errors.recipe.qtyPlain': 'Likhein ki ek mein yeh kachcha maal kitna lagta hai.',
   'errors.recipe.cycle': '{name} khud {product} se banta hai, isliye woh ismein nahi lag sakta.',
   'errors.recipe.cyclePlain': 'Yeh kachcha maal khud isi item se banta hai, isliye woh ismein nahi lag sakta.',
+  'errors.recipe.later': '{date} se shuru hone wali list pehle se hai, isliye isse pehle ke din se kiya badlaav tab se laagu nahi rahega. Ise full app mein badlein.',
+  'errors.recipe.laterPlain': 'Aage ki tareekh se shuru hone wali list pehle se hai, isliye pehle ke din se kiya badlaav tab se laagu nahi rahega. Ise full app mein badlein.',
   'errors.intent.notEnoughMaterial': 'Itna banane ke liye stock mein {names} kaafi nahi hai. Number kam karein, ya pehle purchase darj karein.',
   'errors.intent.notEnoughMaterialPlain': 'Itna banane ke liye stock mein kachcha maal kaafi nahi hai. Number kam karein, ya pehle purchase darj karein.',
   'errors.intent.noSalePrice': 'Ek {name} aap kitne mein bechte hain, woh likhein.',

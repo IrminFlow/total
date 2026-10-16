@@ -187,6 +187,7 @@ export const ERROR_MAP = {
   simple_recipe_twice: e('errors.recipe.twice', 'rows', ['name'], 'errors.recipe.twicePlain'),
   simple_recipe_qty: e('errors.recipe.qty', 'rows', ['name'], 'errors.recipe.qtyPlain'),
   simple_recipe_cycle: e('errors.recipe.cycle', 'rows', ['name', 'product'], 'errors.recipe.cyclePlain'),
+  simple_recipe_later: e('errors.recipe.later', undefined, ['date'], 'errors.recipe.laterPlain'),
   simple_not_enough_material: e('errors.intent.notEnoughMaterial', 'qty', ['names'], 'errors.intent.notEnoughMaterialPlain'),
   simple_no_sale_price: e('errors.intent.noSalePrice', 'price', ['name'], 'errors.intent.noSalePricePlain'),
   // WP 9.9: the simple Reports / Taxes screens (services/simpleReports.ts, simpleTaxes.ts).

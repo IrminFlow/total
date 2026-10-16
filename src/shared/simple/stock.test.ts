@@ -260,6 +260,10 @@ describe('the recipe editor: rows → the BOM version the accountant service sav
     expect(codeOf(() => plan([{ itemId: BOX, qtyMilli: 1000 }, { itemId: BREAD, qtyMilli: 1000 }], FLOUR))).toEqual({ code: 'simple_recipe_cycle', field: 'rows.1.item', params: { name: 'Bread', product: 'Flour' } })
     expect(codeOf(() => plan([{ itemId: 999, qtyMilli: 1000 }]))).toMatchObject({ code: 'simple_recipe_unknown', field: 'rows.0.item' })
     expect(codeOf(() => plan([{ itemId: BOX, qtyMilli: 1000 }], 999))).toMatchObject({ code: 'simple_recipe_unknown' })
+    // A version starting after the working date would win from its start: refused (not silently overridden).
+    const ahead: BomVersion[] = [...versions, { ...versions[0]!, id: 8, name: 'v2', effectiveFrom: '2025-09-01', isDefault: false }]
+    expect(pickBomVersion(ahead, BREAD, '2025-09-02')!.id).toBe(8)
+    expect(codeOf(() => plan([{ itemId: FLOUR, qtyMilli: 700 }], BREAD, null, ahead))).toEqual({ code: 'simple_recipe_later', field: undefined, params: { date: '2025-09-01' } })
   })
 
   it('the form: rows from the recipe, client checks on the typed row, blank rows dropped (refusals mapped back), labour per batch', () => {
@@ -287,7 +291,7 @@ describe('the recipe editor: rows → the BOM version the accountant service sav
   it('the recipe editor’s words are free of banned words in every language', () => {
     for (const lang of ['en', 'hi', 'hinglish'] as const) {
       const tr = translator(lang)
-      for (const k of ['simple.stock.recipe.title', 'simple.stock.recipe.none', 'simple.stock.recipe.fromDate', 'errors.recipe.cycle', 'errors.recipe.self'] as const) {
+      for (const k of ['simple.stock.recipe.title', 'simple.stock.recipe.none', 'simple.stock.recipe.fromDate', 'errors.recipe.cycle', 'errors.recipe.self', 'errors.recipe.later', 'errors.recipe.laterPlain'] as const) {
         expect(bannedWordsIn(tr(k, { name: 'Bread', product: 'Flour', date: '12 Aug 2025' }))).toEqual([])
       }
     }

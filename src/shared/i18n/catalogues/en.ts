@@ -2247,6 +2247,8 @@ export const en = {
   'errors.recipe.qtyPlain': 'Type how much of this material one uses.',
   'errors.recipe.cycle': '{name} is itself made using {product}, so it cannot go into it.',
   'errors.recipe.cyclePlain': 'This material is itself made using this product, so it cannot go into it.',
+  'errors.recipe.later': 'A recipe that starts on {date} is already set, so a change from an earlier day would stop applying then. Change it in the full app.',
+  'errors.recipe.laterPlain': 'A later recipe is already set, so a change from an earlier day would stop applying then. Change it in the full app.',
   'errors.intent.notEnoughMaterial': 'Not enough {names} in stock to make this many. Lower the number, or record the purchase first.',
   'errors.intent.notEnoughMaterialPlain': 'There is not enough material in stock to make this many. Lower the number, or record the purchase first.',
   'errors.intent.noSalePrice': 'Type what you sell one {name} for.',

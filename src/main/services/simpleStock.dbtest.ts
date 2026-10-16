@@ -567,6 +567,18 @@ describe('the recipe editor = the accountant BOM editor', () => {
     expect(refusal(() => saveRecipe(db, { itemId: jam, rows: [{ itemId: 99_999, qtyMilli: 1000 }], labourPerUnit: null }, TODAY))).toEqual({ code: 'simple_recipe_unknown', field: 'rows.0.item' })
     expect(recipeTrace()).toEqual(before)
   })
+
+  it('a change from a working date BEFORE a later recipe is refused (that recipe would win from its start), leaving no trace', () => {
+    change(db) // Bread v2 from 12 Aug
+    const before = recipeTrace()
+    expect(DAY < NEW_DAY).toBe(true)
+    expect(refusal(() => saveRecipe(db, { itemId: I('Bread'), rows: [{ itemId: I('Flour'), qtyMilli: 700 }], labourPerUnit: null }, DAY))).toEqual({ code: 'simple_recipe_later', field: undefined })
+    expect(recipeTrace()).toEqual(before)
+    // The same answers as the recipe in force that day are still "nothing changed".
+    expect(saveRecipe(db, { itemId: I('Bread'), rows: [{ itemId: I('Flour'), qtyMilli: 500 }, { itemId: I('Box'), qtyMilli: 1000 }], labourPerUnit: null }, DAY)).toMatchObject({ changed: false })
+    // From the later recipe's own start (or after it) a change is fine.
+    expect(saveRecipe(db, { itemId: I('Bread'), rows: [{ itemId: I('Flour'), qtyMilli: 700 }], labourPerUnit: null }, NEW_DAY)).toMatchObject({ changed: true })
+  })
 })
 
 describe('roles', () => {
