@@ -216,7 +216,7 @@ what you typed, and a **Back to simple** button.
   quietly gets the screens in the sidebar ready, so clicking them is as quick as before. Measured on
   a busy laptop, the window's own start-up went from 0.90 s to 0.67 s (a reload from 0.27 s to
   0.21 s); the rest of starting Total (the app itself starting up) is unchanged. Nothing you see
-  changed. [#LAZY](https://github.com/IrminFlow/total/pull/LAZY)
+  changed. [#135](https://github.com/IrminFlow/total/pull/135)
 
 ### For accountants (figures that changed)
 
@@ -364,7 +364,7 @@ Read these before filing from the next release.
   visit); `<main data-loading>` stays "true" while a chunk loads (`lib/chunkLoading.ts`); the
   sidebar's chunks are prefetched once Home is idle (`components/HomePrefetch.tsx`); `vendor`
   chunk via `manualChunks`; `scripts/perf-launch.mjs --boot` times the renderer alone.
-  `FOCUS_SEARCH_EVENT` moved to `lib/searchEvents.ts` (re-exported). [#LAZY](https://github.com/IrminFlow/total/pull/LAZY)
+  `FOCUS_SEARCH_EVENT` moved to `lib/searchEvents.ts` (re-exported). [#135](https://github.com/IrminFlow/total/pull/135)
 - "I've filed" lives in company meta `gstFiled`, not in `assistant_marks` (which has no room for an
   ARN). [#94](https://github.com/IrminFlow/total/pull/94)
 - i18n: `Translate.lang`, `toPlainDate(d, lang)`, `amountInWords(paise, lang)`; the glossary is

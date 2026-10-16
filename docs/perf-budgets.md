@@ -58,7 +58,7 @@ noisy by ±20 %; the A/B tables below interleave before / after runs on copies o
 | Save: sales invoice with 5 lines; receipt against 3 bills | `vouchers.saveVoucher` | 300 ms | 300 ms |
 | Company open: integrity check | `checkIntegrity` | 1 s | 3 s |
 | Backup (online snapshot + quick_check of the copy) | `snapshotTo` + `quickCheckOk` | 3 s | 10 s |
-| **launch**: app launch → Home interactive (built app, Playwright, 100k) | `scripts/perf-launch.mjs` | 2 s target, not met — see Launch (renderer boot after lazy screens, PR #LAZY: startup bundle 5.7 → 2.7 MB, DOMContentLoaded 0.90 → 0.67 s) | — |
+| **launch**: app launch → Home interactive (built app, Playwright, 100k) | `scripts/perf-launch.mjs` | 2 s target, not met — see Launch (renderer boot after lazy screens, PR #135: startup bundle 5.7 → 2.7 MB, DOMContentLoaded 0.90 → 0.67 s) | — |
 
 Why the budgets differ from the proposal (100k ≤ 1 s per report, ≤ 300 ms save, ≤ 200 ms search;
 500k ≤ 3 s per report):
@@ -227,7 +227,7 @@ weekly check, which only logs, no longer holds the open); the open backup and th
 one after the other (now together, both still before the reply); the Gateway's P&L valued stock twice
 and listed the whole FY to show 8 recent entries.
 
-### Lazy screens (PR #LAZY)
+### Lazy screens (PR #135)
 
 Before, the renderer was one 5.7 MB script with every screen in it, parsed and run before the
 company list could draw. Now every screen App.tsx renders is its own chunk (`lazyScreens.ts`,
