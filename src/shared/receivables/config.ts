@@ -13,6 +13,11 @@ export const REMINDER_BUCKET_LABELS: Record<ReminderBucket, string> = { gentle: 
 
 export const REMINDER_CHANNELS = ['email', 'pdf', 'print', 'phone', 'other'] as const
 export type ReminderChannel = (typeof REMINDER_CHANNELS)[number]
+/** What `reminder_log.channel` may hold: the letter's channels (above, what Credit control's
+ *  letter is sent by) plus the simple People screen's WhatsApp and SMS messages (PR #146
+ *  migration — logged as 'phone' before). */
+export const REMINDER_LOG_CHANNELS = [...REMINDER_CHANNELS, 'whatsapp', 'sms'] as const
+export type ReminderLogChannel = (typeof REMINDER_LOG_CHANNELS)[number]
 
 /** Merge fields every template understands (documented in Settings beside the editors). */
 export const MERGE_FIELDS = [

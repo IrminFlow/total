@@ -366,6 +366,18 @@ describe('reminders', () => {
     expect(forced.logId).toBeGreaterThan(sent.logId)
     expect(auditRows(f.db, 'reminder')).toHaveLength(2)
   })
+
+  it('a WhatsApp / SMS reminder (PR #146 channels) counts for the letter cadence and is listed with its channel', async () => {
+    const f = fixture({ rateBp: null })
+    invoice(f, '2026-04-01', 50_000, 'INV-1')
+    const base = { party_ledger_id: f.party, bucket: 'gentle' as const, amount_paise: 59_000, oldest_bill: 'INV-1', max_overdue_days: 9, document_path: null }
+    rx.logReminder(f.db, { ...base, date: '2026-05-10', channel: 'whatsapp' }, { via: 'whatsapp', forced: false })
+    expect(rx.reminderCandidates(f.db, '2026-05-12')[0]!.allowed).toBe(false)
+    await expect(rx.remind(f.db, COMPANY, SLUG, { ledgerId: f.party, asOn: '2026-05-12', channel: 'email' })).rejects.toThrow(rx.REMINDER_CADENCE_PREFIX)
+    rx.logReminder(f.db, { ...base, date: '2026-05-11', channel: 'sms' }, { via: 'sms', forced: true })
+    expect(rx.reminderLog(f.db, '2026-05-01', '2026-05-31').map((r) => r.channel)).toEqual(['sms', 'whatsapp'])
+    expect(auditRows(f.db, 'reminder')).toHaveLength(2)
+  })
 })
 
 describe('collection reports', () => {

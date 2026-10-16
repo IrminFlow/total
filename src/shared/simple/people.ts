@@ -16,7 +16,7 @@ import { formatPaise } from '../money'
 import { toPlainDate } from '../dates'
 import { isoDate } from '../schemas'
 import { addDaysIso, daysBetweenIso } from '../receivables/interest'
-import type { ReminderBucket, ReminderChannel } from '../receivables/config'
+import type { ReminderBucket, ReminderLogChannel } from '../receivables/config'
 import { isPhoneNumber } from './accountKinds'
 
 export type PersonSide = 'customer' | 'supplier'
@@ -120,10 +120,10 @@ export interface BillsToPay {
 export const REMINDER_VIA = ['whatsapp', 'sms', 'copied'] as const
 export type ReminderVia = (typeof REMINDER_VIA)[number]
 
-/** reminder_log's channel list (WP 4.2: email / pdf / print / phone / other) has no WhatsApp or
- *  SMS — they are messages to the phone, so 'phone'; a copied text is 'other'. The exact way is
- *  kept in the audit row. */
-export const REMINDER_LOG_CHANNEL: Record<ReminderVia, ReminderChannel> = { whatsapp: 'phone', sms: 'phone', copied: 'other' }
+/** reminder_log's channel per way (PR #146: the log has 'whatsapp' and 'sms' channels — logged
+ *  as 'phone' before); a copied text is 'other'. The exact way (and `forced`) stays in the audit
+ *  row as before. */
+export const REMINDER_LOG_CHANNEL: Record<ReminderVia, ReminderLogChannel> = { whatsapp: 'whatsapp', sms: 'sms', copied: 'other' }
 
 const id = z.number().int().positive()
 

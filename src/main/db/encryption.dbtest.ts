@@ -194,9 +194,10 @@ describe('the restore check of a backup', () => {
 })
 
 describe('the WP 7.2 migration', () => {
-  it('is the last migration (number by position) and leaves every existing user as the role says', () => {
-    expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE backup_runs'))).toBe(MIGRATIONS.length - 1)
-    const path = companyFile(MIGRATIONS.slice(0, -1))
+  it('comes right before PR #146 reminder channels (the last; number by position) and leaves every existing user as the role says', () => {
+    const m = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE backup_runs'))
+    expect(m).toBe(MIGRATIONS.length - 2)
+    const path = companyFile(MIGRATIONS.slice(0, m))
     const db = testFileDb(path)
     db.prepare("INSERT INTO users (name, pin_hash, role, active) VALUES ('Old Owner', 'x', 'owner', 1)").run()
     migrate(db)

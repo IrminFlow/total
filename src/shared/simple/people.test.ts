@@ -77,7 +77,7 @@ describe('reminder message', () => {
   })
 
   it('logs WhatsApp / SMS as phone and a copy as other (reminder_log has no WhatsApp channel)', () => {
-    expect(REMINDER_LOG_CHANNEL).toEqual({ whatsapp: 'phone', sms: 'phone', copied: 'other' })
+    expect(REMINDER_LOG_CHANNEL).toEqual({ whatsapp: 'whatsapp', sms: 'sms', copied: 'other' })
   })
 })
 

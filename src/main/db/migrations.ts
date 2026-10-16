@@ -3469,5 +3469,31 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX idx_backup_runs_checked ON backup_runs(checked_at);
   ALTER TABLE users ADD COLUMN capabilities_json TEXT;
+  `,
+  // PR #146 (last — after WP 7.2's security; number by position) — reminder_log's channel CHECK
+  // gains 'whatsapp' and 'sms': the simple People screen (WP 9.8) logged a WhatsApp / SMS
+  // reminder as 'phone' because the WP 4.2 list had no such channel (REMINDER_LOG_CHANNEL). Table
+  // rebuild for the CHECK — every row kept with its id (nothing references reminder_log; its own
+  // FK to ledgers is checked by the runner's foreign_key_check); the index is recreated. Rows
+  // logged as 'phone' before stay 'phone' (which way they went is only in their audit row).
+  `-- @foreign-keys-off
+  CREATE TABLE reminder_log_new (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
+    bucket TEXT NOT NULL CHECK (bucket IN ('gentle', 'firm', 'final')),
+    date TEXT NOT NULL,
+    amount_paise INTEGER NOT NULL DEFAULT 0,
+    oldest_bill TEXT,
+    max_overdue_days INTEGER NOT NULL DEFAULT 0,
+    document_path TEXT,
+    channel TEXT NOT NULL CHECK (channel IN ('email', 'pdf', 'print', 'phone', 'other', 'whatsapp', 'sms')),
+    user_name TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  INSERT INTO reminder_log_new (id, party_ledger_id, bucket, date, amount_paise, oldest_bill, max_overdue_days, document_path, channel, user_name, created_at)
+    SELECT id, party_ledger_id, bucket, date, amount_paise, oldest_bill, max_overdue_days, document_path, channel, user_name, created_at FROM reminder_log;
+  DROP TABLE reminder_log;
+  ALTER TABLE reminder_log_new RENAME TO reminder_log;
+  CREATE INDEX idx_reminder_log_party ON reminder_log(party_ledger_id, date);
   `
 ]
