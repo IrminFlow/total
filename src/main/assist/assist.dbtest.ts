@@ -271,6 +271,46 @@ describe('Ask Total on hand-worked books', () => {
     expect((await ok<AiDraftDto[]>('ai:drafts', {})).find((x) => x.id === d.draftId)!.status).toBe('open')
   })
 
+  it('a flow left without saving discards its Ask Total draft (audited); a new draft discards the older open ones', async () => {
+    const status = async (id: number): Promise<string> => (await ok<AiDraftDto[]>('ai:drafts', {})).find((x) => x.id === id)!.status
+    const audits = (id: number): number => count(`SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'ai_draft' AND entity_id = ${id} AND action = 'update'`)
+    // The draft left open by the test above ("paid 2000 to Mohan Supplies by bank") goes when a new one is made.
+    const older = (await ok<AiDraftDto[]>('ai:drafts', {})).filter((d) => d.origin === 'ask-total' && d.status === 'open').map((d) => d.id)
+    expect(older.length).toBeGreaterThan(0)
+    const a = await ok<AssistDraftResult>('assist:draft', { text: 'paid 300 for tea in cash', today: T })
+    for (const id of older) {
+      expect(await status(id)).toBe('discarded')
+      expect(audits(id)).toBe(1)
+    }
+    expect(await status(a.draftId)).toBe('open')
+    // Leaving the flow without saving → assist:draft:discard: discarded once, audited as Settings' Discard.
+    const d = await ok<AiDraftDto | null>('assist:draft:discard', { draftId: a.draftId })
+    expect(d?.status).toBe('discarded')
+    expect(await status(a.draftId)).toBe('discarded')
+    const row = (() => {
+      const db = new Database(dbPath, { readonly: true })
+      try {
+        return db.prepare(`SELECT before_json AS b, after_json AS a FROM audit_log WHERE entity = 'ai_draft' AND entity_id = ? AND action = 'update'`).get(a.draftId) as { b: string; a: string }
+      } finally {
+        db.close()
+      }
+    })()
+    expect([JSON.parse(row.b), JSON.parse(row.a)]).toEqual([{ status: 'open' }, { status: 'discarded' }])
+    // Again (already discarded), a consumed one, or a chat draft: left alone, nothing written.
+    const before = count('SELECT COUNT(*) AS n FROM audit_log')
+    expect(await ok('assist:draft:discard', { draftId: a.draftId })).toBeNull()
+    const b = await ok<AssistDraftResult>('assist:draft', { text: 'paid 100 to Mohan Supplies in cash', today: T })
+    // The flow saved it (a money-out: ₹100 of rent in cash, dated today — October, no figure above changes).
+    await ok('simple:post', { intent: { kind: 'money_out', clientId: 'ask-tea-000001', date: T, amount: 10000, from: { how: 'cash' }, payeeId: ids.rent }, today: T, aiDraftId: b.draftId })
+    const afterSave = count('SELECT COUNT(*) AS n FROM audit_log')
+    expect(await ok('assist:draft:discard', { draftId: b.draftId })).toBeNull()
+    expect(await status(b.draftId)).toBe('consumed')
+    expect(count('SELECT COUNT(*) AS n FROM audit_log')).toBe(afterSave)
+    expect(afterSave).toBeGreaterThan(before)
+    expect((await call('assist:draft:discard', { draftId: 0 })).ok).toBe(false)
+    expect(ipc.CHANNEL_ROLES.get('assist:draft:discard')).toBe('accountant')
+  })
+
   it('WP 10.6: a chat (AI panel) draft opened in its simple flow is consumed by the save; other drafts are left alone', async () => {
     const { insertDraft } = await import('../ai/store')
     const receipt = (extra: Record<string, unknown> = {}): number => {

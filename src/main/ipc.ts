@@ -509,7 +509,8 @@ export function registerIpc(): void {
   // ---------- Ask Total (WP 10.1): deterministic answers + entry drafts, no key — assist/ipc.ts ----------
   registerAskTotalIpc(handle, {
     company: () => requireCompany(),
-    roleNow: () => (sessionUser ? sessionUser.role : current?.usersExist ? null : 'owner')
+    roleNow: () => (sessionUser ? sessionUser.role : current?.usersExist ? null : 'owner'),
+    userNow: () => sessionUser?.name ?? null
   })
   // ---------- receivables (WP 4.2) — channels live in ipcReceivables.ts ----------
   registerReceivablesIpc(handle, () => requireCompany())

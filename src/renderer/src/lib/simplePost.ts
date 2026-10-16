@@ -9,7 +9,10 @@
 // - The working date goes with every call, so typed dates ("yesterday") read the way the screen
 //   shows them.
 // - Errors are IpcErrors carrying code / field / params (WP 8.5): feed them to useFormErrors.
-import { useCallback, useRef, useState } from 'react'
+// - Opened from an Ask Total draft (`aiDraftId`): the first save consumes it; leaving the screen
+//   without saving discards it (assist:draft:discard — main touches only an open Ask Total draft,
+//   so a chat draft opened the same way is left alone).
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SimpleIntentInput, SimplePostResult, SimplePreview } from '@shared/simple/intents'
 import { api, IpcError } from './client'
 import { useSession } from '../state/stores'
@@ -49,6 +52,31 @@ export function useSimplePost(opts: { aiDraftId?: number | null } = {}): SimpleP
   // WP 10.1: the flow was opened from an Ask Total draft — its FIRST successful save consumes it
   // (simple:post `aiDraftId`); a later entry made on the same screen is the user's own.
   const draftRef = useRef<number | null>(opts.aiDraftId ?? null)
+
+  // Leaving without saving discards the draft. The discard waits a tick so a remount of the same
+  // screen (React StrictMode runs effects twice in dev) cancels it, and waits for a post still
+  // running (it may be the save that consumes the draft).
+  const leaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (leaveTimer.current) {
+      clearTimeout(leaveTimer.current)
+      leaveTimer.current = null
+    }
+    return () => {
+      leaveTimer.current = setTimeout(() => {
+        leaveTimer.current = null
+        const discard = (): void => {
+          const id = draftRef.current
+          if (id == null) return
+          draftRef.current = null
+          void api.assist.discardDraft(id).catch(() => undefined)
+        }
+        const running = inFlight.current
+        if (running) void running.then(() => undefined, () => undefined).then(discard)
+        else discard()
+      }, 0)
+    }
+  }, [])
 
   const preview = useCallback(
     async (intent: IntentDraft): Promise<SimplePreview> => {

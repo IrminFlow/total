@@ -466,6 +466,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // transaction that is always rolled back); a draft for the simple flow is an audited ai_draft.
   'assist:ask': r('answers from the read services; an entry request is rehearsed in a transaction that is always rolled back; writes nothing'),
   'assist:draft': a('ai_draft'),
+  'assist:draft:discard': a('ai_draft'),
   'assist:close': QUERY,
   'assist:close:mark': a('assistant_mark'),
   'assist:anomalies': QUERY,

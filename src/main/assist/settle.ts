@@ -4,7 +4,7 @@ import type { DB } from '../db/connection'
 import type { AiDraftDto } from '@shared/ai'
 import { ASK_TOTAL_ORIGIN } from '@shared/assist'
 import { writeAudit } from '../services/audit'
-import { getDraft, setDraftStatus } from '../ai/store'
+import { getDraft, listDrafts, setDraftStatus } from '../ai/store'
 
 /** WP 10.6: the simple flow a chat (AI panel) draft of each voucher kind opens in — the panel's
  *  `draftOffer` (shared/simple/aiPlain.ts) uses the same pairs. */
@@ -32,4 +32,36 @@ export function settleAskDraft(db: DB, draftId: number, intentKind: string, vouc
   const after = getDraft(db, draftId)!
   writeAudit(db, 'ai_draft', draftId, 'update', { status: d.status }, { status: after.status, ...(voucherId ? { voucherId } : {}), voucherIds: [...voucherIds] })
   return after
+}
+
+/** An open Ask Total draft (source 'assistant', origin 'ask-total'). */
+export const isOpenAskDraft = (d: AiDraftDto | null): d is AiDraftDto =>
+  !!d && d.status === 'open' && d.source === 'assistant' && d.origin === ASK_TOTAL_ORIGIN && !!d.payload.simple
+
+const askerOf = (d: AiDraftDto): string | null => d.payload.simple?.askedBy ?? null
+
+/** Discard one open Ask Total draft — status 'discarded', audited exactly as Settings → AI drafts'
+ *  Discard (ai/drafts.ts discardDraft: the status before / after). */
+function discard(db: DB, d: AiDraftDto): AiDraftDto {
+  setDraftStatus(db, d.id, 'discarded')
+  const after = getDraft(db, d.id)!
+  writeAudit(db, 'ai_draft', d.id, 'update', { status: d.status }, { status: after.status })
+  return after
+}
+
+/** assist:draft:discard — the flow an Ask Total draft opened was left without saving: the draft
+ *  goes (it never stays open in Settings → AI drafts). Only an OPEN Ask Total draft asked by the
+ *  same person; anything else (a chat draft, one already saved or discarded, someone else's) is
+ *  left alone and null comes back. */
+export function discardAskDraft(db: DB, draftId: number, askedBy: string | null): AiDraftDto | null {
+  const d = getDraft(db, draftId)
+  if (!isOpenAskDraft(d) || askerOf(d) !== askedBy) return null
+  return db.transaction(() => discard(db, d))()
+}
+
+/** A new Ask Total draft replaces the person's older open ones (one open at a time). Call inside
+ *  the transaction that inserts the new draft. */
+export function discardOlderAskDrafts(db: DB, askedBy: string | null, keepId: number): number[] {
+  const older = listDrafts(db, 'open', undefined, ['assistant']).filter((d) => d.id !== keepId && isOpenAskDraft(d) && askerOf(d) === askedBy)
+  return older.map((d) => discard(db, d).id)
 }

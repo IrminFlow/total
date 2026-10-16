@@ -34,6 +34,7 @@ import { pricingLoader } from '../services/pricing'
 import { getFeatures } from '../services/config'
 import { writeAudit } from '../services/audit'
 import { insertDraft, listDrafts } from '../ai/store'
+import { discardOlderAskDrafts } from './settle'
 import { EXPENSE_WORDS } from './classify'
 import { findItem, findLedger, type NameResult } from './names'
 import type { AskEnv, AskInput } from './answer'
@@ -369,7 +370,15 @@ const SUMMARY: Record<AssistEntrySlots['action'], MessageKey> = {
 /** assist:draft — store the entry request as an `ai_drafts` row the simple flow opens. The
  *  question is classified again here (never trusted from the renderer). Re-asking the same thing
  *  while its draft is still open returns that draft. */
-export function createAskDraft(db: DB, company: CompanyInfo, input: AskInput, env: AskEnv, t: Translate, classifyFn: (text: string, today: string) => AssistIntent): AssistDraftResult {
+export function createAskDraft(
+  db: DB,
+  company: CompanyInfo,
+  input: AskInput,
+  env: AskEnv,
+  t: Translate,
+  classifyFn: (text: string, today: string) => AssistIntent,
+  askedBy: string | null = null
+): AssistDraftResult {
   const intent = classifyFn(input.text, input.today)
   if (intent.kind !== 'entry') throw new Error('That is not something to record — ask it as a question instead')
   const r = buildEntry(db, company, intent.entry, input, env, t)
@@ -377,7 +386,9 @@ export function createAskDraft(db: DB, company: CompanyInfo, input: AskInput, en
   const offer = r.offer
   const question = input.text.trim()
   const existing = listDrafts(db, 'open', undefined, ['assistant']).find(
-    (d) => d.origin === ASK_TOTAL_ORIGIN && d.payload.simple?.question === question && JSON.stringify(d.payload.simple.prefill) === JSON.stringify(offer.prefill)
+    (d) =>
+      d.origin === ASK_TOTAL_ORIGIN && (d.payload.simple?.askedBy ?? null) === askedBy && d.payload.simple?.question === question &&
+      JSON.stringify(d.payload.simple.prefill) === JSON.stringify(offer.prefill)
   )
   if (existing) return { draftId: existing.id, prefill: offer.prefill }
   const kind = VOUCHER_KIND[offer.kind]
@@ -398,11 +409,13 @@ export function createAskDraft(db: DB, company: CompanyInfo, input: AskInput, en
     sources: [],
     assumptions: offer.missing ? [offer.missing] : [],
     origin: ASK_TOTAL_ORIGIN,
-    simple: { kind: offer.kind, question, prefill: offer.prefill, intent: offer.intent }
+    simple: { kind: offer.kind, question, prefill: offer.prefill, intent: offer.intent, askedBy }
   }
   return db.transaction((): AssistDraftResult => {
     const d = insertDraft(db, { threadId: null, messageId: null, summary, payload, unrequested: false, source: 'assistant', origin: ASK_TOTAL_ORIGIN })
     writeAudit(db, 'ai_draft', d.id, 'create', null, { tool: 'ask-total', summary, payload, threadId: null, unrequested: false, origin: d.origin })
+    // One open Ask Total draft per person: the older ones (flows left without saving) go.
+    discardOlderAskDrafts(db, askedBy, d.id)
     return { draftId: d.id, prefill: offer.prefill }
   })()
 }

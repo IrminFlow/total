@@ -1,6 +1,7 @@
 // WP 9.1: useSimplePost — one clientId per intent (a retry re-sends it, a save starts a new one),
 // one request while a post is in flight, the working date with every call, IpcErrors with the field.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { StrictMode } from 'react'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { useSimplePost, type IntentDraft } from '../lib/simplePost'
 import { useSession } from '../state/stores'
@@ -122,5 +123,56 @@ describe('useSimplePost', () => {
     act(() => h.current.reset())
     await waitFor(() => expect(h.current.status).toBe('idle'))
     expect(h.current.clientId).not.toBe(first)
+  })
+})
+
+describe('useSimplePost opened from an Ask Total draft', () => {
+  const discards = (): unknown[] => invoke.mock.calls.filter((c) => c[0] === 'assist:draft:discard').map((c) => c[1])
+
+  it('leaving without saving discards the draft (once, after the unmount)', async () => {
+    invoke.mockResolvedValue({ ok: true, data: null })
+    const { unmount } = renderHook(() => useSimplePost({ aiDraftId: 41 }))
+    expect(discards()).toEqual([])
+    unmount()
+    await waitFor(() => expect(discards()).toEqual([{ draftId: 41 }]))
+  })
+
+  it('a save consumes it (sent with the first post) — leaving afterwards discards nothing', async () => {
+    invoke.mockResolvedValue({ ok: true, data: result([9]) })
+    const { result: h, unmount } = renderHook(() => useSimplePost({ aiDraftId: 42 }))
+    await act(async () => {
+      await h.current.post(intent)
+    })
+    expect(invoke.mock.calls[0]![1]).toMatchObject({ aiDraftId: 42 })
+    unmount()
+    await new Promise((r) => setTimeout(r, 10))
+    expect(discards()).toEqual([])
+  })
+
+  it('a failed save keeps the draft for a retry; leaving then discards it', async () => {
+    invoke.mockResolvedValueOnce({ ok: false, error: 'Books are locked', code: 'books_locked', field: 'date' }).mockResolvedValue({ ok: true, data: null })
+    const { result: h, unmount } = renderHook(() => useSimplePost({ aiDraftId: 43 }))
+    await act(async () => {
+      await h.current.post(intent).catch(() => undefined)
+    })
+    unmount()
+    await waitFor(() => expect(discards()).toEqual([{ draftId: 43 }]))
+  })
+
+  it('React StrictMode’s second mount (dev) does not discard it', async () => {
+    invoke.mockResolvedValue({ ok: true, data: null })
+    const { unmount } = renderHook(() => useSimplePost({ aiDraftId: 44 }), { wrapper: StrictMode })
+    await new Promise((r) => setTimeout(r, 10))
+    expect(discards()).toEqual([])
+    unmount()
+    await waitFor(() => expect(discards()).toEqual([{ draftId: 44 }]))
+  })
+
+  it('no draft → nothing to discard', async () => {
+    invoke.mockResolvedValue({ ok: true, data: null })
+    const { unmount } = renderHook(() => useSimplePost())
+    unmount()
+    await new Promise((r) => setTimeout(r, 10))
+    expect(discards()).toEqual([])
   })
 })
