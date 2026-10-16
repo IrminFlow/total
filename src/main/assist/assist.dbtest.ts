@@ -495,7 +495,7 @@ describe('Ask Total: bills in two years, TDS and payroll (an unregistered busine
     expect((await ask('how much TDS this month')).sentences[0]).toBe('You have not deducted any TDS (tax deducted at source) yet.')
     // ₹1,000 deducted on 10 Sep 2025 (due 7 Oct — late by the 14th), ₹300 on 3 Oct (due 7 Nov).
     const { ensureTdsPayableLedger } = await import('../services/tds')
-    const db = new Database(pdb)
+    const db = testFileDb(pdb)
     let payable = 0
     try {
       const section = (db.prepare("SELECT id FROM tds_sections WHERE code LIKE '194C%' ORDER BY id LIMIT 1").get() as { id: number }).id
