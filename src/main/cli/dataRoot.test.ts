@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { resolveCliDataRoot, userDataCandidates } from './dataRoot'
+import { resolveCliDataRoot, userDataDir } from './dataRoot'
 import { pointerText } from '../dataRootResolve'
 
 let home: string
@@ -16,7 +16,7 @@ beforeEach(() => {
 })
 afterEach(() => rmSync(home, { recursive: true, force: true }))
 
-function writePointer(path: string, appName = 'Total'): void {
+function writePointer(path: string, appName = 'total'): void {
   const dir = join(home, 'Library', 'Application Support', appName)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'data-root.json'), pointerText(path))
@@ -26,10 +26,10 @@ const resolve = (env: Record<string, string> = {}, warn: string[] = []) =>
 
 describe('resolveCliDataRoot', () => {
   it('userData per platform', () => {
-    expect(userDataCandidates('win32', { APPDATA: 'C:\\U\\AppData\\Roaming' }, 'C:\\U')[0]).toMatch(/Total$/)
-    expect(userDataCandidates('darwin', {}, '/h')[0]).toBe('/h/Library/Application Support/Total')
-    expect(userDataCandidates('linux', { XDG_CONFIG_HOME: '/x' }, '/h')[0]).toBe('/x/Total')
-    expect(userDataCandidates('linux', {}, '/h')[0]).toBe('/h/.config/Total')
+    expect(userDataDir('win32', { APPDATA: 'C:\\U\\AppData\\Roaming' }, 'C:\\U')).toMatch(/total$/)
+    expect(userDataDir('darwin', {}, '/h')).toBe('/h/Library/Application Support/total')
+    expect(userDataDir('linux', { XDG_CONFIG_HOME: '/x' }, '/h')).toBe('/x/total')
+    expect(userDataDir('linux', {}, '/h')).toBe('/h/.config/total')
   })
 
   it('TOTAL_DATA_DIR wins over a pointer', () => {
@@ -37,11 +37,8 @@ describe('resolveCliDataRoot', () => {
     expect(resolve({ TOTAL_DATA_DIR: '/scratch' })).toMatchObject({ path: '/scratch', source: 'env' })
   })
 
-  it('a pointer to an existing folder is followed (either app-name spelling)', () => {
+  it('a pointer to an existing folder is followed', () => {
     writePointer(books)
-    expect(resolve()).toMatchObject({ path: books, source: 'pointer' })
-    rmSync(join(home, 'Library'), { recursive: true })
-    writePointer(books, 'total')
     expect(resolve()).toMatchObject({ path: books, source: 'pointer' })
   })
 
@@ -60,7 +57,7 @@ describe('resolveCliDataRoot', () => {
   })
 
   it('a garbage pointer falls back with a warning', () => {
-    const dir = join(home, 'Library', 'Application Support', 'Total')
+    const dir = join(home, 'Library', 'Application Support', 'total')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'data-root.json'), 'nope')
     const warn: string[] = []

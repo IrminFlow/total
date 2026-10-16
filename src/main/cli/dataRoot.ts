@@ -28,20 +28,22 @@ export function defaultDataRoot(platform: NodeJS.Platform = process.platform): s
   return join(chooseWindowsDocumentsDir(reg, askKnownFolder, process.env, homedir(), existsSync), 'total')
 }
 
-/** Electron's per-user app folder for Total (`app.getPath('userData')`) without Electron: the
- *  packaged app is named by productName ("Total"); an unpackaged run by package.json name
- *  ("total") — both are tried, the first holding a pointer wins (same folder on case-insensitive
- *  file systems). */
-export function userDataCandidates(
+/** Electron's per-user app folder for Total (`app.getPath('userData')`) without Electron. The app
+ *  never calls `app.setName` (src/main), so Electron names it from package.json: `productName`
+ *  when the packaged package.json has one, else `name`. electron-builder keeps `productName`
+ *  under `build` only — the packaged app.asar's package.json has just `"name": "total"` — so
+ *  the folder is lower-case `total` in dev AND packaged, on every platform (a case-sensitive
+ *  Linux file system included). Seen on disk: ~/Library/Application Support/total. */
+export function userDataDir(
   platform: NodeJS.Platform = process.platform,
   env: Record<string, string | undefined> = process.env,
   home: string = homedir()
-): string[] {
+): string {
   const base =
     platform === 'win32' ? env.APPDATA || join(home, 'AppData', 'Roaming')
     : platform === 'darwin' ? join(home, 'Library', 'Application Support')
     : env.XDG_CONFIG_HOME || join(home, '.config')
-  return [join(base, 'Total'), join(base, 'total')]
+  return join(base, 'total')
 }
 
 export function readPointerText(path: string): string | null {
@@ -68,13 +70,7 @@ export function resolveCliDataRoot(
   const env = opts.env ?? process.env
   const warn = opts.warn ?? ((l: string) => process.stderr.write(l + '\n'))
   if (env.TOTAL_DATA_DIR) return { path: env.TOTAL_DATA_DIR, source: 'env', defaultPath: env.TOTAL_DATA_DIR }
-  const candidates = userDataCandidates(opts.platform, env, opts.home).map((d) => join(d, DATA_ROOT_POINTER_FILE))
-  let pointerFile = candidates[0]!
-  for (const c of candidates) {
-    try {
-      if (readPointerText(c) !== null) { pointerFile = c; break }
-    } catch { pointerFile = c; break }
-  }
+  const pointerFile = join(userDataDir(opts.platform, env, opts.home), DATA_ROOT_POINTER_FILE)
   const choice = resolveDataRoot({
     env: {},
     pointerFile,

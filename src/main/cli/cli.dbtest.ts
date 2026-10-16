@@ -166,7 +166,7 @@ describe('total-cli data folder pointer', () => {
     const prev = process.env.TOTAL_DATA_DIR
     try {
       mkdirSync(moved)
-      const ud = join(home, 'Library', 'Application Support', 'Total')
+      const ud = join(home, 'Library', 'Application Support', 'total')
       mkdirSync(ud, { recursive: true })
       writeFileSync(join(ud, 'data-root.json'), pointerText(moved))
       const choice = resolveCliDataRoot({ env: {}, platform: 'darwin', home, defaultRoot: () => join(home, 'Documents', 'total') })
