@@ -2817,6 +2817,21 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.lock.privacy.passphraseText': 'Kholne ke liye is business ka passphrase likhein.',
   'simple.lock.privacy.passphrase': 'Passphrase',
   'simple.lock.privacy.unlock': 'Kholein',
+  // "Remember on this computer" (the passphrase prompt, Settings → Security, the picker)
+  'errors.security.rememberUnavailable': 'Is computer mein secure storage nahi hai, isliye Total passphrase yaad nahi rakh sakta. Har baar type karein.',
+  'errors.security.rememberedStale': 'Is computer par yaad rakha passphrase ab is hisaab ko nahi kholta, isliye Total ne use bhula diya. Passphrase type karein.',
+  'simple.passphrase.remember': 'Is computer par yaad rakhein',
+  'simple.passphrase.rememberHint': 'Jo bhi is computer mein sign in kar sakta hai, woh bina passphrase ke yeh hisaab khol lega. Ise sirf usi computer par chunein jise sirf aap use karte hain.',
+  'simple.passphrase.remembered': 'Is computer par yaad rakha gaya. Yahan hisaab bina passphrase ke khulega.',
+  'simple.passphrase.rememberPending': 'Owner ke sign in karte hi Total ise yaad rakh lega.',
+  'simple.passphrase.rememberedBadge': 'Is computer par yaad hai',
+  'simple.passphrase.forget': 'Bhula dein',
+  'simple.passphrase.forgotten': 'Bhula diya. Agli baar Total passphrase poochega.',
+  'simple.security.remember.title': 'Is computer par yaad hai',
+  'simple.security.remember.on': 'Yeh computer passphrase yaad rakhta hai: jo bhi is computer mein sign in kar sakta hai, uske liye hisaab yahan bina passphrase ke khulta hai. Screen lock pehle jaisa kaam karta hai.',
+  'simple.security.remember.pending': 'Owner ke sign in karte hi yeh yaad rakha jayega.',
+  'simple.security.remember.off': 'Yaad nahi rakha: Total har baar passphrase poochta hai. Yaad rakhne ke liye, business kholte waqt “Is computer par yaad rakhein” chunein.',
+  'simple.security.remember.forget': 'Is computer par bhula dein',
   // ---------- end WP 7.2 ----------
   // ---------- data folder (Settings → Where Total keeps your books) ----------
   'simple.dataFolder.title': 'Total aapka hisaab kahan rakhta hai',

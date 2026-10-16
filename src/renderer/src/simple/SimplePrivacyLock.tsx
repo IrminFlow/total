@@ -6,6 +6,7 @@ import { unlockNoPeople, useLockReason } from '../lib/sessionLock'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, TextInput } from '../components/ui'
 import { errorEntry } from '@shared/errors'
+import { RememberedForget } from './RememberedForget'
 
 /**
  * WP 7.2 follow-up: the screen lock of a simple-mode business WITHOUT people (⌘L / its idle
@@ -80,6 +81,7 @@ export function SimplePrivacyLock({ passphrase }: { passphrase: boolean }): Reac
           <Button variant="primary" autoFocus={!passphrase} data-testid="btn-unlock" disabled={busy || (passphrase && !value)} onClick={() => void submit()}>
             {busy ? t('simple.lock.checking') : t('simple.lock.privacy.unlock')}
           </Button>
+          {passphrase && <RememberedForget />}
         </div>
         <div className="mt-6 flex justify-center">
           <button

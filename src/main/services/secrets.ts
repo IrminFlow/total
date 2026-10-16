@@ -29,6 +29,10 @@ export function companyScope(slug: string): string {
 export interface SecretCipher {
   /** False when the OS can't provide an encryption key (e.g. no keychain / headless Linux). */
   isAvailable(): boolean
+  /** False when the OS protects values with nothing better than an obfuscation anyone on the
+   *  machine can undo — Linux safeStorage's `basic_text` backend (a hard-coded key) or one not yet
+   *  chosen (`unknown`). Absent = as strong as `isAvailable()` says (the macOS Keychain, DPAPI). */
+  isStrong?(): boolean
   encrypt(plain: string): Buffer
   decrypt(cipher: Buffer): string
 }
@@ -57,6 +61,9 @@ export class SecretsUnavailableError extends Error {
 export interface SecretStore {
   /** Whether set() can succeed right now. */
   available(): boolean
+  /** `available()` AND the cipher is bound to this computer's login (never `basic_text`): the only
+   *  storage a remembered DATA KEY may go to (companyKeys.ts `storeRememberedKey`). */
+  strong(): boolean
   /** Decrypted value, or null when absent. Throws SecretsUnavailableError if present but undecryptable for lack of a cipher. */
   get(scope: string, name: string): string | null
   set(scope: string, name: string, value: string): void
@@ -115,6 +122,7 @@ export function createSecretStore(opts: { filePath: () => string; cipher: Secret
 
   return {
     available: () => cipher.isAvailable(),
+    strong: () => cipher.isAvailable() && (cipher.isStrong?.() ?? true),
     get(scope, name) {
       const b64 = load().secrets[scope]?.[name]
       if (b64 === undefined) return null
@@ -161,11 +169,12 @@ export function insecureTestCipherAllowed(env: { TOTAL_DATA_DIR?: string; TOTAL_
 /** In-memory-key test cipher (XOR with a fixed pad + marker) — NOT secure. Used by unit/db tests
  *  and, via TOTAL_INSECURE_TEST_SECRETS, by the hermetic smoke/e2e runs so they never touch the
  *  developer's real keychain. */
-export function insecureTestCipher(available = true): SecretCipher {
+export function insecureTestCipher(available = true, strong = true): SecretCipher {
   const pad = Buffer.from('total-insecure-test-cipher')
   const xor = (b: Buffer): Buffer => Buffer.from(b.map((x, i) => x ^ pad[i % pad.length]!))
   return {
     isAvailable: () => available,
+    isStrong: () => strong,
     encrypt: (plain) => Buffer.concat([Buffer.from('T1:'), xor(Buffer.from(plain, 'utf8'))]),
     decrypt: (ct) => {
       if (ct.subarray(0, 3).toString() !== 'T1:') throw new Error('Not a test-cipher value')

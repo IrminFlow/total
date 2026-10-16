@@ -28,6 +28,18 @@ function safeStorageCipher(): SecretCipher {
         return false
       }
     },
+    // Linux safeStorage falls back to `basic_text` (a hard-coded key — anyone with the file reads
+    // it) when no keyring is usable; the remembered data key must never go there. macOS / Windows
+    // have no such backend (the API exists on Linux only), so available = strong there.
+    isStrong: () => {
+      if (process.platform !== 'linux') return true
+      try {
+        const backend = ss()?.getSelectedStorageBackend?.()
+        return backend !== undefined && backend !== 'basic_text' && backend !== 'unknown'
+      } catch {
+        return false
+      }
+    },
     encrypt: (plain) => ss()!.encryptString(plain),
     decrypt: (ct) => ss()!.decryptString(ct)
   }

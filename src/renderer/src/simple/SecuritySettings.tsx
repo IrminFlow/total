@@ -30,6 +30,7 @@ export function SecuritySettings({ embedded = false }: { embedded?: boolean }): 
         <h1 className="mb-1 font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.security.title')}</h1>
         <p className="mb-5 text-small text-muted">{t('simple.security.intro')}</p>
         <PassphraseCard view={data} canEdit={canEdit} />
+        {data.encrypted && <RememberCard view={data} canEdit={canEdit} />}
         <ScreenLockCard view={data} canEdit={canEdit} />
         <BackupCheckCard view={data} />
         {!canEdit && <p className="mt-3 text-small text-muted">{t('simple.security.ownerOnly')}</p>}
@@ -218,6 +219,43 @@ function PassphraseCard({ view, canEdit }: { view: SecurityView; canEdit: boolea
             </div>
           )}
         </>
+      )}
+    </section>
+  )
+}
+
+/** "Remembered on this computer": whether the data key is kept in this computer's secure storage
+ *  (the books open here without the passphrase), and Forget (owner). Remembering is chosen at the
+ *  passphrase prompt when the business is opened. */
+function RememberCard({ view, canEdit }: { view: SecurityView; canEdit: boolean }): React.JSX.Element {
+  const t = useT()
+  const plain = usePlain()
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const [busy, setBusy] = useState(false)
+  const forget = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      await api.security.forgetRemembered()
+      toast.push('success', t('simple.passphrase.forgotten'))
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEY })
+    } catch (err) {
+      toast.push('error', plain(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const state = view.remembered ? 'on' : view.rememberPending ? 'pending' : 'off' // i18n-technical
+  return (
+    <section className={cardCls} data-testid="security-remember" data-remembered={state}>
+      <h2 className="text-title font-semibold text-ink">{t('simple.security.remember.title')}</h2>
+      <p className="mt-1 text-detail text-ink" data-testid="security-remember-text">
+        {view.remembered ? t('simple.security.remember.on') : view.rememberPending ? t('simple.security.remember.pending') : t('simple.security.remember.off')}
+      </p>
+      {canEdit && view.remembered && (
+        <Button className="mt-2" variant="secondary" disabled={busy} onClick={() => void forget()} data-testid="btn-security-forget">
+          {t('simple.security.remember.forget')}
+        </Button>
       )}
     </section>
   )

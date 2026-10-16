@@ -13,6 +13,10 @@ export interface SecurityView {
   autoLockChoices: number[]
   /** The newest automatic restore check of a backup. */
   lastCheck: BackupCheck | null
+  /** The data key is remembered on this computer (opens without the passphrase). */
+  remembered: boolean
+  /** "Remember on this computer" was ticked at this open's prompt and waits for an owner's sign-in. */
+  rememberPending: boolean
 }
 
 export interface SecurityChangeResult extends SecurityView {

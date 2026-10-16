@@ -204,3 +204,80 @@ export async function unlockCompanyKey(o: UnlockCompanyOptions): Promise<Buffer>
     throw new AppError('wrong_passphrase', 'That passphrase is not right', { field: 'passphrase' })
   }
 }
+
+// ---------------------------------------------------------------- "Remember on this computer"
+//
+// Opt-in, owner-only, off by default (docs/security/encryption-at-rest.md §Remember on this
+// computer). The DATA KEY — never the passphrase — is kept in the secret store under
+// `company:<slug>` / `rememberedDataKey`, so it is encrypted by safeStorage (the macOS Keychain /
+// Windows DPAPI: bound to this computer's login) like every other secret. A remembered key is
+// used only once it opens the file (as `unlockKey` accepts a key); one that no longer does (the
+// lock was taken off and put on again: a new data key) is dropped and the passphrase asked. A
+// passphrase CHANGE re-wraps the same key, so a remembered key stays valid through it. The app
+// only: total-cli / MCP never read it (they take TOTAL_PASSPHRASE).
+
+export const REMEMBERED_KEY_SECRET = 'rememberedDataKey'
+const REMEMBERED_PREFIX = 'v1:'
+
+/** The remembered data key of `slug`, or null (none, unreadable, or no secure storage). */
+export function readRememberedKey(slug: string, store: SecretStore | null): Buffer | null {
+  try {
+    const v = store?.get(companyScope(slug), REMEMBERED_KEY_SECRET)
+    if (!v || !v.startsWith(REMEMBERED_PREFIX)) return null
+    const hex = v.slice(REMEMBERED_PREFIX.length)
+    if (!/^[0-9a-f]{64}$/.test(hex)) return null
+    return Buffer.from(hex, 'hex')
+  } catch {
+    return null
+  }
+}
+
+/** Whether a key is remembered for `slug` on this computer (it is not checked against the file). */
+export function hasRememberedKey(slug: string, store: SecretStore | null): boolean {
+  return readRememberedKey(slug, store) !== null
+}
+
+/** Remember `key` for `slug`. Throws `remember_unavailable` without secure storage bound to this
+ *  computer's login (`store.strong()`: no store, no keychain, or Linux's `basic_text` backend) —
+ *  never a plaintext or obfuscated fallback. */
+export function storeRememberedKey(slug: string, key: Buffer, store: SecretStore | null): void {
+  if (key.length !== 32) throw new Error('A data key is 32 bytes')
+  if (!store?.strong()) {
+    throw new AppError('remember_unavailable', 'This computer has no secure storage, so Total cannot remember the passphrase — type it each time')
+  }
+  try {
+    store.set(companyScope(slug), REMEMBERED_KEY_SECRET, `${REMEMBERED_PREFIX}${key.toString('hex')}`)
+  } catch {
+    throw new AppError('remember_unavailable', 'This computer has no secure storage, so Total cannot remember the passphrase — type it each time')
+  }
+}
+
+/** Forget the remembered key of `slug`; returns whether there was one. Best effort. */
+export function dropRememberedKey(slug: string, store: SecretStore | null): boolean {
+  const had = hasRememberedKey(slug, store)
+  try {
+    store?.delete(companyScope(slug), REMEMBERED_KEY_SECRET)
+  } catch {
+    // nothing stored / an unreadable store
+  }
+  return had
+}
+
+export type RememberedUnlock = { key: Buffer; dropped: false } | { key: null; dropped: boolean }
+
+/** The remembered key of `slug` when it opens `dbPath`; a remembered key that does not is dropped
+ *  (`dropped: true`). `{ key: null, dropped: false }` = nothing remembered. */
+export function unlockWithRememberedKey(slug: string, dbPath: string, store: SecretStore | null): RememberedUnlock {
+  const key = readRememberedKey(slug, store)
+  if (!key) return { key: null, dropped: false }
+  try {
+    openDb(dbPath, { readonly: true, fileMustExist: true, key }).close()
+    return { key, dropped: false }
+  } catch (err) {
+    // Only a key that does not open the file is dropped; a file that could not be read for another
+    // reason (busy, missing) leaves the remembered key alone and the passphrase is asked this time.
+    if (!(err instanceof AppError && err.code === 'db_key_mismatch')) return { key: null, dropped: false }
+    dropRememberedKey(slug, store)
+    return { key: null, dropped: true }
+  }
+}
