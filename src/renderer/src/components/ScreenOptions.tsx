@@ -214,6 +214,14 @@ export function OptionsTable({
   )
 }
 
+/** A report header's own PDF / CSV buttons (beside the title): gone, like OptionsExport, when the
+ *  owner refused this sign-in export (#148 review — main refuses report:pdf / export:csv then). */
+export function HeaderExport({ children }: { children: ReactNode }): React.JSX.Element | null {
+  const exportRefused = useCapabilityRefused('canExport')
+  if (exportRefused) return null
+  return <>{children}</>
+}
+
 /** "Export": screen-specific export buttons (reports that aren't a DataTable). */
 export function OptionsExport({ children }: { children: ReactNode }): React.JSX.Element | null {
   // WP 7.2: a screen's own export buttons go too when the owner refused this sign-in export.

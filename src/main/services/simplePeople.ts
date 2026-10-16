@@ -15,8 +15,8 @@
 // - updatePerson: phone / WhatsApp / credit days through masters.updateLedger (audited `ledger`,
 //   the same write the full app's account form makes);
 // - personReminded: a reminder sent from the People screen, logged through receivables.logReminder
-//   (reminder_log + its audit row) like the letter — WhatsApp / SMS as 'phone', copied as 'other'
-//   (the exact way in the audit row).
+//   (reminder_log + its audit row) like the letter — WhatsApp / SMS as 'whatsapp' / 'sms' (PR #148
+//   migration; 'phone' before), copied as 'other' (the exact way in the audit row).
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import type { OutstandingParty } from '@shared/reports'

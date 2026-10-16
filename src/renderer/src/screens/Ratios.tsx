@@ -6,7 +6,7 @@ import { formatPaise } from '@shared/money'
 import { reportsApi } from '../lib/reportsClient'
 import { useSession, useToasts } from '../state/stores'
 import { Button, DateInput, Page, PageHeader, Panel, SkeletonRows, TabBar } from '../components/ui'
-import { OptionsExport } from '../components/ScreenOptions'
+import { HeaderExport, OptionsExport } from '../components/ScreenOptions'
 import { LineChart, Sparkline } from '../components/charts'
 import { csvReport, printReport } from '../lib/reportExport'
 
@@ -76,10 +76,10 @@ export function RatiosScreen(): React.JSX.Element {
           </div>
         }
         secondary={
-          <>
+          <HeaderExport>
             <Button variant="ghost" onClick={exportPdf} disabled={!data}>PDF</Button>
             <Button variant="ghost" onClick={exportCsv} disabled={!data}>CSV</Button>
-          </>
+          </HeaderExport>
         }
         options={{
           content: (

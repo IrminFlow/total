@@ -468,13 +468,15 @@ Read these before filing from the next release.
   ECR / ESI / PT links, the edit log's CSV / PDF, Outstandings' bulk statements, the statement of
   account's Save PDF / Email, e-invoice / EWB exports (and the per-bill EWB JSON), GSTR-1 / 3B /
   9 / ITC-04 / IMS exports, Form 24Q / 26Q / 27EQ files, budgets, price lists (button and menu),
-  the payment run and MSME Form 1 CSVs, the bank bulk-payment file and the report builder's
-  "Share as JSON" are disabled with "Your sign-in can’t export — ask the owner" (or hidden), and
+  the payment run and MSME Form 1 CSVs, the bank bulk-payment file, the report builder's
+  "Share as JSON", the P&L / balance sheet / cash flow / ratios header PDF / CSV (`HeaderExport`)
+  and the import wizard's error report are disabled with "Your sign-in can’t export — ask the owner" (or hidden), and
   the simple Taxes screen's "prepare the files" step says the owner turned it off
   (`simple.taxes.step3.exportRefused`, en / hi / hinglish). Owners and users without flags see no
   change; main still refuses. Owner-only exports (encrypted backup, recovery copy) are unchanged.
   `exportGating.test.tsx`. [#148](https://github.com/IrminFlow/total/pull/148)
-- Migration 053 (last; `-- @foreign-keys-off` table rebuild, every row and id kept, index
+- Migration 053 (last; `-- @foreign-keys-off` table rebuild, every row and id kept, the
+  AUTOINCREMENT high-water mark kept like migration 024 — a deleted reminder's id is never reissued, its audit row names it — index
   recreated): `reminder_log.channel` accepts `whatsapp` and `sms`. `REMINDER_LOG_CHANNELS` /
   `ReminderLogChannel` (shared/receivables/config.ts) type the log; the letter's
   `REMINDER_CHANNELS` (what `receivables:remind` accepts) is unchanged. `REMINDER_LOG_CHANNEL` maps

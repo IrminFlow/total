@@ -3,7 +3,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { Button, DateInput, DrawerSection, Money, Page, PageHeader, Panel, Select, SkeletonRows } from '../components/ui'
-import { OptionToggle, OptionsExport, useScreenOptions } from '../components/ScreenOptions'
+import { HeaderExport, OptionToggle, OptionsExport, useScreenOptions } from '../components/ScreenOptions'
 import { ComparativeStatement } from '../components/ComparativeStatement'
 import { StatementTree } from '../components/StatementTree'
 import { csvReport, flattenNodes, printReport } from '../lib/reportExport'
@@ -94,14 +94,14 @@ export function ProfitLossScreen({ from: askedFrom, to: askedTo }: { from?: stri
           </div>
         }
         secondary={
-          <>
+          <HeaderExport>
             <Button variant="ghost" onClick={exportPdf}>
               PDF
             </Button>
             <Button variant="ghost" onClick={exportCsv}>
               CSV
             </Button>
-          </>
+          </HeaderExport>
         }
         options={{
           onReset: opts.reset,

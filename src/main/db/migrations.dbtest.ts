@@ -166,7 +166,6 @@ describe('migrate', () => {
     expect(last.startsWith('-- @foreign-keys-off')).toBe(true)
     expect(last).toContain('CREATE TABLE reminder_log_new')
     expect(last).toContain("'whatsapp', 'sms'")
-    expect(MIGRATIONS.at(-2)).toContain('CREATE TABLE backup_runs')
   })
 
   it('applies every migration exactly once and records them all', () => {

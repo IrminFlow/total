@@ -16,6 +16,29 @@ describe('reminder_log whatsapp / sms migration', () => {
     expect(MIGRATIONS[M]!.startsWith('-- @foreign-keys-off')).toBe(true)
   })
 
+  it('keeps the AUTOINCREMENT high-water mark: a deleted reminder’s id is never reissued (its audit row names it)', () => {
+    const db = freshPartialDb(M)
+    seedCompany(db, TEST_INFO)
+    const party = Number(db.prepare("INSERT INTO ledgers (name, group_id) SELECT 'Ramesh', id FROM groups WHERE name = 'Sundry Debtors'").run().lastInsertRowid)
+    const ins = db.prepare("INSERT INTO reminder_log (party_ledger_id, bucket, date, channel) VALUES (?, 'gentle', '2026-05-01', ?)")
+    for (let i = 0; i < 3; i++) ins.run(party, 'pdf')
+    db.prepare('DELETE FROM reminder_log WHERE id = 3').run()
+    migrate(db)
+    expect(Number(ins.run(party, 'sms').lastInsertRowid)).toBe(4)
+  })
+
+  it('an empty reminder_log with deleted rows behind it keeps its mark too', () => {
+    const db = freshPartialDb(M)
+    seedCompany(db, TEST_INFO)
+    const party = Number(db.prepare("INSERT INTO ledgers (name, group_id) SELECT 'Ramesh', id FROM groups WHERE name = 'Sundry Debtors'").run().lastInsertRowid)
+    const ins = db.prepare("INSERT INTO reminder_log (party_ledger_id, bucket, date, channel) VALUES (?, 'gentle', '2026-05-01', ?)")
+    ins.run(party, 'pdf')
+    ins.run(party, 'pdf')
+    db.prepare('DELETE FROM reminder_log').run()
+    migrate(db)
+    expect(Number(ins.run(party, 'whatsapp').lastInsertRowid)).toBe(3)
+  })
+
   it('keeps every row, adds the two channels, still refuses an unknown one', () => {
     const db = freshPartialDb(M)
     seedCompany(db, TEST_INFO)

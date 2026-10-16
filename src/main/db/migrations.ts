@@ -3473,10 +3473,12 @@ export const MIGRATIONS: string[] = [
   // PR #148 (last — after WP 7.2's security; number by position) — reminder_log's channel CHECK
   // gains 'whatsapp' and 'sms': the simple People screen (WP 9.8) logged a WhatsApp / SMS
   // reminder as 'phone' because the WP 4.2 list had no such channel (REMINDER_LOG_CHANNEL). Table
-  // rebuild for the CHECK — every row kept with its id (nothing references reminder_log; its own
-  // FK to ledgers is checked by the runner's foreign_key_check); the index is recreated. Rows
+  // rebuild for the CHECK — every row kept with its id and the id high-water mark (nothing
+  // references reminder_log by FK; its own FK to ledgers is checked by the runner's
+  // foreign_key_check); the index is recreated. There are no triggers on reminder_log. Rows
   // logged as 'phone' before stay 'phone' (which way they went is only in their audit row).
   `-- @foreign-keys-off
+  CREATE TEMP TABLE m_rl_seq AS SELECT seq FROM sqlite_sequence WHERE name = 'reminder_log';
   CREATE TABLE reminder_log_new (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     party_ledger_id INTEGER NOT NULL REFERENCES ledgers(id) ON DELETE CASCADE,
@@ -3495,5 +3497,11 @@ export const MIGRATIONS: string[] = [
   DROP TABLE reminder_log;
   ALTER TABLE reminder_log_new RENAME TO reminder_log;
   CREATE INDEX idx_reminder_log_party ON reminder_log(party_ledger_id, date);
+  -- Keep the AUTOINCREMENT high-water mark (as migration 024 does): a deleted reminder's id is
+  -- never reissued — its audit row (entity 'reminder') names it.
+  INSERT INTO sqlite_sequence (name, seq)
+    SELECT 'reminder_log', 0 WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'reminder_log');
+  UPDATE sqlite_sequence SET seq = MAX(seq, COALESCE((SELECT seq FROM m_rl_seq), 0)) WHERE name = 'reminder_log';
+  DROP TABLE m_rl_seq;
   `
 ]

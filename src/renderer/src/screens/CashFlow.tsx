@@ -4,7 +4,7 @@ import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { openLedgerStatement } from '../lib/drill'
 import { Button, EmptyState, Money, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
-import { OptionToggle, OptionsExport, OptionsPeriod, useScreenOptions } from '../components/ScreenOptions'
+import { HeaderExport, OptionToggle, OptionsExport, OptionsPeriod, useScreenOptions } from '../components/ScreenOptions'
 import { DrawerSection } from '../components/kit/Drawer'
 import { csvReport, printReport } from '../lib/reportExport'
 import type { ReportColumn as PdfColumn, ReportRow as PdfRow } from '../lib/client'
@@ -166,14 +166,14 @@ export function CashFlowScreen(): React.JSX.Element {
         title="Cash flow statement"
         period={periodLabel}
         secondary={
-          <>
+          <HeaderExport>
             <Button variant="ghost" data-testid="cash-flow-pdf" onClick={exportPdf} disabled={!hasAnything}>
               PDF
             </Button>
             <Button variant="ghost" data-testid="cash-flow-csv" onClick={exportCsv} disabled={!hasAnything}>
               CSV
             </Button>
-          </>
+          </HeaderExport>
         }
         options={{
           onReset: opts.reset,

@@ -173,5 +173,4 @@ describe('help panel (WP 10.3)', () => {
     act(() => useHelpPanel.getState().openForScreen('gst'))
     expect(screen.queryByTestId('help-panel')).toBeNull()
   })
-
 })

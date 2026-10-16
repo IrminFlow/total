@@ -10,6 +10,7 @@ import type { SessionUser } from '../lib/client'
 import { PtSummaryModal, RunActions } from '../screens/Payroll'
 import { StatementModal } from '../components/receivables/StatementModal'
 import { Form24qPanel } from '../screens/tds/Form24qPanel'
+import { HeaderExport } from '../components/ScreenOptions'
 
 const REASON = 'Your sign-in can’t export — ask the owner'
 const user = (role: SessionUser['role'], capabilities: SessionUser['capabilities'] = null): SessionUser => ({ id: 2, name: 'Asha', role, capabilities })
@@ -94,6 +95,15 @@ describe('other export buttons', () => {
       const btn = screen.getByTestId(id) as HTMLButtonElement
       expect(btn.disabled, id).toBe(true)
       expect(btn.parentElement?.getAttribute('title'), id).toBe(REASON)
+    }
+  })
+
+  it('the P&L / balance sheet / cash flow / ratios header PDF + CSV (HeaderExport) go for a refused sign-in only', () => {
+    for (const [u, shown] of [[null, true], [user('owner', { canExport: false }), true], [user('accountant'), true], [REFUSED, false]] as const) {
+      signIn(u)
+      renderUi(<HeaderExport><button>PDF</button></HeaderExport>)
+      expect(!!screen.queryByRole('button', { name: 'PDF' }), JSON.stringify(u)).toBe(shown)
+      cleanup()
     }
   })
 })
