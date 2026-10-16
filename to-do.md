@@ -100,8 +100,8 @@ done on main were dropped. One line each; the pointer says where to look.
 - Import undo keeps a party ledger whose opening bill has a user receipt against it (openings stay unequal until fixed by hand) — PR #107, `services/dataImport.ts`
 - ~~Stock summary analysis panel runs as on today while the summary runs to the period end (no date shown)~~ DONE — the date and a note are shown; the panel stays as on today (running it to a future period end would change what it shows) — PR #120
 - Barcode labels date / price by the period END — PR #110
-- Cash flow statement has no drill-down; labels PDF, CA pack and e-invoice export write to `exports/` with no save dialog; e-invoice export is whole-period only — e2e 68–71 notes
-- Items created over IPC after a screen loaded don't appear in screens that cache the item list (Labels tab) — e2e 68 notes
+- Cash flow statement has no drill-down; ~~labels PDF, CA pack and e-invoice export write to `exports/` with no save dialog; e-invoice export is whole-period only~~ DONE — save dialog (skipped in hermetic runs), optional e-invoice dates — PR #137 — e2e 68–71 notes
+- ~~Items created over IPC after a screen loaded don't appear in screens that cache the item list (Labels tab)~~ DONE — `total:masters:changed` refreshes the cached master lists — PR #137 — e2e 68 notes
 - TDS: ~~late-deduction (1 %) interest computed but not shown~~ DONE — Deducted tab column + export, display only — PR #126; purchase returns don't reduce the threshold aggregate; 26Q CSV is RPU input, not FVU — WP 3.2
 - Fixed assets not done: partial disposals, GST on asset sale, extra-shift depreciation, component lives, rule 25(2) 40 % cap — WP 3.6
 - Trade cycle not done: 16-char invoice-number warning, challan / GRN list screens, convert-to-invoice, live NIC e-way for challans — WP 2.5b
@@ -134,7 +134,7 @@ done on main were dropped. One line each; the pointer says where to look.
 
 ### AI
 - Figure checking matches absolute amounts; it can't prove sign, meaning or period — GPT review, `src/main/ai/numbers.ts`
-- `find_anomalies` keys carry long digit runs that masking rewrites, so the model can't refer back to a finding by key — WP 5.8 review, `src/shared/anomalies.ts`
+- ~~`find_anomalies` keys carry long digit runs that masking rewrites, so the model can't refer back to a finding by key~~ DONE — letters-only `ref` per finding, accepted back by the tool and the dismissal — PR #137 — WP 5.8 review, `src/shared/anomalies.ts`
 - Real-provider escalation, key rejection and capture never run against a live model (mock only) — PR #98 / #101
 
 ### Performance

@@ -110,7 +110,8 @@ await scenario('68-stock-depth', async (h) => {
   }
 
   // ---------- 1. physical stock count through its editor ----------
-  // Every item up front: screens cache the item list, and an IPC-created master doesn't refresh it.
+  // Every item up front (before PR #137 screens cached the item list and an IPC-created master
+  // didn't refresh it; total:masters:changed refreshes it now — kept up front all the same).
   const counted = await mkItem('E2E Counted')
   const fifo = await mkItem('E2E Layers')
   const aged = await mkItem('E2E Aged', { barcode: 'AGE-0068' })
