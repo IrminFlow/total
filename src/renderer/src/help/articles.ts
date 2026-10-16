@@ -4,13 +4,13 @@
 // is its file name; its title is the first "# " heading and its summary the first paragraph.
 // Hindi (./hi, all articles) and Hinglish (./hinglish, WP 10.4: the most-used ones) fall back to
 // English per article (a missing or empty file); the panel says so. Search covers the title and
-// body of every language.
+// body of every language loaded so far (a search loads them all — `loadHelpLanguages`).
 import type { Language } from '@shared/i18n'
 import { blocksText, inlineText, parseMarkdown, type Block } from './markdown'
 
 const EN_FILES = import.meta.glob('./en/*.md', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
-const HI_FILES = import.meta.glob('./hi/*.md', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
-const HINGLISH_FILES = import.meta.glob('./hinglish/*.md', { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+// Hindi / Hinglish are lazy chunks (one per language, hiFiles.ts / hinglishFiles.ts): until one
+// lands its readers get the English article (never blank), and `HELP` re-reads once it has.
 
 /** A language with its own help files. */
 export type HelpLanguage = 'en' | 'hi' | 'hinglish'
@@ -154,8 +154,57 @@ function snippetFor(a: HelpArticle, q: string[]): string {
   return s.length > 160 ? `${s.slice(0, 157).trimEnd()}…` : s
 }
 
-/** The app's help, bundled at build time. */
-export const HELP: HelpIndex = createHelpIndex(EN_FILES, HI_FILES, HINGLISH_FILES)
+/** The non-English languages with their own help files (each its own chunk). */
+export const LAZY_HELP_LANGUAGES = ['hi', 'hinglish'] as const
+export type LazyHelpLanguage = (typeof LAZY_HELP_LANGUAGES)[number]
 
-/** The raw files (tests lint them). */
-export const HELP_FILES = { en: EN_FILES, hi: HI_FILES, hinglish: HINGLISH_FILES }
+const loaded: Partial<Record<LazyHelpLanguage, Record<string, string>>> = {}
+const pending = new Map<LazyHelpLanguage, Promise<void>>()
+const listeners = new Set<() => void>()
+let version = 0
+let current: HelpIndex = createHelpIndex(EN_FILES, {}, {})
+
+const isLazy = (lang: Language | string): lang is LazyHelpLanguage => (LAZY_HELP_LANGUAGES as readonly string[]).includes(lang)
+
+/** True once `lang`'s articles are in the index (English always is). */
+export const isHelpLanguageLoaded = (lang: Language | string): boolean => !isLazy(lang) || !!loaded[lang]
+
+/** Load one language's articles (a no-op for English or once loaded); listeners hear when it lands. */
+export function loadHelpLanguage(lang: Language | string): Promise<void> {
+  if (!isLazy(lang) || loaded[lang]) return Promise.resolve()
+  const running = pending.get(lang)
+  if (running) return running
+  const p = (lang === 'hi' ? import('./hiFiles').then((m) => m.HI_FILES) : import('./hinglishFiles').then((m) => m.HINGLISH_FILES))
+    .then((files) => {
+      loaded[lang] = files
+      current = createHelpIndex(EN_FILES, loaded.hi ?? {}, loaded.hinglish ?? {})
+      version++
+      for (const l of listeners) l()
+    })
+    .finally(() => pending.delete(lang))
+  pending.set(lang, p)
+  return p
+}
+
+/** Every language (search covers them all). */
+export const loadHelpLanguages = (): Promise<void> => Promise.all(LAZY_HELP_LANGUAGES.map(loadHelpLanguage)).then(() => undefined)
+
+/** For useSyncExternalStore: a number that changes whenever a language lands. */
+export const helpVersion = (): number => version
+export function subscribeHelp(fn: () => void): () => void {
+  listeners.add(fn)
+  return () => listeners.delete(fn)
+}
+
+/** The app's help: English bundled in the entry, Hindi / Hinglish as they load. */
+export const HELP: HelpIndex = {
+  article: (id, lang) => current.article(id, lang),
+  list: (lang) => current.list(lang),
+  search: (query, lang, limit) => current.search(query, lang, limit),
+  get ids() {
+    return current.ids
+  }
+}
+
+/** The English files (tests lint them; the translations are imported from hiFiles / hinglishFiles). */
+export const HELP_FILES = { en: EN_FILES }

@@ -15,6 +15,7 @@ import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { Badge, Button, DockedDrawer, DockModeContext, Textarea } from '../components/kit'
 import { askScreen } from './askTargets'
 import { HELP } from '../help/articles'
+import { useHelpLanguage } from '../help/useHelp'
 import { useHelpPanel } from '../help/store'
 
 // ---------- the pending question (Home's Ask box, a suggestion) ----------
@@ -110,7 +111,9 @@ function AnswerView({ turn, onAsk, onOpen, onEntry, busy }: {
   const a = turn.answer
   // WP 10.3: a question Total can't answer also searches the help articles (the glossary stays
   // below as the second source).
-  const helpHits = useMemo(() => (a && !a.understood ? HELP.search(turn.text, lang as Language, 3) : []), [a, turn.text, lang])
+  const unanswered = !!a && !a.understood
+  const helpReady = useHelpLanguage(lang as Language, unanswered) // #146: loads the translations for the search
+  const helpHits = useMemo(() => (unanswered ? HELP.search(turn.text, lang as Language, 3) : []), [unanswered, turn.text, lang, helpReady])
   return (
     <div className="flex flex-col gap-2" data-testid="ask-turn">
       <div className="max-w-[85%] self-end rounded-lg border border-amber/40 bg-amber/10 px-3 py-2 text-body-sm text-ink" data-testid="ask-question">

@@ -251,6 +251,10 @@ what you typed, and a **Back to simple** button.
   smaller. A reminder written in a language other than yours (People → Send a reminder) waits for
   that language's words the same way, instead of showing the English message under the Hinglish
   or Hindi choice. [#143](https://github.com/IrminFlow/total/pull/143), [#145](https://github.com/IrminFlow/total/pull/145)
+- **The help in Hindi and Hinglish is loaded when you open it.** The translated help articles
+  are no longer part of the start code (another 69 kB smaller); they load the first time the help
+  panel opens in Hindi or Hinglish, or when you search the help. Until then — a moment — the
+  English article shows, never an empty panel. [#146](https://github.com/IrminFlow/total/pull/146)
 
 - **Quarterly GST filers prepare their files on the Taxes screen.** If you file GST every
   quarter, step 3 no longer sends you to the full app: "Prepare the GSTR-1 files for the quarter"
