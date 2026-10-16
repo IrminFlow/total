@@ -274,7 +274,8 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
         if (!sec || sec.total === 0) continue
         const items: NavItem[] = sec.rows.map((hit) => ({ type: 'hit', hit }))
         if (sec.total > sec.rows.length) items.push({ type: 'see-all', kind: k, total: sec.total })
-        out.push({ key: `kind-${k}`, title: KIND_TITLE[k], count: sec.total, items })
+        // A simple-mode company reads plain words (Accounts / Products / Entries).
+        out.push({ key: `kind-${k}`, title: simpleMode ? t(SIMPLE_KIND_TITLE[k]) : KIND_TITLE[k], count: sec.total, items })
       }
     }
     if (askGroup && exactHit) out.push(askGroup)
@@ -438,6 +439,10 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
   )
 }
 
+/** The search kinds in plain words (simple-mode companies; the accountant palette keeps KIND_TITLE). */
+const SIMPLE_KIND_TITLE: Record<SearchKind, `simple.palette.kind.${SearchKind}`> = { ledger: 'simple.palette.kind.ledger', item: 'simple.palette.kind.item', voucher: 'simple.palette.kind.voucher' }
+const SIMPLE_KIND_ONE: Record<SearchKind, `simple.palette.one.${SearchKind}`> = { ledger: 'simple.palette.one.ledger', item: 'simple.palette.one.item', voucher: 'simple.palette.one.voucher' }
+
 function rowKey(item: NavItem): string {
   switch (item.type) {
     case 'command': return `cmd-${item.cmd.label}`
@@ -477,6 +482,9 @@ function PaletteRow({
   )
   const base = 'kbar-row flex cursor-pointer items-center justify-between gap-3 px-5 py-2 text-body'
   const common = { 'data-active': active, onMouseEnter: onHover, onClick: onRun }
+  const simple = useMode() === 'simple'
+  const t = useT()
+  const singular = (k: SearchKind): string => (simple ? t(SIMPLE_KIND_ONE[k]) : KIND_SINGULAR[k])
   switch (item.type) {
     case 'ask':
       return (
@@ -511,16 +519,14 @@ function PaletteRow({
           </div>
           <span className="flex shrink-0 items-center gap-2 text-caption text-muted">
             {active && editAction}
-            {KIND_SINGULAR[item.kind]}
+            {singular(item.kind)}
           </span>
         </div>
       )
     case 'see-all':
       return (
         <div {...common} data-testid={`palette-see-all-${item.kind}`} className={`${base} text-blue`}>
-          <span>
-            See all {item.total} {KIND_TITLE[item.kind].toLowerCase()}
-          </span>
+          <span>{simple ? t('simple.palette.seeAll', { count: item.total }) : `See all ${item.total} ${KIND_TITLE[item.kind].toLowerCase()}`}</span>
           <span className="text-caption text-muted">⌘↵</span>
         </div>
       )
@@ -563,7 +569,7 @@ function PaletteRow({
           </div>
           <span className="flex shrink-0 items-center gap-2 text-caption text-muted">
             {active && editAction}
-            {KIND_SINGULAR[h.kind]}
+            {singular(h.kind)}
           </span>
         </div>
       )
