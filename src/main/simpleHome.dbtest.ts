@@ -7,6 +7,7 @@ import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import Database from 'better-sqlite3-multiple-ciphers'
+import { testFileDb } from './db/testdb'
 import { addDays, addMonths } from '@shared/dashboard'
 import { fyOf, todayISO } from '@shared/dates'
 import type { DashboardSeries } from '@shared/dashboard'
@@ -295,6 +296,43 @@ describe('simple:home (WP 8.6)', () => {
     expect(after.receivables.total).toBe(0)
     expect(after.receivables.advances).toBe(500000)
     expect(after.receivables.advanceParties).toBe(1)
+  })
+
+  it('"added for an earlier, closed date" counts only entries into a locked period after the lock — not one merely entered late', async () => {
+    // In the PREVIOUS financial year (whole, and before the lock is set today), on any calendar day.
+    const prev = fyOf(`${FY.startYear - 1}-06-01`)
+    const { slug } = await ok<{ slug: string }>('company:create', company('Late Entry Co', { gstRegistrationType: 'unregistered', booksFrom: FY.startYear - 1, mode: 'simple' }))
+    await ok('company:open', { slug })
+    const groups = await ok<{ id: number; name: string }[]>('master:groups:list')
+    const rent = (await ok<{ id: number }>('master:ledgers:create', { name: 'Rent', groupId: groups.find((g) => g.name === 'Indirect Expenses')!.id })).id
+    const cash = (await ok<{ id: number; name: string }[]>('master:ledgers:list')).find((l) => l.name === 'Cash')!.id
+    const payment = (await ok<{ id: number; kind: string }[]>('master:voucherTypes:list')).find((t) => t.kind === 'payment')!.id
+    const pay = async (date: string, amount: number): Promise<number> =>
+      (await ok<{ id: number }>('voucher:save', {
+        data: {
+          voucherTypeId: payment, date, partyLedgerId: null, narration: 'rent', reference: null, instrumentNo: null,
+          instrumentDate: null, transporterId: null, vehicleNo: null, transportDistanceKm: null, currencyCode: null, exchangeRate: null,
+          lines: [
+            { ledgerId: rent, drCr: 'dr', amount, costAllocations: [] },
+            { ledgerId: cash, drCr: 'cr', amount, costAllocations: [] }
+          ],
+          inventory: [], billRefs: [], tds: null
+        }
+      })).id
+    const late = await pay(addDays(prev.from, 2), 1_234_00)
+    const intoLock = await pay(prev.from, 2_345_00)
+    await ok('company:lock:set', { date: prev.from }) // the lock covers only the second entry's day
+    const db = testFileDb(join(DATA_DIR, 'companies', slug, 'company.db'))
+    // Entered 40 days after its date, in an open period; the other one entered after the lock was set.
+    db.prepare('UPDATE vouchers SET created_at = ? WHERE id = ?').run(`${addDays(prev.from, 42)} 10:00:00`, late)
+    db.prepare('UPDATE vouchers SET created_at = ? WHERE id = ?').run(`${addDays(TODAY, 1)} 10:00:00`, intoLock)
+    db.close()
+    const found = (await ok<{ rows: { kind: string; voucherId: number; severity: string }[] }>('assist:anomalies', { from: prev.from, to: prev.to })).rows.filter((r) => r.kind === 'backdated')
+    // The Assistants screen keeps both findings (late = medium, into the lock = high) …
+    expect(found.map((r) => [r.voucherId, r.severity]).sort()).toEqual([[late, 'medium'], [intoLock, 'high']].sort())
+    // … Home's "closed date" row counts only the one into the locked period.
+    const att = await ok<HomeAttention>('simple:homeAttention', { today: prev.to })
+    expect(att.items.filter((i) => i.key === 'backdated')).toEqual([{ source: 'anomaly', key: 'backdated', count: 1, amount: null, level: 'high' }])
   })
 
   it('a viewer may read it; a bad payload is refused', async () => {

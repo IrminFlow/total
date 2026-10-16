@@ -25,6 +25,7 @@ import { quickCheckOk } from '../db/backup'
 import { AppError } from '@shared/errors'
 import { verifyAudit, writeAudit } from './audit'
 import { trialBalance } from './reports'
+import { fileTimeMs } from '@shared/e2eClock'
 
 export interface BookFacts {
   tables: Record<string, number>
@@ -150,7 +151,7 @@ export function removeLeftoverCopies(dbPath: string, backupsDir: string, exports
   sweep(backupsDir, (f) => /\.db\.(converting|restore-tmp|vacuum-tmp)(-journal|-wal|-shm)?$/.test(f))
   // An export may still be writing its snapshot (it awaits the file encryption): only an old one.
   const hourAgo = Date.now() - 60 * 60 * 1000
-  sweep(exportsDir, (f) => /^\.export-tmp-.*\.db(-journal|-wal|-shm)?$/.test(f) && statSync(join(exportsDir, f)).mtimeMs < hourAgo)
+  sweep(exportsDir, (f) => /^\.export-tmp-.*\.db(-journal|-wal|-shm)?$/.test(f) && fileTimeMs(statSync(join(exportsDir, f)).mtimeMs) < hourAgo)
 }
 
 /** Steps 1–4 for a handle nothing else holds (tests): `db` is closed on success. */

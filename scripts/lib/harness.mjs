@@ -103,6 +103,7 @@ export class Harness {
       await page.setViewportSize({ width: 1440, height: 900 })
       await page.waitForLoadState('domcontentloaded')
       await page.waitForFunction(() => Boolean(window.total), null, { timeout: 30000 })
+      if (process.env.TOTAL_E2E_TODAY) await assertShiftedClock(app, page)
       return { app, page }
     }
     try {
@@ -215,7 +216,9 @@ export class Harness {
   /** From company-select: create a fresh (unregistered, default-state) company via the UI
    *  and land on the Gateway, in `mode` (default the harness mode, 'accountant'). `opts.gstin`
    *  registers it (Regular) — WP 8.0: only a regular registration may charge GST, so scenarios
-   *  that post tax lines pass one. */
+   *  that post tax lines pass one. `opts.coverDaysBack: N` begins the books early enough that a
+   *  bill N days old is inside them (`booksStartCovering`; the form's FY picker), so a scenario's
+   *  relative dates keep their age on every calendar day. */
   async createCompanyUI(name, timeout = 30000, opts = {}) {
     if (typeof timeout === 'object') [opts, timeout] = [timeout, 30000]
     const mode = opts.mode ?? this.mode
@@ -223,6 +226,8 @@ export class Harness {
     await this.click('btn-company-create')
     await this.fill('input-company-name', name)
     if (opts.gstin) await this.fill('input-company-gstin', opts.gstin)
+    const early = opts.coverDaysBack == null ? null : booksStartCovering(opts.coverDaysBack)
+    if (early) await this.page.getByLabel('Books begin (FY)').selectOption(String(fyStartYearOf(early)))
     await this.click('btn-company-save')
     await this.waitScreen('gateway', timeout)
     await this.setMode(mode)
@@ -252,6 +257,16 @@ export class Harness {
     await this.page.waitForSelector(mode === 'simple' ? '[data-testid="simple-nav"]' : 'nav[aria-label="Main"]', { state: 'attached', timeout: 10000 })
     await this.click(mode === 'simple' ? 'simple-nav-home' : 'nav-gateway')
     await this.waitScreen('gateway')
+  }
+
+  /** The OPEN company's books begin early enough for a bill `daysBack` days old (the owner's
+   *  company:updateInfo, as Company details saves it) — for companies made outside the form, e.g.
+   *  the demo seed. Nothing is written when the current FY already covers it. */
+  async coverDaysBack(daysBack) {
+    const early = booksStartCovering(daysBack)
+    if (!early) return
+    const info = (await this.invoke('company:current')).info
+    await this.invoke('company:updateInfo', { ...info, booksFrom: Math.min(info.booksFrom, fyStartYearOf(early)) })
   }
 
   /** WP 7.4, the setup wizard's start-date step: "Start of this financial year" unless dates
@@ -309,14 +324,53 @@ export class Harness {
     }
   }
 
+  /** True when the open window would refuse to unload (a screen with unsaved answers —
+   *  useUnsavedGuard's beforeunload listener cancels a synthetic beforeunload; nothing else runs). */
+  async blocksUnload() {
+    if (!this.page) return false
+    return this.page
+      .evaluate(() => {
+        const e = new Event('beforeunload', { cancelable: true })
+        window.dispatchEvent(e)
+        return e.defaultPrevented
+      })
+      .catch(() => false)
+  }
+
+  /** Close the app — always, and in bounded time. A screen with unsaved answers blocks the window's
+   *  unload (useUnsavedGuard's beforeunload); Playwright's own dismissal of that dialog then raced
+   *  the teardown ("No dialog is showing") and app.close() never resolved, so the runner killed the
+   *  scenario after 5 minutes without its result line. Here the unload is let through
+   *  (will-prevent-unload), and a process still up after 20 s is killed. */
   async close() {
-    try {
-      await this.app?.close()
-    } catch {
-      /* ignore */
-    }
+    const app = this.app
     this.app = null
+    if (this.page) this.page.on('dialog', (d) => void d.accept().catch(() => {}))
     this.page = null
+    if (!app) return
+    // Electron's own switch for "unload anyway" (the window would otherwise refuse to close).
+    await app
+      .evaluate(({ BrowserWindow }) => {
+        for (const w of BrowserWindow.getAllWindows()) w.webContents.on('will-prevent-unload', (e) => e.preventDefault())
+      })
+      .catch(() => {})
+    const proc = app.process()
+    let timer
+    const closed = await Promise.race([
+      app.close().then(() => true, () => true),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), 20000)
+      })
+    ])
+    clearTimeout(timer)
+    if (!closed) {
+      console.error('[harness] the app did not close within 20 s — killing it')
+      try {
+        proc.kill('SIGKILL')
+      } catch {
+        /* already gone */
+      }
+    }
   }
 }
 
@@ -336,6 +390,22 @@ export function assertEq(actual, expected, label) {
   }
 }
 
+/** TOTAL_E2E_TODAY: both the main process and the renderer must see the faked day (shared/e2eClock.ts),
+ *  or the run would silently test the real date. */
+async function assertShiftedClock(app, page) {
+  const mainDay = await app.evaluate(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })
+  const rendererDay = await page.evaluate(() => {
+    const d = new Date()
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  })
+  if (mainDay !== localToday() || rendererDay !== localToday()) {
+    throw new Error(`TOTAL_E2E_TODAY=${process.env.TOTAL_E2E_TODAY} not in force: main ${mainDay}, renderer ${rendererDay}`)
+  }
+}
+
 /**
  * Scenario wrapper: launches a fresh Harness, runs `fn(h)`, screenshots success/failure,
  * asserts a clean console (unless `opts.allowConsoleErrors`), and exits the process with
@@ -350,11 +420,29 @@ export async function scenario(name, fn, opts = {}) {
   const started = Date.now()
   let ok = false
   let error
+  // A stray rejection must not kill the process before the result line is written (it used to:
+  // closing the app over an unsaved form raised a beforeunload dialog, and Playwright's dialog
+  // auto-dismiss raced the teardown with "No dialog is showing" — an unhandled rejection, exit 1,
+  // no result line). During the run it fails the scenario; during close it is only noted.
+  let closing = false
+  let stray = null
+  const onStray = (err) => {
+    const text = err instanceof Error ? (err.stack ?? err.message) : String(err)
+    if (closing) console.error(`[${name}] ignored while closing the app: ${text.split('\n')[0]}`)
+    else stray ??= text
+  }
+  process.on('unhandledRejection', onStray)
   try {
     await h.launch()
     await fn(h)
     if (!opts.allowConsoleErrors) h.assertNoConsoleErrors()
     h.assertNoKeyWarnings()
+    // close() lets a blocked unload through so teardown never hangs — but a scenario that ENDS with
+    // unsaved answers on screen (the window would ask to discard them) has not done what it says,
+    // unless it says so (`opts.allowUnsavedOnClose`).
+    if (!opts.allowUnsavedOnClose && (await h.blocksUnload())) {
+      throw new Error('the scenario ended with unsaved answers on screen (closing the window would ask to discard them) — save or discard them first, or pass { allowUnsavedOnClose: true }')
+    }
     await h.shot('99-success')
     ok = true
   } catch (err) {
@@ -366,10 +454,24 @@ export async function scenario(name, fn, opts = {}) {
       /* ignore */
     }
   } finally {
+    closing = true
     await h.close()
   }
+  // The listener stays: a late rejection from the teardown arrives after close() resolved.
+  if (ok && stray) {
+    ok = false
+    error = `unhandled rejection during the scenario: ${stray}`
+    console.error(`[${name}] FAILED:`, error)
+  }
   console.log(JSON.stringify({ scenario: name, ok, ms: Date.now() - started, ...(error ? { error } : {}) }))
-  process.exit(ok ? 0 : 1)
+  await exitAfterFlush(ok ? 0 : 1)
+}
+
+/** process.exit only once stdout / stderr have handed everything to the OS: on macOS a pipe is
+ *  written asynchronously, and an immediate exit could drop the result line the runner reads. */
+export async function exitAfterFlush(code) {
+  await Promise.all([process.stdout, process.stderr].map((s) => new Promise((resolve) => s.write('', () => resolve()))))
+  process.exit(code)
 }
 
 // ---------------- WP 7.4: dates the way the app sees them ----------------
@@ -383,8 +485,13 @@ export function isoLocal(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-/** Today, as the app sees it (local date). */
+/** Today, as the app sees it (local date). TOTAL_E2E_TODAY=YYYY-MM-DD shifts the APP's clock to
+ *  that day (shared/e2eClock.ts — honoured with TOTAL_DATA_DIR in an unpackaged build, which the
+ *  harness always launches), so the scripts' today follows it: a scenario can be run as if on
+ *  5 April or 10 May to prove its dates hold on any calendar day. */
 export function localToday() {
+  const fake = process.env.TOTAL_E2E_TODAY
+  if (fake && /^\d{4}-\d{2}-\d{2}$/.test(fake)) return fake
   return isoLocal(new Date())
 }
 

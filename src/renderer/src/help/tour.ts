@@ -80,3 +80,49 @@ export const useTour = create<TourStore>((set, get) => ({
   },
   stop: () => set({ step: null })
 }))
+
+export interface TourBox {
+  top: number
+  left: number
+  width: number
+  height: number
+}
+export type TourSide = 'below' | 'above' | 'right' | 'left' | 'centre'
+
+/** Where the tour card goes for a spotlight `around` (the anchor's box already padded): below it
+ *  when there is room, else above, else beside it (right, then left) — never over the anchor
+ *  while any side has room — and always inside the viewport (`margin` from every edge, the card
+ *  shrunk to the viewport when it is wider). With no side free (a window smaller than anchor +
+ *  card) it takes the side with the most room, clamped. No anchor = the centre of the screen. */
+export function placeTourCard(
+  around: TourBox | null,
+  card: { width: number; height: number },
+  viewport: { width: number; height: number },
+  gap = 12,
+  margin = 12
+): { top: number; left: number; width: number; side: TourSide } {
+  const w = Math.min(card.width, Math.max(0, viewport.width - margin * 2))
+  const h = card.height
+  const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), Math.max(lo, hi))
+  const clampTop = (v: number): number => clamp(v, margin, viewport.height - h - margin)
+  const clampLeft = (v: number): number => clamp(v, margin, viewport.width - w - margin)
+  if (!around) return { top: clampTop(viewport.height / 2 - h / 2), left: clampLeft(viewport.width / 2 - w / 2), width: w, side: 'centre' }
+  const bottom = around.top + around.height
+  const right = around.left + around.width
+  const centredLeft = clampLeft(around.left + around.width / 2 - w / 2)
+  const centredTop = clampTop(around.top + around.height / 2 - h / 2)
+  const room = {
+    below: viewport.height - margin - (bottom + gap),
+    above: around.top - gap - margin,
+    right: viewport.width - margin - (right + gap),
+    left: around.left - gap - margin
+  }
+  if (room.below >= h) return { top: bottom + gap, left: centredLeft, width: w, side: 'below' }
+  if (room.above >= h) return { top: around.top - gap - h, left: centredLeft, width: w, side: 'above' }
+  if (room.right >= w) return { top: centredTop, left: right + gap, width: w, side: 'right' }
+  if (room.left >= w) return { top: centredTop, left: around.left - gap - w, width: w, side: 'left' }
+  // Nothing fits: the vertical side with the most room, clamped inside the window.
+  return room.below >= room.above
+    ? { top: clampTop(bottom + gap), left: centredLeft, width: w, side: 'below' }
+    : { top: clampTop(around.top - gap - h), left: centredLeft, width: w, side: 'above' }
+}

@@ -76,10 +76,10 @@ done on main were dropped. One line each; the pointer says where to look.
 - Hand-off review: ~~refused answers → blank editor after a discard prompt; Cancel returns to an EMPTY simple form; walk-in hand-off leaves the customer empty; missing GST / round-off accounts show empty rows; Reports / Taxes Accountant-view lack the "Always" menu; palette search results still titled "Ledgers" / "Vouchers"~~ DONE — PR #122; ~~switching company with unsaved editor changes keeps the old stack~~ DONE — PR #130 (the question comes first; any company change resets the stack to Home) — shots-96
 - ~~Taxes: after "I've filed", Home's GST tile and the Gateway 3B chip still show the period's amount / date~~ DONE — PR #119 (the tile moves on to the running period) — PR #94
 - Taxes: quarterly (QRMP) file preparation and the PMT-06 amount are full-app only — PR #94
-- Home: "entries added for an earlier, closed date" also fires for ordinary entries 30 days late; one-column profit "Purchases" includes direct expenses (freight, wages) — PR #94
+- ~~Home: "entries added for an earlier, closed date" also fires for ordinary entries 30 days late~~ DONE — PR #128 (only entries into a closed / locked period after it was closed / locked). Still open: one-column profit "Purchases" includes direct expenses (freight, wages) — PR #94
 - ~~Why?: no link on composition / PMT-06 dates; no Why on Bills to pay "due this week"; one Why per by-month chart~~ DONE — Home's composition / PMT-06 Why opens Taxes, Bills to pay tiles and each month explained — PR #120. Still open: advance tax has no link (Total doesn't work it out); quarterly filers' GSTR-1 / 3B links open the quarter's first month; the Taxes screen's own CMP-08 / GSTR-4 / PMT-06 Whys have no link (it would open the same screen) — PR #99
 - Ask Total: ~~drafts stay open until discarded in Settings → AI drafts~~; "5000 Ramesh" (no verb) gets "try these" instead of asking in / out (fixed in WP 10.8, the `direction` intent); ~~payroll / TDS amount / bill-by-number questions not understood; an Ask Total draft opened from Settings opens the accountant editor~~ DONE — PR #125 — PR #98
-- Tour card can cover part of Home under its anchor; ~~help-link params (`filter=`, `tab=`) aren't validated per screen~~ DONE — `SCREEN_LINK_PARAMS`, unknown ones dropped (PR #121) — PR #100
+- ~~Tour card can cover part of Home under its anchor~~ DONE — PR #128; ~~help-link params (`filter=`, `tab=`) aren't validated per screen~~ DONE — `SCREEN_LINK_PARAMS`, unknown ones dropped (PR #121) — PR #100
 - ~~Viewer sees Sell / Buy forms and Save, then a generic "no permission"; sidebar "Back up now" shown to a viewer~~ DONE — PR #119 (note at the top of each form, no Create / Add-account buttons, a note instead of Back up now) — shots-86 / PR #111
 - ~~Sell: "Prices include GST" doesn't convert already-typed prices; a failed Print shows no message~~ DONE — PR #119 (Make a bill and Record a purchase); still open: supplier / customer with no credit days is overdue the next day (consider "no due date = not overdue") — shots-86 / shots-87
 - Purchases: s.17(5) blocked ITC counted as claimable; reverse charge / ITC eligibility only in the accountant view — PR #87
@@ -210,10 +210,10 @@ done on main were dropped. One line each; the pointer says where to look.
 
 ## 8. Test gaps
 
-- e2e 32 / 33 make 100- and 40-day-old bills in books that begin this FY; around April they fall in the previous FY (unverified) — PR #110
-- e2e 57 / 59 move the "40 days ago" sale to the FY start, so overdue checks can fail 1 April – mid May — shots-92
-- e2e harness can lose a failed scenario's result line on macOS (process.exit while writing to a pipe; exit code still fails) — PR #110
-- e2e 63 uses `page.focus()` twice; e2e 12 "mid-fade" flake diagnosis unproven — PR #103
+- ~~e2e 32 / 33 make 100- and 40-day-old bills in books that begin this FY; around April they fall in the previous FY (unverified)~~ DONE — PR #128 (`TOTAL_E2E_TODAY` fakes the app's date; 33 did fail on 5 April) — PR #110
+- ~~e2e 57 / 59 move the "40 days ago" sale to the FY start, so overdue checks can fail 1 April – mid May~~ DONE — PR #128 (already on `pickSetupStart`; proven with `TOTAL_E2E_TODAY`) — shots-92
+- ~~e2e harness can lose a failed scenario's result line on macOS (process.exit while writing to a pipe; exit code still fails)~~ DONE — PR #128 (also closing over an unsaved form crashed / hung the harness) — PR #110
+- ~~e2e 63 uses `page.focus()` twice~~ DONE — PR #128. Still open: e2e 12 "mid-fade" flake diagnosis unproven — PR #103
 - Plain AI drawer a11y and the escalated drawer checked in renderer tests only (needs `TOTAL_AI_MOCK` in e2e) — PR #103
 - No live-model run of AI evals, capture or Ask Total escalation — PR #98 / #101
 - No live NIC sandbox scenario — WP 3.5, `docs/e2e-coverage.md`

@@ -27,7 +27,10 @@ const written: Record<string, Record<string, string>> = { ...expected }
  *  in simple:homeAttention reads it (back-dated = entered 30+ days after its date) — so the hashes
  *  moved with the calendar (perf10k homeAttention failed on origin/main from 15 Oct 2026). Pinned
  *  to the day the expectations were generated (14 Oct 2026, UTC), so the inputs are the ones they
- *  were made on: with this pin origin/main's own code reproduces every expected hash. */
+ *  were made on: with this pin origin/main's own code reproduces every expected hash.
+ *  The two homeAttention hashes were moved once, on purpose (Home's "added for an earlier, closed
+ *  date" no longer counts entries merely made 30+ days late): with the old rule restored the old
+ *  hashes still matched, and the new outputs differ from them only by that dropped row. */
 const ENTERED_ON = '2026-10-14 12:00:00'
 
 async function compare(name: string, db: DB, info: CompanyInfo): Promise<void> {

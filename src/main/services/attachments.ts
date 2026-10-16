@@ -41,6 +41,7 @@ import {
   isSafeStoredPath, storedPathFor, type Attachment, type AttachmentConfig, type AttachmentEntity, type AttachmentTarget
 } from '@shared/attachments'
 import { currentAuditUserName, writeAudit } from './audit'
+import { fileTimeMs } from '@shared/e2eClock'
 
 const CONFIG_KEY = 'attachments.config'
 
@@ -336,7 +337,7 @@ export function sweepStaleOpenCopies(tempRoot: string = tmpdir(), maxAgeMs = 24 
     const p = join(tempRoot, n)
     try {
       const st = lstatSync(p)
-      if (st.isSymbolicLink() || !st.isDirectory() || mine.has(p) || now - st.mtimeMs < maxAgeMs) continue
+      if (st.isSymbolicLink() || !st.isDirectory() || mine.has(p) || now - fileTimeMs(st.mtimeMs) < maxAgeMs) continue
       rmSync(p, { recursive: true, force: true })
       removed++
     } catch {

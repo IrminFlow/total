@@ -108,10 +108,16 @@ function runOne(file, runOut) {
       env: { ...process.env, SMOKE_OUT: runOut },
       stdio: ['ignore', 'pipe', 'inherit']
     })
-    let tail = ''
+    // The last WHOLE lines (never cut by characters: a failure's result line carries the stack and
+    // Playwright's call log, which can be longer than any fixed character tail).
+    let partial = ''
+    const lastLines = []
     child.stdout.on('data', (buf) => {
       process.stdout.write(buf)
-      tail = (tail + buf.toString()).slice(-20000)
+      const parts = (partial + buf.toString()).split(/\r?\n/)
+      partial = parts.pop() ?? ''
+      lastLines.push(...parts)
+      if (lastLines.length > 200) lastLines.splice(0, lastLines.length - 200)
     })
     // A hung scenario must not wedge the whole run.
     const timer = setTimeout(() => {
@@ -120,7 +126,7 @@ function runOne(file, runOut) {
     }, 5 * 60 * 1000)
     child.on('close', (code) => {
       clearTimeout(timer)
-      const lines = tail.trim().split(/\r?\n/).reverse()
+      const lines = [...lastLines, partial].filter((l) => l.trim()).reverse()
       const jsonLine = lines.find((l) => {
         try {
           const o = JSON.parse(l)
@@ -205,4 +211,6 @@ if (repeat > 1) {
   if (overall.broken.length) console.log(`BROKEN: ${overall.broken.map((s) => s.scenario).join(', ')}`)
 }
 console.log(`results + screenshots in ${outRoot}`)
+// Exit only once the summary reached the pipe (macOS writes pipes asynchronously).
+await Promise.all([process.stdout, process.stderr].map((st) => new Promise((resolve) => st.write('', () => resolve()))))
 process.exit(runs.every((r) => r.failed === 0) ? 0 : 1)

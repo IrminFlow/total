@@ -8,10 +8,11 @@
 // Set WP43_SHOTS=/tmp/wp43 to also copy the screenshots there.
 import fs from 'node:fs'
 import path from 'node:path'
-import { scenario, assert, assertEq, OPTION } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, OPTION, localToday, relativeDate } from '../lib/harness.mjs'
 
 await scenario('33-payables', async (h) => {
-  await h.createCompanyUI('MSME Works')
+  // The books begin early enough that the 40-day-old bill is inside them on any calendar day.
+  await h.createCompanyUI('MSME Works', { coverDaysBack: 40 })
   await h.stubDialogs()
   const page = h.page
   const extraShots = process.env.WP43_SHOTS
@@ -39,14 +40,8 @@ await scenario('33-payables', async (h) => {
   }
   const waitText = (selector, needle, timeout = 10000) =>
     page.waitForFunction(([s, n]) => (document.querySelector(s)?.textContent ?? '').includes(n), [selector, needle], { timeout })
-  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  const daysAgo = (n) => page.evaluate((k) => {
-    const d = new Date()
-    d.setDate(d.getDate() - k)
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  }, n)
-  const today = iso(new Date())
-  void today
+  const daysAgo = async (n) => relativeDate(-n)
+  const today = localToday()
 
   // ---------- books: a supplier, a bank, three bills ----------
   const groups = await h.invoke('master:groups:list')
@@ -186,6 +181,9 @@ await scenario('33-payables', async (h) => {
 
   // ---------- supplier statement + reconciliation ----------
   await h.click('tab-payables-suppliers')
+  // The statement starts at the oldest bill (the session's FY start can be after it in April / May).
+  await h.fill('input-payables-stmt-from', `${dA.slice(8, 10)}-${dA.slice(5, 7)}-${dA.slice(0, 4)}`)
+  await page.press('[data-testid="input-payables-stmt-from"]', 'Tab')
   const sp = page.locator('[data-testid="picker-payables-supplier"]')
   await sp.click()
   await sp.fill('Kiran')
