@@ -2,7 +2,7 @@
 // create company -> import masters -> post balanced voucher -> export mirror -> read it back ->
 // trial balance ties. Runs under Electron-as-Node (npm run test:db) like every *.dbtest.ts.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { mkdtempSync, readFileSync, rmSync, existsSync } from 'fs'
+import { mkdtempSync, readFileSync, rmSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { setAuditContext } from '../services/audit'
@@ -12,6 +12,8 @@ import {
   cmdCompanies, cmdCreateCompany, cmdExport, cmdImportMasters, cmdNextNumber, cmdPost,
   cmdTrialBalance, openCompany
 } from './commands'
+import { resolveCliDataRoot } from './dataRoot'
+import { pointerText } from '../dataRootResolve'
 import { forgetCliKey, isPassphraseRefusal, PASSPHRASE_ENV, takePassphrase, unlockForCli } from './unlock'
 import { lockCompanyFileForTest } from '../db/testdb'
 import { forgetAllKeys, keyForPath } from '../db/encryption'
@@ -157,6 +159,31 @@ describe('total-cli command layer', () => {
 
 // A business locked with a passphrase: the CLI unlocks it from TOTAL_PASSPHRASE (never a flag)
 // through the app's own throttled unlock, and forgets the key when the command ends.
+describe('total-cli data folder pointer', () => {
+  it('opens the company in the folder the app pointer names (no TOTAL_DATA_DIR)', () => {
+    const home = mkdtempSync(join(tmpdir(), 'total-cli-ptr-'))
+    const moved = join(home, 'moved')
+    const prev = process.env.TOTAL_DATA_DIR
+    try {
+      mkdirSync(moved)
+      const ud = join(home, 'Library', 'Application Support', 'Total')
+      mkdirSync(ud, { recursive: true })
+      writeFileSync(join(ud, 'data-root.json'), pointerText(moved))
+      const choice = resolveCliDataRoot({ env: {}, platform: 'darwin', home, defaultRoot: () => join(home, 'Documents', 'total') })
+      expect(choice).toMatchObject({ path: moved, source: 'pointer' })
+      process.env.TOTAL_DATA_DIR = choice.path // what cli/main.ts does
+      const made = cmdCreateCompany({ name: 'Pointed Co', stateCode: '27', booksFrom: 2025 })
+      expect(existsSync(join(moved, 'companies', made.slug, 'company.db'))).toBe(true)
+      expect(cmdCompanies().companies.some((c) => c.slug === made.slug)).toBe(true)
+      expect(existsSync(join(home, 'Documents'))).toBe(false)
+    } finally {
+      if (prev === undefined) delete process.env.TOTAL_DATA_DIR
+      else process.env.TOTAL_DATA_DIR = prev
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+})
+
 describe('total-cli on a business locked with a passphrase', () => {
   const PASS = 'correct horse battery'
   let lockedSlug: string

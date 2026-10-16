@@ -459,7 +459,7 @@ Read these before filing from the next release.
   (owner, must name the picked folder; closes the company, copies + fsyncs + verifies, writes the
   pointer, relaunches) in `ipcDataRoot.ts`; copy / check / rollback in `services/dataRootMove.ts`;
   codes `data_folder_*` in ERROR_MAP; `isOneDrivePath` in `shared/windowsPaths.ts`. `total-cli` / MCP
-  do not read the pointer yet. [#133](https://github.com/IrminFlow/total/pull/133)
+  read the pointer too since the follow-up PR. [#133](https://github.com/IrminFlow/total/pull/133)
 
 ## [0.11.0] - 2026-10-13
 

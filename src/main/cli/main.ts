@@ -17,7 +17,7 @@ import { readFileSync, writeFileSync } from 'fs'
 import { setAuditContext } from '../services/audit'
 import { todayISO } from '@shared/dates'
 import { dataRoot } from '../paths'
-import { defaultDataRoot } from './dataRoot'
+import { resolveCliDataRoot } from './dataRoot'
 import { LEGACY_INBOX_WARNING, scanInbox, type MirrorFormat, type MirrorWhat } from '../services/agentBridge'
 import { runAsAuditUser } from '../services/audit'
 import { runMcpStdio } from '../mcp/stdio'
@@ -37,7 +37,7 @@ import { forgetCliKey, forgetKeysOnExit, isPassphraseRefusal, PASSPHRASE_ENV, PA
  *  otherwise inherit it. */
 const PASSPHRASE = takePassphrase()
 
-if (!process.env.TOTAL_DATA_DIR) process.env.TOTAL_DATA_DIR = defaultDataRoot()
+if (!process.env.TOTAL_DATA_DIR) process.env.TOTAL_DATA_DIR = resolveCliDataRoot().path
 
 const USAGE = `total-cli — headless access to Total's books (same validation as the app)
 

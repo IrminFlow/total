@@ -103,9 +103,7 @@ the build default (better-sqlite3's SQLITE_DEFAULT_WAL_SYNCHRONOUS=1: NORMAL in 
   only while its folder exists — an unplugged drive opens the default folder with a warning and
   keeps the pointer) → Documents\total. With `TOTAL_DATA_DIR` set the setting is read-only. A
   folder in OneDrive (`isOneDrivePath`, shared/windowsPaths.ts) or another sync folder gets a plain
-  warning in that section (en / hi / hinglish). **Not yet**: `total-cli` / the MCP server still
-  open Documents\total — they do not read the pointer (follow-up; set `TOTAL_DATA_DIR` to the
-  moved folder meanwhile).
+  warning in that section (en / hi / hinglish). `total-cli` and the MCP server (outside Electron) resolve the same way (`cli/dataRoot.ts` `resolveCliDataRoot`, reusing `dataRootResolve.ts`): `TOTAL_DATA_DIR` → `%APPDATA%\Total\data-root.json` (macOS `~/Library/Application Support/Total/`, Linux `$XDG_CONFIG_HOME` or `~/.config`; `total` lower-case is tried too for unpackaged runs) while its folder exists → Documents\total; a pointer that cannot be followed prints one warning line to stderr and opens the default.
 - **Installer**: per-user (`perMachine: false`), no administrator rights, no file associations.
   Unsigned, so SmartScreen warns on first run ("More info → Run anyway"); the help article "Total on Windows" says so (the update notices are in-app since the consent updater).
 - **Updates**: electron-updater installs in place on quit (no `publisherName`, so no signature
