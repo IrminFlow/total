@@ -61,7 +61,8 @@ export const QUICK_CHECK_TIMED_OUT = 'not checked (timed out)'
  * database file of `db`. If the worker cannot run the check, it runs on `db` as before.
  *
  * A worker that has not answered within `timeoutMs` (default OPEN_QUICK_CHECK_TIMEOUT_MS) is
- * terminated and the quick_check is reported as QUICK_CHECK_TIMED_OUT — not run again on `db`
+ * told to terminate (its thread exits once SQLite returns; stopChecks still waits for it) and the
+ * quick_check is reported as QUICK_CHECK_TIMED_OUT — not run again on `db`
  * (that would block the main process on the same slow scan). A file that was not checked is not
  * a file found damaged: `ok` then rests on the balance check alone, and the caller logs it.
  */

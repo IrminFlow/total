@@ -75,9 +75,11 @@ export class CheckTimeoutError extends Error {
 }
 
 export interface PragmaCheckOptions {
-  /** Reject with CheckTimeoutError (and terminate the worker) when no answer comes in this many
-   *  ms. Absent = no limit (the weekly integrity_check, backup verification). Applies to the
-   *  worker only: the in-process fallback (dbtests, the CLI) is synchronous and runs to the end. */
+  /** Reject with CheckTimeoutError when no answer comes in this many ms, and ask the worker to
+   *  terminate — it exits once the native pragma returns (terminate cannot interrupt it) and
+   *  stays visible to stopChecks until then. Absent = no limit (the weekly integrity_check,
+   *  backup verification). Applies to the worker only: the in-process fallback (dbtests, the
+   *  CLI) is synchronous and runs to the end. */
   timeoutMs?: number
 }
 
@@ -104,6 +106,16 @@ export async function pragmaCheck(path: string, pragma: CheckPragma, key?: Buffe
   running.set(path, set)
   const id = ++seq
   let timer: NodeJS.Timeout | undefined
+  // A worker leaves `running` once it can no longer be reading the file: when it has answered
+  // (its connection is closed), else only when its thread has exited. terminate() does not
+  // interrupt a pragma already running in native code — a timed-out quick_check keeps reading
+  // until SQLite returns — so stopChecks (restore / delete) must still see it and wait for it.
+  let answered = false
+  const untrack = (): void => {
+    set.delete(worker)
+    if (set.size === 0 && running.get(path) === set) running.delete(path)
+  }
+  worker.once('exit', () => untrack())
   try {
     return await new Promise<string>((resolve, reject) => {
       if (opts.timeoutMs !== undefined) {
@@ -114,6 +126,7 @@ export async function pragmaCheck(path: string, pragma: CheckPragma, key?: Buffe
       worker.once('exit', (code) => reject(stopped.has(worker) ? new CheckStoppedError() : new Error(`check worker exited (${code}) before answering`)))
       worker.on('message', (m: { id: number; ok: boolean; result?: string; error?: string }) => {
         if (m.id !== id) return
+        answered = true
         if (m.ok) resolve(m.result!)
         else reject(new Error(m.error ?? 'check failed'))
       })
@@ -121,8 +134,7 @@ export async function pragmaCheck(path: string, pragma: CheckPragma, key?: Buffe
     })
   } finally {
     if (timer) clearTimeout(timer)
-    set.delete(worker)
-    if (set.size === 0 && running.get(path) === set) running.delete(path)
+    if (answered) untrack()
     void worker.terminate()
   }
 }
