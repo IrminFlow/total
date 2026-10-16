@@ -270,6 +270,10 @@ Read these before filing from the next release.
   keep no limit); the unused `GSTR3B_QRMP_DUE_DAY` is gone; backup and pre-upgrade stamps share
   `localStampParts`; new dbtests for an upgrade over several migrations that fails midway (the
   runner was already correct) and for old UTC-named backups (the list reads mtime, not the name).
+  Review: pre-upgrade copies are kept per source version (the newest copy of each of the 2 most
+  recent), so retries of a failing upgrade — each a copy from the half-upgraded version — no
+  longer prune the only copy the previous Total can open; a timed-out open quick_check stays
+  visible to `stopChecks` until its thread has exited (terminate cannot interrupt SQLite).
 
 ## [0.11.0] - 2026-10-13
 

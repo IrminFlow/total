@@ -2,7 +2,7 @@
 // commits each migration on its own, so the file is left at the last migration that fully applied
 // (nothing of the failing one), the pre-upgrade copy taken before the first one stays, and the
 // next open — once the fault is gone — applies the rest.
-import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, readdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -110,6 +110,37 @@ describe('an upgrade interrupted midway', () => {
     // That open was an upgrade too (from FAULTY): it took its own copy; both stay (PRE_UPGRADE_KEEP = 2).
     const after = readdirSync(companyBackupsDir(slug)).filter((f) => preUpgradeOf(f))
     expect(after.map((f) => preUpgradeOf(f)!.from).sort()).toEqual([N - BEHIND, FAULTY].sort())
+  })
+
+  it('retries that fail again never prune the copy taken at the old version', () => {
+    // Each failed open (and the one that finally succeeds) takes a copy from the half-upgraded
+    // version; keep-newest-2 must not push out the only copy the previous Total can open.
+    const slug = 'interrupted-twice'
+    ensureCompanyTree(slug)
+    const raw = new Database(companyDbPath(slug))
+    try {
+      raw.pragma('journal_mode = WAL')
+      migrate(raw, MIGRATIONS.slice(0, N - BEHIND))
+      seedCompany(raw, TEST_INFO)
+    } finally {
+      raw.close()
+    }
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      MIGRATIONS[FAULTY] = `${ORIGINAL}\nINSERT INTO no_such_table_upgrade_fault VALUES (1);\n`
+      for (const [i, t] of ['2026-10-01T09:00:00', '2026-10-01T09:05:00'].entries()) {
+        vi.setSystemTime(new Date(t))
+        expect(() => openCompanyDb(slug), `attempt ${i + 1}`).toThrow(/no_such_table_upgrade_fault/)
+      }
+      MIGRATIONS[FAULTY] = ORIGINAL
+      vi.setSystemTime(new Date('2026-10-01T09:10:00'))
+      openCompanyDb(slug).close()
+    } finally {
+      vi.useRealTimers()
+    }
+    const froms = readdirSync(companyBackupsDir(slug)).map((f) => preUpgradeOf(f)?.from).filter((f) => f !== undefined)
+    expect(froms).toContain(N - BEHIND)
+    expect(froms).toContain(FAULTY)
   })
 
   it('a failing table-rebuild migration (foreign keys off) rolls back whole and turns enforcement back on', () => {

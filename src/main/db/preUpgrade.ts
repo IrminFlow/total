@@ -4,7 +4,8 @@
 // service's VACUUM INTO snapshot (an encrypted business gets an encrypted copy, with its key),
 // written beside the target, quick-checked, fsynced and renamed into place like WP 7.2's
 // conversions. A copy that cannot be written fails the open (`db_upgrade_copy_failed`) — the
-// file is never migrated without one. Only the newest PRE_UPGRADE_KEEP copies are kept.
+// file is never migrated without one. The newest copy of each of the PRE_UPGRADE_KEEP most
+// recent source versions is kept (prunePreUpgradeCopies).
 // Electron-free (the caller passes the folder and a logger), so dbtests drive it on paths.
 import { existsSync, readdirSync, renameSync, statSync } from 'fs'
 import { join } from 'path'
@@ -14,7 +15,7 @@ import { localStampParts, quickCheckOk, snapshotSync } from './backup'
 import { fsyncDir, fsyncFile } from '../services/dbEncryption'
 import { AppError } from '@shared/errors'
 
-/** How many pre-upgrade copies a company keeps (newest first). */
+/** How many source versions a company keeps a pre-upgrade copy of (the newest copy of each). */
 export const PRE_UPGRADE_KEEP = 2
 
 export const PRE_UPGRADE_TAG = 'pre-upgrade'
@@ -65,8 +66,12 @@ export function writePreUpgradeCopy(db: DB, backupsDir: string, from: number, to
   return dest
 }
 
-/** Keep the newest `keep` pre-upgrade copies in `backupsDir` (by the stamp in the name, then
- *  mtime); delete the rest. Returns the deleted file names. Never throws. */
+/** Keep the newest pre-upgrade copy of each of the `keep` most recent `from` versions in
+ *  `backupsDir` (newest by the stamp in the name, then mtime); delete the rest. Returns the
+ *  deleted file names. Never throws. Counted by version, not by file: an upgrade that fails
+ *  midway leaves the file at a half-upgraded version, and every retry takes another copy from
+ *  that version — by file count those retries pushed out the only copy at the version the
+ *  previous Total can still open. */
 export function prunePreUpgradeCopies(backupsDir: string, keep = PRE_UPGRADE_KEEP, log?: Logger): string[] {
   if (!existsSync(backupsDir)) return []
   const removed: string[] = []
@@ -76,7 +81,13 @@ export function prunePreUpgradeCopies(backupsDir: string, keep = PRE_UPGRADE_KEE
       .filter((c): c is { f: string; info: NonNullable<ReturnType<typeof preUpgradeOf>> } => c.info !== null)
       .map((c) => ({ ...c, mtime: statSync(join(backupsDir, c.f)).mtimeMs }))
       .sort((a, b) => (a.info.stamp === b.info.stamp ? b.mtime - a.mtime : a.info.stamp < b.info.stamp ? 1 : -1))
-    for (const c of copies.slice(keep)) {
+    const versions = new Set<number>()
+    const doomed = copies.filter((c) => {
+      if (versions.has(c.info.from) || versions.size >= keep) return true
+      versions.add(c.info.from)
+      return false
+    })
+    for (const c of doomed) {
       try {
         removeDbFiles(join(backupsDir, c.f))
         removed.push(c.f)
