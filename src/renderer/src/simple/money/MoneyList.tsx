@@ -60,7 +60,7 @@ function MoneyTable(): React.JSX.Element {
   const { from, to, workingDate } = useSession()
   // Up to 30 days after the working date: an entry dated ahead is listed as soon as it is saved.
   const until = moneyListUntil(workingDate, to)
-  const { data, isLoading } = useQuery({ queryKey: ['simpleMoneyList', from, until], queryFn: () => api.simpleMoney.list(from, until) }) // i18n-technical
+  const { data, isLoading } = useQuery({ queryKey: ['simpleMoneyList', from, until, workingDate], queryFn: () => api.simpleMoney.list(from, until, workingDate) }) // i18n-technical
   const rows = data ?? []
   const empty = !isLoading && data != null && rows.length === 0
   const columns = useMemo(

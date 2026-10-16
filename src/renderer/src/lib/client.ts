@@ -738,8 +738,9 @@ export const api = {
     setup: () => call<MoneySetup>('simple:money:setup'),
     /** A party's open bills, oldest first, as on `date` (the Outstandings allocation). */
     bills: (partyId: number, date: string) => call<MoneyOpenBill[]>('simple:money:bills', { partyId, date }),
-    /** Receipts, payments and moves dated from…to, newest first. */
-    list: (from: string, to: string) => call<MoneyRow[]>('simple:money:list', { from, to }),
+    /** Receipts, payments and moves dated from…to, newest first; rows after `today` (the working
+     *  date; omitted = the computer's date) are marked `ahead`. */
+    list: (from: string, to: string, today?: string) => call<MoneyRow[]>('simple:money:list', { from, to, ...(today ? { today } : {}) }),
     /** One entry's simple (read-only) view; null when it is not an in-books money entry. */
     entry: (id: number) => call<MoneyEntryView | null>('simple:money:entry', { id })
   },

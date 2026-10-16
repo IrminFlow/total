@@ -624,8 +624,9 @@ export function registerIpc(): void {
     return simpleMoney.moneyBills(requireCompany().db, partyId, date)
   }, 'viewer')
   handle('simple:money:list', (payload) => {
-    const { from, to } = z.object({ from: isoDate, to: isoDate }).strict().parse(payload)
-    return simpleMoney.moneyList(requireCompany().db, from, to, todayISO())
+    // `today` = the working date the list's range is built on, so "dated ahead" agrees with it.
+    const { from, to, today } = z.object({ from: isoDate, to: isoDate, today: isoDate.optional() }).strict().parse(payload)
+    return simpleMoney.moneyList(requireCompany().db, from, to, today ?? todayISO())
   }, 'viewer')
   handle('simple:money:entry', (payload) => {
     const { id } = z.object({ id: z.number().int().positive() }).strict().parse(payload)

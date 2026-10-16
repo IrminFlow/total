@@ -446,6 +446,9 @@ describe('Move money, the list, the setup', () => {
     expect(until).toBe('2025-09-13')
     const list = moneyList(db, '2025-04-01', until, TODAY)
     expect(list.map((x) => [x.voucherId, x.ahead ?? false])).toEqual([[ahead.voucherIds[0], true], [now.voucherIds[0], false]])
+    // "Ahead" is measured from the date passed in (the working date the range uses): a day earlier
+    // marks today's entry ahead too.
+    expect(moneyList(db, '2025-04-01', until, '2025-08-13').map((x) => x.ahead ?? false)).toEqual([true, true])
     // The working date past the period's end: the period's own end, as before.
     expect(moneyListUntil('2026-05-01', '2026-03-31')).toBe('2026-03-31')
   })

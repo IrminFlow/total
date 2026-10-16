@@ -381,7 +381,7 @@ export interface MoneyRow {
   chips: MoneyChip[]
   /** How many bills the entry settles. */
   billCount: number
-  /** Dated after today (simple dates may be up to SIMPLE_MAX_DAYS_AHEAD days ahead). Optional
+  /** Dated after the working date the list was asked for (simple dates may be up to SIMPLE_MAX_DAYS_AHEAD days ahead). Optional
    *  (absent = not ahead). */
   ahead?: true
 }

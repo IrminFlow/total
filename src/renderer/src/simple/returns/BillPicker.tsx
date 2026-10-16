@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toPlainDate } from '@shared/dates'
+import { mapError, type CaughtError } from '@shared/errors'
 import { LEFT_TEXT, type ReturnBillRow, type ReturnSide } from '@shared/simple/returns'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
-import { useNav, useSession } from '../../state/stores'
+import { useNav, useSession, useToasts } from '../../state/stores'
 import { EmptyTeach } from '../help/EmptyTeach'
 import { Button, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
@@ -51,15 +52,22 @@ export function BillPicker({ side, onPick }: { side: ReturnSide; onPick: (billId
   const nav = useNav()
   const noRecent = !isLoading && data != null && rows.length === 0 && !q && !typed.trim() && !all
   // The last 12 months are empty: are there older bills? (Then say so, never "no bills yet".)
-  const { data: older } = useQuery({
+  const { data: older, error: olderError } = useQuery({
     queryKey: ['simpleReturnBills', side, workingDate, '', true], // i18n-technical: = the "all" list's key
     queryFn: () => api.simple.returnBills(side, workingDate, undefined, true),
     enabled: noRecent
   })
-  const hasOlder = noRecent && (older?.length ?? 0) > 0
+  // A failed check never leaves the picker loading: the plain error once, then the usual empty state.
+  const olderFailed = noRecent && olderError != null
+  const toast = useToasts()
+  useEffect(() => {
+    if (olderError) toast.push('error', mapError(olderError as CaughtError, { simple: true, t }).general ?? t('errors.generic'))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per failure
+  }, [olderError])
+  const hasOlder = noRecent && !olderFailed && (older?.length ?? 0) > 0
   // Nothing to return against yet (not a search that found nothing): teach, and offer the flow
   // that makes a bill.
-  const empty = noRecent && older != null && !hasOlder
+  const empty = noRecent && (olderFailed || (older != null && !hasOlder))
   const columns = useMemo(
     () =>
       defineColumns<ReturnBillRow>([
@@ -133,7 +141,7 @@ export function BillPicker({ side, onPick }: { side: ReturnSide; onPick: (billId
         rows={rows}
         rowKey={(r) => r.voucherId}
         rowAttrs={(r) => ({ 'data-row-id': r.voucherId, 'data-left': r.left })}
-        loading={isLoading || (noRecent && older == null)}
+        loading={isLoading || (noRecent && older == null && !olderFailed)}
         totals={false}
         toolbarFeatures={{ quickFilter: false, columns: false, groupBy: false, density: false, views: false }}
         empty={{ title: q ? t('simple.returns.noMatch') : sale ? t('simple.returns.noBills') : t('simple.returns.noBillsBuy') }}

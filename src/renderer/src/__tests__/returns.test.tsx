@@ -13,7 +13,7 @@ import type { IntentFacts, SimplePostResult, SimplePreview } from '@shared/simpl
 import type { ReturnBill, ReturnBillRow } from '@shared/simple/returns'
 import type { SaleView, SellSetup } from '@shared/simple/sell'
 import { bannedWordsIn } from '@shared/simple/bannedWords'
-import { useNav, useSession } from '../state/stores'
+import { useNav, useSession, useToasts } from '../state/stores'
 import { ReturnSale } from '../simple/returns/ReturnSale'
 import { ReturnPurchase } from '../simple/returns/ReturnPurchase'
 import { SalesList } from '../simple/sell/SalesList'
@@ -370,5 +370,18 @@ describe('the picker when the last 12 months hold no bill (review fix)', () => {
     renderUi(<ReturnPurchase />)
     expect(await screen.findByTestId('return-bills-empty')).toBeTruthy()
     expect(screen.queryByTestId('return-bills-older')).toBeNull()
+  })
+  it('the older-bills check fails: the plain error once, then the usual empty state (never stuck loading)', async () => {
+    const base = invoke.getMockImplementation()!
+    act(() => useToasts.setState({ toasts: [] }))
+    invoke.mockImplementation(async (channel: string, payload: Record<string, unknown>) =>
+      channel === 'simple:returns:bills' ? (payload.all ? { ok: false, error: 'SQLITE_BUSY: database is locked' } : { ok: true, data: [] }) : base(channel, payload))
+    renderUi(<ReturnPurchase />)
+    expect(await screen.findByTestId('return-bills-empty')).toBeTruthy()
+    expect(screen.queryByTestId('return-bills-older')).toBeNull()
+    await waitFor(() => expect(useToasts.getState().toasts.filter((x) => x.kind === 'error')).toHaveLength(1))
+    const text = useToasts.getState().toasts[0]!.text
+    expect(text).not.toContain('SQLITE') // plain words only, the technical detail stays out
+    expect(bannedWordsIn(text)).toEqual([])
   })
 })
