@@ -624,8 +624,9 @@ export function registerIpc(): void {
     return simpleMoney.moneyBills(requireCompany().db, partyId, date)
   }, 'viewer')
   handle('simple:money:list', (payload) => {
-    const { from, to } = z.object({ from: isoDate, to: isoDate }).strict().parse(payload)
-    return simpleMoney.moneyList(requireCompany().db, from, to)
+    // `today` = the working date the list's range is built on, so "dated ahead" agrees with it.
+    const { from, to, today } = z.object({ from: isoDate, to: isoDate, today: isoDate.optional() }).strict().parse(payload)
+    return simpleMoney.moneyList(requireCompany().db, from, to, today ?? todayISO())
   }, 'viewer')
   handle('simple:money:entry', (payload) => {
     const { id } = z.object({ id: z.number().int().positive() }).strict().parse(payload)
@@ -728,9 +729,9 @@ export function registerIpc(): void {
   // return's date, never past today). Writing goes through simple:post only.
   const returnSide = z.enum(['sale', 'purchase'])
   handle('simple:returns:bills', (payload) => {
-    const { side, today, q } = z.object({ side: returnSide, today: isoDate.optional(), q: z.string().max(80).optional() }).strict().parse(payload)
+    const { side, today, q, all } = z.object({ side: returnSide, today: isoDate.optional(), q: z.string().max(80).optional(), all: z.boolean().optional() }).strict().parse(payload)
     const c = requireCompany()
-    return simpleReturns.returnBills(c.db, c.info, side, homeAsOn(today, todayISO()), q)
+    return simpleReturns.returnBills(c.db, c.info, side, homeAsOn(today, todayISO()), q, { all })
   }, 'viewer')
   handle('simple:returns:bill', (payload) => {
     const { side, id, asOn } = z.object({ side: returnSide, id: z.number().int().positive(), asOn: isoDate.optional() }).strict().parse(payload)

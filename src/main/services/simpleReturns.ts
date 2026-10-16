@@ -99,10 +99,11 @@ function isWalkIn(db: DB, partyId: number | null, name: string): boolean {
 }
 
 /** The "Which bill?" list: newest first, capped; `q` searches the party name and bill numbers at
- *  any date up to today. */
-export function returnBills(db: DB, company: CompanyInfo, side: ReturnSide, today: string, q?: string): ReturnBillRow[] {
+ *  any date up to today; `all` lists every date up to today too (the picker's "Search older
+ *  bills", when the last 12 months hold none). */
+export function returnBills(db: DB, company: CompanyInfo, side: ReturnSide, today: string, q?: string, opts: { all?: boolean } = {}): ReturnBillRow[] {
   const search = q?.trim() ? `%${q.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null
-  const from = search ? '0000-01-01' : addDaysISO(today, -365)
+  const from = search || opts.all ? '0000-01-01' : addDaysISO(today, -365)
   const heads = db
     .prepare(
       `SELECT v.id, v.number, v.reference, v.date, v.party_ledger_id AS partyId, p.name AS partyName
@@ -193,6 +194,7 @@ export function returnBill(db: DB, company: CompanyInfo, side: ReturnSide, id: n
     carriesGst: o.carriesGst,
     rates: o.rates,
     accountId: o.accountId,
+    narration: v.narration?.trim() || null,
     mode: v.inventory.length ? 'items' : 'amount',
     lines: o.lines.map((l) => {
       const it = item.get(l.itemId) as { name: string; symbol: string | null } | undefined

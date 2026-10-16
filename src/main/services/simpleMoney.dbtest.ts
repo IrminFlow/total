@@ -23,7 +23,7 @@ import {
 } from '@shared/voucherEdit'
 import {
   billAllocation, emptyMoneyInForm, emptyMoneyOutForm, emptyMoveForm, moneyInErrors, moneyInIntentFrom, moneyOutErrors, moneyOutIntentFrom,
-  moveIntentFrom, type MoneyInForm, type MoneyOutForm
+  moneyListUntil, moveIntentFrom, type MoneyInForm, type MoneyOutForm
 } from '@shared/simple/money'
 import { createLedger, createStockItem, listGroups, listLedgers, listStockItems } from './masters'
 import { getVoucher, nextVoucherNumber, saveVoucher, setLockDate } from './vouchers'
@@ -435,6 +435,22 @@ describe('Move money, the list, the setup', () => {
     expect(moneyEntry(db, mo.voucherIds[0]!)).toBeNull()
     // A sales bill is not a money entry.
     expect(moneyEntry(db, getVoucher(db, mi.voucherIds[0]!)!.id - 1)).toBeNull()
+  })
+
+  it('the money list reaches as far ahead as simple:post allows (+30 days); rows after today say “dated ahead”', () => {
+    const ahead = post(moveIntentFrom({ ...emptyMoveForm('2025-09-10'), fromId: L('Cash'), toId: L('SBI'), amount: 2_000 }))
+    const now = post(moveIntentFrom({ ...emptyMoveForm(TODAY), fromId: L('Cash'), toId: L('SBI'), amount: 1_000 }))
+    // 31 days ahead is refused by simple:post, so the list never needs to look further.
+    expect(() => post(moveIntentFrom({ ...emptyMoveForm('2025-09-14'), fromId: L('Cash'), toId: L('SBI'), amount: 500 }))).toThrow(/days ahead/)
+    const until = moneyListUntil(TODAY, '2026-03-31')
+    expect(until).toBe('2025-09-13')
+    const list = moneyList(db, '2025-04-01', until, TODAY)
+    expect(list.map((x) => [x.voucherId, x.ahead ?? false])).toEqual([[ahead.voucherIds[0], true], [now.voucherIds[0], false]])
+    // "Ahead" is measured from the date passed in (the working date the range uses): a day earlier
+    // marks today's entry ahead too.
+    expect(moneyList(db, '2025-04-01', until, '2025-08-13').map((x) => x.ahead ?? false)).toEqual([true, true])
+    // The working date past the period's end: the period's own end, as before.
+    expect(moneyListUntil('2026-05-01', '2026-03-31')).toBe('2026-03-31')
   })
 
   it('the setup: parties, accounts, defaults (WP 5.6 memory per side), owner / drawings / loans', () => {

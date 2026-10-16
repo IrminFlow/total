@@ -17,6 +17,7 @@ import type { DB } from '../db/connection'
 import type { MoneyHow } from '@shared/simple/intents'
 import type { MoneyChip, MoneyEntryView, MoneyOpenBill, MoneyRow, MoneySetup } from '@shared/simple/money'
 import type { VoucherKind } from '@shared/domain'
+import { todayISO } from '@shared/dates'
 import { IN_BOOKS, getVoucher } from './vouchers'
 import { counterAccounts, WALK_IN_NAME } from './counter'
 import { openBills } from './analysis'
@@ -166,15 +167,16 @@ function context(db: DB): { cls: ReturnType<typeof ledgerClassifier>; groupOf: (
 const HEAD_SQL = `SELECT v.id, v.number, v.date, vt.kind, v.party_ledger_id AS party, v.narration, v.instrument_no AS instrument
   FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id`
 
-/** Every in-books receipt, payment and move between accounts dated `from`…`to`, newest first. */
-export function moneyList(db: DB, from: string, to: string): MoneyRow[] {
+/** Every in-books receipt, payment and move between accounts dated `from`…`to`, newest first;
+ *  rows dated after `today` say so (`ahead`). */
+export function moneyList(db: DB, from: string, to: string, today: string = todayISO()): MoneyRow[] {
   const heads = db
     .prepare(`${HEAD_SQL} WHERE vt.kind IN (${MONEY_KINDS.map(() => '?').join(',')}) AND v.date BETWEEN ? AND ? AND v.is_year_end_close = 0 AND ${IN_BOOKS} ORDER BY v.date DESC, v.id DESC`)
     .all(...MONEY_KINDS, from, to) as Head[]
   const ctx = context(db)
   return heads.map((h) => {
     const { kind: _k, bills: _b, note: _n, reference: _r, ...row } = describe(db, h, ctx.cls, ctx.groupOf, ctx.groups)
-    return row
+    return h.date > today ? { ...row, ahead: true as const } : row
   })
 }
 

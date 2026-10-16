@@ -246,6 +246,11 @@ export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; 
                   {' · '}
                   {bill.pending <= 0 ? t('simple.returns.paidUp') : sale ? t('simple.returns.stillDue', { amount: money(bill.pending) }) : t('simple.returns.stillToPay', { amount: money(bill.pending) })}
                 </p>
+                {bill.narration && (
+                  <p className="mt-1 text-detail text-ink" data-testid="return-bill-note">
+                    {t('simple.returns.billNote', { note: bill.narration })}
+                  </p>
+                )}
                 {bill.earlier.length > 0 && (
                   <p className="mt-1 text-detail text-muted" data-testid="return-bill-earlier">
                     {t('simple.returns.earlier', { n: bill.earlier.length, amount: money(bill.earlier.reduce((s, r) => s + r.total, 0)) })}

@@ -12,7 +12,7 @@ import { useNav } from '../../state/stores'
 import { isAnyModalOpen, type FormErrors } from '../../components/ui'
 import { useCanSave } from '../ViewerNote'
 
-const REFRESH = ['simpleMoneySetup', 'simpleMoneyBills', 'simpleMoneyList', 'ledgers', 'dashboard', 'simpleHome'] // i18n-technical: query families
+const REFRESH = ['simpleMoneySetup', 'simpleMoneyBills', 'simpleMoneyList', 'simpleBankLines', 'ledgers', 'dashboard', 'simpleHome'] // i18n-technical: query families
 
 /** An error from main with its field (and its issues' fields) moved by `mapField` — e.g. a
  *  purchase's party is the GST bill's supplier on Money out. */
@@ -47,6 +47,8 @@ export function useMoneyFlow<F extends string>(opts: {
   onStartNew: () => void
   /** WP 10.1: the Ask Total draft this entry was opened from (its first save consumes it). */
   aiDraftId?: number | null
+  /** Where Esc → discard goes (default: back). Opened from a bank line: back to that Bank. */
+  leave?: () => void
 }): {
   preview: SimplePreview | null
   previewing: boolean
@@ -74,8 +76,14 @@ export function useMoneyFlow<F extends string>(opts: {
 
   const dirty = !savedIds && !leaving && opts.dirty
   useUnsavedGuard(dirty)
+  const leaveRef = useRef(opts.leave)
+  leaveRef.current = opts.leave
+  const left = useRef(false)
   useEffect(() => {
-    if (leaving) nav.back()
+    // Once: `nav` changes with every move, and a screen still mounted must not leave again.
+    if (!leaving || left.current) return
+    left.current = true
+    ;(leaveRef.current ?? nav.back)()
   }, [leaving, nav])
 
   // ---------- the preview (debounced; a refusal just clears it — Save says why, under its field) ----------

@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { MessageKey } from '@shared/i18n'
 import { formatPaise } from '@shared/money'
 import { toPlainDate } from '@shared/dates'
-import type { MoneyChip, MoneyDirection, MoneyRow } from '@shared/simple/money'
+import { moneyListUntil, type MoneyChip, type MoneyDirection, type MoneyRow } from '@shared/simple/money'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession } from '../../state/stores'
@@ -31,6 +31,7 @@ const IN = { name: 'simple-money-in' } as const // i18n-technical
 const OUT = { name: 'simple-money-out' } as const // i18n-technical
 const MOVE = { name: 'simple-move-money' } as const // i18n-technical
 const CHIP_CLS = 'border-line bg-panel2 text-ink' // i18n-technical: class names
+const AHEAD_CLS = 'border-amber/60 bg-amberbar/10 text-ink' // i18n-technical: class names
 const editScreen = (voucherId: number): { name: 'voucher-entry'; voucherId: number } => ({ name: 'voucher-entry', voucherId }) // i18n-technical
 
 function Pill({ text, cls, testId, data }: { text: string; cls: string; testId: string; data?: string }): React.JSX.Element {
@@ -57,14 +58,27 @@ function MoneyTable(): React.JSX.Element {
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed tables above
   const nav = useNav()
   const { from, to, workingDate } = useSession()
-  const until = workingDate < to ? workingDate : to
-  const { data, isLoading } = useQuery({ queryKey: ['simpleMoneyList', from, until], queryFn: () => api.simpleMoney.list(from, until) }) // i18n-technical
+  // Up to 30 days after the working date: an entry dated ahead is listed as soon as it is saved.
+  const until = moneyListUntil(workingDate, to)
+  const { data, isLoading } = useQuery({ queryKey: ['simpleMoneyList', from, until, workingDate], queryFn: () => api.simpleMoney.list(from, until, workingDate) }) // i18n-technical
   const rows = data ?? []
   const empty = !isLoading && data != null && rows.length === 0
   const columns = useMemo(
     () =>
       defineColumns<MoneyRow>([
-        { id: 'date', header: t('simple.money.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date, t.lang), width: 130, groupable: false }, // i18n-technical
+        {
+          id: 'date', header: t('simple.money.col.date'), kind: 'date', value: (r) => r.date, text: (r) => toPlainDate(r.date, t.lang), width: 170, groupable: false, // i18n-technical
+          cell: (r) => (
+            <span>
+              {toPlainDate(r.date, t.lang)}
+              {r.ahead && (
+                <span className="ml-1">
+                  <Pill text={t('simple.money.chip.ahead')} cls={AHEAD_CLS} testId="money-row-ahead" />
+                </span>
+              )}
+            </span>
+          )
+        },
         // A move says where it went from and to; anything else, who paid / was paid.
         { id: 'who', header: t('simple.money.col.who'), kind: 'text', hideable: false, groupable: false, value: (r) => (r.direction === 'move' ? `${r.account} → ${r.who}` : r.who) }, // i18n-technical
         {

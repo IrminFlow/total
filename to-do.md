@@ -57,21 +57,21 @@ done on main were dropped. One line each; the pointer says where to look.
 ### Simple mode
 - Buy's "just an amount" bill with GST rounds to the rupee; it could send the printed `billTotal` like Money out does — PR #88, `simple/buy/`
 - Money list names the supplier, not the category (e.g. Electricity), for an expense paid with a GST bill — PR #88 / #111, `services/simpleMoney.ts`
-- Money list stops at the working date, so an entry dated up to +30 days ahead isn't listed until then — PR #88
+- ~~Money list stops at the working date, so an entry dated up to +30 days ahead isn't listed until then~~ DONE — lists up to the working date + 30 days with a "Dated ahead" chip (PR #121) — PR #88
 - Expense tiles include "Purchases", "Raw material purchases", "Discount given"; paying "Purchases" from Money out books no goods — PR #88, `shared/simple/categories.ts`
 - A refund from a supplier who owes you nothing is accepted silently (raises what you owe) — PR #88
 - GST-bill expense preview says "Purchase bill …" even for rent or electricity — PR #88
 - Two open bills with the same name (different years) tick together in Money in / out; a later bill can reuse an older settled credit's name — PR #88 / #89
 - Refund TO a customer (money out against their credit) outside a return isn't offered — PR #88
 - Bank: "Do you have a GST bill?" not asked for bank expenses; bank charges incl. GST not split for a regular registration — PR #90
-- Bank: no Undo / "Not this" on a Done line (unmatch in the full app); a skipped line isn't remembered after refresh; after "Pick the bills yourself" the user must go back to Bank themselves — PR #90
+- ~~Bank: no Undo / "Not this" on a Done line (unmatch in the full app); a skipped line isn't remembered after refresh; after "Pick the bills yourself" the user must go back to Bank themselves~~ DONE — "Not this" (the full app's unmatch), skips remembered on this computer under "Skipped for now", "Back to Bank" (PR #121) — PR #90
 - Bank: the sentence doesn't compare the statement's own closing balance with the books — PR #90
 - Stock: no reorder-level editor, no recipe editor; counts go to the default stock place; history rows don't open the entry — PR #91
 - Stock: a count of a never-stocked product is valued ₹0; reopening a saved count shows difference 0; Undo of a count / batch after later sales can leave stock negative — PR #91
 - People: parties under imported group names (e.g. "Trade Receivables") show no balance (Outstandings counts only Sundry Debtors / Creditors; accountant screen too) — PR #92
 - People: viewers see the statement only through History; reminder cadence is shown, not enforced — PR #92
 - People: reminder_log has no WhatsApp / SMS channel (logged as `phone` / `other`, detail in the audit row) — needs a migration, PR #92
-- Returns: the bill card doesn't show the bill's own note; the purchase-return picker's empty state looks only at the last 12 months — PR #89 / #100
+- ~~Returns: the bill card doesn't show the bill's own note; the purchase-return picker's empty state looks only at the last 12 months~~ DONE — note on the card, "Search older bills" (PR #121) — PR #89 / #100
 - Hand-off: edits in the full editor aren't carried back; a "paid now" payment / refund isn't in the handed-off editor; People / Reports / Taxes have no Accountant-view button — PR #96
 - Hand-off review: refused answers → blank editor after a discard prompt; Cancel returns to an EMPTY simple form; walk-in hand-off leaves the customer empty; missing GST / round-off accounts show empty rows; Reports / Taxes Accountant-view lack the "Always" menu; palette search results still titled "Ledgers" / "Vouchers"; switching company with unsaved editor changes keeps the old stack — shots-96
 - ~~Taxes: after "I've filed", Home's GST tile and the Gateway 3B chip still show the period's amount / date~~ DONE — PR #119 (the tile moves on to the running period) — PR #94
@@ -79,7 +79,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Home: "entries added for an earlier, closed date" also fires for ordinary entries 30 days late; one-column profit "Purchases" includes direct expenses (freight, wages) — PR #94
 - ~~Why?: no link on composition / PMT-06 dates; no Why on Bills to pay "due this week"; one Why per by-month chart~~ DONE — Home's composition / PMT-06 Why opens Taxes, Bills to pay tiles and each month explained — PR #120. Still open: advance tax has no link (Total doesn't work it out); quarterly filers' GSTR-1 / 3B links open the quarter's first month; the Taxes screen's own CMP-08 / GSTR-4 / PMT-06 Whys have no link (it would open the same screen) — PR #99
 - Ask Total: drafts stay open until discarded in Settings → AI drafts; "5000 Ramesh" (no verb) gets "try these" instead of asking in / out; payroll / TDS amount / bill-by-number questions not understood; an Ask Total draft opened from Settings opens the accountant editor — PR #98
-- Tour card can cover part of Home under its anchor; help-link params (`filter=`, `tab=`) aren't validated per screen — PR #100
+- Tour card can cover part of Home under its anchor; ~~help-link params (`filter=`, `tab=`) aren't validated per screen~~ DONE — `SCREEN_LINK_PARAMS`, unknown ones dropped (PR #121) — PR #100
 - ~~Viewer sees Sell / Buy forms and Save, then a generic "no permission"; sidebar "Back up now" shown to a viewer~~ DONE — PR #119 (note at the top of each form, no Create / Add-account buttons, a note instead of Back up now) — shots-86 / PR #111
 - ~~Sell: "Prices include GST" doesn't convert already-typed prices; a failed Print shows no message~~ DONE — PR #119 (Make a bill and Record a purchase); still open: supplier / customer with no credit days is overdue the next day (consider "no due date = not overdue") — shots-86 / shots-87
 - Purchases: s.17(5) blocked ITC counted as claimable; reverse charge / ITC eligibility only in the accountant view — PR #87

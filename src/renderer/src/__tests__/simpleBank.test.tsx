@@ -11,6 +11,7 @@ import type { CompanyInfo, Group, Ledger } from '@shared/domain'
 import type { BankAcceptResult, BankSetup, BankView } from '@shared/simple/bank'
 import { bannedWordsIn } from '@shared/simple/bannedWords'
 import { useNav, useSession } from '../state/stores'
+import { useDialogs } from '../lib/dialogs'
 import { BankScreen } from '../simple/bank/BankScreen'
 
 const invoke = vi.fn()
@@ -95,6 +96,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   invoke.mockReset()
+  localStorage.clear()
 })
 
 const lineCard = (id: number): HTMLElement => screen.getAllByTestId('bank-line').find((e) => e.dataset.lineId === String(id))!
@@ -148,10 +150,12 @@ describe('simple Bank (WP 9.6)', () => {
     expect((within(lineCard(3)).getByTestId('btn-bank-line-save') as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(within(lineCard(3)).getByTestId('bank-choice-supplier'))
     expect(within(lineCard(3)).getByTestId('picker-bank-party-3')).toBeTruthy()
-    // "Skip for now" saves nothing and offers no Save.
+    // "Skip for now" saves nothing: the line moves under "Skipped for now"; "Bring back" returns it.
     fireEvent.click(within(lineCard(3)).getByTestId('bank-choice-skip'))
-    expect(within(lineCard(3)).queryByTestId('btn-bank-line-save')).toBeNull()
+    await waitFor(() => expect(screen.getAllByTestId('bank-line')).toHaveLength(2))
     expect(screen.getByTestId('btn-bank-accept-all').textContent).toBe('Save all 2 answered lines')
+    fireEvent.click(screen.getByTestId('btn-bank-bring-back-3'))
+    await waitFor(() => expect(screen.getAllByTestId('bank-line')).toHaveLength(3))
     // Moved to another account: the account is picked, and a refusal sits under that picker.
     fireEvent.click(within(lineCard(3)).getByTestId('bank-choice-transfer'))
     fireEvent.change(within(lineCard(3)).getByTestId('select-bank-transfer-3'), { target: { value: '30' } })
@@ -225,5 +229,55 @@ describe('simple Bank (WP 9.6)', () => {
     expect(lineCard(8).dataset.choice).toBe('')
     expect(within(lineCard(8)).getByTestId('bank-line-repeat').textContent).toContain('looks the same as another one')
     expect(bannedWordsIn(visibleText())).toEqual([])
+  })
+  it('"Skip for now" is remembered after a reload (per company + bank, by the line’s identity) under a collapsed group', async () => {
+    view = { ...VIEW, lines: VIEW.lines.map((l) => ({ ...l, key: `hash-${l.id}` })) }
+    renderUi()
+    await waitFor(() => expect(screen.getAllByTestId('bank-line')).toHaveLength(3))
+    fireEvent.click(within(lineCard(3)).getByTestId('bank-choice-skip'))
+    await waitFor(() => expect(screen.getByTestId('bank-skipped')).toBeTruthy())
+    expect(calls('simple:bank:accept')).toEqual([]) // nothing saved in the books
+    expect(JSON.parse(localStorage.getItem('total-bank-skipped:sharma:31')!)).toEqual(['hash-3'])
+    // A reload (a new screen, the line's id changed by a re-import but not its identity).
+    cleanup()
+    view = { ...view, lines: view.lines.map((l) => (l.id === 3 ? { ...l, id: 33 } : l)) }
+    renderUi()
+    await waitFor(() => expect(screen.getAllByTestId('bank-line')).toHaveLength(2))
+    const group = screen.getByTestId('bank-skipped')
+    expect(group.tagName).toBe('DETAILS')
+    expect((group as HTMLDetailsElement).open).toBe(false)
+    expect(group.textContent).toContain('Skipped for now')
+    expect(group.textContent).toContain('UPI-STATIONERY MART')
+    expect(bannedWordsIn(visibleText())).toEqual([])
+    fireEvent.click(within(group).getByTestId('btn-bank-bring-back-33'))
+    await waitFor(() => expect(screen.getAllByTestId('bank-line')).toHaveLength(3))
+    expect(screen.queryByTestId('bank-skipped')).toBeNull()
+    expect(localStorage.getItem('total-bank-skipped:sharma:31')).toBeNull()
+  })
+  it('"Not this" on a Done line asks first, then uses the full app’s unmatch; a viewer is not offered it', async () => {
+    renderUi()
+    await waitFor(() => expect(screen.getByTestId('bank-done')).toBeTruthy())
+    fireEvent.click(screen.getByTestId('btn-bank-not-this-4'))
+    await waitFor(() => expect(useDialogs.getState().queue).toHaveLength(1))
+    const ask = useDialogs.getState().queue[0]!
+    expect(ask.title).toBe('Not this entry?')
+    expect(ask.message).toContain('Kumar Stores')
+    expect(bannedWordsIn(`${ask.title} ${ask.message}`)).toEqual([])
+    // "Keep it" changes nothing.
+    act(() => useDialogs.getState().settle(ask.id, false))
+    await waitFor(() => expect(useDialogs.getState().queue).toHaveLength(0))
+    expect(calls('bankImport:unmatch')).toEqual([])
+    fireEvent.click(screen.getByTestId('btn-bank-not-this-4'))
+    await waitFor(() => expect(useDialogs.getState().queue).toHaveLength(1))
+    act(() => useDialogs.getState().settle(useDialogs.getState().queue[0]!.id, true))
+    await waitFor(() => expect(calls('bankImport:unmatch')).toEqual([{ bankLedgerId: 31, lineId: 4 }]))
+    await waitFor(() => expect(screen.getByTestId('bank-note').textContent).toContain('The entry is still in your books'))
+    expect(calls('simple:bank:lines').length).toBeGreaterThan(1) // re-read: the line comes back open
+    cleanup()
+    act(() => useSession.setState({ user: { id: 2, name: 'Asha', role: 'viewer' } as never }))
+    renderUi()
+    await waitFor(() => expect(screen.getByTestId('bank-done')).toBeTruthy())
+    expect(screen.queryByTestId('btn-bank-not-this-4')).toBeNull()
+    act(() => useSession.setState({ user: null }))
   })
 })

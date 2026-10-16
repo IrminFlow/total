@@ -14,7 +14,7 @@ import { createLedger } from './masters'
 import { getVoucher, IN_BOOKS, setLockDate } from './vouchers'
 import { partyAllocation } from './analysis'
 import { brs } from './banking'
-import { commitStatement, statementWorkspace, undoLastImport } from './bankImport'
+import { commitStatement, statementWorkspace, undoLastImport, unmatchLine } from './bankImport'
 import { postIntent } from './simplePost'
 import { acceptLines, bankSetup, bankView } from './simpleBank'
 
@@ -209,5 +209,30 @@ describe('simple Bank (WP 9.6)', () => {
     expect(count("SELECT COUNT(*) AS n FROM audit_log WHERE entity NOT IN ('company')")).toBe(audit)
     expect(lineOf(await view(), 'STATIONERY').status).toBe('open')
     expect(count('SELECT COUNT(*) AS n FROM simple_posts')).toBe(5) // the four seed posts + Ramesh's
+  })
+
+  it('"Not this" on a Done line = the full app’s unmatch: the match row goes, the voucher stays in the books, the line is open with its suggestion', async () => {
+    statement(ROWS)
+    const v = await view()
+    const ramesh = lineOf(v, 'RAMESH')
+    const r = accept([{ lineId: ramesh.id, choice: { kind: 'customer', partyId: ids.ramesh } }])
+    const voucherId = r.done[0]!.voucherIds[0]!
+    expect(lineOf(await view(), 'RAMESH').status).toBe('done')
+    const vouchersBefore = count(`SELECT COUNT(*) AS n FROM vouchers v WHERE ${IN_BOOKS}`)
+
+    // bankImport:unmatch — the channel the simple screen's "Not this" calls.
+    unmatchLine(db, ids.bank, ramesh.id)
+    expect(count('SELECT COUNT(*) AS n FROM bank_statement_matches WHERE statement_line_id = ?', ramesh.id)).toBe(0)
+    expect(count(`SELECT COUNT(*) AS n FROM vouchers v WHERE v.id = ? AND ${IN_BOOKS}`, voucherId)).toBe(1)
+    expect(count(`SELECT COUNT(*) AS n FROM vouchers v WHERE ${IN_BOOKS}`)).toBe(vouchersBefore)
+    expect(getVoucher(db, voucherId)!.lines.find((x) => x.ledgerId === ids.bank)!.bankDate).toBeNull()
+    expect(count("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'bank_statement_line' AND entity_id = ?", ramesh.id)).toBeGreaterThan(0)
+    // Open again; the entry still in the books is what the matcher now offers ("Already recorded").
+    const back = lineOf(await view(), 'RAMESH')
+    expect(back.status).toBe('open')
+    expect(back.suggestion).toMatchObject({ choice: { kind: 'existing' }, source: 'match' })
+    expect(back.match?.amount).toBe(400_000)
+    // A line that is not done is refused (nothing to take off).
+    expect(() => unmatchLine(db, ids.bank, ramesh.id)).toThrow(/not matched/)
   })
 })

@@ -136,6 +136,14 @@ what you typed, and a **Back to simple** button.
   Bills to pay explains "due this week" and "due this month" (which bills, from how many suppliers,
   and how much is already late). Reports → by month has a "Why?" for every month that opens the
   sales and purchase lists on that month. [#120](https://github.com/IrminFlow/total/pull/120)
+- **Bank, Returns and Money list fixes.** On Bank, "Skip for now" is remembered on this computer,
+  and skipped lines wait under "Skipped for now" with "Bring back". A line marked Done has "Not
+  this": the line goes back to the lines to answer and the entry stays in your books. After "Pick
+  the bills yourself", "Back to Bank" takes you back to the same bank. Returns shows the bill's own
+  note on its card. If no bill falls in the last 12 months but older ones exist, the picker says so
+  and offers "Search older bills". Money in and out also lists entries dated up to 30 days ahead,
+  with a "Dated ahead" label. Help links that point to a screen view that doesn't exist now just
+  open the screen. [#121](https://github.com/IrminFlow/total/pull/121)
 
 ### For accountants (figures that changed)
 

@@ -67,6 +67,8 @@ describe('help articles (WP 10.3)', () => {
         for (const href of linksIn(a.blocks)) {
           const r = resolveHelpLink(href)
           expect(r.kind, `${a.id} (${lang}): ${href}`).not.toBe('invalid')
+          // Per screen: every parameter is one that screen knows (nothing dropped).
+          expect(r.kind === 'screen' ? (r.dropped ?? []) : [], `${a.id} (${lang}): ${href}`).toEqual([])
         }
       }
     }
@@ -77,7 +79,7 @@ describe('help articles (WP 10.3)', () => {
     expect(resolveHelpLink('total://screen/settings?tab=backups')).toEqual({ kind: 'screen', screen: { name: 'settings', tab: 'backups' } })
     expect(resolveHelpLink('total://help/gst')).toEqual({ kind: 'help', id: 'gst' })
     expect(resolveHelpLink('https://www.gst.gov.in')).toEqual({ kind: 'external', url: 'https://www.gst.gov.in' })
-    for (const bad of ['total://screen/nope', 'total://screen/simple-person', 'total://screen/simple-section?section=x', 'total://screen/simple-sell?id=3', 'total://help/nope', 'https://example.com', 'javascript:alert(1)']) {
+    for (const bad of ['total://screen/nope', 'total://screen/simple-person', 'total://screen/simple-section?section=x', 'total://screen/simple-section', 'total://help/nope', 'https://example.com', 'javascript:alert(1)']) {
       expect(resolveHelpLink(bad).kind, bad).toBe('invalid')
     }
   })
@@ -142,7 +144,13 @@ describe('help in Hindi and Hinglish (WP 10.4)', () => {
       }
     }
     for (const lang of ['hinglish'] as const) {
-      for (const a of HELP.list(lang)) for (const href of linksIn(a.blocks)) expect(resolveHelpLink(href).kind, `${a.id} (${lang}): ${href}`).not.toBe('invalid')
+      for (const a of HELP.list(lang)) {
+        for (const href of linksIn(a.blocks)) {
+          const r = resolveHelpLink(href)
+          expect(r.kind, `${a.id} (${lang}): ${href}`).not.toBe('invalid')
+          expect(r.kind === 'screen' ? (r.dropped ?? []) : [], `${a.id} (${lang}): ${href}`).toEqual([])
+        }
+      }
     }
   })
 

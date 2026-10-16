@@ -13,7 +13,7 @@ import type { IntentFacts, SimplePostResult, SimplePreview } from '@shared/simpl
 import type { ReturnBill, ReturnBillRow } from '@shared/simple/returns'
 import type { SaleView, SellSetup } from '@shared/simple/sell'
 import { bannedWordsIn } from '@shared/simple/bannedWords'
-import { useNav, useSession } from '../state/stores'
+import { useNav, useSession, useToasts } from '../state/stores'
 import { ReturnSale } from '../simple/returns/ReturnSale'
 import { ReturnPurchase } from '../simple/returns/ReturnPurchase'
 import { SalesList } from '../simple/sell/SalesList'
@@ -119,6 +119,14 @@ describe('Return a sale (WP 9.5)', () => {
     expect(calls('simple:returns:bills')[0]).toMatchObject({ side: 'sale', today: '2026-10-13' })
     expect(text('return-bill-head')).toBe('Bill 3 · Ramesh · 12 Oct 2026')
     expect(text('return-bill-earlier')).toBe('Returned once before: ₹590.00.')
+    expect(screen.queryByTestId('return-bill-note')).toBeNull() // a bill without a note says nothing
+    expect(bannedWordsIn(visibleText())).toEqual([])
+  })
+  it('the picked bill’s card shows the bill’s own note', async () => {
+    bill = itemsBill({ narration: 'Diwali order, 2 cartons' })
+    renderUi(<ReturnSale billId={7} />)
+    await screen.findByTestId('return-bill')
+    expect(text('return-bill-note')).toBe('Note on the bill: Diwali order, 2 cartons')
     expect(bannedWordsIn(visibleText())).toEqual([])
   })
 
@@ -340,5 +348,40 @@ describe('to-do §4: a viewer is told up front (Returns)', () => {
     } finally {
       act(() => useSession.setState({ user: null }))
     }
+  })
+})
+
+describe('the picker when the last 12 months hold no bill (review fix)', () => {
+  it('older bills exist: says so and "Search older bills" lists every date; none at all: the empty state', async () => {
+    const OLD: ReturnBillRow[] = [{ ...ROWS[0]!, voucherId: 70, date: '2024-05-02', partyId: 40, partyName: 'Bharat Steel', billNo: 'BS/1' }]
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload: Record<string, unknown>) =>
+      channel === 'simple:returns:bills' ? { ok: true, data: payload.all ? OLD : [] } : base(channel, payload))
+    renderUi(<ReturnPurchase />)
+    expect((await screen.findByTestId('return-bills-older')).textContent).toContain('No bills in the last 12 months')
+    expect(screen.queryByTestId('return-bills-empty')).toBeNull()
+    expect(bannedWordsIn(visibleText())).toEqual([])
+    click('btn-return-search-older')
+    await waitFor(() => expect(document.querySelector('[data-row-id="70"]')).toBeTruthy())
+    expect(screen.getByTestId('return-bills-all')).toBeTruthy()
+    expect(calls('simple:returns:bills').some((p) => (p as { all?: boolean }).all === true)).toBe(true)
+    cleanup()
+    invoke.mockImplementation(async (channel: string, payload: Record<string, unknown>) => (channel === 'simple:returns:bills' ? { ok: true, data: [] } : base(channel, payload)))
+    renderUi(<ReturnPurchase />)
+    expect(await screen.findByTestId('return-bills-empty')).toBeTruthy()
+    expect(screen.queryByTestId('return-bills-older')).toBeNull()
+  })
+  it('the older-bills check fails: the plain error once, then the usual empty state (never stuck loading)', async () => {
+    const base = invoke.getMockImplementation()!
+    act(() => useToasts.setState({ toasts: [] }))
+    invoke.mockImplementation(async (channel: string, payload: Record<string, unknown>) =>
+      channel === 'simple:returns:bills' ? (payload.all ? { ok: false, error: 'SQLITE_BUSY: database is locked' } : { ok: true, data: [] }) : base(channel, payload))
+    renderUi(<ReturnPurchase />)
+    expect(await screen.findByTestId('return-bills-empty')).toBeTruthy()
+    expect(screen.queryByTestId('return-bills-older')).toBeNull()
+    await waitFor(() => expect(useToasts.getState().toasts.filter((x) => x.kind === 'error')).toHaveLength(1))
+    const text = useToasts.getState().toasts[0]!.text
+    expect(text).not.toContain('SQLITE') // plain words only, the technical detail stays out
+    expect(bannedWordsIn(text)).toEqual([])
   })
 })

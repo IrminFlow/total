@@ -22,6 +22,7 @@ import { HowPaid } from './HowPaid'
 import { Card, Choices, MoneyFooter, MoneyHeader } from './MoneyParts'
 import { ensureCategoryAccount } from './ensureAccount'
 import { useMoneyFlow } from './useMoneyFlow'
+import { BackToBankButton, goBackToBank } from './backToBank'
 import { useAccountantView } from '../../lib/handoff'
 
 const WHO_TEXT: Record<MoneyInWho, MessageKey> = {
@@ -113,7 +114,8 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
       return id == null ? null : moneyInIntentFrom({ ...form, sourceId: id }, open, defaults, sources)
     },
     onStartNew: () => setForm(blank()),
-    aiDraftId: ask?.draftId ?? null
+    aiDraftId: ask?.draftId ?? null,
+    ...(bankId != null ? { leave: () => goBackToBank(bankId) } : {})
   })
 
   const newLoan = (): void => setCreating({ what: 'loan', name: '' }) // i18n-technical
@@ -137,7 +139,10 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
     <Page data-testid="simple-money-in">
       <MoneyHeader title={t('simple.money.in.title')} sub={t('simple.money.in.sub')} onAccountant={accountantView} />
       {flow.savedIds ? (
-        <SaveCard voucherIds={flow.savedIds} onNew={flow.startNew} onEdit={(id) => nav.go({ name: 'voucher-entry', voucherId: id })} /> // i18n-technical
+        <>
+          <SaveCard voucherIds={flow.savedIds} onNew={flow.startNew} onEdit={(id) => nav.go({ name: 'voucher-entry', voucherId: id })} /> {/* i18n-technical */}
+          {bankId != null && <BackToBankButton bankId={bankId} />}
+        </>
       ) : (
         <div className="flex flex-col gap-4">
           <Card title={t('simple.money.in.who')} testId="money-in-who">

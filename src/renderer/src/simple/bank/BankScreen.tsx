@@ -19,6 +19,8 @@ import { NewAccountDialog } from '../NewAccountDialog'
 import { StatementDrop } from './StatementDrop'
 import { LineCard, canSave, categoryFor, type LineProblem } from './LineCard'
 import { DoneLines } from './DoneLines'
+import { SkippedLines } from './SkippedLines'
+import { lineKey, useSkippedLines } from './skipped'
 import { EmptyTeach } from '../help/EmptyTeach'
 import { useAccountantView } from '../../lib/handoff'
 import { AccountantViewButton } from '../AccountantViewButton'
@@ -50,6 +52,7 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
   const openFull = useAccountantView('simple-bank') // i18n-technical: screen name
   const queryClient = useQueryClient()
   const workingDate = useSession((s) => s.workingDate)
+  const slug = useSession((s) => s.slug)
   const groups = useGroups()
   const aiReady = useAiAffordances()
   const { data: setup } = useQuery({ queryKey: ['simpleBankSetup'], queryFn: api.simpleBank.setup }) // i18n-technical
@@ -83,7 +86,11 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
   }, [bankLedgerId])
 
   const lines = view?.lines ?? []
-  const open = lines.filter((l) => l.status === 'open')
+  // "Skip for now" is remembered on this computer (skipped.ts): those lines wait in their own group.
+  const { skipped, skip, bringBack } = useSkippedLines(slug, bankLedgerId)
+  const allOpen = lines.filter((l) => l.status === 'open')
+  const open = allOpen.filter((l) => !skipped.has(lineKey(l)))
+  const skippedLines = allOpen.filter((l) => skipped.has(lineKey(l)))
   const settled = lines.filter((l) => l.status !== 'open')
   const suggestionOf = (l: BankLineView): BankSuggestion | null => l.suggestion ?? aiSugs[l.id] ?? null
   const choiceOf = (l: BankLineView): BankChoice | null => answers[l.id] ?? suggestionOf(l)?.choice ?? null
@@ -336,6 +343,16 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
                   suggestion={suggestionOf(l)}
                   choice={choiceOf(l)}
                   onChoice={(c) => {
+                    if (c.kind === 'skip') {
+                      // Remembered, and moved under "Skipped for now" (nothing is saved).
+                      skip(lineKey(l))
+                      setAnswers((a) => {
+                        const n = { ...a }
+                        delete n[l.id]
+                        return n
+                      })
+                      return
+                    }
                     setAnswers((a) => ({ ...a, [l.id]: c }))
                     setProblems((p) => {
                       const n = { ...p }
@@ -351,9 +368,24 @@ export function BankScreen({ bankId }: { bankId?: number }): React.JSX.Element {
               ))}
             </section>
           )}
-          {view && open.length === 0 && lines.length > 0 && <p className="text-detail text-muted">{t('simple.bank.nothingToAnswer')}</p>}
+          {view && open.length === 0 && lines.length > 0 && (
+            <p className="text-detail text-muted" data-testid="bank-nothing-to-answer">
+              {skippedLines.length > 0 ? t('simple.bank.restSkipped') : t('simple.bank.nothingToAnswer')}
+            </p>
+          )}
 
-          {view && settled.length > 0 && <DoneLines lines={settled} />}
+          {view && skippedLines.length > 0 && <SkippedLines lines={skippedLines} onBringBack={bringBack} />}
+
+          {view && settled.length > 0 && bankLedgerId != null && (
+            <DoneLines
+              lines={settled}
+              bankLedgerId={bankLedgerId}
+              onUnmatched={(n) => {
+                setNote(n)
+                void refresh()
+              }}
+            />
+          )}
         </div>
       )}
 

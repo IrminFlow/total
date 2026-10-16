@@ -75,9 +75,15 @@ export async function bankView(db: DB, bankLedgerId: number, today: string): Pro
   const cat = await categoriseStatement({ db, today, ask: null }, bankLedgerId, { useAi: false })
   const catBy = new Map(cat.rows.map((r) => [r.lineId, r]))
 
+  // WP 10.x: each line's per-account identity (import_hash — date, signed amount, narration,
+  // same-day occurrence), stable across a re-import, so the screen can remember "Skip for now".
+  const keys = new Map(
+    (db.prepare('SELECT id, import_hash AS h FROM bank_statement_lines WHERE bank_ledger_id = ?').all(bankLedgerId) as { id: number; h: string }[]).map((r) => [r.id, r.h])
+  )
   const repeats = repeatedLines(ws.lines.map((l) => ({ id: l.id, date: l.date, side: l.side, amount: l.amount, reference: l.reference, description: l.description })))
   const lines: BankLineView[] = ws.lines.map((l) => {
-    const base = { id: l.id, date: l.date, description: l.description, reference: l.reference, side: l.side, amount: l.amount }
+    const key = keys.get(l.id)
+    const base = { id: l.id, date: l.date, description: l.description, reference: l.reference, side: l.side, amount: l.amount, ...(key ? { key } : {}) }
     if (l.status === 'matched') return { ...base, status: 'done', done: l.matched.map((m) => ({ voucherId: m.voucherId, name: m.particulars })), suggestion: null, match: null }
     if (l.status === 'ignored') return { ...base, status: 'left_out', done: [], suggestion: null, match: null }
     let suggestion: BankSuggestion | null = null

@@ -726,7 +726,9 @@ export const api = {
     /** WP 9.2: one bill's simple (read-only) view; null when it is not an in-books sales bill. */
     sale: (id: number, today?: string) => call<SaleView | null>('simple:sale', { id, ...(today ? { today } : {}) }),
     /** WP 9.5: the recent bills a return can be made against (`q` searches party / bill number). */
-    returnBills: (side: SimpleReturnSide, today?: string, q?: string) => call<ReturnBillRow[]>('simple:returns:bills', { side, ...(today ? { today } : {}), ...(q ? { q } : {}) }),
+    /** `all`: every date up to today, not just the last 12 months (no search needed). */
+    returnBills: (side: SimpleReturnSide, today?: string, q?: string, all?: boolean) =>
+      call<ReturnBillRow[]>('simple:returns:bills', { side, ...(today ? { today } : {}), ...(q ? { q } : {}), ...(all ? { all } : {}) }),
     /** WP 9.5: one bill as the return form needs it, as on the return's date. */
     returnBill: (side: SimpleReturnSide, id: number, asOn?: string) => call<ReturnBill | null>('simple:returns:bill', { side, id, ...(asOn ? { asOn } : {}) })
   },
@@ -736,8 +738,9 @@ export const api = {
     setup: () => call<MoneySetup>('simple:money:setup'),
     /** A party's open bills, oldest first, as on `date` (the Outstandings allocation). */
     bills: (partyId: number, date: string) => call<MoneyOpenBill[]>('simple:money:bills', { partyId, date }),
-    /** Receipts, payments and moves dated from…to, newest first. */
-    list: (from: string, to: string) => call<MoneyRow[]>('simple:money:list', { from, to }),
+    /** Receipts, payments and moves dated from…to, newest first; rows after `today` (the working
+     *  date; omitted = the computer's date) are marked `ahead`. */
+    list: (from: string, to: string, today?: string) => call<MoneyRow[]>('simple:money:list', { from, to, ...(today ? { today } : {}) }),
     /** One entry's simple (read-only) view; null when it is not an in-books money entry. */
     entry: (id: number) => call<MoneyEntryView | null>('simple:money:entry', { id })
   },
