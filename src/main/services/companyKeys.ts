@@ -237,11 +237,12 @@ export function hasRememberedKey(slug: string, store: SecretStore | null): boole
   return readRememberedKey(slug, store) !== null
 }
 
-/** Remember `key` for `slug`. Throws `remember_unavailable` without secure storage — never a
- *  plaintext fallback. */
+/** Remember `key` for `slug`. Throws `remember_unavailable` without secure storage bound to this
+ *  computer's login (`store.strong()`: no store, no keychain, or Linux's `basic_text` backend) —
+ *  never a plaintext or obfuscated fallback. */
 export function storeRememberedKey(slug: string, key: Buffer, store: SecretStore | null): void {
   if (key.length !== 32) throw new Error('A data key is 32 bytes')
-  if (!store?.available()) {
+  if (!store?.strong()) {
     throw new AppError('remember_unavailable', 'This computer has no secure storage, so Total cannot remember the passphrase — type it each time')
   }
   try {

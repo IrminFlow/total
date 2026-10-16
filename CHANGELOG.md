@@ -414,7 +414,9 @@ Read these before filing from the next release.
   channels `security:remember:forget` (owner), `company:remembered` / `company:forgetRemembered`
   (ungated: the picker and the screen lock); `SecurityView.remembered` / `rememberPending`; audited
   as `security` rows (no key). Dropped on lock off / on; kept through a passphrase change (same key);
-  `company:delete` never uses it. `total-cli` / MCP do not read it.
+  `company:delete` never uses it. `total-cli` / MCP do not read it. Review: the key goes only to
+  storage bound to this login — `SecretStore.strong()` (`SecretCipher.isStrong`; Linux safeStorage's
+  `basic_text` / `unknown` backend is refused with `remember_unavailable`, NIC / AI secrets unchanged).
 - **DataTable widths (both modes).** A flexible text column with `hideable: false` is the row's
   name column: it starts at 152 px (`NAME_MIN_WIDTH`) and takes a double share of spare room; when
   the columns don't fit, money / quantity / enum columns on their kind default shrink to 128 / 112 /

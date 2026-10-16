@@ -146,7 +146,10 @@ Opt-in per business, off by default, never pre-ticked (`services/companyKeys.ts`
   passphrase right, main keeps the **data key** — never the passphrase — in the secret store under
   `company:<slug>` / `rememberedDataKey`. Like every secret there it is encrypted by safeStorage
   (macOS Keychain / Windows DPAPI, bound to this computer's login; the test cipher only in hermetic
-  test runs) — there is no plaintext fallback: without secure storage the tick is refused
+  test runs) — there is no plaintext fallback: without secure storage the tick is refused, and so
+  is storage not bound to this login (`SecretStore.strong()`: Linux safeStorage's `basic_text`
+  backend — a hard-coded key anyone with the file undoes — or an `unknown` one; NIC / AI secrets
+  keep using `available()`)
   (`remember_unavailable`, the open still succeeds). `security.dbtest.ts` checks `secrets.json`
   holds neither the passphrase nor the key in hex or base64.
 - **Who decides.** The owner. In a business without people whoever opens it is its owner, so the key

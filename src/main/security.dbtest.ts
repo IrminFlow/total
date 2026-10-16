@@ -370,6 +370,17 @@ describe('remember on this computer (opt-in, the data key in the secret store)',
     await ok('company:close')
     expect((await call('company:open', { slug })).code).toBe('passphrase_required')
   })
+
+  it('refuses storage that is not bound to this login (no keychain, or Linux safeStorage basic_text): remember_unavailable, nothing written', async () => {
+    const keys = await import('./services/companyKeys')
+    const { createSecretStore, insecureTestCipher } = await import('./services/secrets')
+    const file = join(DATA_DIR, 'weak-secrets.json')
+    for (const store of [createSecretStore({ filePath: () => file, cipher: insecureTestCipher(true, false) }), createSecretStore({ filePath: () => file, cipher: insecureTestCipher(false) }), null]) {
+      expect(() => keys.storeRememberedKey(slug, Buffer.alloc(32, 9), store)).toThrow(expect.objectContaining({ code: 'remember_unavailable' }))
+    }
+    expect(existsSync(file)).toBe(false)
+    expect(keys.hasRememberedKey(slug, createSecretStore({ filePath: () => file, cipher: insecureTestCipher() }))).toBe(false)
+  })
 })
 
 describe('capability flags (finer-grained roles)', () => {

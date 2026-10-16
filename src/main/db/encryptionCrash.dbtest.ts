@@ -62,6 +62,7 @@ function memoryStore(): SecretStore & { map: Map<string, string> } {
   return {
     map,
     available: () => true,
+    strong: () => true,
     get: (scope, name) => map.get(`${scope}/${name}`) ?? null,
     set: (scope, name, value) => void map.set(`${scope}/${name}`, value),
     delete: (scope, name) => void map.delete(`${scope}/${name}`),

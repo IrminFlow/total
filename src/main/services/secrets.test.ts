@@ -42,6 +42,17 @@ function toggleCipher(): SecretCipher & { on: boolean } {
 }
 
 describe('secret store', () => {
+  it('strong() is available() AND a login-bound cipher: a basic_text-like cipher stores (NIC, AI key) but is not strong', () => {
+    expect(createSecretStore({ filePath: () => file, cipher: insecureTestCipher() }).strong()).toBe(true)
+    const weak = createSecretStore({ filePath: () => file, cipher: insecureTestCipher(true, false) })
+    expect(weak.available()).toBe(true)
+    expect(weak.strong()).toBe(false)
+    expect(createSecretStore({ filePath: () => file, cipher: insecureTestCipher(false, true) }).strong()).toBe(false)
+    // a cipher that says nothing about strength is as strong as it is available
+    const silent: SecretCipher = { isAvailable: () => true, encrypt: (p) => Buffer.from(p), decrypt: (c) => c.toString() }
+    expect(createSecretStore({ filePath: () => file, cipher: silent }).strong()).toBe(true)
+  })
+
   it('round-trips by (scope, name) and keeps scopes apart', () => {
     const s = createSecretStore({ filePath: () => file, cipher: insecureTestCipher() })
     expect(s.get(companyScope('a'), 'nic.password')).toBeNull()
