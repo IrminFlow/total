@@ -3,14 +3,14 @@
 // inter-company reconciliation, the elimination statement and the group definition. Everything
 // is computed at query time from each member's books (read-only); the quick combined view of
 // any companies stays on the "Consolidated reports" screen.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ConsolidationGroup, GroupRunResult, StatementKind } from '@shared/consolidation/types'
 import { CONSOLIDATION_SOURCES } from '@shared/consolidation/sources'
 import { toDisplayDate } from '@shared/dates'
 import { consolidationApi } from '../../lib/consolidationClient'
 import { useNav, useSession } from '../../state/stores'
-import { Badge, Banner, Button, Checkbox, Page, PageHeader, Panel, Segmented, Select, SkeletonRows, StatGrid, StatTile, TabBar } from '../../components/ui'
+import { Badge, Banner, Button, Checkbox, Field, Modal, Page, PageHeader, Panel, Segmented, Select, SkeletonRows, StatGrid, StatTile, TabBar, TextInput } from '../../components/ui'
 import { DrawerSection } from '../../components/kit/Drawer'
 import { OptionsPeriod } from '../../components/ScreenOptions'
 import { DataTable } from '../../components/table'
@@ -42,11 +42,34 @@ export function ConsolidationScreen({ tab: initialTab, groupId: initialGroup }: 
   }, [groups, groupId])
   const group: ConsolidationGroup | null = groups?.find((g) => g.id === groupId) ?? null
 
+  // Review follow-up (PR #132's payload): passphrases of locked members, given through "Unlock
+  // <member> for this run". Held in memory only while this screen shows this group (a ref — never
+  // in the query cache / key, never in localStorage); main uses each for the run and forgets it.
+  const passphrases = useRef<Record<string, string>>({})
+  const [unlocked, setUnlocked] = useState<string[]>([])
+  const [unlocking, setUnlocking] = useState<{ slug: string; name: string } | null>(null)
+  useEffect(() => {
+    passphrases.current = {}
+    setUnlocked([])
+    setUnlocking(null)
+  }, [groupId])
+  useEffect(() => () => { passphrases.current = {} }, [])
+  const withPassphrases = (): Record<string, string> | undefined => (Object.keys(passphrases.current).length ? { ...passphrases.current } : undefined)
+  const runKey = ['consolRun', groupId, from, to, comparePrior, unlocked] as const
   const runQ = useQuery({
-    queryKey: ['consolRun', groupId, from, to, comparePrior],
-    queryFn: () => consolidationApi.run(groupId!, from, to, comparePrior),
+    queryKey: runKey,
+    queryFn: () => consolidationApi.run(groupId!, from, to, comparePrior, withPassphrases()),
     enabled: groupId != null && !creating && tab !== 'groups'
   })
+  const unlockMember = async (slug: string, passphrase: string): Promise<void> => {
+    const tried = { ...passphrases.current, [slug]: passphrase }
+    const result = await consolidationApi.run(groupId!, from, to, comparePrior, tried) // throws on a wrong passphrase
+    passphrases.current = tried
+    const next = [...unlocked, slug].sort()
+    qc.setQueryData(['consolRun', groupId, from, to, comparePrior, next], result)
+    setUnlocked(next)
+    setUnlocking(null)
+  }
   const run = runQ.data
   const st = run?.[kind]
   const columns = useMemo(() => (st ? statementColumns(st, comparePrior ? run?.prior?.[kind] : undefined) : []), [st, run, kind, comparePrior])
@@ -139,6 +162,21 @@ export function ConsolidationScreen({ tab: initialTab, groupId: initialGroup }: 
             <Banner tone="warning" className="mb-4">
               <div data-testid="consol-warnings">{run.warnings.map((w, i) => <p key={i}>{w}</p>)}</div>
             </Banner>
+          )}
+          {run?.lockedMembers && run.lockedMembers.length > 0 && (
+            <Banner tone="info" className="mb-4">
+              <div data-testid="consol-locked" className="flex flex-wrap items-center gap-2">
+                <span>Locked with a passphrase, so left out of this run:</span>
+                {run.lockedMembers.map((m) => (
+                  <Button key={m.slug} size="sm" variant="ghost" data-testid={`btn-consol-unlock-${m.slug}`} onClick={() => setUnlocking(m)}>
+                    Unlock {m.name} for this run
+                  </Button>
+                ))}
+              </div>
+            </Banner>
+          )}
+          {unlocking && (
+            <MemberUnlockPrompt name={unlocking.name} onCancel={() => setUnlocking(null)} onSubmit={(pass) => unlockMember(unlocking.slug, pass)} />
           )}
           {runQ.isLoading && <Panel><SkeletonRows /></Panel>}
 
@@ -243,4 +281,53 @@ function StatementSummary({ run, kind, comparePrior }: { run: GroupRunResult; ki
     )
   }
   return null
+}
+
+/** Asks for a locked member's passphrase for this run. The passphrase is cleared from the field
+ *  after a refusal; the service's own words are shown (accountant screen). */
+function MemberUnlockPrompt({ name, onSubmit, onCancel }: { name: string; onSubmit: (passphrase: string) => Promise<void>; onCancel: () => void }): React.JSX.Element {
+  const [pass, setPass] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const submit = async (): Promise<void> => {
+    if (!pass || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      await onSubmit(pass)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      setPass('')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Modal title={`Unlock ${name} for this run`} onClose={onCancel}>
+      <div data-testid="consol-unlock-prompt">
+        <p className="text-detail text-ink">
+          {name} is locked with a passphrase. It is used to read its books for this consolidation only — it is not saved, and the business stays locked.
+        </p>
+        <div className="mt-3">
+          <Field label="Passphrase" error={error ?? undefined}>
+            <TextInput
+              autoFocus
+              type="password"
+              autoComplete="off"
+              value={pass}
+              onChange={(e) => { setPass(e.target.value); setError(null) }}
+              onKeyDown={(e) => { if (e.key === 'Enter') void submit() }}
+              data-testid="input-consol-passphrase"
+            />
+          </Field>
+        </div>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="ghost" onClick={onCancel}>Cancel</Button>
+          <Button variant="primary" disabled={busy || !pass} onClick={() => void submit()} data-testid="btn-consol-unlock-run">
+            {busy ? 'Unlocking…' : 'Unlock and run'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  )
 }

@@ -393,6 +393,8 @@ function ledgerMovements(mdb: DB, ledgerId: number, asOn: string, booksStart: st
 interface MemberSnapshot {
   name: string
   ok: boolean
+  /** Skipped because it is locked with a passphrase none was given for (the screen offers to unlock it). */
+  locked?: boolean
   inputs: Record<StatementKind, MemberInput>
   /** Flows per pair side over the overlap of both members' inclusion windows, by statement. */
   flows: Map<string, { pnl: MemberFlow[]; tb: MemberFlow[] }>
@@ -509,6 +511,7 @@ function snapshot(m: ConsolidationMember, name: string, group: ConsolidationGrou
     return true
   }, key)
   if (!read.ok) warnings.push(read.warning)
+  if (!read.ok && read.locked) snap.locked = true
   snap.ok = read.ok
   return snap
 }
@@ -618,6 +621,8 @@ export function runGroup(db: DB, groupId: number, from: string, to: string, opts
     openSlug: opts.openSlug ?? null,
     tb, pnl, bs, recon, warnings
   }
+  const locked = group.members.filter((m) => snaps.get(m.companySlug)?.locked).map((m) => ({ slug: m.companySlug, name: nameOf(m.companySlug) }))
+  if (locked.length) result.lockedMembers = locked
   if (opts.comparePrior) {
     const pf = yearBefore(from), pt = yearBefore(to)
     const prior = runStatements(group, pf, pt, names, opts.memberKeys)

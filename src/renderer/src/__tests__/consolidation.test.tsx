@@ -134,6 +134,45 @@ describe('Group consolidation screen', () => {
     expect(screen.getByTestId('tab-consolidation-intercompany').textContent).toContain('1')
   })
 
+  it('offers to unlock a member skipped as locked, asks its passphrase and re-runs with memberPassphrases (never stored)', async () => {
+    handlers['consolGroup:list'] = () => [GROUP]
+    const runs: { memberPassphrases?: Record<string, string> }[] = []
+    invoke.mockImplementation(async (channel: string, payload?: unknown) => {
+      if (channel === 'consolGroup:run') {
+        const p = payload as { memberPassphrases?: Record<string, string> }
+        runs.push(p)
+        const given = p.memberPassphrases?.beta
+        if (given && given !== 'right one') return { ok: false, code: 'wrong_passphrase', field: 'passphrase', error: 'That passphrase is not right — Beta Traders' }
+        const r = runResult()
+        return { ok: true, data: given ? r : { ...r, warnings: ['Beta Traders: locked with a passphrase — skipped'], lockedMembers: [{ slug: 'beta', name: 'Beta Traders' }] } }
+      }
+      const h = handlers[channel]
+      return h ? { ok: true, data: h(payload) } : { ok: false, error: `unmocked channel ${channel}` }
+    })
+    renderScreen(<ConsolidationScreen />)
+    fireEvent.click(await screen.findByTestId('btn-consol-unlock-beta'))
+    expect(screen.getByTestId('btn-consol-unlock-beta').textContent).toBe('Unlock Beta Traders for this run')
+    const prompt = screen.getByTestId('consol-unlock-prompt')
+    expect(runs.every((r) => r.memberPassphrases === undefined)).toBe(true)
+
+    // a wrong passphrase: the service's words under the field, the field cleared, still locked
+    fireEvent.change(within(prompt).getByTestId('input-consol-passphrase'), { target: { value: 'wrong one' } })
+    fireEvent.click(within(prompt).getByTestId('btn-consol-unlock-run'))
+    await waitFor(() => expect(screen.getByTestId('consol-unlock-prompt').textContent).toContain('That passphrase is not right — Beta Traders'))
+    expect((screen.getByTestId('input-consol-passphrase') as HTMLInputElement).value).toBe('')
+    expect(runs.at(-1)!.memberPassphrases).toEqual({ beta: 'wrong one' })
+
+    fireEvent.change(screen.getByTestId('input-consol-passphrase'), { target: { value: 'right one' } })
+    fireEvent.click(screen.getByTestId('btn-consol-unlock-run'))
+    await waitFor(() => expect(screen.queryByTestId('consol-unlock-prompt')).toBeNull())
+    expect(runs.at(-1)!.memberPassphrases).toEqual({ beta: 'right one' })
+    await waitFor(() => expect(screen.queryByTestId('consol-locked')).toBeNull())
+    expect(screen.getByTestId('consol-net-profit').textContent).toBe('1,00,000.00')
+    // nothing of it is kept anywhere the renderer persists
+    expect(JSON.stringify({ ...localStorage })).not.toContain('right one')
+    expect(JSON.stringify({ ...sessionStorage })).not.toContain('right one')
+  })
+
   it('creates a group with this company as the parent', async () => {
     handlers['consolGroup:list'] = () => []
     handlers['company:list'] = () => ({ companies: [{ slug: 'alpha', name: 'Alpha Holdings' }, { slug: 'beta', name: 'Beta Traders' }] })

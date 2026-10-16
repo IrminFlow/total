@@ -280,6 +280,9 @@ export interface GroupRunResult {
   bs: StatementResult
   recon: IcReconRow[]
   warnings: string[]
+  /** Members skipped as locked with a passphrase (none given for this run) — absent when none. The
+   *  screen offers "Unlock <member> for this run" and re-runs with `memberPassphrases`. */
+  lockedMembers?: { slug: string; name: string }[]
   /** Same group for the period one year earlier (consolidated column by line key). */
   prior?: {
     period: { from: string; to: string }

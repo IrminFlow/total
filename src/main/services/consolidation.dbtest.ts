@@ -462,6 +462,9 @@ describe('group consolidation: members locked with a passphrase', () => {
     const skipped = runGroup(w.alpha, id, FROM, TO, { comparePrior: true, openSlug: 'alpha' })
     expect(skipped.warnings).toContain(LOCKED_MEMBER_WARNING('Beta Traders'))
     expect(skipped.pnl.members.find((m) => m.slug === 'beta')!.included).toBe(false)
+    // the screen's "Unlock Beta Traders for this run" reads this list (absent when nothing is locked)
+    expect(skipped.lockedMembers).toEqual([{ slug: 'beta', name: 'Beta Traders' }])
+    expect(plain.lockedMembers).toBeUndefined()
 
     // A wrong passphrase refuses the run, naming the member, and counts toward its throttle.
     await expect(unlockMemberKeys(members, { beta: 'not it' }, null)).rejects.toMatchObject({ code: 'wrong_passphrase', message: 'That passphrase is not right — Beta Traders' })
@@ -475,6 +478,7 @@ describe('group consolidation: members locked with a passphrase', () => {
     expect({ tb: unlocked.tb, pnl: unlocked.pnl, bs: unlocked.bs, prior: unlocked.prior, warnings: unlocked.warnings }).toEqual({
       tb: plain.tb, pnl: plain.pnl, bs: plain.bs, prior: plain.prior, warnings: plain.warnings
     })
+    expect(unlocked.lockedMembers).toBeUndefined()
     // The key was for the run only: never remembered, zeroed when dropped.
     expect(keyForPath(companyDbPath('beta'))).toBeNull()
     const k = keys.get('beta')!
@@ -491,6 +495,7 @@ describe('group consolidation: members locked with a passphrase', () => {
     rememberFolderKey(companyDir('beta'), key)
     const r = runGroup(w.alpha, id, FROM, TO)
     expect(r.pnl.members.find((m) => m.slug === 'beta')!.included).toBe(true)
+    expect(r.lockedMembers).toBeUndefined()
     expect(r.warnings.join('\n')).not.toMatch(/locked/)
     w.alpha.close()
   })

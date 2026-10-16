@@ -15,7 +15,9 @@ export const consolidationApi = {
   saveGroup: (data: GroupInputPayload, id?: number) => call<ConsolidationGroup>('consolGroup:save', { id, data }),
   deleteGroup: (id: number) => call<null>('consolGroup:delete', { id }),
   charts: (groupId: number) => call<MemberChart[]>('consolGroup:charts', { groupId }),
-  run: (groupId: number, from: string, to: string, comparePrior = false) => call<GroupRunResult>('consolGroup:run', { groupId, from, to, comparePrior }),
+  /** `memberPassphrases` (slug → passphrase) unlocks locked members for THIS run only — main never stores them. */
+  run: (groupId: number, from: string, to: string, comparePrior = false, memberPassphrases?: Record<string, string>) =>
+    call<GroupRunResult>('consolGroup:run', { groupId, from, to, comparePrior, ...(memberPassphrases ? { memberPassphrases } : {}) }),
   saveMapping: (data: MappingInputPayload) => call<ConsolidationMapping>('consolMapping:save', data),
   deleteMapping: (id: number) => call<null>('consolMapping:delete', { id }),
   suggestPairs: (groupId: number) => call<PairSuggestion[]>('consolPair:suggest', { groupId }),
