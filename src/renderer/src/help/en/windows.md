@@ -10,6 +10,8 @@ On Windows you press **Ctrl** where a Mac uses its Command key, and **Alt** wher
 
 Your books are in the **total** folder inside your **Documents** folder (Documents\total). If Windows backs up your Documents folder to OneDrive, Total says so when it starts: a file that is being written while it is copied to the cloud can be damaged. Open the books on one computer at a time, and keep your own backups too — see [Backups](total://help/backups).
 
+If your books are in OneDrive, Total shows a warning in Settings. To move them to a folder OneDrive does not sync (for example a new folder on drive C or D), open [Settings → Backups](total://screen/simple-backups) and choose **Move to another folder…** under **Where Total keeps your books**. Pick an empty folder. Total copies everything, checks the copy and restarts. The old folder is kept as it was, with a note saying where your books went; delete it yourself once you have checked your books in the new place.
+
 ## Installing and updates
 
 Total is installed for you only, so it does not ask for an administrator password. Total is not yet signed with a publisher certificate, so the first time you run the installer Windows may show **Windows protected your PC**. Choose **More info**, then **Run anyway**.

@@ -10,6 +10,8 @@ Windows par aap wahan **Ctrl** dabate hain jahan Mac par Command key hoti hai, a
 
 Aapka hisaab aapke **Documents** folder ke andar **total** folder mein hai (Documents\total). Agar Windows aapka Documents folder OneDrive par backup karta hai, to Total shuru hote waqt yeh batata hai: jo file likhi ja rahi ho aur usi waqt cloud par copy ho rahi ho, woh kharab ho sakti hai. Hisaab ek waqt mein ek hi computer par kholein, aur apne backups bhi rakhein — dekhein [Backup](total://help/backups).
 
+Agar aapka hisaab OneDrive mein hai, to Total Settings mein chetavani dikhata hai. Use aise folder mein le jaane ke liye jise OneDrive sync nahin karta (jaise drive C ya D par ek naya folder), [Settings → Backup](total://screen/simple-backups) kholein aur **Total aapka hisaab kahan rakhta hai** mein **Doosre folder mein le jaayein…** chunein. Ek khaali folder chunein. Total sab kuch copy karta hai, copy jaanchta hai aur phir se shuru hota hai. Purana folder jaisa tha waisa rehta hai, usmein ek note hota hai ki aapka hisaab kahan gaya; nayi jagah par hisaab dekh lene ke baad use aap khud mita sakte hain.
+
 ## Install aur updates
 
 Total sirf aapke liye install hota hai, isliye yeh administrator password nahi maangta. Total par abhi publisher ka certificate (signature) nahi hai, isliye pehli baar installer chalane par Windows **Windows protected your PC** dikha sakta hai. **More info** chunein, phir **Run anyway**.
