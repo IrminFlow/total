@@ -25,7 +25,8 @@ import { buildPhysicalPayload, emptyPhysicalState, type PhysicalFormState } from
 import { emptyManufactureState, evaluateManufactureForm, padManufactureRows, type ManufactureFormState } from '../voucherEdit/manufacture'
 import { qtyText, type VoucherPayload } from '../voucherEdit/payload'
 import { buildManufactureVoucher, type ManufactureIssueCode } from '../manufacture'
-import { componentQtyMilli, explodeBom, pickBomVersion, type BomVersion } from '../bom'
+import { componentQtyMilli, explodeBom, pickBomVersion, versionWouldCycle, type BomVersion } from '../bom'
+import type { BomVersionInput } from '../schemas'
 import { isBelowReorder } from '../stockPlanning'
 import type { IntentContext, IntentFacts, IntentVoucherType, MappedIntent, NormalIntent, SimpleIntentInput } from './intents'
 
@@ -101,6 +102,10 @@ export interface StockHistoryRow {
 
 export interface StockRecipe {
   versionId: number
+  /** When the recipe was set from (null = always) — WP 9.7 recipe editor. */
+  effectiveFrom?: string | null
+  /** The recipe's labour per ONE unit, paise (the simple recipe editor's answer; absent = none). */
+  labourPerUnit?: number
   /** Per ONE unit of the product made (thousandths). */
   lines: { itemId: number; name: string; unit: string; qtyMilliPerUnit: number; scrapPctBp: number | null }[]
 }
@@ -289,6 +294,175 @@ export function makeIntentFrom(form: MakeForm): WithoutClientId<Extract<SimpleIn
     ...(form.price != null ? { price: form.price } : {}),
     ...(labour > 0 ? { labour, labourRecorded: !!form.labourRecorded } : {})
   }
+}
+
+// ---------------------------------------------------------------- the recipe editor
+
+/**
+ * The simple recipe editor (to-do §4, after WP 9.7): "To make 1 <product> you use …" rows and an
+ * optional labour per unit. Saving writes a NEW version through the accountant BOM service
+ * (bom.saveBomVersion — the same row, audited `bom` as the full editor's save); the version
+ * that was in force stays in history for earlier dates.
+ *
+ * Effective dates (the full editor lets the accountant type them; simple mode decides):
+ *  - the product's FIRST recipe is in force always (no dates — the full editor's default for a
+ *    new version), so Made goods on an earlier date finds it too;
+ *  - a CHANGED recipe is in force from the working date, open-ended, and becomes the default:
+ *    pickBomVersion takes the version with the latest start in force on a date, so dates before
+ *    keep the old recipe and dates from it on use the new one (same day: the default — the new
+ *    one — wins the tie).
+ * Scrap allowances on materials that stay are kept (the full editor's setBom rule); simple mode
+ * never shows scrap. Answers equal to the recipe in force write nothing.
+ */
+export interface RecipeRowInput {
+  itemId: number
+  /** Per ONE unit of the product, thousandths. */
+  qtyMilli: number
+}
+
+export interface RecipeInput {
+  itemId: number
+  rows: RecipeRowInput[]
+  /** Labour per unit, paise (null / 0 = none). */
+  labourPerUnit: number | null
+}
+
+export type RecipePlan =
+  | { changed: false; versionId: number }
+  | { changed: true; version: BomVersionInput & { isDefault: boolean }; labourPerUnit: number | null }
+
+/** The next free "vN" name among the product's versions (case-insensitive, as the full editor names them). */
+export function nextVersionName(versions: readonly BomVersion[], itemId: number): string {
+  const taken = new Set(versions.filter((v) => v.itemId === itemId).map((v) => v.name.trim().toLowerCase()))
+  let n = taken.size + 1
+  while (taken.has(`v${n}`)) n++
+  return `v${n}`
+}
+
+/**
+ * Check the answers and plan the BOM version they become (pure). Refusals are field errors on
+ * the row (`rows.{i}.item` / `rows.{i}.qty`) or the list (`rows`). `labourOf` = the stored
+ * labour per unit of a version (null = none); `nameOf` = a product's name; `exists` = it is a
+ * product.
+ */
+export function planRecipe(
+  input: RecipeInput,
+  versions: readonly BomVersion[],
+  date: string,
+  nameOf: (id: number) => string,
+  exists: (id: number) => boolean,
+  labourOf: (versionId: number) => number | null
+): RecipePlan {
+  if (!exists(input.itemId)) return fail('simple_recipe_unknown', 'Stock item not found')
+  if (input.rows.length === 0) return fail('simple_recipe_empty', 'Add at least one material to the recipe', 'rows')
+  const seen = new Set<number>()
+  input.rows.forEach((r, i) => {
+    if (r.itemId === input.itemId) fail('simple_recipe_self', 'An item cannot be its own component', `rows.${i}.item`, { name: nameOf(r.itemId) })
+    if (!exists(r.itemId)) fail('simple_recipe_unknown', 'Component not found', `rows.${i}.item`)
+    if (seen.has(r.itemId)) fail('simple_recipe_twice', `${nameOf(r.itemId)} is listed twice — combine the rows`, `rows.${i}.item`, { name: nameOf(r.itemId) })
+    seen.add(r.itemId)
+    if (!(Number.isSafeInteger(r.qtyMilli) && r.qtyMilli > 0)) fail('simple_recipe_qty', `${nameOf(r.itemId)}: enter a quantity per unit`, `rows.${i}.qty`, { name: nameOf(r.itemId) })
+  })
+  input.rows.forEach((r, i) => {
+    if (versionWouldCycle(input.itemId, [r.itemId], versions)) {
+      fail('simple_recipe_cycle', 'This BOM would create a cycle — a component already contains this item', `rows.${i}.item`, { name: nameOf(r.itemId), product: nameOf(input.itemId) })
+    }
+  })
+  const labour = input.labourPerUnit != null && input.labourPerUnit > 0 ? input.labourPerUnit : null
+  const own = versions.filter((v) => v.itemId === input.itemId)
+  const inForce = pickBomVersion(versions, input.itemId, date)
+  if (
+    inForce &&
+    inForce.lines.length === input.rows.length &&
+    inForce.lines.every((l, i) => l.componentId === input.rows[i]!.itemId && l.qtyMilliPerUnit === input.rows[i]!.qtyMilli) &&
+    (labourOf(inForce.id) ?? null) === labour
+  ) {
+    return { changed: false, versionId: inForce.id }
+  }
+  // A version of this product that starts AFTER the working date (the working date was moved
+  // back, or the full editor dated one ahead) would win over the new one from its start
+  // (pickBomVersion: latest start in force) — the change would quietly stop applying then.
+  const later = own
+    .map((v) => v.effectiveFrom)
+    .filter((f): f is string => f != null && f > date)
+    .sort()[0]
+  if (later) fail('simple_recipe_later', `A recipe from ${later} is already set — change it in the full app`, undefined, { date: later })
+  const scrap = new Map((inForce?.lines ?? []).map((l) => [l.componentId, l.scrapPctBp]))
+  const first = own.length === 0
+  return {
+    changed: true,
+    version: {
+      itemId: input.itemId,
+      name: nextVersionName(versions, input.itemId),
+      effectiveFrom: first ? null : date,
+      effectiveTo: null,
+      isDefault: true,
+      lines: input.rows.map((r) => ({ componentId: r.itemId, qtyMilliPerUnit: r.qtyMilli, scrapPctBp: scrap.get(r.itemId) ?? null }))
+    },
+    labourPerUnit: labour
+  }
+}
+
+/** The recipe editor's form: one row per material (typed quantity), labour per unit in paise. */
+export interface RecipeForm {
+  rows: { itemId: number | null; qtyText: string }[]
+  labourPerUnit: number | null
+}
+
+export type RecipeFormErrorKey = 'simple.stock.recipe.err.empty' | 'simple.stock.recipe.err.qty' | 'simple.stock.recipe.err.item' | 'simple.stock.recipe.err.self' | 'simple.stock.recipe.err.twice'
+
+/** The recipe a product has now → the editor's form (quantities as typed text). */
+export const recipeFormFrom = (recipe: StockRecipe | null): RecipeForm => ({
+  rows: recipe ? recipe.lines.map((l) => ({ itemId: l.itemId, qtyText: formatQtyMilli(l.qtyMilliPerUnit) })) : [],
+  labourPerUnit: recipe?.labourPerUnit ?? null
+})
+
+/** Rows that say something (a product or a quantity) — fully blank rows are left out. */
+const filledRows = (form: RecipeForm): { row: RecipeForm['rows'][number]; i: number }[] =>
+  form.rows.map((row, i) => ({ row, i })).filter(({ row }) => row.itemId != null || row.qtyText.trim() !== '')
+
+/** Client-side checks (the server repeats them): field path → i18n key. */
+export function recipeFormErrors(form: RecipeForm, productId: number): Record<string, RecipeFormErrorKey> {
+  const out: Record<string, RecipeFormErrorKey> = {}
+  const rows = filledRows(form)
+  if (rows.length === 0) out.rows = 'simple.stock.recipe.err.empty'
+  const seen = new Set<number>()
+  for (const { row, i } of rows) {
+    if (row.itemId == null) out[`rows.${i}.item`] = 'simple.stock.recipe.err.item'
+    else if (row.itemId === productId) out[`rows.${i}.item`] = 'simple.stock.recipe.err.self'
+    else if (seen.has(row.itemId)) out[`rows.${i}.item`] = 'simple.stock.recipe.err.twice'
+    if (row.itemId != null) seen.add(row.itemId)
+    const q = parseCountText(row.qtyText)
+    if (q == null || q <= 0) out[`rows.${i}.qty`] = 'simple.stock.recipe.err.qty'
+  }
+  return out
+}
+
+/** The form → simple:stock:setRecipe's answers (blank rows dropped; row indexes are the FORM's,
+ *  so a refusal lands on the row the user typed — `rowIndex` maps them back). */
+export function recipeInputFrom(form: RecipeForm, productId: number): RecipeInput & { rowIndex: number[] } {
+  const rows = filledRows(form)
+  return {
+    itemId: productId,
+    rows: rows.map(({ row }) => ({ itemId: row.itemId ?? 0, qtyMilli: parseCountText(row.qtyText) ?? 0 })),
+    labourPerUnit: form.labourPerUnit != null && form.labourPerUnit > 0 ? form.labourPerUnit : null,
+    rowIndex: rows.map(({ i }) => i)
+  }
+}
+
+/** A server field path on the sent rows ('rows.2.qty') → the form's row ('rows.5.qty'). */
+export function formFieldOf(field: string, rowIndex: readonly number[]): string {
+  const m = /^rows\.(\d+)\.(.+)$/.exec(field)
+  if (!m) return field
+  const i = rowIndex[Number(m[1])]
+  return i == null ? 'rows' : `rows.${i}.${m[2]}`
+}
+
+/** Labour for `qtyMilli` made at `perUnit` paise per unit (half-up, BigInt — Made goods' prefill). */
+export function recipeLabour(perUnit: number, qtyMilli: number): number {
+  if (perUnit <= 0 || qtyMilli <= 0) return 0
+  const n = BigInt(perUnit) * BigInt(qtyMilli)
+  return Number((n * 2n + 1000n) / 2000n)
 }
 
 // ---------------------------------------------------------------- the mapping (called by intents.ts mapIntent)

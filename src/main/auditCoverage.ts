@@ -68,6 +68,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'simple:stock:madeSetup': QUERY,
   'simple:stock:count': QUERY,
   'simple:stock:setPrice': a('priceRate', 'priceLevel'),
+  // The simple recipe editor: a new BOM version through bom.saveBomVersion (+ its labour per unit).
+  'simple:stock:setRecipe': a('bom'),
   // WP 9.9: the simple Reports and Taxes screens' reads; "I've filed" (meta gstFiled) is a company update.
   'simple:reports:doing': QUERY,
   'simple:reports:cash': QUERY,

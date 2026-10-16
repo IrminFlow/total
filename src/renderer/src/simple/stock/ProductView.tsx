@@ -12,6 +12,7 @@ import { useNav, useSession } from '../../state/stores'
 import { AmountInput, Button, Field, Page, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { LevelChip } from './StockList'
+import { RecipeSection } from './RecipeEditor'
 import { useCanSave } from '../ViewerNote'
 import type { HandoffFacts } from '@shared/simple/handoff'
 import { simpleTargetFor } from '../../lib/handoff'
@@ -288,10 +289,14 @@ export function ProductView({ itemId }: { itemId: number }): React.JSX.Element {
           )}
         </dl>
 
-        {recipeText && (
-          <p className="mt-4 rounded-md border border-line bg-panel2 px-3 py-2 text-body text-ink" data-testid="stock-product-recipe">
-            {recipeText}
-          </p>
+        {features.manufacturing ? (
+          <RecipeSection product={p} />
+        ) : (
+          recipeText && (
+            <p className="mt-4 rounded-md border border-line bg-panel2 px-3 py-2 text-body text-ink" data-testid="stock-product-recipe">
+              {recipeText}
+            </p>
+          )
         )}
 
         <div className="mt-5 flex flex-wrap gap-2">

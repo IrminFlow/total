@@ -4,7 +4,7 @@ import { formatQtyMilli } from '@shared/money'
 import { toPlainDate } from '@shared/dates'
 import { mapError, type CaughtError } from '@shared/errors'
 import type { SimplePreview } from '@shared/simple/intents'
-import { emptyMakeForm, makeFormErrors, makeIntentFrom, parseCountText, recipeNeeds, type MakeField, type MakeForm } from '@shared/simple/stock'
+import { emptyMakeForm, makeFormErrors, makeIntentFrom, parseCountText, recipeLabour, recipeNeeds, type MakeField, type MakeForm } from '@shared/simple/stock'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useFeatures } from '../../lib/useFeatures'
@@ -22,6 +22,7 @@ import { AccountantViewButton } from '../AccountantViewButton'
 const F = { date: 'date', item: 'item', qty: 'qty', price: 'price', labour: 'labour', labourRecorded: 'labourRecorded' } as const satisfies Record<MakeField, MakeField> // i18n-technical: form field paths
 const FEATURES_SCREEN = { name: 'simple-features' } as const // i18n-technical
 const MANUFACTURE_SCREEN = { name: 'manufacture' } as const // i18n-technical
+const PRODUCTS_SCREEN = { name: 'simple-stock' } as const // i18n-technical: the recipe is added on a product's view
 
 const isDirty = (f: MakeForm): boolean => f.itemId != null || f.qtyText.trim() !== '' || (f.labour ?? 0) > 0
 
@@ -61,6 +62,16 @@ export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
     if (!priceTouched.current && picked) setForm((f) => (f.price === picked.suggestedPrice ? f : { ...f, price: picked.suggestedPrice }))
   }, [picked])
 
+  // The labour prefill: the recipe's labour per one × how many (until the labour is typed).
+  const labourTouched = useRef(form.labour != null) // a kept form's typed labour stays
+  const perUnitLabour = picked?.recipe.labourPerUnit ?? null
+  useEffect(() => {
+    if (labourTouched.current || perUnitLabour == null) return
+    const q = parseCountText(form.qtyText)
+    const next = q != null && q > 0 ? recipeLabour(perUnitLabour, q) : null
+    setForm((f) => (f.labour === next ? f : { ...f, labour: next }))
+  }, [perUnitLabour, form.qtyText])
+
   const errors = useFormErrors<MakeField>(
     { date: form.date, item: form.itemId, qty: form.qtyText, price: form.price, labour: form.labour, labourRecorded: form.labourRecorded },
     { simple: true, t }
@@ -80,17 +91,23 @@ export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
   // ---------- the plain preview (simple:preview, rehearsed — nothing saved) ----------
   const ready = Object.keys(clientErrors).length === 0
   const intent = useMemo(() => (ready ? makeIntentFrom(form) : null), [ready, form])
-  const intentKey = intent ? JSON.stringify(intent) : ''
+  // Only "labour already recorded?" unanswered (e.g. the recipe's labour was filled in): still check
+  // the quantities (not enough material goes under How many at once), without the labour and
+  // without showing sentences that leave it out.
+  const onlyLabourAsked = !ready && Object.keys(clientErrors).every((k) => k === 'labourRecorded')
+  const checkIntent = useMemo(() => intent ?? (onlyLabourAsked ? makeIntentFrom({ ...form, labour: null, labourRecorded: null }) : null), [intent, onlyLabourAsked, form])
+  const intentKey = checkIntent ? JSON.stringify(checkIntent) : ''
   const previewRef = useRef(poster.preview)
   previewRef.current = poster.preview
   const placeRef = useRef<(err: unknown) => void>(() => undefined)
   useEffect(() => {
     setPreview(null)
     setPreviewProblem(null)
-    if (!intent || saved) return
+    if (!checkIntent || saved) return
+    const partial = !intent
     const id = window.setTimeout(() => {
-      previewRef.current(intent).then(
-        (p) => setPreview(p),
+      previewRef.current(checkIntent).then(
+        (p) => setPreview(partial ? null : p),
         (err: unknown) => {
           // Not enough material (or another refusal on a question) goes under that question at once.
           const m = mapError(err as CaughtError, { simple: true, t })
@@ -131,6 +148,7 @@ export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
   const startNew = (): void => {
     poster.reset()
     priceTouched.current = false
+    labourTouched.current = false
     setSaved(null)
     setPreview(null)
     setPreviewProblem(null)
@@ -224,7 +242,7 @@ export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
         <section className="rounded-lg border border-line bg-panel p-panel shadow-elev-1" data-testid="made-no-recipes">
           <p className="text-body text-ink">{t('simple.made.noRecipes')}</p>
           <p className="mt-1 text-detail text-muted">{t('simple.made.noRecipesHint')}</p>
-          <Button className="mt-3" data-testid="btn-made-set-recipe" onClick={() => nav.go(MANUFACTURE_SCREEN)}>
+          <Button className="mt-3" data-testid="btn-made-set-recipe" onClick={() => nav.go(PRODUCTS_SCREEN)}>
             {t('simple.made.setRecipe')}
           </Button>
         </section>
@@ -239,6 +257,7 @@ export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
                   value={form.itemId}
                   onPick={(id) => {
                     priceTouched.current = false
+                    labourTouched.current = false
                     update({ itemId: id })
                   }}
                   placeholder={t('simple.made.productPlaceholder')}
@@ -302,7 +321,14 @@ export function MadeGoods({ itemId }: { itemId?: number }): React.JSX.Element {
                 />
               </Field>
               <Field label={t('simple.made.labour')} name="labour" error={errors.get(F.labour)} hint={t('simple.made.labourHint')}>
-                <AmountInput paise={form.labour} onPaise={(p) => update({ labour: p })} testId="input-made-labour" />
+                <AmountInput
+                  paise={form.labour}
+                  onPaise={(p) => {
+                    labourTouched.current = true
+                    update({ labour: p })
+                  }}
+                  testId="input-made-labour"
+                />
               </Field>
             </div>
             {(form.labour ?? 0) > 0 && (
