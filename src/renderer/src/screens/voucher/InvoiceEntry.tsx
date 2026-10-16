@@ -552,11 +552,21 @@ export function InvoiceEntry({
   const sourcedRows = rows.some((r) => r.source)
   const linkType = addFrom?.linkType ?? rows.find((r) => r.source)?.source?.linkType ?? 'fulfil'
   const [addFromOpen, setAddFromOpen] = useState(false)
-  const { data: openLines, isLoading: openLinesLoading } = useQuery({
+  // WP 2.5c "Convert to invoice / bill" on an order, and WP 2.5b's on challans / GRNs (the lists):
+  // the sources whose pending lines are drawn once the open lines are loaded — FRESH ones (read
+  // after this editor opened: a cached list from a minute ago lacks a note saved since).
+  const convertFrom = useRef<ConvertSource | null>(
+    draft?.fromTradeDocId != null || (draft?.fromVoucherIds?.length ?? 0) > 0
+      ? { tradeDocId: draft?.fromTradeDocId ?? null, voucherIds: draft?.fromVoucherIds ?? null }
+      : null
+  )
+  const openedAt = useRef(Date.now())
+  const { data: openLines, isLoading: openLinesLoading, dataUpdatedAt: openLinesAt } = useQuery({
     queryKey: ['openSourceLines', partyId, kind, linkType, voucherId ?? null],
     queryFn: () =>
       api.links.openSourceLines({ partyLedgerId: partyId!, targetKind: kind, linkType, ...(voucherId ? { excludeVoucherId: voucherId } : {}) }),
-    enabled: partyId != null && (!!addFrom || sourcedRows)
+    enabled: partyId != null && (!!addFrom || sourcedRows),
+    ...(convertFrom.current ? { refetchOnMount: 'always' as const } : {})
   })
   const sourceByUid = useMemo(() => new Map((openLines ?? []).map((l) => [l.lineUid, l])), [openLines])
   const qtyInForm = (uid: string, exceptKey?: number): number =>
@@ -597,21 +607,15 @@ export function InvoiceEntry({
     if (reason) setNarration((n) => (n.trim() ? n : reason))
     setAddFromOpen(false)
   }
-  // WP 2.5c "Convert to invoice / bill" on an order, and WP 2.5b's on challans / GRNs (the lists):
-  // draw all of their pending lines once loaded — the drawer's own picks (convertPicks).
-  const convertFrom = useRef<ConvertSource | null>(
-    draft?.fromTradeDocId != null || (draft?.fromVoucherIds?.length ?? 0) > 0
-      ? { tradeDocId: draft?.fromTradeDocId ?? null, voucherIds: draft?.fromVoucherIds ?? null }
-      : null
-  )
+  // The conversion: draw every pending line of its sources — the drawer's own picks (convertPicks).
   useEffect(() => {
-    if (convertFrom.current == null || !openLines) return
+    if (convertFrom.current == null || !openLines || openLinesAt < openedAt.current) return
     const src = convertFrom.current
     convertFrom.current = null
     const picks = convertPicks(openLines, src)
     if (picks.length > 0) insertPicks(picks)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openLines])
+  }, [openLines, openLinesAt])
   const removeRow = (i: number): void =>
     setRows((rs) => {
       const next = rs.filter((_r, j) => j !== i)

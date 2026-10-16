@@ -156,4 +156,17 @@ describe('"Convert to invoice" in the sales editor', () => {
     expect(screen.queryByText(/DC-6/)).toBeNull()
     expect(within(document.body).getAllByTestId('line-item-locked').map((x) => x.textContent)).toEqual(['Widget', 'Gadget'])
   })
+
+  it('reads the open lines afresh: a cached list from before the challans were saved is not used', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } })
+    // What an earlier "Add from…" in this session cached: none of the converted challans yet.
+    client.setQueryData(['openSourceLines', 10, 'sales', 'fulfil', null], [OPEN[2]])
+    render(
+      <QueryClientProvider client={client}>
+        <VoucherEntry kindHint="sales" draft={{ partyLedgerId: 10, fromVoucherIds: [31, 32] }} />
+      </QueryClientProvider>
+    )
+    await waitFor(() => expect(screen.getAllByTestId('chip-line-source')).toHaveLength(2))
+    expect(screen.getAllByTestId('input-line-qty').map((q) => (q as HTMLInputElement).value).slice(0, 2)).toEqual(['5', '1'])
+  })
 })
