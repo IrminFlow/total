@@ -197,6 +197,11 @@ what you typed, and a **Back to simple** button.
   gets its figures in one request instead of four. Measured on a busy laptop with 100,000 entries,
   from starting Total to a ready Home: the full app's dashboard went from 22.2 s to 12.0 s, simple
   Home from 24.9 s to 11.3 s. No figure changed. [#131](https://github.com/IrminFlow/total/pull/131)
+- **The tour of Home no longer hides what it points at.** Its card sits below, above or beside the
+  button or tile it is about, inside the window, on small screens too. And Home's "entries added
+  for an earlier, closed date" now counts only entries that really went into a closed month or the
+  locked period after you closed or locked it, not every entry you typed in a few weeks late.
+  [#128](https://github.com/IrminFlow/total/pull/128)
 
 ### For accountants (figures that changed)
 
@@ -417,6 +422,19 @@ Read these before filing from the next release.
   `registers` screen takes optional `from` / `to`. `reportPacks.packFolderName`. New pure sentences:
   `billsToPayWhy` (`explainPeople.ts`), `byMonthBarWhy`, `pmt06Why`.
   [#120](https://github.com/IrminFlow/total/pull/120)
+- E2E dates: `TOTAL_E2E_TODAY=YYYY-MM-DD` runs a scenario as if on that day — `shared/e2eClock.ts`
+  shifts `Date` in main and (through the preload) the renderer, honoured only with `TOTAL_DATA_DIR`
+  in an unpackaged build; the harness's `localToday()` follows it and `launch()` checks both
+  processes see the day. e2e 32 / 33 begin their books early enough for their 100- / 40-day-old
+  bills (`h.coverDaysBack(N)`, `createCompanyUI(name, { coverDaysBack: N })`); 32, 33, 57 and 59
+  pass on 5 April 2027, 10 May 2027 and today. e2e 63 reaches its controls by Tab (no
+  `page.focus()`). A scenario's result line can no longer be lost: closing the app over an unsaved
+  form (beforeunload) crashed or hung the harness — `Harness.close()` lets the unload through and
+  kills a process still up after 20 s, stray rejections fail the run instead of killing it,
+  stdout / stderr are flushed before exit, and the runner keeps whole lines rather than a
+  20 000-character tail. `placeTourCard` (help/tour.ts) and `isEntryIntoClosedPeriod`
+  (anomalies.ts) are new pure helpers; the two `homeAttention` report-equality hashes moved on
+  purpose (the old rule still reproduced the old ones). [#128](https://github.com/IrminFlow/total/pull/128)
 
 ## [0.11.0] - 2026-10-13
 
