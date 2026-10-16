@@ -73,8 +73,8 @@ C was rejected because of its asynchronous API.
   an old passphrase does not survive in it. The envelope's associated data binds its version and
   scrypt cost, not the business: binding the folder name would break a folder imported under a new
   name, and an envelope of another business only unwraps a key that does not open this file.
-- **Opening.** `company:open` on an encrypted file without a remembered key fails with
-  `passphrase_required`; the picker asks (`simple/PassphrasePrompt.tsx`). Five wrong passphrases
+- **Opening.** `company:open` on an encrypted file without a key (in memory this session, or
+  remembered on this computer — below) fails with `passphrase_required`; the picker asks (`simple/PassphrasePrompt.tsx`). Five wrong passphrases
   lock the prompt for 30 s. A plaintext business opens exactly as before — no prompt, nothing asked.
 - **Turning it on / off** (`security:passphrase:on` / `off`, owner; `services/dbEncryption.ts`):
   a normal backup first, then a compacted copy with the target key beside the file, opened and
@@ -90,6 +90,7 @@ C was rejected because of its asynchronous API.
   new file); a failed swap reopens the original; a leftover `company.db.converting` (plaintext when
   the lock was being taken off) is removed before the next open.
 - **Changing the passphrase** re-wraps the same data key: books and backups are not rewritten.
+- **Remember on this computer** — see the section below.
 - **Backups** of a locked business are encrypted with its key (`VACUUM INTO`). The encrypted export
   (`.totalbak`) contains a *plaintext* copy wrapped in its own passphrase file, so a recovery copy
   imports anywhere — the UI offers one right after locking.
@@ -135,6 +136,50 @@ C was rejected because of its asynchronous API.
   allowed by design, so the profit stays derivable by anyone who may read every voucher. The renderer hides
   or disables export / Save / AI-settings buttons only for a flag set to false, so owners and
   unflagged users see what they always did.
+
+## Remember on this computer
+
+Opt-in per business, off by default, never pre-ticked (`services/companyKeys.ts`
+`storeRememberedKey` / `unlockWithRememberedKey`, `company:open` `remember`).
+
+- **What is stored.** The passphrase prompt has "Remember on this computer". Ticked, and the
+  passphrase right, main keeps the **data key** — never the passphrase — in the secret store under
+  `company:<slug>` / `rememberedDataKey`. Like every secret there it is encrypted by safeStorage
+  (macOS Keychain / Windows DPAPI, bound to this computer's login; the test cipher only in hermetic
+  test runs) — there is no plaintext fallback: without secure storage the tick is refused
+  (`remember_unavailable`, the open still succeeds). `security.dbtest.ts` checks `secrets.json`
+  holds neither the passphrase nor the key in hex or base64.
+- **Who decides.** The owner. In a business without people whoever opens it is its owner, so the key
+  is stored at once. In a business with people the tick waits in memory until this open's first
+  sign-in: an owner's keeps it (audited with the owner's name), anyone else's drops it.
+- **Opening.** `company:open` without a passphrase tries the remembered key first and accepts it
+  only once it opens the file (as `unlockKey` accepts an unwrapped key). A key that no longer opens
+  it (`db_key_mismatch` — the lock was taken off and put on again: a new data key) is dropped and the
+  prompt shown with a note (`remembered_key_stale`); any other read failure leaves it alone and asks
+  for the passphrase this time. People's PINs are still asked after it opens. Deleting a business
+  never uses it — the delete asks for the passphrase as before.
+- **When it goes.** Forget in Settings → Security / Lock and safety (owner), Forget beside the
+  business in the company picker and on the screen lock's passphrase prompt (forgetting only takes
+  the convenience away, so the picker may do it before anyone signs in; in an open business with
+  people only the owner may), taking the lock off (recorded in that conversion's audit row), and
+  turning it on again (a new key; the old one could never open the file). A passphrase **change**
+  keeps it: the data key is the same, so the remembered key still opens the books — forget it too if
+  the change is because someone learned the passphrase. Deleting the business removes its whole
+  secret-store scope.
+- **Audit.** Remember / forget are `security` rows (`rememberedOnThisComputer` true / false, `from:
+  'picker'` for the picker's Forget, written inside the books with the remembered key) — never the
+  key.
+- **Threat note.** That is the point of the option: **anyone who can sign in to this computer's
+  user account opens these books without the passphrase**, and malware running as that user can ask
+  the keychain for the key. It protects the books against a copy of the folder or the disk taken
+  elsewhere (the key stays in this computer's keychain), not against this login. The screen lock
+  (PR #127) still applies while the business is open — PINs when it has people; in a business
+  without people the lock asks for the passphrase, but quitting and reopening the app opens it with
+  the remembered key, so a real lock needs people with PINs. Use it only on a computer that only
+  you use.
+- **Not used by `total-cli` / MCP** — they read `TOTAL_PASSPHRASE` only (and have no safeStorage
+  under Electron-as-Node anyway); consolidation reads a locked member with the open business's key
+  or a passphrase given for the run, never a remembered key.
 
 ## CLI, MCP and consolidation access (PR #132)
 
@@ -195,5 +240,3 @@ C was rejected because of its asynchronous API.
   temporary plaintext snapshot inside an encrypted export are not encrypted.
 - The consolidation screen does not ask for member passphrases yet (the run payload takes them,
   PR #132); member charts / pair suggestions skip a locked member that is not open.
-- "Remember on this Mac" (keychain-held key, no prompt) is not offered: the passphrase is asked on
-  every open.

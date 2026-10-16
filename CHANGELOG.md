@@ -126,6 +126,13 @@ what you typed, and a **Back to simple** button.
   business with no sign-ins: with a passphrase lock it asks for the passphrase, otherwise it is a
   privacy screen that anyone can unlock (it says so, and points to People and roles for a real
   lock). [#127](https://github.com/IrminFlow/total/pull/127)
+- **Remember the passphrase on this computer** (opt-in, never ticked for you). The passphrase box
+  has "Remember on this computer": ticked, the books open on this computer without the passphrase
+  (Total keeps the books' key in the computer's keychain, never the passphrase itself). Anyone who
+  can sign in to this computer can then open the books, so tick it only on a computer that only you
+  use. In a business with people it is kept only once the owner signs in. "Remembered on this
+  computer" shows in Lock and safety, beside the business in the list and on the screen lock, each
+  with Forget; taking the passphrase off forgets it too. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
 - **Updates ask first.** Total never downloads or installs an update without a click ("Download
   now", "Later", "Skip this version"; "Install when I quit" is a choice). Settings, "How Total
   looks" (in the full app: Settings, About), has "Check for updates automatically" (on by default);
@@ -399,6 +406,15 @@ Read these before filing from the next release.
   (the new one would lose to it from that start). Like BOMs themselves, the labour meta is not in
   the books export (a backup keeps both).
   [#141](https://github.com/IrminFlow/total/pull/141)
+- **Remember on this computer** (WP 7.2 follow-up), [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM):
+  `company:open` takes `remember` (stored at once without people, else on the first OWNER sign-in
+  of that open; result `remember: 'saved' | 'pending' | 'unavailable'`, `openedWith`); the DATA KEY
+  goes to the secret store (`company:<slug>` / `rememberedDataKey`, safeStorage), tried before the
+  prompt and used only once it opens the file — a stale one is dropped (`remembered_key_stale`). New
+  channels `security:remember:forget` (owner), `company:remembered` / `company:forgetRemembered`
+  (ungated: the picker and the screen lock); `SecurityView.remembered` / `rememberPending`; audited
+  as `security` rows (no key). Dropped on lock off / on; kept through a passphrase change (same key);
+  `company:delete` never uses it. `total-cli` / MCP do not read it.
 - **DataTable widths (both modes).** A flexible text column with `hideable: false` is the row's
   name column: it starts at 152 px (`NAME_MIN_WIDTH`) and takes a double share of spare room; when
   the columns don't fit, money / quantity / enum columns on their kind default shrink to 128 / 112 /
