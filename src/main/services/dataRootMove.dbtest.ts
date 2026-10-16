@@ -99,7 +99,13 @@ describe('data folder move (IPC, hermetic)', () => {
     expect((await call('app:dataRoot:move', { path: join(base, 'other') })).code).toBe('data_folder_not_picked')
     expect((await call('app:dataRoot:move', { path: rootB, extra: 1 })).ok).toBe(false)
 
+    // The open company has WAL frames now; the move closes it first, which checkpoints them
+    // into the db file and removes the -wal, so the copy is the db file alone.
+    const dbA = join(rootA, 'companies', slug, 'company.db')
+    expect(existsSync(`${dbA}-wal`) && readFileSync(`${dbA}-wal`).length > 0).toBe(true)
     const moved = await call('app:dataRoot:move', { path: rootB })
+    expect(existsSync(`${dbA}-wal`)).toBe(false)
+    expect(existsSync(join(rootB, 'companies', slug, 'company.db-wal'))).toBe(false)
     expect(moved.ok, moved.error).toBe(true)
     expect(moved.data).toMatchObject({ path: rootB, copied: true, relaunching: true })
     expect((await call('company:current')).data).toBeNull() // closed before the copy
@@ -232,5 +238,73 @@ describe('moveDataRoot (service)', () => {
     expect(r.kind).toBe('new')
     expect(existsSync(pointer)).toBe(false)
     expect(readFileSync(join(def, 'companies', 'acme', 'backups', 'b1.db')).length).toBe(8 * 1024)
+  })
+
+  it('never switches back to the old copy a move left behind (MOVED-TO.txt) — its books are stale', () => {
+    const from = makeRoot('old-from')
+    const def = makeRoot('old-default') // Documents/total after an earlier move: books + the note
+    writeFileSync(join(def, move.MOVED_NOTE), `moved to ${from}`)
+    expect(move.inspectTarget(def, from)).toMatchObject({ ok: false, problem: 'old_copy' })
+    writeFileSync(pointer, JSON.stringify({ path: from }))
+    expect(() => move.moveDataRoot(opts(from, def))).toThrow(expect.objectContaining({ code: 'data_folder_old_copy' }))
+    expect(JSON.parse(readFileSync(pointer, 'utf8'))).toEqual({ path: from }) // still the moved books
+  })
+
+  it('a copy cut short (marker left) or a stray "companies" folder is not a Total folder', () => {
+    const from = makeRoot('cut-from')
+    const cut = makeRoot('cut-to')
+    writeFileSync(join(cut, move.COPY_MARKER), 'x')
+    expect(move.isTotalDataRoot(cut)).toBe(false)
+    expect(move.inspectTarget(cut, from)).toMatchObject({ ok: false, problem: 'not_empty' })
+    const stray = join(base, 'stray')
+    mkdirSync(join(stray, 'companies', 'Q3 reports'), { recursive: true })
+    expect(move.isTotalDataRoot(stray)).toBe(false)
+    expect(move.inspectTarget(stray, from)).toMatchObject({ ok: false, problem: 'not_empty' })
+    // A finished copy leaves no marker behind.
+    const to = join(base, 'cut-done')
+    move.copyDataRoot(from, to)
+    expect(existsSync(join(to, move.COPY_MARKER))).toBe(false)
+    expect(move.isTotalDataRoot(to)).toBe(true)
+  })
+
+  it('a failed copy into an existing empty folder leaves no marker behind', () => {
+    const from = makeRoot('mark-from')
+    const to = join(base, 'mark-to')
+    mkdirSync(to)
+    const copyFile = (): void => {
+      throw new Error('EIO')
+    }
+    expect(() => move.copyDataRoot(from, to, { copyFile })).toThrow(expect.objectContaining({ code: 'data_folder_copy_failed' }))
+    expect(readdirSync(to)).toEqual([])
+  })
+
+  it('WAL: a business with un-checkpointed WAL frames (a crash left -wal / -shm) arrives whole', async () => {
+    const { testFileDb } = await import('../db/testdb')
+    const from = join(base, 'wal-from')
+    const live = join(base, 'wal-live')
+    mkdirSync(join(from, 'companies', 'walco'), { recursive: true })
+    mkdirSync(live, { recursive: true })
+    writeFileSync(join(from, 'total.json'), '{"companies":[{"slug":"walco"}]}')
+    const livePath = join(live, 'company.db')
+    const db = testFileDb(livePath)
+    db.pragma('journal_mode = WAL')
+    db.pragma('wal_autocheckpoint = 0')
+    db.exec('CREATE TABLE t (n INTEGER)')
+    const ins = db.prepare('INSERT INTO t (n) VALUES (?)')
+    for (let i = 0; i < 500; i++) ins.run(i)
+    // Snapshot the files while the connection still holds them: the db file lacks the rows,
+    // the -wal has them, the -shm is whatever it was (stale once the writer is gone).
+    for (const ext of ['', '-wal', '-shm']) writeFileSync(join(from, 'companies', 'walco', `company.db${ext}`), readFileSync(livePath + ext))
+    db.close()
+    expect(readFileSync(join(from, 'companies', 'walco', 'company.db-wal')).length).toBeGreaterThan(0)
+    const to = join(base, 'wal-to')
+    move.copyDataRoot(from, to)
+    const copy = testFileDb(join(to, 'companies', 'walco', 'company.db'))
+    try {
+      expect((copy.prepare('SELECT COUNT(*) AS n FROM t').get() as { n: number }).n).toBe(500)
+      expect((copy.prepare('PRAGMA quick_check').get() as { quick_check: string }).quick_check).toBe('ok')
+    } finally {
+      copy.close()
+    }
   })
 })

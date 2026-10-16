@@ -18,7 +18,8 @@ const PROBLEM_KEYS: Record<DataFolderProblem, MessageKey> = {
   not_empty: 'errors.dataFolder.notEmpty',
   not_a_folder: 'errors.dataFolder.notAFolder',
   not_writable: 'errors.dataFolder.notWritable',
-  no_space: 'errors.dataFolder.noSpace'
+  no_space: 'errors.dataFolder.noSpace',
+  old_copy: 'errors.dataFolder.oldCopy'
 }
 
 /** "12.4 MB" — a size for the confirm sentence (digits and a unit, the same in every language). */
@@ -92,6 +93,11 @@ export function DataFolderSetting(): React.JSX.Element {
       {data.missingPointer && (
         <p role="alert" className="mt-2 text-detail text-cr" data-testid="data-folder-missing">
           {t('simple.dataFolder.missing', { path: data.missingPointer })}
+        </p>
+      )}
+      {data.oldCopy && (
+        <p role="alert" className="mt-2 text-detail text-cr" data-testid="data-folder-old-copy">
+          {t('simple.dataFolder.oldCopy')}
         </p>
       )}
       {(data.oneDrive || data.synced) && (

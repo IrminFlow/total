@@ -12,7 +12,7 @@ import { isOneDrivePath } from '@shared/windowsPaths'
 import { syncFolderWarning } from '@shared/syncpath'
 import type { DataFolderMoved, DataFolderPick, DataFolderView } from '@shared/dataFolder'
 import { dataRootChoice, dataRootPointerFile } from './paths'
-import { inspectTarget, moveDataRoot, problemMessage } from './services/dataRootMove'
+import { inspectTarget, isOldCopy, moveDataRoot, problemMessage } from './services/dataRootMove'
 import { log } from './log'
 
 type Handle = (channel: string, fn: (payload: unknown) => unknown, minRole?: Role) => void
@@ -31,7 +31,8 @@ function view(): DataFolderView {
     defaultPath: c.defaultPath,
     oneDrive: isOneDrivePath(c.path),
     synced: !isOneDrivePath(c.path) && syncFolderWarning(c.path) !== null,
-    missingPointer: c.problem?.kind === 'pointer_missing_folder' ? (c.problem.pointerPath ?? null) : null
+    missingPointer: c.problem?.kind === 'pointer_missing_folder' ? (c.problem.pointerPath ?? null) : null,
+    oldCopy: c.source !== 'env' && isOldCopy(c.path)
   }
 }
 

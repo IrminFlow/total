@@ -15,6 +15,7 @@ import { syncFolderWarning } from '@shared/syncpath'
 import { configureI18n } from '@shared/i18n'
 import { allowedExternalUrl } from '@shared/externalLinks'
 import { dataFolderLabel } from '@shared/updateText'
+import { MOVED_NOTE } from './services/dataRootMove'
 
 // Hermetic scripted runs (smoke/e2e/CI, TOTAL_DATA_DIR set): keep Electron's userData —
 // localStorage (theme, sidebar sections, report columns), caches, the single-instance lock —
@@ -81,7 +82,23 @@ function warnIfSyncedFolder(): void {
  *  an unplugged drive, a renamed folder: say so, once. The default folder is open instead and the
  *  pointer is kept, so the next launch with the folder back opens the moved books again. */
 function warnIfMovedFolderMissing(): void {
-  const problem = dataRootChoice().problem
+  const choice = dataRootChoice()
+  // The folder in use is the old copy a move left behind (MOVED-TO.txt) and no pointer leads to
+  // the moved books (a reinstall that cleared the app's settings, a new user profile): say so,
+  // or the owner keeps working in stale books without noticing.
+  if (!choice.problem && choice.source !== 'env' && existsSync(join(choice.path, MOVED_NOTE))) {
+    log('warn', 'data-root-is-old-copy', {})
+    if (SUPPRESS_SYNC_WARNINGS) return
+    dialog.showMessageBox({
+      type: 'warning',
+      title: 'These may be old books',
+      message: `Total is opening ${choice.path}, which is the old copy left behind when your books were moved to another folder.`,
+      detail: `Its books may be older than yours. ${MOVED_NOTE} in that folder says where they went. To open the moved books again, use Settings → "Where Total keeps your books" → Move to another folder and pick that folder.`,
+      buttons: ['OK']
+    })
+    return
+  }
+  const problem = choice.problem
   if (!problem) return
   log('warn', 'data-root-pointer-not-followed', { kind: problem.kind })
   if (SUPPRESS_SYNC_WARNINGS) return

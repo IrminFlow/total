@@ -27,7 +27,7 @@ import * as attachments from './services/attachments'
 import { embedAttachments, restoreAttachmentFiles, restoreAttachmentFilesAt, type RestoreFilesResult, type StashResult } from './db/attachmentBackup'
 import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheckAsync, type BackupInfo } from './db/backup'
 import { checkIntegrity, checkIntegrityAsync, QUICK_CHECK_TIMED_OUT } from './db/integrity'
-import { stopChecks } from './db/checkHost'
+import { stopAllChecks, stopChecks } from './db/checkHost'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
@@ -609,9 +609,9 @@ export function registerIpc(): void {
   // Settings → "Where Total keeps your books" (app-level, owner where the company has users).
   registerDataRootIpc(handle, {
     closeCompany: async () => {
-      const slug = current?.slug
       closeCurrentCompany()
-      if (slug) await stopChecks(companyDbPath(slug))
+      // Every background check, not only the company file's: backup checks read files in the folder too.
+      await stopAllChecks()
     },
     who: () => sessionUser?.name ?? null
   })

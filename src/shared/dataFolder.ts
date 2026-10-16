@@ -2,7 +2,7 @@
 
 export type DataFolderSource = 'env' | 'pointer' | 'default'
 
-export type DataFolderProblem = 'same' | 'inside_current' | 'contains_current' | 'not_empty' | 'not_a_folder' | 'not_writable' | 'no_space'
+export type DataFolderProblem = 'same' | 'inside_current' | 'contains_current' | 'not_empty' | 'not_a_folder' | 'not_writable' | 'no_space' | 'old_copy'
 
 export interface DataFolderView {
   /** The folder in use this session. */
@@ -15,6 +15,9 @@ export interface DataFolderView {
   synced: boolean
   /** A moved folder could not be found at launch (the default one is open instead). */
   missingPointer: string | null
+  /** The folder in use holds MOVED-TO.txt: it is the old copy a move left behind (the pointer to
+   *  the moved books is gone — a reinstall, a new user profile), so its books may be stale. */
+  oldCopy: boolean
 }
 
 export interface DataFolderPick {

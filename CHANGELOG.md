@@ -207,7 +207,8 @@ what you typed, and a **Back to simple** button.
   words when that folder is in OneDrive or another cloud-sync folder, and has **Move to another
   folder…**: pick an empty folder, and Total copies your books, backups and settings there, checks
   the copy, and restarts. The old folder is never deleted; it keeps a note saying where the books
-  went. Picking a folder that already has Total books opens those instead. Owner only where the
+  went. Picking a folder that already has Total books opens those instead. Total never switches back to that
+  old copy (its books are older) and warns at start if it finds itself opening one. Owner only where the
   business has sign-ins. [#133](https://github.com/IrminFlow/total/pull/133)
 
 ### For accountants (figures that changed)

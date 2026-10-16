@@ -154,6 +154,12 @@ export async function stopChecks(path: string): Promise<void> {
   )
 }
 
+/** Stop every check of every file (a data-folder move copies the whole folder: a backup check
+ *  still reading — or creating a `-shm` beside — a file there would make the copy differ). */
+export async function stopAllChecks(): Promise<void> {
+  await Promise.all([...running.keys()].map((path) => stopChecks(path)))
+}
+
 /** How many checks are reading `path` right now (tests). */
 export const runningChecks = (path: string): number => running.get(path)?.size ?? 0
 

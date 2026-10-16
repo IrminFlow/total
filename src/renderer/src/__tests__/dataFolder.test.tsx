@@ -21,7 +21,7 @@ const wrap = (ui: ReactNode): ReactNode => (
 
 beforeEach(() => {
   localStorage.clear()
-  view = { path: 'C:\\Users\\asha\\OneDrive\\Documents\\total', source: 'default', defaultPath: 'C:\\Users\\asha\\OneDrive\\Documents\\total', oneDrive: true, synced: false, missingPointer: null }
+  view = { path: 'C:\\Users\\asha\\OneDrive\\Documents\\total', source: 'default', defaultPath: 'C:\\Users\\asha\\OneDrive\\Documents\\total', oneDrive: true, synced: false, missingPointer: null, oldCopy: false }
   pick = { path: 'D:\\Total', ok: true, kind: 'new', bytes: 5 * 1024 * 1024, oneDrive: false, synced: false }
   invoke.mockReset()
   invoke.mockImplementation(async (channel: string, payload?: { path?: string }) => {
@@ -120,5 +120,18 @@ describe('DataFolderSetting', () => {
     expect(err.textContent).toContain(en['errors.dataFolder.copyFailed'])
     expect(err.textContent).toContain('EIO')
     await waitFor(() => expect(screen.getByTestId('btn-data-folder-move')).toBeTruthy())
+  })
+
+  it('warns when the folder in use is the old copy a move left behind', async () => {
+    view = { ...view, oneDrive: false, oldCopy: true }
+    render(wrap(<DataFolderSetting />))
+    expect((await screen.findByTestId('data-folder-old-copy')).textContent).toBe(en['simple.dataFolder.oldCopy'])
+  })
+
+  it('refuses the old copy as a target in plain words', async () => {
+    pick = { path: 'C:\\Users\\asha\\Documents\\total', ok: false, problem: 'old_copy', oneDrive: false, synced: false }
+    render(wrap(<DataFolderSetting />))
+    fireEvent.click(await screen.findByTestId('btn-data-folder-move'))
+    expect((await screen.findByTestId('data-folder-problem')).textContent).toBe(en['errors.dataFolder.oldCopy'])
   })
 })

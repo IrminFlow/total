@@ -18,20 +18,23 @@
  *
  * The caller (ipcDataRoot.ts) closes the open company first and relaunches after.
  */
-import { appendFileSync, closeSync, copyFileSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from 'fs'
+import { appendFileSync, closeSync, copyFileSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, readSync, realpathSync, renameSync, rmSync, statfsSync, statSync, writeFileSync } from 'fs'
 import { createHash } from 'crypto'
 import { dirname, join, relative, resolve, sep } from 'path'
 import { AppError } from '@shared/errors'
 import { pointerText } from '../dataRootResolve'
 
 export const MOVED_NOTE = 'MOVED-TO.txt'
+/** Written into the target first and removed once the copy checks out: a copy cut short (Total
+ *  killed while the window was busy, a power cut) is never taken for a Total folder later. */
+export const COPY_MARKER = '.total-copy-unfinished'
 /** Never copied: a hermetic run's Electron profile, the old note, OS litter. */
-const SKIP = new Set(['.electron-userdata', MOVED_NOTE, '.DS_Store', 'Thumbs.db', 'desktop.ini'])
+const SKIP = new Set(['.electron-userdata', MOVED_NOTE, COPY_MARKER, '.DS_Store', 'Thumbs.db', 'desktop.ini'])
 const LITTER = new Set(['.DS_Store', 'Thumbs.db', 'desktop.ini', '.localized'])
 const HASHED = /\.(db|json|jsonl)$/i
 
 export type TargetKind = 'empty' | 'new' | 'total'
-export type TargetProblem = 'same' | 'inside_current' | 'contains_current' | 'not_empty' | 'not_a_folder' | 'not_writable' | 'no_space'
+export type TargetProblem = 'same' | 'inside_current' | 'contains_current' | 'not_empty' | 'not_a_folder' | 'not_writable' | 'no_space' | 'old_copy'
 
 export interface TargetCheck {
   path: string
@@ -65,9 +68,23 @@ function isWithin(child: string, parent: string): boolean {
   return rel !== '' && !rel.startsWith('..') && !/^[a-z]:/i.test(rel) && !rel.startsWith(sep)
 }
 
-/** A folder Total already keeps books in (its registry or its companies folder). */
+/** A folder Total already keeps books in: its registry, or a business's database under
+ *  companies/ (a bare `companies` folder is not enough — any folder may have one), and not a copy
+ *  that was cut short. */
 export function isTotalDataRoot(path: string): boolean {
-  return existsSync(join(path, 'total.json')) || existsSync(join(path, 'companies'))
+  if (existsSync(join(path, COPY_MARKER))) return false
+  if (existsSync(join(path, 'total.json'))) return true
+  try {
+    return readdirSync(join(path, 'companies')).some((slug) => existsSync(join(path, 'companies', slug, 'company.db')))
+  } catch {
+    return false
+  }
+}
+
+/** The folder Total moved the books OUT of (it holds MOVED-TO.txt): its books are older than the
+ *  moved ones, so Total never switches back to it (that would silently open stale books). */
+export function isOldCopy(path: string): boolean {
+  return existsSync(join(path, MOVED_NOTE))
 }
 
 interface Entry { rel: string; size: number; dir: boolean }
@@ -118,6 +135,7 @@ export function inspectTarget(target: string, current: string, deps: InspectDeps
   if (!existsSync(path)) kind = 'new'
   else {
     if (!statSync(path).isDirectory()) return fail('not_a_folder')
+    if (isOldCopy(path)) return fail('old_copy')
     if (isTotalDataRoot(path)) return { path, ok: true, kind: 'total' }
     const names = readdirSync(path).filter((n) => !LITTER.has(n))
     if (names.length > 0) return fail('not_empty')
@@ -151,8 +169,22 @@ function fsyncPath(path: string, dir: boolean): void {
   }
 }
 
+/** Streamed in 1 MB reads: a database or backup over 2 GiB cannot be read whole (readFileSync
+ *  throws ERR_FS_FILE_TOO_LARGE), and a big one should not sit in memory twice. */
 function sha256(path: string): string {
-  return createHash('sha256').update(readFileSync(path)).digest('hex')
+  const hash = createHash('sha256')
+  const buf = Buffer.allocUnsafe(1024 * 1024)
+  const fd = openSync(path, 'r')
+  try {
+    for (;;) {
+      const n = readSync(fd, buf, 0, buf.length, null)
+      if (n === 0) break
+      hash.update(buf.subarray(0, n))
+    }
+  } finally {
+    closeSync(fd)
+  }
+  return hash.digest('hex')
 }
 
 export interface CopyDeps {
@@ -169,11 +201,14 @@ export function copyDataRoot(from: string, to: string, deps: CopyDeps = {}): Cop
   const copy = deps.copyFile ?? ((a: string, b: string) => copyFileSync(a, b))
   const rollback = (): void => {
     for (const rel of made.reverse()) rmSync(join(to, rel), { recursive: true, force: true })
+    rmSync(join(to, COPY_MARKER), { force: true })
     if (!existed) rmSync(to, { recursive: true, force: true })
   }
   try {
     const entries = walk(from)
     mkdirSync(to, { recursive: true })
+    writeFileSync(join(to, COPY_MARKER), 'Total was copying books into this folder and did not finish. Delete this folder and move again.\n')
+    fsyncPath(join(to, COPY_MARKER), false)
     const dirs = [to]
     let bytes = 0
     for (const e of entries) {
@@ -198,6 +233,8 @@ export function copyDataRoot(from: string, to: string, deps: CopyDeps = {}): Cop
       if (!w || w.dir !== e.dir || w.size !== e.size) throw new Error(`"${e.rel}" differs after the copy`)
       if (!e.dir && HASHED.test(e.rel) && sha256(join(from, e.rel)) !== sha256(join(to, e.rel))) throw new Error(`"${e.rel}" differs after the copy`)
     }
+    rmSync(join(to, COPY_MARKER))
+    fsyncPath(to, true)
     return { files: entries.filter((e) => !e.dir).length, folders: entries.filter((e) => e.dir).length, bytes }
   } catch (err) {
     try {
@@ -286,5 +323,6 @@ export function problemMessage(problem: TargetProblem): string {
     case 'not_a_folder': return 'That is not a folder'
     case 'not_writable': return 'Total cannot write to that folder'
     case 'no_space': return 'There is not enough free space there for your books'
+    case 'old_copy': return 'That folder is the old copy Total left behind when your books were moved out of it — its books are older than yours. Rename or delete it first, or pick another folder'
   }
 }

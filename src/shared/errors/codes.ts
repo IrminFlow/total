@@ -212,6 +212,7 @@ export const ERROR_MAP = {
   data_folder_not_a_folder: e('errors.dataFolder.notAFolder'),
   data_folder_not_writable: e('errors.dataFolder.notWritable'),
   data_folder_no_space: e('errors.dataFolder.noSpace'),
+  data_folder_old_copy: e('errors.dataFolder.oldCopy'),
   data_folder_env: e('errors.dataFolder.env'),
   data_folder_not_picked: e('errors.dataFolder.notPicked'),
   data_folder_busy: e('errors.dataFolder.busy'),
