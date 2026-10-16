@@ -248,6 +248,15 @@ what you typed, and a **Back to simple** button.
   sending a reminder inside your "don't remind again within N days" window now asks first: "You
   reminded them 3 days ago. Send again?" (Send again / Not now) — it never stops you.
   [#140](https://github.com/IrminFlow/total/pull/140)
+- **Money in / out and Bank: refunds and GST bills.** Money in from a supplier who owes you nothing
+  back is no longer saved as a refund: Total says so and offers "Record it as other money in" (or
+  tick "They are paying us for something else"). Money out can now pay a customer back the money
+  of theirs you hold (an advance, a return kept for the next bill) with "A customer (refund)". Money
+  out's expense list no longer offers Purchases, Raw material purchases or Discount given — "Buying
+  goods? Record a purchase instead" opens Record a purchase with what you typed. On Bank, money
+  paid out for an expense asks "Do you have a GST bill?" as Money out does, and "Bank charges" can
+  say "The charge includes GST" so the GST on it counts toward what you claim back.
+  [#139](https://github.com/IrminFlow/total/pull/139)
 
 ### For accountants (figures that changed)
 
