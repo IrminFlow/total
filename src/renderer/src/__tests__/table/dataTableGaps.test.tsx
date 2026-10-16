@@ -8,7 +8,7 @@ import { act, cleanup, fireEvent, render, screen, within } from '@testing-librar
 import { useRef, useState } from 'react'
 import { DataTable, defineColumns, Popover, PopoverButton, type DataTableFooterContext } from '../../components/table'
 import { Modal } from '../../components/ui'
-import { headerMinWidth, KIND_DEFAULT_WIDTH } from '../../lib/table'
+import { headerMinWidth, KIND_DEFAULT_WIDTH, NAME_MIN_WIDTH } from '../../lib/table'
 import { useSession } from '../../state/stores'
 
 interface Row {
@@ -234,7 +234,44 @@ describe('integer width model', () => {
     cleanup()
     measure(300)
     const again = render(<DataTable columns={cols} rows={SMALL} />)
-    expect(again.container.querySelector('table')!.style.width).toBe('410px') // scrolls sideways
+    // to-do §4: the money column gives up room first (150 → its 128 floor), then it scrolls.
+    expect(again.container.querySelector('table')!.style.width).toBe('388px') // scrolls sideways
+  })
+
+  // to-do §4: at 1024 px the simple Sales list cut customer names to ~12 characters while the
+  // three money columns had room. Its columns, at the scroll area's width in a 1024 px window
+  // (collapsed simple sidebar) and a little narrower.
+  it('1024 px: a name column keeps ~16 characters; money shrinks first, then the table scrolls', () => {
+    interface Sale {
+      id: number
+      customer: string
+    }
+    const sale = defineColumns<Sale>([
+      { id: 'date', header: 'Date', kind: 'date', value: () => '2026-10-01', width: 130 },
+      { id: 'number', header: 'Bill no.', kind: 'text', value: (r) => String(r.id), width: 110 },
+      { id: 'customer', header: 'Customer', kind: 'text', hideable: false, value: (r) => r.customer },
+      { id: 'total', header: 'Total', kind: 'money', value: () => 118000 },
+      { id: 'paid', header: 'Paid', kind: 'money', value: () => 0 },
+      { id: 'due', header: 'Due', kind: 'money', value: () => 118000 },
+      { id: 'status', header: 'Status', kind: 'text', value: () => 'Due' }
+    ])
+    const rows: Sale[] = [{ id: 1, customer: 'Shree Ganesh Kirana Stores' }]
+    const colWidths = (c: HTMLElement): number[] => Array.from(c.querySelectorAll('col')).map((x) => Number(x.style.width.replace('px', '')))
+    measure(918)
+    const fits = render(<DataTable columns={sale} rows={rows} />)
+    expect(fits.container.querySelector('table')!.style.width).toBe('918px') // no sideways scroll
+    let w = colWidths(fits.container)
+    expect(w[2]).toBeGreaterThanOrEqual(NAME_MIN_WIDTH)
+    expect(w.slice(3, 6).every((x) => x < 150 && x >= 128)).toBe(true)
+    // A name longer than the column carries its whole text as a tooltip.
+    expect(screen.getByText('Shree Ganesh Kirana Stores').closest('td')!.title).toBe('Shree Ganesh Kirana Stores')
+    cleanup()
+    measure(860)
+    const narrow = render(<DataTable columns={sale} rows={rows} />)
+    w = colWidths(narrow.container)
+    expect(w[2]).toBe(NAME_MIN_WIDTH)
+    expect(w.slice(3, 6)).toEqual([128, 128, 128])
+    expect(Number(narrow.container.querySelector('table')!.style.width.replace('px', ''))).toBeGreaterThan(860) // scrolls sideways
   })
 })
 

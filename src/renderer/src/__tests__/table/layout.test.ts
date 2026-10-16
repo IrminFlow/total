@@ -12,6 +12,7 @@ import {
   describeFilter,
   estimateLabelWidth,
   FLEX_MIN_WIDTH,
+  NAME_MIN_WIDTH,
   headerBands,
   headerMinWidth,
   KIND_DEFAULT_WIDTH,
@@ -104,6 +105,58 @@ describe('column width model', () => {
     expect(layoutColumnWidths(specs, 0).widths).toEqual([300, 300])
     // fractional container widths are floored so the sum never exceeds the space
     expect(layoutColumnWidths(specs, 700.6).total).toBe(700)
+  })
+
+  // to-do §4: names were cut at 1024 px while the money columns beside them had room.
+  it('a name column (text, not hideable) starts at NAME_MIN_WIDTH and takes a double share of spare space', () => {
+    const specs = columnWidthSpecs([
+      col({ id: 'customer', kind: 'text', header: 'Customer', hideable: false }),
+      col({ id: 'status', kind: 'text', header: 'Status' }),
+      col({ id: 'own', kind: 'text', header: 'Who', hideable: false, minWidth: 200 })
+    ])
+    expect(specs.map((s) => [s.base, !!s.name])).toEqual([
+      [NAME_MIN_WIDTH, true],
+      [FLEX_MIN_WIDTH, false],
+      [200, true]
+    ])
+    // ~16 characters of a body-size name (≈ 7.2 px each) + 24 px padding.
+    expect(NAME_MIN_WIDTH).toBeGreaterThanOrEqual(16 * 7.2 + 24)
+    const { widths, total } = layoutColumnWidths(specs, NAME_MIN_WIDTH + FLEX_MIN_WIDTH + 200 + 50)
+    expect(widths).toEqual([NAME_MIN_WIDTH + 20, FLEX_MIN_WIDTH + 10, 220])
+    expect(total).toBe(NAME_MIN_WIDTH + FLEX_MIN_WIDTH + 200 + 50)
+  })
+
+  it('too wide: money / quantity / enum defaults shrink first (never under their label), then the table scrolls', () => {
+    const cols = [
+      col({ id: 'date', kind: 'date', header: 'Date', width: 130 }),
+      col({ id: 'number', kind: 'text', header: 'Bill', width: 110 }),
+      col({ id: 'customer', kind: 'text', header: 'Customer', hideable: false }),
+      col({ id: 'total', kind: 'money', header: 'Total' }),
+      col({ id: 'paid', kind: 'money', header: 'Paid' }),
+      col({ id: 'due', kind: 'money', header: 'Due' }),
+      col({ id: 'status', kind: 'text', header: 'Status' })
+    ]
+    const specs = columnWidthSpecs(cols)
+    expect(specs.filter((s) => s.floor !== undefined).map((s) => s.floor)).toEqual([128, 128, 128])
+    const base = specs.reduce((a, s) => a + s.base, 0)
+    // 30 px short: the three money columns give 10 each; the name keeps its width.
+    let r = layoutColumnWidths(specs, base - 30)
+    expect(r.widths).toEqual([130, 110, NAME_MIN_WIDTH, 140, 140, 140, FLEX_MIN_WIDTH])
+    expect(r.total).toBe(base - 30)
+    // Uneven: remainder px from the left, exact total.
+    r = layoutColumnWidths(specs, base - 31)
+    expect(r.widths.slice(3, 6)).toEqual([139, 140, 140])
+    expect(r.total).toBe(base - 31)
+    // Far too narrow: money stops at its floor, the rest scrolls; dates, explicit widths and the name never shrink.
+    r = layoutColumnWidths(specs, 400)
+    expect(r.widths).toEqual([130, 110, NAME_MIN_WIDTH, 128, 128, 128, FLEX_MIN_WIDTH])
+    // A user-resized money column keeps the user's width.
+    const resized = columnWidthSpecs(cols, { total: 150 })
+    expect(layoutColumnWidths(resized, base - 30).widths.slice(3, 6)).toEqual([150, 135, 135])
+    // A long header is a floor too.
+    expect(columnWidthSpecs([col({ id: 'm', kind: 'money', header: 'Value before GST this month' })])[0]!.floor).toBe(
+      headerMinWidth('Value before GST this month')
+    )
   })
 })
 

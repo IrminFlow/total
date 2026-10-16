@@ -932,7 +932,7 @@ export function DataTable<Row>(props: DataTableProps<Row>): React.JSX.Element {
             <td
               key={c.id}
               className={`${alignCls(columnAlign(c))} ${c.className ?? ''}${explain ? ' dt-explainable' : ''}`}
-              title={c.kind === 'text' && typeof content === 'string' && content.length > 24 ? content : undefined}
+              title={c.kind === 'text' && typeof content === 'string' && content.length > 16 ? content : undefined}
             >
               {content}
               {explain && <ExplainButton className="dt-explain" testId={`${area}-explain-${c.id}`} figure={() => cellFigure(c, row, visible)} />}
