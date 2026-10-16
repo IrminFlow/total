@@ -377,7 +377,7 @@ export function createAskDraft(
   env: AskEnv,
   t: Translate,
   classifyFn: (text: string, today: string) => AssistIntent,
-  askedBy: string | null = null
+  askedBy: number | null = null
 ): AssistDraftResult {
   const intent = classifyFn(input.text, input.today)
   if (intent.kind !== 'entry') throw new Error('That is not something to record — ask it as a question instead')

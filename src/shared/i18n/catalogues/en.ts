@@ -2349,7 +2349,7 @@ export const en = {
   'assist.tds.off': '{kind, select, tds {TDS (tax deducted at source)} other {TCS (tax collected at source)}} is not switched on for this business. Turn it on in Features if you need it.',
   'assist.tds.none': 'You have not {kind, select, tds {deducted any TDS (tax deducted at source)} other {collected any TCS (tax collected at source)}} yet.',
   'assist.payroll.off': 'Payroll is not switched on for this business. Turn it on in Features to pay salaries through it.',
-  'assist.payroll.salaryAccount': 'Salaries you recorded {period}: {amount}.',
+  'assist.payroll.salaryAccount': 'Salaries you paid through Money out are part of your expenses: see how the business is doing.',
   'assist.payroll.run': 'Pay for {month}: {net} to {count, plural, one {# employee} other {# employees}} after deductions ({gross} before them).',
   'assist.payroll.runs': 'Pay {period}: {net} after deductions over {count, plural, one {# pay run} other {# pay runs}} ({gross} before them).',
   'assist.payroll.none': 'No pay run is posted {period} yet.',

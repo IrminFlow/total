@@ -149,6 +149,23 @@ describe('useSimplePost opened from an Ask Total draft', () => {
     expect(discards()).toEqual([])
   })
 
+  it('a save still running when the screen goes (save → nav.replace) consumes it — no discard', async () => {
+    let finish: (v: unknown) => void = () => undefined
+    invoke.mockImplementationOnce(() => new Promise((r) => (finish = r))).mockResolvedValue({ ok: true, data: null })
+    const { result: h, unmount } = renderHook(() => useSimplePost({ aiDraftId: 45 }))
+    let running: Promise<unknown> = Promise.resolve()
+    act(() => {
+      running = h.current.post(intent)
+    })
+    unmount()
+    await new Promise((r) => setTimeout(r, 10))
+    expect(discards()).toEqual([])
+    finish({ ok: true, data: result([9]) })
+    await running
+    await new Promise((r) => setTimeout(r, 10))
+    expect(discards()).toEqual([])
+  })
+
   it('a failed save keeps the draft for a retry; leaving then discards it', async () => {
     invoke.mockResolvedValueOnce({ ok: false, error: 'Books are locked', code: 'books_locked', field: 'date' }).mockResolvedValue({ ok: true, data: null })
     const { result: h, unmount } = renderHook(() => useSimplePost({ aiDraftId: 43 }))

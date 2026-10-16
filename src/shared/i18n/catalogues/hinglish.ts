@@ -2242,7 +2242,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'assist.tds.off': 'Is business ke liye {kind, select, tds {TDS (tax deducted at source)} other {TCS (tax collected at source)}} chalu nahi hai. Zaroorat ho to Features mein chalu karein.',
   'assist.tds.none': 'Aapne abhi tak {kind, select, tds {koi TDS (tax deducted at source) nahi kaata} other {koi TCS (tax collected at source) nahi liya}} hai.',
   'assist.payroll.off': 'Is business ke liye payroll chalu nahi hai. Usse salary dene ke liye Features mein chalu karein.',
-  'assist.payroll.salaryAccount': '{period} aapne jo salary darj ki: {amount}.',
+  'assist.payroll.salaryAccount': '“Paise gaye” se di gayi salary aapke kharchon mein shamil hai: dekhein business kaisa chal raha hai.',
   'assist.payroll.run': '{month} ki salary: deductions ke baad {net}, {count, plural, one {# employee} other {# employees}} ko (deductions se pehle {gross}).',
   'assist.payroll.runs': '{period} ki salary: deductions ke baad {net}, {count, plural, one {# pay run} other {# pay runs}} mein (deductions se pehle {gross}).',
   'assist.payroll.none': '{period} ka koi pay run abhi darj nahi hai.',

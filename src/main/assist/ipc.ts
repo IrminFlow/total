@@ -28,8 +28,8 @@ export interface AskTotalDeps {
   company: () => { db: DB; info: CompanyInfo }
   /** The signed-in role; null = a company with users and nobody signed in. */
   roleNow: () => Role | null
-  /** The signed-in user's name; null = nobody signed in (a company without users). */
-  userNow?: () => string | null
+  /** The signed-in user's id (never the name: a rename keeps it); null = nobody signed in (a company without users). */
+  userNow?: () => number | null
 }
 
 export const canDraftAs = (role: Role | null): boolean => role === 'accountant' || role === 'owner'

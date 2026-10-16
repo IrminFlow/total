@@ -182,6 +182,11 @@ const CORPUS: [string, Expect][] = [
   ['electricity bill 2000 paid', { kind: 'entry', entry: { action: 'money_out', amount: 200000, what: 'electricity' } }],
   ['Mohan ka bill 5000 bhara', { kind: 'entry', entry: { action: 'money_out', amount: 500000 } }],
   ['bill 42 ka paisa aaya kya', { kind: 'bill', number: '42' }],
+  // An entry against a bill: the bill's number is never the amount (review: was ₹7 / ₹12).
+  ['bill no 7 ka payment aaya 3000', { kind: 'entry', entry: { action: 'money_in', amount: 300000 } }],
+  ['bill 7 ka 3000 mila', { kind: 'entry', entry: { action: 'money_in', amount: 300000 } }],
+  ['bijli ka bill 2000 bhara', { kind: 'entry', entry: { action: 'money_out', amount: 200000, what: 'bijli' } }],
+  ['paid 4200 to Ramesh', { kind: 'entry', entry: { action: 'money_out', amount: 420000, party: 'ramesh' } }],
   // ---- TDS / TCS and payroll amounts ----
   ['TDS kitna dena hai', { kind: 'withholding', which: 'tds' }],
   ['how much TDS this month', { kind: 'withholding', which: 'tds' }],

@@ -328,7 +328,7 @@ interface BillHit {
  *  bill no. — found through the SEARCH SERVICE (the palette's own voucher search; its `no:` /
  *  free-text matches are "contains", so only an exact number is kept). This FY first; none this
  *  year → any year. */
-function billHits(db: DB, number: string, side: 'sale' | 'purchase' | undefined, today: string): BillHit[] {
+function billHits(db: DB, number: string, side: 'sale' | 'purchase' | undefined, today: string): { thisYear: BillHit[]; anyYear: () => BillHit[] } {
   const fy = fyOf(today)
   const quoted = /^[\w\-/]+$/.test(number) ? number : `"${number.replace(/"/g, '')}"`
   // Page through every match (contains-matches can be many: "42" is in 142, 420 …), capped.
@@ -357,31 +357,42 @@ function billHits(db: DB, number: string, side: 'sale' | 'purchase' | undefined,
     }
     return out
   }
-  const thisYear = run(` fy:${fy.startYear}`)
-  return thisYear.length ? thisYear : run('')
+  return { thisYear: run(` fy:${fy.startYear}`), anyYear: () => run('') }
 }
 
-/** The Sales / Purchase list's own row for a bill (registerVoucherRows + billAmount + the
- *  Outstandings allocation as on today) — null when it is not an in-books bill. */
-function saleRowOf(db: DB, hit: BillHit, today: string): SaleRow | null {
-  return salesList(db, hit.date, hit.date, today).find((r) => r.voucherId === hit.voucherId) ?? null
-}
-function purchaseRowOf(db: DB, hit: BillHit, today: string): PurchaseRow | null {
-  return purchasesList(db, hit.date, hit.date, today).find((r) => r.voucherId === hit.voucherId) ?? null
+type BillRow = { side: 'sale'; row: SaleRow } | { side: 'purchase'; row: PurchaseRow }
+
+/** The Sales / Purchase list's own rows for the hits (registerVoucherRows + billAmount + the
+ *  Outstandings allocation as on today) — ONE list call per side over the hits' dates (never one
+ *  per hit: a short number matches many entries), in-books bills only, a purchase only when its
+ *  supplier's bill no. is exactly the number. */
+function billRows(db: DB, hits: BillHit[], number: string, today: string): BillRow[] {
+  const out: BillRow[] = []
+  for (const side of ['sale', 'purchase'] as const) {
+    const mine = hits.filter((h) => h.side === side)
+    if (mine.length === 0) continue
+    const ids = new Set(mine.map((h) => h.voucherId))
+    const dates = mine.map((h) => h.date).sort()
+    const from = dates[0]!
+    const to = dates[dates.length - 1]!
+    if (side === 'sale') {
+      for (const row of salesList(db, from, to, today)) if (ids.has(row.voucherId)) out.push({ side, row })
+    } else {
+      for (const row of purchasesList(db, from, to, today)) {
+        if (ids.has(row.voucherId) && (row.billNo ?? '').trim().toLowerCase() === number) out.push({ side, row })
+      }
+    }
+  }
+  return out
 }
 
 function billAnswer(db: DB, intent: Extract<AssistIntent, { kind: 'bill' }>, input: AskInput, t: Translate): AssistAnswer {
   const today = input.today
-  const rows: ({ side: 'sale'; row: SaleRow } | { side: 'purchase'; row: PurchaseRow })[] = []
-  for (const h of billHits(db, intent.number, intent.side, today)) {
-    if (h.side === 'sale') {
-      const row = saleRowOf(db, h, today)
-      if (row) rows.push({ side: 'sale', row })
-    } else {
-      const row = purchaseRowOf(db, h, today)
-      if (row && (row.billNo ?? '').trim().toLowerCase() === intent.number) rows.push({ side: 'purchase', row })
-    }
-  }
+  // This FY first; none THIS year (after the exact-number check — a purchase hit may only
+  // contain the number) → any year.
+  const hits = billHits(db, intent.number, intent.side, today)
+  let rows = billRows(db, hits.thisYear, intent.number, today)
+  if (rows.length === 0) rows = billRows(db, hits.anyYear(), intent.number, today)
   const shown = (x: (typeof rows)[number]): string => (x.side === 'sale' ? x.row.number : x.row.billNo ?? x.row.number)
   const listTarget = target(intent.side === 'purchase' ? 'simple-purchases' : 'simple-sales')
   if (rows.length === 0) {
@@ -446,22 +457,14 @@ function payrollAnswer(db: DB, intent: Extract<AssistIntent, { kind: 'payroll' }
   const p = intent.period
   const when = periodText(p, input.today, t)
   if (!getFeatures(db).payroll) {
-    // Without payroll, salaries are paid through Money out to the salary account(s): the P&L's
-    // own figure for them in the period.
-    const ids = new Set((db.prepare("SELECT id FROM ledgers WHERE simple_category = 'salary'").all() as { id: number }[]).map((r) => r.id))
-    const links: AssistLink[] = [{ label: t('assist.link.features'), target: target('simple-features') }]
-    if (ids.size === 0) return answer(intent, [t('assist.payroll.off')], { links })
-    const pnl = profitAndLoss(db, p.from, p.to)
-    let amount = 0
-    const walk = (n: StatementNode): void => {
-      if (n.kind === 'ledger' && ids.has(n.id)) amount += n.amount
-      n.children.forEach(walk)
-    }
-    ;[...pnl.tradingExpenses, ...pnl.indirectExpenses].forEach(walk)
-    const src = screenSource('profit-loss', t('assist.source.pnl'), { from: p.from, to: p.to })
-    const sentences = [t('assist.payroll.salaryAccount', { amount: money(amount), period: when }), t('assist.payroll.off')]
-    if (!intent.periodSaid) sentences.push(t('assist.figure.periodAssumed'))
-    return answer(intent, sentences, { figures: [fig(amount, src, target('simple-reports', { report: 'doing' }))], links })
+    // Without payroll there is no pay-run figure. Salaries paid through Money out are expense
+    // lines of How is my business doing / the P&L — said, not summed here (no screen shows a
+    // "salary accounts" total; simple_category is never read for a figure).
+    const links: AssistLink[] = [
+      { label: t('assist.link.pnl'), target: target('simple-reports', { report: 'doing' }) },
+      { label: t('assist.link.features'), target: target('simple-features') }
+    ]
+    return answer(intent, [t('assist.payroll.off'), t('assist.payroll.salaryAccount')], { links })
   }
   // The Payroll screen's posted runs (its Net pay / Gross columns), the months of the period.
   const runs = listRuns(db)

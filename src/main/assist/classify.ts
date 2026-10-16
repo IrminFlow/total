@@ -401,6 +401,9 @@ function purposeOf(tokens: string[], nums: NumberHit[], skip: Set<number>): stri
   return tokens.find((w, i) => !skip.has(i) && Object.prototype.hasOwnProperty.call(EXPENSE_WORDS, w))
 }
 
+const BILL_WORDS = new Set(['bill', 'bil', 'invoice', 'invoic', 'inv'])
+const BILL_NO_WORDS = new Set(['no', 'no.', 'num', 'number', 'nr', '#'])
+
 export function entryOf(raw: string, n: Normalised, today: string): AssistEntrySlots | null {
   const q = n.q
   if (n.question || QUESTION_START.test(q)) return null
@@ -427,7 +430,16 @@ export function entryOf(raw: string, n: Normalised, today: string): AssistEntryS
     }
   }
   const tokens = body.split(' ')
-  const nums = numbersIn(tokens)
+  // "bill no 7 ka payment aaya 3000": with another number in the request, the one right after
+  // "bill / invoice (no.)" is the bill's number, never the amount ("bijli ka bill 2000 bhara",
+  // the only number, stays the amount).
+  const all = numbersIn(tokens)
+  const billNumber = (x: NumberHit): boolean => {
+    let i = x.index - 1
+    if (i >= 0 && BILL_NO_WORDS.has(tokens[i]!)) i--
+    return i >= 0 && BILL_WORDS.has(tokens[i]!)
+  }
+  const nums = all.length >= 2 && all.some((x) => !billNumber(x)) ? all.filter((x) => !billNumber(x)) : all
   if (nums.length === 0) return null
   const how = howOf(body)
   const slots: AssistEntrySlots = { action: sale ? 'sale' : buy ? 'purchase' : inV ? 'money_in' : 'money_out' }

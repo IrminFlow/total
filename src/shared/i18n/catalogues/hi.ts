@@ -2247,7 +2247,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'assist.tds.off': 'इस बिज़नेस के लिए {kind, select, tds {TDS (स्रोत पर काटा गया टैक्स)} other {TCS (स्रोत पर लिया गया टैक्स)}} चालू नहीं है। ज़रूरत हो तो सुविधाएँ में चालू करें।',
   'assist.tds.none': 'आपने अभी तक {kind, select, tds {कोई TDS (स्रोत पर काटा गया टैक्स) नहीं काटा} other {कोई TCS (स्रोत पर लिया गया टैक्स) नहीं लिया}} है।',
   'assist.payroll.off': 'इस बिज़नेस के लिए पेरोल चालू नहीं है। उससे तनख़्वाह देने के लिए सुविधाएँ में चालू करें।',
-  'assist.payroll.salaryAccount': '{period} आपने जो तनख़्वाह दर्ज की: {amount}।',
+  'assist.payroll.salaryAccount': '“पैसे गए” से दी गई तनख़्वाह आपके खर्चों में शामिल है: देखें बिज़नेस कैसा चल रहा है।',
   'assist.payroll.run': '{month} की तनख़्वाह: कटौती के बाद {net}, {count, plural, one {# कर्मचारी} other {# कर्मचारियों}} को (कटौती से पहले {gross})।',
   'assist.payroll.runs': '{period} की तनख़्वाह: कटौती के बाद {net}, {count, plural, one {# पे रन} other {# पे रन}} में (कटौती से पहले {gross})।',
   'assist.payroll.none': '{period} का कोई पे रन अभी दर्ज नहीं है।',

@@ -465,6 +465,24 @@ describe('Ask Total: bills in two years, TDS and payroll (an unregistered busine
     expect(now.sentences[1]).toBe('It is paid in full.')
   })
 
+  it('a supplier bill no. found only in an earlier year, while this year has one that merely CONTAINS it', async () => {
+    const groups = await ok<{ id: number; name: string }[]>('master:groups:list')
+    const vk = (await ok<{ id: number }>('master:ledgers:create', { name: 'Vikas Traders', groupId: groups.find((g) => g.name === 'Sundry Creditors')!.id, stateCode: '27' })).id
+    const old = await ok<{ voucherIds: number[] }>('simple:post', { intent: { kind: 'purchase', clientId: 'pay-buy-00001', date: '2024-07-02', supplierId: vk, billNo: 'K-5', amount: { amount: 70000 }, payment: { how: 'credit' } }, today: T })
+    await ok('simple:post', { intent: { kind: 'purchase', clientId: 'pay-buy-00002', date: '2025-08-02', supplierId: vk, billNo: 'K-55', amount: { amount: 90000 }, payment: { how: 'credit' } }, today: T })
+    const a = await ask('supplier bill K-5 paid?')
+    expect(a.intent).toBe('bill')
+    expect(a.links[0]!.target).toEqual({ screen: 'simple-purchases', params: { billId: old.voucherIds[0] } })
+    expect(paise(a)).toEqual([70000, 70000])
+  })
+
+  it('salary with payroll off: no figure of its own — points to how the business is doing', async () => {
+    const a = await ask('salary kitni gayi is mahine')
+    expect(a.intent).toBe('payroll')
+    expect(a.figures).toEqual([])
+    expect(a.links.map((l) => l.target)).toEqual([{ screen: 'simple-reports', params: { report: 'doing' } }, { screen: 'simple-features' }])
+  })
+
   it('TDS: not switched on → says so (Features); on → the Taxes screen’s figures', async () => {
     const off = await ask('TDS kitna dena hai')
     expect(off.intent).toBe('withholding')

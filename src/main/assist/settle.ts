@@ -38,7 +38,7 @@ export function settleAskDraft(db: DB, draftId: number, intentKind: string, vouc
 export const isOpenAskDraft = (d: AiDraftDto | null): d is AiDraftDto =>
   !!d && d.status === 'open' && d.source === 'assistant' && d.origin === ASK_TOTAL_ORIGIN && !!d.payload.simple
 
-const askerOf = (d: AiDraftDto): string | null => d.payload.simple?.askedBy ?? null
+const askerOf = (d: AiDraftDto): number | null => d.payload.simple?.askedBy ?? null
 
 /** Discard one open Ask Total draft — status 'discarded', audited exactly as Settings → AI drafts'
  *  Discard (ai/drafts.ts discardDraft: the status before / after). */
@@ -53,7 +53,7 @@ function discard(db: DB, d: AiDraftDto): AiDraftDto {
  *  goes (it never stays open in Settings → AI drafts). Only an OPEN Ask Total draft asked by the
  *  same person; anything else (a chat draft, one already saved or discarded, someone else's) is
  *  left alone and null comes back. */
-export function discardAskDraft(db: DB, draftId: number, askedBy: string | null): AiDraftDto | null {
+export function discardAskDraft(db: DB, draftId: number, askedBy: number | null): AiDraftDto | null {
   const d = getDraft(db, draftId)
   if (!isOpenAskDraft(d) || askerOf(d) !== askedBy) return null
   return db.transaction(() => discard(db, d))()
@@ -61,7 +61,7 @@ export function discardAskDraft(db: DB, draftId: number, askedBy: string | null)
 
 /** A new Ask Total draft replaces the person's older open ones (one open at a time). Call inside
  *  the transaction that inserts the new draft. */
-export function discardOlderAskDrafts(db: DB, askedBy: string | null, keepId: number): number[] {
+export function discardOlderAskDrafts(db: DB, askedBy: number | null, keepId: number): number[] {
   const older = listDrafts(db, 'open', undefined, ['assistant']).filter((d) => d.id !== keepId && isOpenAskDraft(d) && askerOf(d) === askedBy)
   return older.map((d) => discard(db, d).id)
 }
