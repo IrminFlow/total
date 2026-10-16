@@ -5,7 +5,7 @@ import { mapError, type CaughtError } from '@shared/errors'
 import type { GstFiledEntry, GstForm } from '@shared/simple/taxes'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
-import { useSession, useToasts } from '../../state/stores'
+import { useNav, useSession, useToasts } from '../../state/stores'
 import { Button, DateInput, Field, TextInput } from '../../components/ui'
 
 /**
@@ -35,6 +35,10 @@ export function FiledForm({ form, period, periodEnd, today, filed }: { form: Gst
         setArn('')
         setEditing(true)
       } else setEditing(false)
+      // A 3B noted as filed moves the screen's DEFAULT period (and Home's tile) on to the next
+      // one — keep this screen on the period just marked, so the mark stays in view.
+      const top = useNav.getState().stack.at(-1)
+      if (top?.name === 'simple-taxes' && !top.period) useNav.getState().replace({ name: 'simple-taxes', period }) // i18n-technical
       await queryClient.invalidateQueries({ queryKey: ['simpleTaxes'] }) // i18n-technical
     } catch (err) {
       const m = mapError(err as CaughtError, { simple: true, t, fields: ['arn', 'date'] }) // i18n-technical

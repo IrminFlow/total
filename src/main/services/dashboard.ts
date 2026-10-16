@@ -21,6 +21,8 @@ import {
 import { complianceApplicability, upcomingDeadlines } from '@shared/compliance'
 import { tdsQuarterOf } from '@shared/tds'
 import { gstPeriodOf } from '@shared/dates'
+import { gstr1DueDate, gstr3bDueDate } from '@shared/gst/filing'
+import { GST_FILED_META_KEY, normalizeGstFiled, type GstFiledMeta } from '@shared/simple/taxes'
 import { closingBalances, descendantIdSet, profitAndLoss, stockAgeing } from './reports'
 import { netTradeRows, outstandings } from './analysis'
 import { negativeStock, stockValuesAt } from './stockAnalysis'
@@ -99,6 +101,21 @@ export function dashGst(db: DB, company: CompanyInfo, today: string, notBefore?:
     to = today
     soFar = true
   }
+  // The Taxes screen's "I've filed" (meta gstFiled): once that period's GSTR-3B is marked filed it
+  // is done — the tile (Gateway chip, simple Home, the Taxes screen's default period) moves on to
+  // the running period so far, with that period's own due dates. A running period can't be marked
+  // filed (setGstFiled refuses it), so this never skips twice. The figures are gstr3b()'s as ever.
+  let gstr1Due = next1?.date ?? null
+  let gstr3bDue = next3b?.date ?? null
+  const filedHere = readGstFiled(db)[monthOf(to)]
+  if (!soFar && filedHere?.gstr3b) {
+    from = filing === 'quarterly' ? `${quarterStartOf(monthOf(today))}-01` : `${monthOf(today)}-01`
+    to = today
+    soFar = true
+    const last = filing === 'quarterly' ? addMonths(quarterStartOf(monthOf(today)), 2) : monthOf(today)
+    gstr3bDue = gstr3bDueDate(last, filing, company.stateCode).date
+    if (filedHere.gstr1 || !gstr1Due) gstr1Due = gstr1DueDate(last, filing)
+  }
   const period = monthOf(to)
   const f = gst3bFigures(db, company, from, to, period)
   return {
@@ -107,14 +124,26 @@ export function dashGst(db: DB, company: CompanyInfo, today: string, notBefore?:
     to,
     quarterly: filing === 'quarterly',
     soFar,
-    gstr1Due: next1?.date ?? null,
-    gstr3bDue: next3b?.date ?? null,
+    gstr1Due,
+    gstr3bDue,
     liability: f.outwardTax + f.rcmTax,
     outwardTax: f.outwardTax,
     rcmTax: f.rcmTax,
     itc: f.itc,
     payable: f.payable,
     annual: annualGstDeadlines(db, today)
+  }
+}
+
+/** meta `gstFiled` (the Taxes screen's "I've filed" marks, shared/simple/taxes.ts); missing or
+ *  malformed = none. simpleTaxes.ts writes it. */
+export function readGstFiled(db: DB): GstFiledMeta {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(GST_FILED_META_KEY) as { value: string } | undefined
+  if (!row) return {}
+  try {
+    return normalizeGstFiled(JSON.parse(row.value))
+  } catch {
+    return {}
   }
 }
 

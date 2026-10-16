@@ -256,6 +256,33 @@ describe('simple:taxes — hand-worked figures (review, WP 9.9)', () => {
     await ok('simple:taxes:filed', { period: month, form: 'gstr3b', arn: 'AA2709261234568', date: filedOn })
     // … and stops once both are noted as filed.
     expect(await keys()).not.toContain('gst_returns')
+
+    // PR #94 to-do: with the period's GSTR-3B noted as filed, Home's GST tile (dashboard.dashGst,
+    // = the Gateway's 3B chip) and the Taxes screen's default period move on to the running month
+    // so far — with that month's own due dates; the figures are still gstr3b()'s for what is shown.
+    const now = TODAY.slice(0, 7)
+    // (After the 20th the tile already shows this month — last month's 3B is no longer the next one.)
+    const lastMonthNext = gstr3bDueDate(month, 'monthly', '27').date >= TODAY
+    const t = await ok<Regular>('simple:taxes', { today: TODAY })
+    const h = await ok<SimpleHomeData>('simple:home', { today: TODAY })
+    const tile = h.gst?.kind === 'regular' ? h.gst.row : null
+    expect(t.period.period).toBe(now)
+    if (lastMonthNext) expect([t.period.from, t.period.to, t.period.soFar]).toEqual([`${now}-01`, TODAY, true])
+    expect(tile).toMatchObject({ period: now, from: t.period.from, to: t.period.to, gstr3bDue: gstr3bDueDate(now, 'monthly', '27').date, gstr1Due: gstr1DueDate(now, 'monthly') })
+    expect(t.due.gstr3b).toBe(tile!.gstr3bDue)
+    const vn = await view3b(t.period.from, t.period.to, now)
+    expect(tile!.payable).toBe(sum4(vn.netPayable) + sum4(vn.rcmPayable))
+    expect(t.figures.toPay).toBe(tile!.payable)
+    // The filed month itself still reads its own figures and marks when picked.
+    const back = await ok<Regular>('simple:taxes', { period: month, today: TODAY })
+    expect(back.figures.toPay).toBe(540_00)
+    expect(back.filed.gstr3b?.arn).toBe('AA2709261234568')
+    // Clearing the 3B mark brings the month back as the tile's period.
+    await ok('simple:taxes:filed', { period: month, form: 'gstr3b', arn: null })
+    const h2 = await ok<SimpleHomeData>('simple:home', { today: TODAY })
+    const before = (await ok<Regular>('simple:taxes', { today: TODAY })).period.period
+    expect(h2.gst?.kind === 'regular' ? h2.gst.row.period : null).toBe(before)
+    expect(before).toBe(lastMonthNext ? month : now)
   })
 })
 

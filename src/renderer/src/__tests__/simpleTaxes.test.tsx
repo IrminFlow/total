@@ -130,6 +130,9 @@ describe('Taxes — regular GST (WP 9.9)', () => {
     fireEvent.change(screen.getByTestId('taxes-arn-gstr1'), { target: { value: 'AA270926123456X' } })
     fireEvent.click(screen.getByTestId('taxes-filed-save-gstr1'))
     await waitFor(() => expect(calls('simple:taxes:filed').at(-1)).toEqual({ period: '2026-09', form: 'gstr1', arn: 'AA270926123456X', date: '2026-10-13' }))
+    // The default period moves on once a 3B is noted as filed (dashGst): the screen stays on the
+    // period just marked.
+    await waitFor(() => expect(lastScreen()).toEqual({ name: 'simple-taxes', period: '2026-09' }))
     expect(bannedWordsIn(visibleText())).toEqual([])
   })
 
