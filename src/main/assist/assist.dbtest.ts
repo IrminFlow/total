@@ -165,6 +165,34 @@ describe('Ask Total on hand-worked books', () => {
     expect(g.links[0]!.target).toEqual({ screen: 'simple-taxes', params: { period: '2025-09' } })
   })
 
+  it('a bill by its number: party, date, total and what is still due (the Sales / Purchase list rows)', async () => {
+    const db = new Database(dbPath, { readonly: true })
+    const sale = db.prepare("SELECT v.id, v.number FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE vt.kind = 'sales' ORDER BY v.id LIMIT 1").get() as { id: number; number: string }
+    const buy = db.prepare("SELECT v.id FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE vt.kind = 'purchase' AND v.reference = 'M-1'").get() as { id: number }
+    db.close()
+    // The sale: ₹11,800 to Ramesh Traders on 5 Sep 2025, nothing received yet → ₹11,800 due.
+    for (const q of [`bill ${sale.number}`, `invoice no ${sale.number} kiska hai`, `bill ${sale.number} paid?`]) {
+      const a = await ask(q)
+      expect(a.intent, q).toBe('bill')
+      expect(paise(a), q).toEqual([1180000, 1180000])
+      expect(a.sentences[0], q).toBe(`Bill ${sale.number} of 5 Sep 2025 is to Ramesh Traders, for ₹11,800.00.`)
+      expect(a.sentences[1], q).toBe('₹11,800.00 of it is still due.')
+      expect(a.links[0]!.target, q).toEqual({ screen: 'simple-sales', params: { billId: sale.id } })
+      expect(a.figures.every((f) => f.sourced && f.source?.kind === 'voucher'), q).toBe(true)
+    }
+    // The purchase by the supplier's bill no.: ₹5,900 from Mohan Supplies, unpaid.
+    const p = await ask('supplier bill M-1 paid?')
+    expect(p.intent).toBe('bill')
+    expect(paise(p)).toEqual([590000, 590000])
+    expect(p.sentences.join(' ')).toContain('Mohan Supplies')
+    expect(p.sentences[1]).toBe('₹5,900.00 of it is still to pay.')
+    expect(p.links[0]!.target).toEqual({ screen: 'simple-purchases', params: { billId: buy.id } })
+    // No such bill: said so, never another bill.
+    const none = await ask('bill 987')
+    expect(none.sentences[0]).toBe('I can’t find a bill numbered “987”.')
+    expect(none.figures).toEqual([])
+  })
+
   it('an ambiguous name is asked about, never guessed; the pick answers', async () => {
     const a = await ask('does Ramesh owe me?')
     expect(a.choice?.slot).toBe('party')
@@ -241,6 +269,46 @@ describe('Ask Total on hand-worked books', () => {
     const d = await ok<AssistDraftResult>('assist:draft', { text: 'paid 2000 to Mohan Supplies by bank', today: T })
     await ok('simple:post', { intent: { kind: 'money_in', clientId: 'ask-other-0001', date: T, amount: 10000, into: { how: 'cash' }, customerId: ids.ramesh }, today: T, aiDraftId: d.draftId })
     expect((await ok<AiDraftDto[]>('ai:drafts', {})).find((x) => x.id === d.draftId)!.status).toBe('open')
+  })
+
+  it('a flow left without saving discards its Ask Total draft (audited); a new draft discards the older open ones', async () => {
+    const status = async (id: number): Promise<string> => (await ok<AiDraftDto[]>('ai:drafts', {})).find((x) => x.id === id)!.status
+    const audits = (id: number): number => count(`SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'ai_draft' AND entity_id = ${id} AND action = 'update'`)
+    // The draft left open by the test above ("paid 2000 to Mohan Supplies by bank") goes when a new one is made.
+    const older = (await ok<AiDraftDto[]>('ai:drafts', {})).filter((d) => d.origin === 'ask-total' && d.status === 'open').map((d) => d.id)
+    expect(older.length).toBeGreaterThan(0)
+    const a = await ok<AssistDraftResult>('assist:draft', { text: 'paid 300 for tea in cash', today: T })
+    for (const id of older) {
+      expect(await status(id)).toBe('discarded')
+      expect(audits(id)).toBe(1)
+    }
+    expect(await status(a.draftId)).toBe('open')
+    // Leaving the flow without saving → assist:draft:discard: discarded once, audited as Settings' Discard.
+    const d = await ok<AiDraftDto | null>('assist:draft:discard', { draftId: a.draftId })
+    expect(d?.status).toBe('discarded')
+    expect(await status(a.draftId)).toBe('discarded')
+    const row = (() => {
+      const db = new Database(dbPath, { readonly: true })
+      try {
+        return db.prepare(`SELECT before_json AS b, after_json AS a FROM audit_log WHERE entity = 'ai_draft' AND entity_id = ? AND action = 'update'`).get(a.draftId) as { b: string; a: string }
+      } finally {
+        db.close()
+      }
+    })()
+    expect([JSON.parse(row.b), JSON.parse(row.a)]).toEqual([{ status: 'open' }, { status: 'discarded' }])
+    // Again (already discarded), a consumed one, or a chat draft: left alone, nothing written.
+    const before = count('SELECT COUNT(*) AS n FROM audit_log')
+    expect(await ok('assist:draft:discard', { draftId: a.draftId })).toBeNull()
+    const b = await ok<AssistDraftResult>('assist:draft', { text: 'paid 100 to Mohan Supplies in cash', today: T })
+    // The flow saved it (a money-out: ₹100 of rent in cash, dated today — October, no figure above changes).
+    await ok('simple:post', { intent: { kind: 'money_out', clientId: 'ask-tea-000001', date: T, amount: 10000, from: { how: 'cash' }, payeeId: ids.rent }, today: T, aiDraftId: b.draftId })
+    const afterSave = count('SELECT COUNT(*) AS n FROM audit_log')
+    expect(await ok('assist:draft:discard', { draftId: b.draftId })).toBeNull()
+    expect(await status(b.draftId)).toBe('consumed')
+    expect(count('SELECT COUNT(*) AS n FROM audit_log')).toBe(afterSave)
+    expect(afterSave).toBeGreaterThan(before)
+    expect((await call('assist:draft:discard', { draftId: 0 })).ok).toBe(false)
+    expect(ipc.CHANNEL_ROLES.get('assist:draft:discard')).toBe('accountant')
   })
 
   it('WP 10.6: a chat (AI panel) draft opened in its simple flow is consumed by the save; other drafts are left alone', async () => {
@@ -356,5 +424,133 @@ describe('Ask Total on the demo seed: every figure is the screen service’s', (
     const named = await askNow(`${plainRow.name} kitna hai`)
     expect(named.intent).toBe('stock')
     expect(paise(named)[0]).toBe(plainRow.value)
+  })
+})
+
+describe('Ask Total: bills in two years, TDS and payroll (an unregistered business)', () => {
+  let pslug = ''
+  let pdb = ''
+  const ids2: Record<string, number> = {}
+
+  it('the same bill number in two earlier years is asked about with dates; the pick answers', async () => {
+    pslug = (await ok<{ slug: string }>('simple:setup', { name: 'Ask Pay Traders', stateCode: '27', businessType: 'trader', gst: 'no', stock: false, startDate: '2023-04-01', fresh: true })).slug
+    await ok('company:open', { slug: pslug })
+    pdb = join(DATA_DIR, 'companies', pslug, 'company.db')
+    const groups = await ok<{ id: number; name: string }[]>('master:groups:list')
+    ids2.asha = (await ok<{ id: number }>('master:ledgers:create', { name: 'Asha Stores', groupId: groups.find((g) => g.name === 'Sundry Debtors')!.id, stateCode: '27' })).id
+    // Bill 1 of FY 2023-24 (₹1,000) and bill 1 of FY 2024-25 (₹2,000), both on credit; numbering
+    // restarts each year, so both are "1". Nothing this year (2025-26) is numbered 1.
+    const a = await ok<{ voucherIds: number[] }>('simple:post', { intent: { kind: 'sale', clientId: 'pay-sale-00001', date: '2023-05-10', customerId: ids2.asha, amount: { amount: 100000 }, payment: { how: 'credit' } }, today: T })
+    const b = await ok<{ voucherIds: number[] }>('simple:post', { intent: { kind: 'sale', clientId: 'pay-sale-00002', date: '2024-06-12', customerId: ids2.asha, amount: { amount: 200000 }, payment: { how: 'credit' } }, today: T })
+    const db = new Database(pdb, { readonly: true })
+    const nums = (db.prepare('SELECT number FROM vouchers WHERE id IN (?, ?) ORDER BY id').all(a.voucherIds[0], b.voucherIds[0]) as { number: string }[]).map((r) => r.number)
+    db.close()
+    expect(nums[0]).toBe(nums[1])
+    const q = `bill ${nums[0]} kiska hai`
+    const which = await ask(q)
+    expect(which.choice?.slot).toBe('bill')
+    expect(which.choice!.options.map((o) => o.id).sort()).toEqual([a.voucherIds[0], b.voucherIds[0]].sort())
+    expect(which.choice!.options.map((o) => o.sub).sort()).toEqual(['10 May 2023', '12 Jun 2024'])
+    expect(which.figures).toEqual([])
+    const picked = await ask(q, { picks: { bill: b.voucherIds[0] } })
+    expect(paise(picked)).toEqual([200000, 200000])
+    expect(picked.sentences[0]).toContain('12 Jun 2024')
+    // This year's bill 1 wins over the older ones once there is one.
+    const c = await ok<{ voucherIds: number[] }>('simple:post', { intent: { kind: 'sale', clientId: 'pay-sale-00003', date: '2025-09-01', customerId: ids2.asha, amount: { amount: 50000 }, payment: { how: 'cash' } }, today: T })
+    const now = await ask(q)
+    expect(now.choice).toBeUndefined()
+    expect(now.links[0]!.target).toEqual({ screen: 'simple-sales', params: { billId: c.voucherIds[0] } })
+    // ₹500 paid in cash at the counter → nothing due.
+    expect(paise(now)).toEqual([50000])
+    expect(now.sentences[1]).toBe('It is paid in full.')
+  })
+
+  it('a supplier bill no. found only in an earlier year, while this year has one that merely CONTAINS it', async () => {
+    const groups = await ok<{ id: number; name: string }[]>('master:groups:list')
+    const vk = (await ok<{ id: number }>('master:ledgers:create', { name: 'Vikas Traders', groupId: groups.find((g) => g.name === 'Sundry Creditors')!.id, stateCode: '27' })).id
+    const old = await ok<{ voucherIds: number[] }>('simple:post', { intent: { kind: 'purchase', clientId: 'pay-buy-00001', date: '2024-07-02', supplierId: vk, billNo: 'K-5', amount: { amount: 70000 }, payment: { how: 'credit' } }, today: T })
+    await ok('simple:post', { intent: { kind: 'purchase', clientId: 'pay-buy-00002', date: '2025-08-02', supplierId: vk, billNo: 'K-55', amount: { amount: 90000 }, payment: { how: 'credit' } }, today: T })
+    const a = await ask('supplier bill K-5 paid?')
+    expect(a.intent).toBe('bill')
+    expect(a.links[0]!.target).toEqual({ screen: 'simple-purchases', params: { billId: old.voucherIds[0] } })
+    expect(paise(a)).toEqual([70000, 70000])
+  })
+
+  it('salary with payroll off: no figure of its own — points to how the business is doing', async () => {
+    const a = await ask('salary kitni gayi is mahine')
+    expect(a.intent).toBe('payroll')
+    expect(a.figures).toEqual([])
+    expect(a.links.map((l) => l.target)).toEqual([{ screen: 'simple-reports', params: { report: 'doing' } }, { screen: 'simple-features' }])
+  })
+
+  it('TDS: not switched on → says so (Features); on → the Taxes screen’s figures', async () => {
+    const off = await ask('TDS kitna dena hai')
+    expect(off.intent).toBe('withholding')
+    expect(off.sentences[0]).toContain('not switched on')
+    expect(off.links[0]!.target).toEqual({ screen: 'simple-features' })
+    const features = await ok<Record<string, unknown>>('config:features:get')
+    await ok('config:features:set', { ...features, tds: true, payroll: true })
+    // On, but nothing deducted and no payable account yet.
+    expect((await ask('how much TDS this month')).sentences[0]).toBe('You have not deducted any TDS (tax deducted at source) yet.')
+    // ₹1,000 deducted on 10 Sep 2025 (due 7 Oct — late by the 14th), ₹300 on 3 Oct (due 7 Nov).
+    const { ensureTdsPayableLedger } = await import('../services/tds')
+    const db = new Database(pdb)
+    let payable = 0
+    try {
+      const section = (db.prepare("SELECT id FROM tds_sections WHERE code LIKE '194C%' ORDER BY id LIMIT 1").get() as { id: number }).id
+      payable = ensureTdsPayableLedger(db, section)
+    } finally {
+      db.close()
+    }
+    const groups = await ok<{ id: number; name: string }[]>('master:groups:list')
+    const work = (await ok<{ id: number }>('master:ledgers:create', { name: 'Contract work', groupId: groups.find((g) => g.name === 'Indirect Expenses')!.id })).id
+    const types = await ok<{ id: number; kind: string }[]>('master:voucherTypes:list')
+    const journal = types.find((v) => v.kind === 'journal')!.id
+    const post = (date: string, amount: number): Promise<unknown> =>
+      ok('voucher:save', {
+        data: {
+          voucherTypeId: journal, date, partyLedgerId: null, narration: null, reference: null, instrumentNo: null, instrumentDate: null,
+          transporterId: null, vehicleNo: null, transportDistanceKm: null, currencyCode: null, exchangeRate: null,
+          lines: [{ ledgerId: work, drCr: 'dr', amount, costAllocations: [] }, { ledgerId: payable, drCr: 'cr', amount, costAllocations: [] }], inventory: [], billRefs: [], tds: null
+        }
+      })
+    await post('2025-09-10', 100000)
+    await post('2025-10-03', 30000)
+    const taxes = await ok<SimpleTaxes>('simple:taxes', { today: T })
+    const w = taxes.withholding.find((x) => x.kind === 'tds')!
+    // Hand-worked: this month (October) ₹300; unpaid ₹1,000 + ₹300 = ₹1,300, of it ₹1,000 late.
+    expect([w.thisMonth, w.totalUnpaid, w.lateUnpaid]).toEqual([30000, 130000, 100000])
+    for (const q of ['TDS kitna dena hai', 'how much TDS this month', 'टीडीएस कितना देना है']) {
+      const a = await ask(q)
+      expect(a.intent, q).toBe('withholding')
+      expect(paise(a), q).toEqual([30000, 130000, 100000])
+      expect(a.figures.every((f) => f.sourced && f.source?.kind === 'screen'), q).toBe(true)
+      expect(a.links[0]!.target, q).toEqual({ screen: 'simple-taxes' })
+    }
+    // TCS is still off.
+    expect((await ask('how much TCS')).sentences[0]).toContain('not switched on')
+  })
+
+  it('payroll: the Payroll screen’s posted run (net pay, gross) for the month asked; none → the last one', async () => {
+    // One employee on ₹10,000 basic, no PF / ESI / PT: gross ₹10,000 = net ₹10,000 (no tax on ₹1.2 lakh a year).
+    await ok('payroll:employees:save', {
+      data: {
+        name: 'Ravi', code: null, designation: null, joined: null, pan: null, uan: null, esicNo: null,
+        basic: 1000000, hra: 0, special: 0, pfEnabled: false, esiEnabled: false, ptEnabled: false, ptState: 'MH', active: true
+      }
+    })
+    await ok('payroll:commit', { month: '2025-09', days: [] })
+    for (const q of ['salary kitni gayi pichle mahine', 'payroll last month', 'how much salary did I pay in september']) {
+      const a = await ask(q)
+      expect(a.intent, q).toBe('payroll')
+      expect(paise(a), q).toEqual([1000000, 1000000])
+      expect(a.sentences[0], q).toBe('Pay for Sep 2025: ₹10,000.00 to 1 employee after deductions (₹10,000.00 before them).')
+      expect(a.links[0]!.target, q).toEqual({ screen: 'payroll' })
+    }
+    // October has no run yet: said, with September's.
+    const oct = await ask('salary kitni gayi is mahine')
+    expect(oct.sentences[0]).toContain('No pay run is posted this month')
+    expect(oct.sentences[1]).toBe('The last one was for Sep 2025: ₹10,000.00 after deductions.')
+    expect(paise(oct)).toEqual([1000000])
   })
 })

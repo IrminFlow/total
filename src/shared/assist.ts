@@ -59,6 +59,14 @@ export type AssistIntent =
   | { kind: 'entry'; entry: AssistEntrySlots }
   /** WP 10.8: "5000 Ramesh" — an amount and a name with no word for which way the money went. */
   | { kind: 'direction'; amount: number; party: string }
+  /** "bill 42", "invoice no 42 kiska hai", "supplier bill M-7 paid?" — a bill by its number: a sales
+   *  bill by its own number, a purchase by the supplier's bill no.; `side` only when the question
+   *  says which (absent = both). The number is lower-case, as typed. */
+  | { kind: 'bill'; number: string; side?: 'sale' | 'purchase' }
+  /** "TDS kitna dena hai", "how much TCS this month" — the Taxes screen's withholding figures. */
+  | { kind: 'withholding'; which: 'tds' | 'tcs' }
+  /** "salary kitni gayi is mahine", "payroll last month" — the Payroll screen's pay runs. */
+  | { kind: 'payroll'; period: AssistPeriod; periodSaid: boolean }
   | { kind: 'unknown' }
 
 export type AssistIntentKind = AssistIntent['kind']
@@ -84,7 +92,7 @@ export interface AssistFigure extends AiFigure {
 
 /** "Which Ramesh?" — the options re-ask with the pick (never a guess). */
 export interface AssistChoice {
-  slot: 'party' | 'item'
+  slot: 'party' | 'item' | 'bill'
   question: string
   options: { id: number; label: string; sub?: string }[]
 }
@@ -137,7 +145,7 @@ export interface AssistDraftResult {
 
 const iso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
 const picks = z
-  .object({ party: z.number().int().positive().optional(), item: z.number().int().positive().optional() })
+  .object({ party: z.number().int().positive().optional(), item: z.number().int().positive().optional(), bill: z.number().int().positive().optional() })
   .strict()
   .optional()
 
@@ -152,3 +160,6 @@ export const assistAskSchema = z
   })
   .strict()
 export type AssistAskInput = z.input<typeof assistAskSchema>
+
+/** assist:draft:discard (accountant+): the flow an Ask Total draft opened was left without saving. */
+export const assistDiscardSchema = z.object({ draftId: z.number().int().positive() }).strict()

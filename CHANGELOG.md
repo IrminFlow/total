@@ -67,6 +67,13 @@ what you typed, and a **Back to simple** button.
   in cash") and Total answers from the same figures the screens show, or opens the right form
   pre-filled. It also understands some Hinglish and Hindi words. It does not guess a name: it asks
   "Which Ramesh do you mean?". [#98](https://github.com/IrminFlow/total/pull/98)
+- **Ask Total knows more.** Ask about a bill by its number ("bill 42 paid?", "invoice no 42 kiska
+  hai", "supplier bill M-7") and it says who it is for, the date, the total and what is still due,
+  with a link to the bill. "TDS kitna dena hai" gives the TDS you deducted this month, what is
+  still to pay and what is late (the Taxes screen's figures); "salary kitni gayi is mahine" gives
+  the month's pay run (Payroll's net pay). An entry Ask Total opened and you left without saving
+  no longer stays behind in Settings → AI drafts, and opening one from there in simple mode goes
+  to the simple form, not the accountant one. [#125](https://github.com/IrminFlow/total/pull/125)
 - **"Why?" for every figure and date** on Home, Reports and Taxes: one sentence built from the
   returned figures, with a link to the exact report. [#99](https://github.com/IrminFlow/total/pull/99)
 - **First-run tour, empty states that teach, and an offline help panel** with 16 English articles
@@ -259,6 +266,9 @@ Read these before filing from the next release.
 - **New modules**: `src/shared/simple/` (`intents.ts` and one file per section, `explain*.ts` for the
   "Why?" sentences), `src/main/assist/` (Ask Total: deterministic, no model, no network) and
   `src/shared/gst/postedRate.ts` ([#93](https://github.com/IrminFlow/total/pull/93)).
+- Ask Total: new intents `bill` / `withholding` / `payroll` (`src/shared/assist.ts`, `picks.bill`);
+  new IPC `assist:draft:discard` (accountant+, audited `ai_draft`); an Ask Total draft records
+  `payload.simple.askedBy`. [#125](https://github.com/IrminFlow/total/pull/125)
 - "I've filed" lives in company meta `gstFiled`, not in `assistant_marks` (which has no room for an
   ARN). [#94](https://github.com/IrminFlow/total/pull/94)
 - i18n: `Translate.lang`, `toPlainDate(d, lang)`, `amountInWords(paise, lang)`; the glossary is

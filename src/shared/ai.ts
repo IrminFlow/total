@@ -254,7 +254,7 @@ export interface AiVoucherDraftPayload {
   origin?: string
   /** WP 10.1: an Ask Total entry request — the simple flow it opens in (its params), the WP 9.1
    *  intent that flow's Save would send (null = the flow still asks something) and the question. */
-  simple?: { kind: AssistEntryOffer['kind']; question: string; prefill: AssistPrefill; /** AssistEntryOffer['intent'] (typed loosely here: naming the intent schema from this file trips a TS inference-order quirk in simplePost.ts). */ intent: unknown }
+  simple?: { kind: AssistEntryOffer['kind']; question: string; prefill: AssistPrefill; /** Who asked (the signed-in user's id, never the name (a rename keeps it); null = nobody signed in, a company without users) — a new Ask Total draft discards that person's older open ones. */ askedBy?: number | null; /** AssistEntryOffer['intent'] (typed loosely here: naming the intent schema from this file trips a TS inference-order quirk in simplePost.ts). */ intent: unknown }
 }
 
 export interface AiDraftDto {

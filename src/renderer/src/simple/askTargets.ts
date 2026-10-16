@@ -1,7 +1,8 @@
 // WP 10.1: where an Ask Total chip / link / "open X" goes. Main names a screen and its params
 // (shared/assist.ts AssistTarget); this whitelist turns them into a Screen — anything else is
 // not a link (never a free-form route).
-import type { AssistTarget } from '@shared/assist'
+import type { AiDraftDto } from '@shared/ai'
+import { ASK_TOTAL_ORIGIN, type AssistTarget } from '@shared/assist'
 import { PEOPLE_FILTERS, type PeopleFilter } from '@shared/simple/people'
 import { SIMPLE_SECTION_IDS, type SimpleSectionId } from '@shared/simple/uiMode'
 import type { Screen } from '../state/stores'
@@ -10,7 +11,7 @@ const num = (v: unknown): number | undefined => (typeof v === 'number' && Number
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined)
 const REPORTS: readonly string[] = ['doing', 'cash', 'owed', 'by-month'] // i18n-technical
 const PLAIN: readonly string[] = [
-  'simple-money', 'simple-money-in', 'simple-money-out', 'simple-move-money', 'simple-sales', 'simple-sell', 'simple-purchases', 'simple-buy',
+  'simple-money', 'simple-money-in', 'simple-money-out', 'simple-move-money', 'simple-sell', 'simple-buy',
   'simple-return-sale', 'simple-return-purchase', 'simple-stock-count', 'simple-looks', 'simple-features', 'simple-openings', 'gateway', 'profit-loss', 'stock-summary' // i18n-technical
 ]
 
@@ -22,6 +23,12 @@ export function askScreen(t: AssistTarget | undefined | null): Screen | null {
       const filter = str(p.filter)
       return { name: 'simple-people', ...(p.tab === 'bills' ? { tab: 'bills' as const } : {}), ...(filter && (PEOPLE_FILTERS as readonly string[]).includes(filter) ? { filter: filter as PeopleFilter } : {}) } // i18n-technical
     }
+    case 'simple-sales':
+      return { name: 'simple-sales', ...(num(p.billId) ? { billId: num(p.billId)! } : {}) } // i18n-technical
+    case 'simple-purchases':
+      return { name: 'simple-purchases', ...(num(p.billId) ? { billId: num(p.billId)! } : {}) } // i18n-technical
+    case 'payroll':
+      return { name: 'payroll' } // i18n-technical
     case 'simple-person':
       return num(p.id) ? { name: 'simple-person', id: num(p.id)! } : null // i18n-technical
     case 'simple-bank':
@@ -51,4 +58,13 @@ export function askScreen(t: AssistTarget | undefined | null): Screen | null {
     default:
       return PLAIN.includes(t.screen) ? ({ name: t.screen } as Screen) : null
   }
+}
+
+/** Settings → AI drafts in a simple-mode company: an OPEN Ask Total draft opens its simple flow
+ *  pre-filled, exactly as the Ask Total panel opens it (`ask: { draftId, prefill }` — the flow's
+ *  first save consumes it); null = not such a draft (the caller opens it as before). */
+export function askDraftScreen(d: Pick<AiDraftDto, 'id' | 'status' | 'origin' | 'payload'>): Screen | null {
+  const prefill = d.payload.simple?.prefill
+  if (d.status !== 'open' || d.origin !== ASK_TOTAL_ORIGIN || !prefill) return null
+  return { name: prefill.screen, ask: { draftId: d.id, prefill } } as Screen
 }

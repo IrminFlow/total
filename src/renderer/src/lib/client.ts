@@ -701,7 +701,9 @@ export const api = {
   /** WP 10.1: Ask Total — deterministic answers (viewer) and the entry draft a simple flow opens (accountant+). */
   assist: {
     ask: (input: AssistAskInput) => call<AssistAnswer>('assist:ask', input),
-    draft: (input: AssistAskInput) => call<AssistDraftResult>('assist:draft', input)
+    draft: (input: AssistAskInput) => call<AssistDraftResult>('assist:draft', input),
+    /** The flow an Ask Total draft opened was left without saving: discard it (no-op for any other draft). */
+    discardDraft: (draftId: number) => call<AiDraftDto | null>('assist:draft:discard', { draftId })
   },
   /** WP 10.3: open a help article's GST portal / CBIC link in the system browser (allow-listed in main). */
   help: {

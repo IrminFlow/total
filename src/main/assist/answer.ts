@@ -17,9 +17,11 @@ import type { AssistAnswer, AssistChoice, AssistFigure, AssistHowTo, AssistInten
 import type { StatementNode } from '@shared/reports'
 import { translator, type Language, type MessageKey, type Translate } from '@shared/i18n'
 import { formatPaise, formatQtyMilli } from '@shared/money'
-import { toMonthLabel, toPlainDate } from '@shared/dates'
+import { fyOf, toMonthLabel, toPlainDate } from '@shared/dates'
 import { owedSummary } from '@shared/simple/home'
 import { cashWhy, collectedWhy, money, onPurchasesWhy, payablesWhy, receivablesWhy, taxesPeriodLabel, toPayWhy } from '@shared/simple/explain'
+import type { SaleRow } from '@shared/simple/sell'
+import type { PurchaseRow } from '@shared/simple/buy'
 import { doingLines, withoutRoundOff } from '@shared/simple/reports'
 import { GLOSSARY, explain, glossaryEntry, plain, type GlossaryEntry } from '@shared/simple/glossary'
 import { needsReorder } from '@shared/simple/stock'
@@ -28,6 +30,12 @@ import { profitAndLoss } from '../services/reports'
 import { simpleHome } from '../services/simpleHome'
 import { simpleTaxes } from '../services/simpleTaxes'
 import { stockList } from '../services/simpleStock'
+import { salesList } from '../services/simpleSell'
+import { purchasesList } from '../services/simpleBuy'
+import { listRuns } from '../services/payroll'
+import { search, SEARCH_MAX_LIMIT } from '../services/search'
+import type { VoucherResult } from '@shared/search'
+import { withholdingWhy } from '@shared/simple/explain'
 import { getFeatures } from '../services/config'
 import { companyLanguage } from '../i18n'
 import { classify, questionLanguage } from './classify'
@@ -37,7 +45,7 @@ import { entryAnswer } from './entry'
 export interface AskInput {
   text: string
   today: string
-  picks?: { party?: number; item?: number }
+  picks?: { party?: number; item?: number; bill?: number }
   lang?: Language
 }
 
@@ -308,6 +316,184 @@ function stockAnswer(db: DB, intent: Extract<AssistIntent, { kind: 'stock' }>, i
   })
 }
 
+// ---------------------------------------------------------------- a bill by its number
+
+interface BillHit {
+  side: 'sale' | 'purchase'
+  voucherId: number
+  date: string
+}
+
+/** The bills numbered `number` — sales bills by their own number, purchases by the supplier's
+ *  bill no. — found through the SEARCH SERVICE (the palette's own voucher search; its `no:` /
+ *  free-text matches are "contains", so only an exact number is kept). This FY first; none this
+ *  year → any year. */
+function billHits(db: DB, number: string, side: 'sale' | 'purchase' | undefined, today: string): { thisYear: BillHit[]; anyYear: () => BillHit[] } {
+  const fy = fyOf(today)
+  const quoted = /^[\w\-/]+$/.test(number) ? number : `"${number.replace(/"/g, '')}"`
+  // Page through every match (contains-matches can be many: "42" is in 142, 420 …), capped.
+  const vouchers = (query: string): VoucherResult[] => {
+    const out: VoucherResult[] = []
+    for (let offset = 0; offset < 5000; offset += SEARCH_MAX_LIMIT) {
+      const page = search(db, query, { kind: 'voucher', limitPerKind: SEARCH_MAX_LIMIT, offset, today, fyStartYear: fy.startYear }).vouchers
+      out.push(...(page?.rows ?? []))
+      if (!page || offset + SEARCH_MAX_LIMIT >= page.total) break
+    }
+    return out
+  }
+  const run = (fyFilter: string): BillHit[] => {
+    const out: BillHit[] = []
+    if (side !== 'purchase') {
+      for (const v of vouchers(`type:sales no:${quoted}${fyFilter}`)) {
+        if (v.voucherKind === 'sales' && v.number.trim().toLowerCase() === number) out.push({ side: 'sale', voucherId: v.id, date: v.date })
+      }
+    }
+    if (side !== 'sale') {
+      // The supplier's bill no. is the purchase's reference: a free-text term matches it (and the
+      // entry's own number, narration, party …) — the purchase list's row decides below.
+      for (const v of vouchers(`type:purchase ${quoted}${fyFilter}`)) {
+        if (v.voucherKind === 'purchase') out.push({ side: 'purchase', voucherId: v.id, date: v.date })
+      }
+    }
+    return out
+  }
+  return { thisYear: run(` fy:${fy.startYear}`), anyYear: () => run('') }
+}
+
+type BillRow = { side: 'sale'; row: SaleRow } | { side: 'purchase'; row: PurchaseRow }
+
+/** The Sales / Purchase list's own rows for the hits (registerVoucherRows + billAmount + the
+ *  Outstandings allocation as on today) — ONE list call per side over the hits' dates (never one
+ *  per hit: a short number matches many entries), in-books bills only, a purchase only when its
+ *  supplier's bill no. is exactly the number. */
+function billRows(db: DB, hits: BillHit[], number: string, today: string): BillRow[] {
+  const out: BillRow[] = []
+  for (const side of ['sale', 'purchase'] as const) {
+    const mine = hits.filter((h) => h.side === side)
+    if (mine.length === 0) continue
+    const ids = new Set(mine.map((h) => h.voucherId))
+    const dates = mine.map((h) => h.date).sort()
+    const from = dates[0]!
+    const to = dates[dates.length - 1]!
+    if (side === 'sale') {
+      for (const row of salesList(db, from, to, today)) if (ids.has(row.voucherId)) out.push({ side, row })
+    } else {
+      for (const row of purchasesList(db, from, to, today)) {
+        if (ids.has(row.voucherId) && (row.billNo ?? '').trim().toLowerCase() === number) out.push({ side, row })
+      }
+    }
+  }
+  return out
+}
+
+function billAnswer(db: DB, intent: Extract<AssistIntent, { kind: 'bill' }>, input: AskInput, t: Translate): AssistAnswer {
+  const today = input.today
+  // This FY first; none THIS year (after the exact-number check — a purchase hit may only
+  // contain the number) → any year.
+  const hits = billHits(db, intent.number, intent.side, today)
+  let rows = billRows(db, hits.thisYear, intent.number, today)
+  if (rows.length === 0) rows = billRows(db, hits.anyYear(), intent.number, today)
+  const shown = (x: (typeof rows)[number]): string => (x.side === 'sale' ? x.row.number : x.row.billNo ?? x.row.number)
+  const listTarget = target(intent.side === 'purchase' ? 'simple-purchases' : 'simple-sales')
+  if (rows.length === 0) {
+    return answer(intent, [t('assist.bill.notFound', { number: intent.number })], {
+      links: [{ label: t(intent.side === 'purchase' ? 'assist.link.purchases' : 'assist.link.sales'), target: listTarget }]
+    })
+  }
+  const picked = input.picks?.bill != null ? rows.find((x) => x.row.voucherId === input.picks!.bill) : undefined
+  if (!picked && rows.length > 1) {
+    const options = rows.slice(0, 6).map((x) => ({
+      id: x.row.voucherId,
+      label: t(x.side === 'sale' ? 'assist.bill.optionSale' : 'assist.bill.optionPurchase', { number: shown(x), name: x.side === 'sale' && x.row.walkIn ? t('assist.bill.cashCustomer') : x.row.partyName }),
+      sub: toPlainDate(x.row.date, t.lang)
+    }))
+    const question = t('assist.bill.which', { number: shown(rows[0]!) })
+    return answer(intent, [question], { choice: { slot: 'bill', question, options } })
+  }
+  const x = picked ?? rows[0]!
+  const r = x.row
+  const number = shown(x)
+  const to = target(x.side === 'sale' ? 'simple-sales' : 'simple-purchases', { billId: r.voucherId })
+  const src: AiSource = { kind: 'voucher', voucherId: r.voucherId, label: t(x.side === 'sale' ? 'assist.source.salesList' : 'assist.source.purchaseList') }
+  const name = x.side === 'sale' && x.row.walkIn ? t('assist.bill.cashCustomer') : r.partyName
+  const sentences = [t(x.side === 'sale' ? 'assist.bill.sale' : 'assist.bill.purchase', { number, name, date: toPlainDate(r.date, t.lang), total: money(r.total) })]
+  const figures: AssistFigure[] = [fig(r.total, src, to)]
+  if (r.due > 0) {
+    sentences.push(t(x.side === 'sale' ? 'assist.bill.due' : 'assist.bill.toPay', { amount: money(r.due) }))
+    figures.push(fig(r.due, src, to))
+    if (r.overdueDays > 0) sentences.push(t('assist.bill.late', { days: r.overdueDays }))
+    else if (r.dueDate) sentences.push(t('assist.bill.dueOn', { date: toPlainDate(r.dueDate, t.lang) }))
+  } else if (r.paid === 0 && r.returned > 0) {
+    sentences.push(t('assist.bill.returnedOff', { amount: money(r.returned) }))
+    figures.push(fig(r.returned, src, to))
+  } else {
+    sentences.push(t('assist.bill.paid'))
+  }
+  return answer(intent, sentences, { figures, links: [{ label: t('assist.link.bill', { number }), target: to }] })
+}
+
+// ---------------------------------------------------------------- TDS / TCS, payroll
+
+function withholdingAnswer(db: DB, company: CompanyInfo, intent: Extract<AssistIntent, { kind: 'withholding' }>, input: AskInput, t: Translate): AssistAnswer {
+  const kind = intent.which
+  const features = getFeatures(db)
+  if (!features[kind]) return answer(intent, [t('assist.tds.off', { kind })], { links: [{ label: t('assist.link.features'), target: target('simple-features') }] })
+  // The Taxes screen's own withholding figures (assistants.withholdingFacts + the FIFO unpaid).
+  const w = simpleTaxes(db, company, {}, input.today).withholding.find((x) => x.kind === kind)
+  const taxes = target('simple-taxes')
+  if (!w) return answer(intent, [t('assist.tds.none', { kind })], { links: [{ label: t('assist.link.taxes'), target: taxes }] })
+  const src = screenSource('simple-taxes', t('assist.source.withholding'))
+  const sentences = [
+    t(kind === 'tds' ? 'simple.taxes.withholding.thisMonthTds' : 'simple.taxes.withholding.thisMonthTcs', { amount: money(w.thisMonth), date: toPlainDate(w.thisMonthDue, t.lang) }),
+    withholdingWhy(w, input.today, t)
+  ]
+  const figures: AssistFigure[] = [fig(w.thisMonth, src, taxes)]
+  if (w.totalUnpaid > 0) figures.push(fig(w.totalUnpaid, src, taxes))
+  if (w.lateUnpaid > 0) figures.push(fig(w.lateUnpaid, src, taxes))
+  return answer(intent, sentences, { figures, links: [{ label: t('assist.link.taxes'), target: taxes }] })
+}
+
+function payrollAnswer(db: DB, intent: Extract<AssistIntent, { kind: 'payroll' }>, input: AskInput, t: Translate): AssistAnswer {
+  const p = intent.period
+  const when = periodText(p, input.today, t)
+  if (!getFeatures(db).payroll) {
+    // Without payroll there is no pay-run figure. Salaries paid through Money out are expense
+    // lines of How is my business doing / the P&L — said, not summed here (no screen shows a
+    // "salary accounts" total; simple_category is never read for a figure).
+    const links: AssistLink[] = [
+      { label: t('assist.link.pnl'), target: target('simple-reports', { report: 'doing' }) },
+      { label: t('assist.link.features'), target: target('simple-features') }
+    ]
+    return answer(intent, [t('assist.payroll.off'), t('assist.payroll.salaryAccount')], { links })
+  }
+  // The Payroll screen's posted runs (its Net pay / Gross columns), the months of the period.
+  const runs = listRuns(db)
+  const net = (r: (typeof runs)[number]): number => r.lines.reduce((s, l) => s + l.net, 0)
+  const gross = (r: (typeof runs)[number]): number => r.lines.reduce((s, l) => s + l.gross, 0)
+  const inPeriod = runs.filter((r) => r.month >= p.from.slice(0, 7) && r.month <= p.to.slice(0, 7))
+  const payroll = target('payroll')
+  const src = screenSource('payroll', t('assist.source.payroll'))
+  const links: AssistLink[] = [{ label: t('assist.link.payroll'), target: payroll }]
+  if (inPeriod.length === 0) {
+    const sentences = [t('assist.payroll.none', { period: when })]
+    const figures: AssistFigure[] = []
+    const last = runs.find((r) => r.month < p.from.slice(0, 7))
+    if (last) {
+      sentences.push(t('assist.payroll.last', { month: toMonthLabel(last.month, 'long', t.lang), net: money(net(last)) }))
+      figures.push(fig(net(last), src, payroll))
+    }
+    return answer(intent, sentences, { figures, links })
+  }
+  const n = inPeriod.reduce((s, r) => s + net(r), 0)
+  const g = inPeriod.reduce((s, r) => s + gross(r), 0)
+  const sentences =
+    inPeriod.length === 1
+      ? [t('assist.payroll.run', { month: toMonthLabel(inPeriod[0]!.month, 'long', t.lang), net: money(n), gross: money(g), count: inPeriod[0]!.lines.length })]
+      : [t('assist.payroll.runs', { period: when, net: money(n), gross: money(g), count: inPeriod.length })]
+  if (!intent.periodSaid) sentences.push(t('assist.figure.periodAssumed'))
+  return answer(intent, sentences, { figures: [fig(n, src, payroll), fig(g, src, payroll)], links })
+}
+
 // ---------------------------------------------------------------- open / how do I / meaning
 
 /** Places a person can ask to open, by the words they use → the simple screen (or the full one). */
@@ -537,6 +723,12 @@ export function askTotal(db: DB, company: CompanyInfo, input: AskInput, env: Ask
         return entryAnswer(db, company, intent, input, env, t)
       case 'direction':
         return directionAnswer(intent, t)
+      case 'bill':
+        return billAnswer(db, intent, input, t)
+      case 'withholding':
+        return withholdingAnswer(db, company, intent, input, t)
+      case 'payroll':
+        return payrollAnswer(db, intent, input, t)
       case 'unknown':
         return unknownAnswer(intent, input.text, t, undefined, lang, gstRegular)
     }

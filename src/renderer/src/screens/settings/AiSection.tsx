@@ -10,6 +10,8 @@ import {
 } from '@shared/ai'
 import { formatPaise } from '@shared/money'
 import { screenForDraft } from '../../components/ai/AiDraftReview'
+import { askDraftScreen } from '../../simple/askTargets'
+import { useMode } from '../../lib/mode'
 import { VoucherLink } from '../../components/links'
 import { aiApi } from '../../lib/aiClient'
 import { toDisplayDateTime } from '@shared/dates'
@@ -503,6 +505,10 @@ function DraftsPanel(): React.JSX.Element {
   const { user } = useSession()
   const canDiscard = user == null || user.role !== 'viewer'
   const { data: rows = [], isLoading } = useQuery({ queryKey: ['aiDrafts'], queryFn: () => aiApi.drafts() })
+  // A simple-mode company opens an Ask Total draft in its simple flow (as the Ask Total panel
+  // does); every other draft — and every draft in accountant mode — in its editor, as before.
+  const simple = useMode() === 'simple'
+  const openDraft = (d: AiDraftDto): void => nav.go((simple ? askDraftScreen(d) : null) ?? screenForDraft(d))
   const discard = async (d: AiDraftDto): Promise<void> => {
     const ok = await confirmDialog({ title: 'Discard this draft?', message: d.summary, confirmLabel: 'Discard draft', danger: true })
     if (!ok) return
@@ -532,13 +538,13 @@ function DraftsPanel(): React.JSX.Element {
           loading={isLoading}
           maxHeight="50vh"
           empty={{ title: 'No drafts yet', hint: 'Ask the assistant to “record a sales invoice…” or “pay … against bills …”.' }}
-          onRowActivate={(r) => nav.go(screenForDraft(r))}
+          onRowActivate={openDraft}
           isRowActivatable={(r) => r.status === 'open'}
           rowAttrs={(r) => ({ 'data-draft-id': r.id, 'data-status': r.status })}
           trailing={(r) =>
             r.status === 'open' ? (
               <span className="flex gap-1">
-                <Button size="sm" variant="ghost" onClick={() => nav.go(screenForDraft(r))} data-testid="btn-ai-drafts-open">
+                <Button size="sm" variant="ghost" onClick={() => openDraft(r)} data-testid="btn-ai-drafts-open">
                   Open
                 </Button>
                 {canDiscard && (

@@ -165,7 +165,43 @@ const CORPUS: [string, Expect][] = [
   ['गल्ले में कितना नकद है', { kind: 'money', which: 'cash' }],
   ['बिल कैसे बनाएँ', { kind: 'howto', task: 'bill' }],
   ['वापसी कैसे करें', { kind: 'howto', task: 'returnSale' }],
-  ['स्टॉक कम है', { kind: 'stock', low: true }]
+  ['स्टॉक कम है', { kind: 'stock', low: true }],
+  // ---- a bill by its number (PR #98 follow-up): sales by number, purchases by the supplier's bill no. ----
+  ['bill 42', { kind: 'bill', number: '42', side: undefined }],
+  ['invoice no 42 kiska hai', { kind: 'bill', number: '42' }],
+  ['bill 42 paid?', { kind: 'bill', number: '42' }],
+  ['bill 42 paid', { kind: 'bill', number: '42' }], // a question, never ₹42 paid out
+  ['Invoice No. INV-42 status', { kind: 'bill', number: 'inv-42' }],
+  ['bill #42 ka paisa aaya?', { kind: 'bill', number: '42' }],
+  ['42 number ka bill', { kind: 'bill', number: '42' }],
+  ['supplier bill M-7 paid?', { kind: 'bill', number: 'm-7', side: 'purchase' }],
+  ['Mohan ka purchase bill 118 kitna baaki', { kind: 'bill', number: '118', side: 'purchase' }],
+  ['customer bill 42 kiska hai', { kind: 'bill', number: '42', side: 'sale' }],
+  ['बिल 42 किसका है', { kind: 'bill', number: '42' }],
+  ['बिल नंबर 42 का पैसा आया?', { kind: 'bill', number: '42' }],
+  ['electricity bill 2000 paid', { kind: 'entry', entry: { action: 'money_out', amount: 200000, what: 'electricity' } }],
+  ['Mohan ka bill 5000 bhara', { kind: 'entry', entry: { action: 'money_out', amount: 500000 } }],
+  ['bill 42 ka paisa aaya kya', { kind: 'bill', number: '42' }],
+  // An entry against a bill: the bill's number is never the amount (review: was ₹7 / ₹12).
+  ['bill no 7 ka payment aaya 3000', { kind: 'entry', entry: { action: 'money_in', amount: 300000 } }],
+  ['bill 7 ka 3000 mila', { kind: 'entry', entry: { action: 'money_in', amount: 300000 } }],
+  ['bijli ka bill 2000 bhara', { kind: 'entry', entry: { action: 'money_out', amount: 200000, what: 'bijli' } }],
+  ['paid 4200 to Ramesh', { kind: 'entry', entry: { action: 'money_out', amount: 420000, party: 'ramesh' } }],
+  // ---- TDS / TCS and payroll amounts ----
+  ['TDS kitna dena hai', { kind: 'withholding', which: 'tds' }],
+  ['how much TDS this month', { kind: 'withholding', which: 'tds' }],
+  ['tds payable', { kind: 'withholding', which: 'tds' }],
+  ['TCS kitna jama karna hai', { kind: 'withholding', which: 'tcs' }],
+  ['टीडीएस कितना देना है', { kind: 'withholding', which: 'tds' }],
+  ['tds kya hai', { kind: 'meaning', term: 'tds' }],
+  ['salary kitni gayi is mahine', { kind: 'payroll', period: { rule: 'thisMonth', from: '2026-10-01', to: '2026-10-14' }, periodSaid: true }],
+  ['payroll this month', { kind: 'payroll', period: { rule: 'thisMonth' }, periodSaid: true }],
+  ['how much salary did I pay last month', { kind: 'payroll', period: { rule: 'lastMonth', from: '2026-09-01', to: '2026-09-30' } }],
+  ['pichle mahine tankhwah kitni di', { kind: 'payroll', period: { rule: 'lastMonth' } }],
+  ['salaries', { kind: 'payroll', period: { rule: 'thisMonth' }, periodSaid: false }],
+  ['सैलरी कितनी गई इस महीने', { kind: 'payroll', period: { rule: 'thisMonth' } }],
+  ['paid salary 5000 to Ravi', { kind: 'entry', entry: { action: 'money_out', amount: 500000, party: 'ravi', what: 'salary' } }],
+  ['how do I run payroll', { kind: 'howto', task: 'features' }]
 ]
 
 describe('Ask Total corpus', () => {

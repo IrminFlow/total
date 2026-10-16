@@ -52,7 +52,7 @@ export const useAskTotal = create<AskTotalStore>((set, get) => ({
 interface Turn {
   id: number
   text: string
-  picks?: { party?: number; item?: number }
+  picks?: { party?: number; item?: number; bill?: number }
   answer?: AssistAnswer
   failed?: boolean
 }

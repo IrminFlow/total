@@ -58,6 +58,11 @@ const PHRASES: [RegExp, string][] = [
   [dv('बचा|बचे|बची'), 'bacha'],
   [dv('बैंक'), 'bank'],
   [dv('जीएसटी'), 'gst'],
+  [dv('टीडीएस'), 'tds'],
+  [dv('टीसीएस'), 'tcs'],
+  [dv('इनवॉइस|इनवॉयस'), 'invoice'],
+  [dv('नंबर|नम्बर'), 'number'],
+  [dv('किसका|किसकी|किसके'), 'kiska'],
   [dv('बकाया'), 'baki'],
   [dv('खर्च|खर्चा|खर्चे'), 'kharcha'],
   [dv('मिला|मिले|मिली'), 'mila'],
@@ -396,6 +401,9 @@ function purposeOf(tokens: string[], nums: NumberHit[], skip: Set<number>): stri
   return tokens.find((w, i) => !skip.has(i) && Object.prototype.hasOwnProperty.call(EXPENSE_WORDS, w))
 }
 
+const BILL_WORDS = new Set(['bill', 'bil', 'invoice', 'invoic', 'inv'])
+const BILL_NO_WORDS = new Set(['no', 'no.', 'num', 'number', 'nr', '#'])
+
 export function entryOf(raw: string, n: Normalised, today: string): AssistEntrySlots | null {
   const q = n.q
   if (n.question || QUESTION_START.test(q)) return null
@@ -422,7 +430,16 @@ export function entryOf(raw: string, n: Normalised, today: string): AssistEntryS
     }
   }
   const tokens = body.split(' ')
-  const nums = numbersIn(tokens)
+  // "bill no 7 ka payment aaya 3000": with another number in the request, the one right after
+  // "bill / invoice (no.)" is the bill's number, never the amount ("bijli ka bill 2000 bhara",
+  // the only number, stays the amount).
+  const all = numbersIn(tokens)
+  const billNumber = (x: NumberHit): boolean => {
+    let i = x.index - 1
+    if (i >= 0 && BILL_NO_WORDS.has(tokens[i]!)) i--
+    return i >= 0 && BILL_WORDS.has(tokens[i]!)
+  }
+  const nums = all.length >= 2 && all.some((x) => !billNumber(x)) ? all.filter((x) => !billNumber(x)) : all
   if (nums.length === 0) return null
   const how = howOf(body)
   const slots: AssistEntrySlots = { action: sale ? 'sale' : buy ? 'purchase' : inV ? 'money_in' : 'money_out' }
@@ -624,11 +641,52 @@ export function questionLanguage(text: string): 'hi' | 'hinglish' | null {
   return /\b(?:kya|kyaa|hai|hain|hota|hoti|hote|matlab|kaise|kitna|kitni|kitne|batao|bataiye|samjhao|mera|mere|meri|mujhe|kaun|kab|ka|ki|ke|ko|se|mein|aur|nahi)\b/.test(s) ? 'hinglish' : null
 }
 
+// ---------------------------------------------------------------- a bill by its number
+
+/** "bill 42", "invoice no. 42", "bill #INV-42", "bill number 42" — the number must hold a digit. */
+const BILL_NO = /\b(?:bill|bil|invoice|invoic|inv)\s*(?:no\.?|num|number|nr|#)?\s*[#:]?\s*([a-z]{0,8}[-/]?\d[a-z0-9\-/]*)\b/
+/** "42 number ka bill", "42 no wala bill" */
+const NO_BILL = /\b([a-z]{0,8}[-/]?\d[a-z0-9\-/]*)\s+(?:number|no|num)\s+(?:ka|ki|ke|wala|wali|vala)\s+(?:bill|invoice)\b/
+const PURCHASE_SIDE = /\b(?:supplier|suppliers|purchase|purchases|bought|kharid\w*|vendor|seller)\b/
+const SALE_SIDE = /\b(?:sale|sales|sold|customer|customers|becha|bechi)\b/
+
+/** A question about one bill by its number; null when the question is something else. Anything
+ *  else with a digit in it ("bill 42 for 5000") is not about a bill's number alone. */
+export function billOf(q: string, question = false): { number: string; side?: 'sale' | 'purchase' } | null {
+  const m = BILL_NO.exec(q) ?? NO_BILL.exec(q)
+  if (!m) return null
+  const number = m[1]!.replace(/[-/]+$/, '')
+  // "bill 5k" is an amount, not a bill's number.
+  if (!/\d/.test(number) || /^\d[\d,]*(?:\.\d+)?(?:k|l|cr|lakh|lac)$/.test(number)) return null
+  const before = q.slice(0, m.index).trim()
+  const rest = `${before} ${q.slice(m.index + m[0].length)}`
+  if (/\d/.test(rest)) return null
+  // "electricity bill 2000 paid", "बिजली का बिल 2000 भरा": what a bill was FOR and an amount —
+  // an entry, not bill number 2000. So is anything with a money word ("bill 500 rs").
+  const prev = before.split(' ').filter((w) => w && !['ka', 'ki', 'ke', 'the', 'my', 'a'].includes(w)).slice(-2)
+  if (prev.some((w) => Object.prototype.hasOwnProperty.call(EXPENSE_WORDS, w)) || /\b(?:rs|rupees?|rupaye|inr)\b/.test(rest)) return null
+  // "Mohan ka bill 5000 bhara" (no question in it) records a payment — an entry, not a question.
+  if (!question && /\b(?:diya|diye|di|bhara|bhare|bhari|chukaya|chukaye|mila|mile|mili|aaya|aaye|bheja|kiya)\b/.test(rest) && !/\b(?:kya|kiska|kiski|kiske|kab|who|whose|status|how much)\b/.test(rest)) return null
+  const side = PURCHASE_SIDE.test(rest) ? 'purchase' : SALE_SIDE.test(rest) ? 'sale' : undefined
+  return { number, ...(side ? { side } : {}) }
+}
+
+// ---------------------------------------------------------------- TDS / TCS, payroll
+
+const TDS_Q = /\btds\b|\btax deducted\b/
+const TCS_Q = /\btcs\b|\btax collected\b/
+/** Pay words — English, Hinglish and the Hindi ones (kept as typed: EXPENSE_WORDS quotes them). */
+const PAYROLL_Q = /\b(?:salary|salaries|payroll|pay run|pay runs|wages|tankhwah|tankha|tankhah|pagar|vetan)\b|(?:^|\s)(?:तनख्वाह|तनख़्वाह|सैलरी|वेतन|पगार)(?=\s|$)/
+
 /** The intent of a question (or an entry request). */
 export function classify(text: string, today: string): AssistIntent {
   const n = normalise(text)
   const q = n.q
   if (!q) return { kind: 'unknown' }
+
+  // "bill 42 paid" is a question about bill 42, never ₹42 paid out.
+  const bill = billOf(q, n.question)
+  if (bill) return { kind: 'bill', ...bill }
 
   const entry = entryOf(text, n, today)
   if (entry) return { kind: 'entry', entry }
@@ -643,6 +701,13 @@ export function classify(text: string, today: string): AssistIntent {
   if (open && /^(?:please\s+)?(?:open|go to|goto|take me to|jump to|kholo|khol)\b|(?:kholo|khol do|kholiye|open karo|open)$/.test(q)) {
     const target = (open[1] ?? open[2] ?? '').replace(/^(?:the|my|a)\s+/, '').trim()
     if (target) return { kind: 'open', target }
+  }
+
+  // "TDS kitna dena hai" is the TDS figure, not what I owe suppliers; "TDS kya hai" stays a meaning.
+  if ((TDS_Q.test(q) || TCS_Q.test(q)) && !(meaning && !/\bhow much\b/.test(q))) return { kind: 'withholding', which: TDS_Q.test(q) ? 'tds' : 'tcs' }
+  if (PAYROLL_Q.test(q) && !/\d/.test(q) && !(meaning && !/\bhow much\b/.test(q))) {
+    const said = periodOf(q, today)
+    return { kind: 'payroll', period: said ?? defaultPeriod(today), periodSaid: !!said }
   }
 
   if (GST_Q.test(q) && (GST_DUE.test(q) || q === 'gst')) return { kind: 'gst' }
