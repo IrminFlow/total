@@ -13,6 +13,8 @@ import { SecuritySettings } from '../simple/SecuritySettings'
 import { PeopleRoles } from '../simple/PeopleRoles'
 import { PassphrasePrompt } from '../simple/PassphrasePrompt'
 import { SimpleLockScreen } from '../simple/SimpleLockScreen'
+import { LockScreen } from '../components/LockScreen'
+import { useLockReason } from '../lib/sessionLock'
 import { useSessionLock } from '../lib/sessionLock'
 
 const invoke = vi.fn()
@@ -51,6 +53,10 @@ beforeEach(() => {
       case 'auth:users': return { ok: true, data: [{ id: 2, name: 'Asha', role: 'accountant' }] }
       case 'auth:login': return payload.pin === '2222' ? { ok: true, data: { id: 2, name: 'Asha', role: 'accountant' } } : { ok: false, error: 'Wrong PIN' }
       case 'session:lock': return { ok: true, data: { locked: true } }
+      case 'session:unlock':
+        if (view.encrypted && !payload?.passphrase) return { ok: false, error: 'Type it', code: 'passphrase_required', field: 'passphrase' }
+        if (view.encrypted && payload.passphrase !== 'mango season') return { ok: false, error: 'That passphrase is not right', code: 'wrong_passphrase', field: 'passphrase' }
+        return { ok: true, data: { locked: false } }
       default: return { ok: true, data: null }
     }
   })
@@ -97,11 +103,12 @@ describe('Lock and safety', () => {
     expect(bannedWordsIn(visible())).toEqual([])
   })
 
-  it('a business without people says how to get a screen lock', async () => {
+  it('a business without people can lock the screen too — said to be a privacy screen', async () => {
     view = { ...view, usersExist: false }
     renderUi(<SecuritySettings />)
-    await waitFor(() => expect(screen.getByTestId('security-needs-people').textContent).toContain('PIN'))
-    expect(screen.queryByTestId('select-autolock')).toBeNull()
+    await waitFor(() => expect(screen.getByTestId('security-needs-people').textContent).toContain('privacy screen'))
+    expect(screen.getByTestId('select-autolock')).toBeTruthy()
+    expect(screen.getByTestId('btn-lock-now')).toBeTruthy()
   })
 })
 
@@ -163,6 +170,67 @@ describe('opening a locked business and the lock screen', () => {
     act(() => fire!({ reason: 'idle' }))
     expect(useSession.getState().locked).toBe(true)
     expect(useSession.getState().user).toBeNull()
+  })
+})
+
+describe('the lock screen of a business without people (PR #112 follow-up)', () => {
+  const lockAs = (kind: 'privacy' | 'passphrase', mode: 'simple' | 'accountant'): void =>
+    act(() => {
+      useSession.setState({ locked: true, user: null, ui: { mode } })
+      useLockReason.getState().set('manual', kind)
+    })
+  afterEach(() => act(() => useLockReason.getState().set(null)))
+
+  for (const mode of ['simple', 'accountant'] as const) {
+    it(`${mode}: a privacy screen says anyone can unlock it, and Unlock just resumes`, async () => {
+      lockAs('privacy', mode)
+      renderUi(<LockScreen />)
+      expect(screen.getByTestId('lock-privacy-note').textContent).toMatch(/anyone can unlock this/i)
+      expect(screen.queryByTestId('input-unlock-passphrase')).toBeNull()
+      expect(screen.queryByTestId('input-pin')).toBeNull()
+      fireEvent.click(screen.getByTestId('btn-unlock'))
+      await waitFor(() => expect(useSession.getState().locked).toBe(false))
+      expect(calls('session:unlock')).toEqual([{}])
+      if (mode === 'simple') expect(bannedWordsIn(visible())).toEqual([])
+    })
+
+    it(`${mode}: with the passphrase lock on it asks for the passphrase; a wrong one is refused and cleared`, async () => {
+      view = { ...view, encrypted: true, usersExist: false }
+      lockAs('passphrase', mode)
+      renderUi(<LockScreen />)
+      const input = screen.getByTestId('input-unlock-passphrase') as HTMLInputElement
+      expect((screen.getByTestId('btn-unlock') as HTMLButtonElement).disabled).toBe(true)
+      fireEvent.change(input, { target: { value: 'wrong one' } })
+      fireEvent.click(screen.getByTestId('btn-unlock'))
+      await waitFor(() => expect(screen.getByTestId('lock-unlock-error').textContent).toContain('That passphrase is not right'))
+      expect(input.value).toBe('')
+      expect(useSession.getState().locked).toBe(true)
+      fireEvent.change(input, { target: { value: 'mango season' } })
+      fireEvent.click(screen.getByTestId('btn-unlock'))
+      await waitFor(() => expect(useSession.getState().locked).toBe(false))
+      expect(calls('session:unlock').at(-1)).toEqual({ passphrase: 'mango season' })
+    })
+  }
+
+  it('a reload while locked asks company:current what the lock is', async () => {
+    invoke.mockImplementation(async (channel: string) =>
+      channel === 'company:current' ? { ok: true, data: { slug: 'sharma', info, locked: true, lockKind: 'privacy', ui: { mode: 'simple' } } } : { ok: true, data: [] }
+    )
+    act(() => useSession.setState({ locked: true, user: null, ui: { mode: 'simple' } }))
+    renderUi(<LockScreen />)
+    await waitFor(() => expect(screen.getByTestId('lock-privacy-note')).toBeTruthy())
+  })
+
+  it('⌘L in a business without people locks to the privacy screen (no "add a PIN first" toast)', async () => {
+    invoke.mockImplementation(async (channel: string) => (channel === 'session:lock' ? { ok: true, data: { locked: true, kind: 'privacy' } } : { ok: true, data: null }))
+    function Host(): null {
+      useSessionLock()
+      return null
+    }
+    renderUi(<Host />)
+    fireEvent.keyDown(window, { key: 'l', metaKey: true })
+    await waitFor(() => expect(useSession.getState().locked).toBe(true))
+    expect(useLockReason.getState().kind).toBe('privacy')
   })
 })
 

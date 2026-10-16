@@ -1,18 +1,116 @@
 import { useState } from 'react'
 import { useIsFetching, useQuery } from '@tanstack/react-query'
-import { api, type LoginName } from '../lib/client'
+import { api, IpcError, type LoginName } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, TextInput, useKeyNav } from './ui'
 import { SupportLink } from './SupportLink'
 import { useMode } from '../lib/mode'
 import { SimpleLockScreen } from '../simple/SimpleLockScreen'
-import { useLockReason } from '../lib/sessionLock'
+import { unlockNoPeople, useLockReason } from '../lib/sessionLock'
+import { SimplePrivacyLock } from '../simple/SimplePrivacyLock'
 
 /** Full-viewport PIN lock, shown whenever a company has users but no one has signed in yet
  *  (see App.tsx: `slug && locked`) — and after ⌘L / the idle auto-lock (WP 7.2). A simple-mode
  *  company gets the plain-words lock screen (simple/SimpleLockScreen.tsx); the full app's is below. */
 export function LockScreen(): React.JSX.Element {
-  return useMode() === 'simple' ? <SimpleLockScreen /> : <AccountantLockScreen />
+  const simple = useMode() === 'simple'
+  const noPeople = useNoPeopleLock()
+  if (noPeople) return simple ? <SimplePrivacyLock passphrase={noPeople === 'passphrase'} /> : <PrivacyLockScreen passphrase={noPeople === 'passphrase'} />
+  return simple ? <SimpleLockScreen /> : <AccountantLockScreen />
+}
+
+/** WP 7.2 follow-up: a business WITHOUT people locked with ⌘L / its idle minutes — 'passphrase'
+ *  (its passphrase lock is on) or 'privacy' (anyone can unlock); null = the PIN screen. The lock
+ *  event / session:lock say which; otherwise (a reload while locked) company:current does. */
+function useNoPeopleLock(): 'passphrase' | 'privacy' | null {
+  const told = useLockReason((s) => s.kind)
+  const { data } = useQuery({ queryKey: ['lock-kind'], queryFn: api.company.current, enabled: told === null })
+  const kind = told ?? data?.lockKind ?? null
+  return kind === 'passphrase' || kind === 'privacy' ? kind : null
+}
+
+/** The full app's privacy lock (literal English, like the rest of the full app). */
+function PrivacyLockScreen({ passphrase }: { passphrase: boolean }): React.JSX.Element {
+  const fetching = useIsFetching()
+  const { clearCompany } = useSession()
+  const nav = useNav()
+  const toast = useToasts()
+  const [value, setValue] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const submit = async (): Promise<void> => {
+    if (busy || (passphrase && !value)) return
+    setBusy(true)
+    try {
+      await unlockNoPeople(passphrase ? value : undefined)
+    } catch (err) {
+      setError(err instanceof IpcError ? err.message : String(err))
+      setValue('')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div
+      data-screen="lock"
+      data-lock="privacy"
+      data-loading={fetching > 0 ? 'true' : 'false'}
+      className="drag-region fixed inset-0 z-50 flex h-full flex-col items-center justify-center bg-canvas"
+    >
+      <div className="w-full max-w-sm">
+        <h1 className="text-center font-serif text-display font-semibold tracking-tight">Locked</h1>
+        <p className="mt-1 mb-6 text-center text-detail text-muted" data-testid="lock-privacy-note">
+          {passphrase
+            ? 'Type the passphrase of this business to unlock.'
+            : 'A privacy screen: anyone can unlock this. Add people with PINs (Settings → Users) for a real lock.'}
+        </p>
+        <div className="flex flex-col gap-2">
+          {passphrase && (
+            <TextInput
+              autoFocus
+              aria-label="Passphrase"
+              data-testid="input-unlock-passphrase"
+              type="password"
+              value={value}
+              onChange={(e) => {
+                setValue(e.target.value)
+                setError(null)
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void submit()
+              }}
+              placeholder="Passphrase"
+            />
+          )}
+          {error && (
+            <p className="text-center text-small text-cr" role="alert" data-testid="lock-unlock-error">
+              {error}
+            </p>
+          )}
+          <Button variant="primary" autoFocus={!passphrase} data-testid="btn-unlock" disabled={busy || (passphrase && !value)} onClick={() => void submit()}>
+            {busy ? 'Checking…' : 'Unlock'}
+          </Button>
+        </div>
+        <div className="mt-6 flex justify-center">
+          <button
+            data-testid="btn-lock-switch-company"
+            className="rounded-md px-3 py-1.5 text-body-sm text-muted hover:bg-panel2 hover:text-ink"
+            onClick={async () => {
+              try {
+                await api.company.close()
+                clearCompany()
+                nav.home()
+              } catch (err) {
+                toast.push('error', (err as Error).message)
+              }
+            }}
+          >
+            ← Switch company
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function AccountantLockScreen(): React.JSX.Element {

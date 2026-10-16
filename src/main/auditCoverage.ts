@@ -132,6 +132,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // ---------- WP 7.2 security: the screen lock, the passphrase lock ----------
   'session:activity': r('moves the idle clock of the auto-lock; writes nothing'),
   'session:lock': a('user'),
+  'session:unlock': a('user'),
   'security:get': QUERY,
   'security:autoLock:set': a('security'),
   // On / off: a backup first, the change audited inside the converted file ('security').

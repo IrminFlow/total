@@ -87,7 +87,7 @@ describe('the session lock gates every channel', () => {
     // the ungated ones are exactly the picker / PIN screen / logs list
     expect([...ipc.UNGATED_CHANNEL_NAMES].sort()).toEqual([
       'app:info', 'auth:current', 'auth:login', 'auth:logout', 'auth:users', 'backup:importEncrypted', 'company:close', 'company:create',
-      'company:createDemo', 'company:current', 'company:delete', 'company:list', 'company:open', 'log:renderer', 'log:reveal'
+      'company:createDemo', 'company:current', 'company:delete', 'company:list', 'company:open', 'log:renderer', 'log:reveal', 'session:unlock'
     ])
     await ok('auth:login', { userId: 1, pin: '1111' })
     expect((await call('security:get')).ok).toBe(true)

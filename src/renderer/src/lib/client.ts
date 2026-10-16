@@ -99,6 +99,10 @@ import type { AuditAction } from '@shared/auditEntities'
 
 export type Role = 'owner' | 'accountant' | 'viewer'
 
+/** WP 7.2 follow-up: what the lock screen asks for — a PIN (the business has people), the
+ *  business's passphrase, or nothing (a privacy screen: anyone can unlock it). */
+export type LockKind = 'pin' | 'passphrase' | 'privacy'
+
 export interface SessionUser {
   id: number
   name: string
@@ -830,7 +834,7 @@ export const api = {
     open: (slug: string, passphrase?: string) =>
       call<{ slug: string; info: CompanyInfo; integrity: IntegrityResult; locked: boolean; ui: UiSettings; encrypted?: boolean }>('company:open', passphrase ? { slug, passphrase } : { slug }),
     close: () => call<null>('company:close'),
-    current: () => call<{ slug: string; info: CompanyInfo; locked: boolean; ui: UiSettings; encrypted?: boolean } | null>('company:current'),
+    current: () => call<{ slug: string; info: CompanyInfo; locked: boolean; lockKind?: LockKind; ui: UiSettings; encrypted?: boolean } | null>('company:current'),
     updateInfo: (input: CompanyCreateInput) => call<CompanyInfo>('company:updateInfo', input),
     backup: () => call<{ path: string; check?: BackupCheck | null }>('company:backup'),
     revealExports: () => call<null>('company:revealExports'),
@@ -1434,7 +1438,9 @@ export const api = {
   /** WP 7.2: the screen lock (⌘L, idle auto-lock) and the passphrase lock. */
   session: {
     activity: () => call<null>('session:activity'),
-    lock: () => call<{ locked: boolean }>('session:lock')
+    lock: () => call<{ locked: boolean; kind?: LockKind }>('session:lock'),
+    /** WP 7.2 follow-up: unlock a business WITHOUT people (its passphrase when it has one). */
+    unlock: (passphrase?: string) => call<{ locked: boolean }>('session:unlock', passphrase ? { passphrase } : {})
   },
   security: {
     get: () => call<SecurityView>('security:get'),
