@@ -121,6 +121,16 @@ C was rejected because of its asynchronous API.
   backup could not be converted (it would be unreadable without it) — `backupsFailed` says which.
 - **While the business is open** the key is in the app's memory; anyone at the unlocked Mac can read
   the books (that is what the screen lock / auto-lock is for).
+- **The screen lock without people** (PR #NNN): a business without users can lock its screen too
+  (⌘L / the auto-lock). With the passphrase lock on, `session:unlock` needs the passphrase
+  (throttled like opening); without it the lock is only a privacy screen — anyone can unlock it,
+  and the screen says so. The key stays in memory while locked either way.
+- **Capability flags** (PR #112, gaps closed in PR #NNN): main enforces every flag; `canSeeProfit:
+  false` also redacts the trial balance (income / expense ledgers, the computed P&L row and the
+  totals left out), refuses report-builder models and AI tools that show the profit, skips profit
+  reports in report packs and answers Ask Total's profit questions with a note. The renderer hides
+  or disables export / Save / AI-settings buttons only for a flag set to false, so owners and
+  unflagged users see what they always did.
 
 ## Not covered (deferred)
 
