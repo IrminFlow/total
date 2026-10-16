@@ -208,7 +208,7 @@ what you typed, and a **Back to simple** button.
   folder…**: pick an empty folder, and Total copies your books, backups and settings there, checks
   the copy, and restarts. The old folder is never deleted; it keeps a note saying where the books
   went. Picking a folder that already has Total books opens those instead. Owner only where the
-  business has sign-ins. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  business has sign-ins. [#133](https://github.com/IrminFlow/total/pull/133)
 
 ### For accountants (figures that changed)
 
@@ -458,7 +458,7 @@ Read these before filing from the next release.
   (owner, must name the picked folder; closes the company, copies + fsyncs + verifies, writes the
   pointer, relaunches) in `ipcDataRoot.ts`; copy / check / rollback in `services/dataRootMove.ts`;
   codes `data_folder_*` in ERROR_MAP; `isOneDrivePath` in `shared/windowsPaths.ts`. `total-cli` / MCP
-  do not read the pointer yet. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  do not read the pointer yet. [#133](https://github.com/IrminFlow/total/pull/133)
 
 ## [0.11.0] - 2026-10-13
 
