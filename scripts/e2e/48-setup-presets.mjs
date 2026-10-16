@@ -7,6 +7,7 @@
 // step, Home and Features are captured light and dark for the visual review. WP 10.3: after the
 // wizard the tour of Home shows once (Enter advances, Skip / Esc end it) and never again.
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { layoutInPage, waitForSettled } from '../lib/a11y.mjs'
 
 const attached = (h, sel, timeout = 10000) => h.page.waitForSelector(sel, { state: 'attached', timeout })
 const step = (h) => h.page.getAttribute('[data-testid="setup-wizard"]', 'data-step')
@@ -90,13 +91,44 @@ await scenario('48-setup-presets', async (h) => {
   // ---------- an unregistered kirana ----------
   await runWizard(h, 'light-kirana', { name: 'Ramesh Kirana', type: 'retail', gst: 'no', stock: true })
   // WP 10.3: the first-run tour of Home — 4 steps, Enter advances, Skip ends it for good.
-  await attached(h, '[data-testid="tour"][data-step="sale"]')
-  await h.waitIdle()
+  // At 1024×700 every step's card stays clear of its spotlight and inside the window.
+  await page.setViewportSize({ width: 1024, height: 700 })
+  const tourStep = async (step) => {
+    await attached(h, `[data-testid="tour"][data-step="${step}"]`)
+    await h.waitIdle()
+    await waitForSettled(page)
+    // The card follows the anchor's measured box (every 200 ms): wait until it sits clear of it.
+    await page
+      .waitForFunction(() => {
+        const c = document.querySelector('[data-testid="tour-card"]')?.getBoundingClientRect()
+        const s = document.querySelector('[data-testid="tour-spotlight"]')?.getBoundingClientRect()
+        return !!c && !!s && !(c.left < s.right && s.left < c.right && c.top < s.bottom && s.top < c.bottom)
+      }, null, { timeout: 5000 })
+      .catch(() => {})
+    const box = await page.evaluate(() => {
+      const r = (el) => (el ? (({ top, left, right, bottom }) => ({ top, left, right, bottom }))(el.getBoundingClientRect()) : null)
+      return { card: r(document.querySelector('[data-testid="tour-card"]')), spot: r(document.querySelector('[data-testid="tour-spotlight"]')), w: innerWidth, h: innerHeight }
+    })
+    assert(box.card && box.spot, `step ${step}: a card and its spotlight (${JSON.stringify(box)})`)
+    const { card: c, spot: sp } = box
+    assert(!(c.left < sp.right && sp.left < c.right && c.top < sp.bottom && sp.top < c.bottom), `step ${step}: the card does not cover its anchor (${JSON.stringify(box)})`)
+    assert(c.left >= 0 && c.top >= 0 && c.right <= box.w && c.bottom <= box.h, `step ${step}: the card is inside the window (${JSON.stringify(box)})`)
+    const p = await page.evaluate(layoutInPage)
+    assert(p.length === 0, `tour step ${step} at 1024×700: ${p.join('; ')}`)
+  }
+  await tourStep('sale')
   await h.shot('light-kirana-tour-1')
   await page.keyboard.press('Enter')
-  await attached(h, '[data-testid="tour"][data-step="money-in"]')
+  await tourStep('money-in')
   await h.shot('light-kirana-tour-2')
+  await page.keyboard.press('Enter')
+  await tourStep('owed')
+  await h.shot('light-kirana-tour-3')
+  await page.keyboard.press('Enter')
+  await tourStep('backup')
+  await h.shot('light-kirana-tour-4')
   await h.click('tour-skip')
+  await page.setViewportSize({ width: 1440, height: 900 })
   await page.waitForSelector('[data-testid="tour"]', { state: 'detached', timeout: 5000 })
   // Seen once: going round Home again does not bring it back.
   await h.click('simple-nav-sell')

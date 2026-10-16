@@ -7,7 +7,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { bannedWordsIn } from '@shared/simple/bannedWords'
 import { useSession } from '../state/stores'
 import { HomeTour } from '../simple/help/Tour'
-import { TOUR_STEPS, markTourPending, tourDoneKey, tourDue, useTour } from '../help/tour'
+import { TOUR_STEPS, markTourPending, placeTourCard, tourDoneKey, tourDue, useTour, type TourBox } from '../help/tour'
 
 /** The four Home elements the tour points at (the tile only once there are figures). */
 function Home({ tile = true }: { tile?: boolean }): React.JSX.Element {
@@ -154,5 +154,73 @@ describe('first-run tour (WP 10.3)', () => {
     cleanup() // Home unmounts — the tour ends and counts as seen
     await flush()
     expect(useTour.getState().step).toBeNull()
+  })
+})
+
+/** Two boxes overlap (strictly — touching edges is fine). */
+const overlaps = (a: TourBox, b: TourBox): boolean =>
+  a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height
+
+describe('tour card placement (never over its anchor)', () => {
+  const card = { width: 340, height: 170 }
+  const vp = { width: 1024, height: 700 }
+  const inside = (p: { top: number; left: number; width: number }, h = card.height): boolean =>
+    p.top >= 12 && p.left >= 12 && p.left + p.width <= vp.width - 12 && p.top + h <= vp.height - 12
+
+  it('below when there is room, above near the bottom, beside a tall anchor, clamped to the window', () => {
+    const cases: [TourBox, string][] = [
+      [{ top: 80, left: 300, width: 120, height: 40 }, 'below'],
+      [{ top: 600, left: 300, width: 120, height: 40 }, 'above'],
+      [{ top: 150, left: 40, width: 300, height: 400 }, 'right'], // a tall tile on the left
+      [{ top: 150, left: 640, width: 330, height: 400 }, 'left'], // a tall tile on the right
+      [{ top: 80, left: 0, width: 60, height: 40 }, 'below'], // against the left edge: clamped in
+      [{ top: 80, left: 980, width: 40, height: 40 }, 'below'] // against the right edge
+    ]
+    for (const [anchor, side] of cases) {
+      const p = placeTourCard(anchor, card, vp)
+      expect(p.side, JSON.stringify(anchor)).toBe(side)
+      expect(overlaps({ top: p.top, left: p.left, width: p.width, height: card.height }, anchor), JSON.stringify(anchor)).toBe(false)
+      expect(inside(p), JSON.stringify({ anchor, p })).toBe(true)
+    }
+  })
+
+  it('no anchor = the centre; a narrow window shrinks the card to fit', () => {
+    expect(placeTourCard(null, card, vp)).toMatchObject({ side: 'centre', top: 265, left: 342 })
+    const narrow = placeTourCard({ top: 50, left: 10, width: 100, height: 30 }, card, { width: 300, height: 600 })
+    expect(narrow.width).toBe(276)
+    expect(narrow.left).toBe(12)
+  })
+
+  it('the rendered card sits clear of the spotlight on a tall Home tile (mocked layout at 1024×700)', async () => {
+    const realRect = Element.prototype.getBoundingClientRect
+    const realW = window.innerWidth
+    const realH = window.innerHeight
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1024 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 700 })
+    // The receivables tile: tall, from near the top to near the bottom, on the left.
+    const tile = { top: 140, left: 60, width: 300, height: 480 }
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const id = this.getAttribute('data-testid')
+      const r = id === 'simple-tile-receivables' ? tile : { top: 80, left: 300, width: 120, height: 40 }
+      return { ...r, x: r.left, y: r.top, right: r.left + r.width, bottom: r.top + r.height, toJSON: () => r } as DOMRect
+    }
+    try {
+      markTourPending('ramesh')
+      render(<Home />)
+      act(() => useTour.setState({ step: 2 }))
+      await flush()
+      const cardEl = screen.getByTestId('tour-card')
+      expect(screen.getByTestId('tour').getAttribute('data-step')).toBe('owed')
+      expect(cardEl.getAttribute('data-side')).toBe('right')
+      const box = { top: parseFloat(cardEl.style.top), left: parseFloat(cardEl.style.left), width: parseFloat(cardEl.style.width), height: 170 }
+      const spot = screen.getByTestId('tour-spotlight')
+      const spotBox = { top: parseFloat(spot.style.top), left: parseFloat(spot.style.left), width: parseFloat(spot.style.width), height: parseFloat(spot.style.height) }
+      expect(overlaps(box, spotBox)).toBe(false)
+      expect(box.left + box.width).toBeLessThanOrEqual(1024 - 12)
+    } finally {
+      Element.prototype.getBoundingClientRect = realRect
+      Object.defineProperty(window, 'innerWidth', { configurable: true, value: realW })
+      Object.defineProperty(window, 'innerHeight', { configurable: true, value: realH })
+    }
   })
 })
