@@ -13,8 +13,8 @@ import { migrate } from './migrate'
 import { seedCompany } from './seed'
 import { TEST_INFO, postSimpleVoucher } from './testdb'
 import { quickCheckOk, runWeeklyIntegrityCheck, runWeeklyIntegrityCheckAsync, snapshotTo, INTEGRITY_CHECK_META_KEY } from './backup'
-import { checkIntegrity, checkIntegrityAsync } from './integrity'
-import { pragmaCheck, quickCheckOkAsync, runningChecks, setCheckWorkerFile, stopChecks } from './checkHost'
+import { checkIntegrity, checkIntegrityAsync, QUICK_CHECK_TIMED_OUT } from './integrity'
+import { CheckTimeoutError, pragmaCheck, quickCheckOkAsync, runningChecks, setCheckWorkerFile, stopChecks } from './checkHost'
 
 function fileDb(): { db: Database.Database; path: string; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'total-checkhost-'))
@@ -118,6 +118,24 @@ describe('the check worker thread', () => {
     expect(await quickCheckOkAsync(path)).toBe(false)
     // checkIntegrityAsync falls back to the main connection, as before.
     expect(await checkIntegrityAsync(db, path)).toEqual(checkIntegrity(db))
+    db.close()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('the open-time quick_check gives up after its timeout; the open is not held (to-do §4)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'total-checkworker-silent-'))
+    const silent = join(dir, 'silent.js')
+    writeFileSync(silent, 'setInterval(() => {}, 1000)\n')
+    setCheckWorkerFile(silent)
+    const { db, path } = fileDb()
+    await expect(pragmaCheck(path, 'quick_check', null, { timeoutMs: 50 })).rejects.toBeInstanceOf(CheckTimeoutError)
+    expect(runningChecks(path)).toBe(0)
+    const started = Date.now()
+    const result = await checkIntegrityAsync(db, path, { timeoutMs: 50 })
+    expect(Date.now() - started).toBeLessThan(5_000)
+    // Not checked is not damaged: the balance check alone decides `ok`; nothing re-ran on `db`.
+    expect(result).toEqual({ ok: true, quickCheck: QUICK_CHECK_TIMED_OUT, unbalancedVoucherIds: [] })
+    expect(runningChecks(path)).toBe(0)
     db.close()
     rmSync(dir, { recursive: true, force: true })
   })

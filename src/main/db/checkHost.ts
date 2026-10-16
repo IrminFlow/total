@@ -66,11 +66,26 @@ export class CheckStoppedError extends Error {
   }
 }
 
+/** The rejection of a check that ran past its `timeoutMs` (the worker is terminated). */
+export class CheckTimeoutError extends Error {
+  constructor(ms: number) {
+    super(`check timed out after ${ms} ms`)
+    this.name = 'CheckTimeoutError'
+  }
+}
+
+export interface PragmaCheckOptions {
+  /** Reject with CheckTimeoutError (and terminate the worker) when no answer comes in this many
+   *  ms. Absent = no limit (the weekly integrity_check, backup verification). Applies to the
+   *  worker only: the in-process fallback (dbtests, the CLI) is synchronous and runs to the end. */
+  timeoutMs?: number
+}
+
 /** Run `PRAGMA <pragma>` on the database file at `path` (read-only). Rejects when the file
  *  cannot be opened, the pragma throws, the worker dies (an 'error' or an exit without an
- *  answer — never a promise that hangs company:open) or the check is stopped (stopChecks) —
- *  callers decide what a failure means, as before. */
-export async function pragmaCheck(path: string, pragma: CheckPragma, key?: Buffer | null): Promise<string> {
+ *  answer — never a promise that hangs company:open), the check is stopped (stopChecks) or it
+ *  runs past `opts.timeoutMs` — callers decide what a failure means, as before. */
+export async function pragmaCheck(path: string, pragma: CheckPragma, key?: Buffer | null, opts: PragmaCheckOptions = {}): Promise<string> {
   // WP 7.2: the caller passes the key of an encrypted file (its handle's — keyOfHandle); the
   // worker bundle stays self-contained (no key map, no app modules).
   const keyHex = key ? key.toString('hex') : null
@@ -88,8 +103,13 @@ export async function pragmaCheck(path: string, pragma: CheckPragma, key?: Buffe
   set.add(worker)
   running.set(path, set)
   const id = ++seq
+  let timer: NodeJS.Timeout | undefined
   try {
     return await new Promise<string>((resolve, reject) => {
+      if (opts.timeoutMs !== undefined) {
+        const ms = opts.timeoutMs
+        timer = setTimeout(() => reject(new CheckTimeoutError(ms)), ms)
+      }
       worker.once('error', reject)
       worker.once('exit', (code) => reject(stopped.has(worker) ? new CheckStoppedError() : new Error(`check worker exited (${code}) before answering`)))
       worker.on('message', (m: { id: number; ok: boolean; result?: string; error?: string }) => {
@@ -100,6 +120,7 @@ export async function pragmaCheck(path: string, pragma: CheckPragma, key?: Buffe
       worker.postMessage({ id, path, pragma, keyHex })
     })
   } finally {
+    if (timer) clearTimeout(timer)
     set.delete(worker)
     if (set.size === 0 && running.get(path) === set) running.delete(path)
     void worker.terminate()
