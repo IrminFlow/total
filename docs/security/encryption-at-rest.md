@@ -135,7 +135,10 @@ C was rejected because of its asynchronous API.
   statements, registers, the books export, the voucher mirrors) — one side of the P&L at a time is
   allowed by design, so the profit stays derivable by anyone who may read every voucher. The renderer hides
   or disables export / Save / AI-settings buttons only for a flag set to false, so owners and
-  unflagged users see what they always did.
+  unflagged users see what they always did. `canExport` covers `EXPORT_CHANNELS` (capabilities.ts:
+  files of the books or a report of them, party statements included — `receivables:statementPdf`,
+  `receivables:statementsBulk`); prints are not exports and stay ungated by decision — the invoice
+  PDF (`invoice:pdf` / `invoice:pdfBatch`) and the labels PDF (`stock:labelsPdf`) follow their role only.
 
 ## Remember on this computer
 
