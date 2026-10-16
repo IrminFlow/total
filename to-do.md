@@ -140,6 +140,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - At 500k vouchers many reports take > 3 s on this laptop: stream stock lines into the valuation pass, share one pass / one Outstandings run per request, re-measure on a machine with more RAM — PR #104
 - Voucher text search needs a full-text index (FTS5 + triggers); search budget 600 ms at 500k — PR #104
 - ~~No timeout on the company-open quick_check worker~~ DONE — 60 s, then "not checked (timed out)" — PR #118
+- company:open still waits, unbounded, for the open backup (`backupCompany`: snapshot + its own worker quick_check of the copy) before purge — on the slow disk / huge file the #118 timeout is for, that wait is as long; bounding it needs a rule for an unverified backup (purge must not run before the snapshot) — PR #118 review, `src/main/ipc.ts` openCompanyNow
 - Synchronous SQLite and valuation run in the main process; cold start, save latency and UI responsiveness at 100k / 500k not gated — GPT review
 
 ### Security

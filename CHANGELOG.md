@@ -273,7 +273,8 @@ Read these before filing from the next release.
   Review: pre-upgrade copies are kept per source version (the newest copy of each of the 2 most
   recent), so retries of a failing upgrade — each a copy from the half-upgraded version — no
   longer prune the only copy the previous Total can open; a timed-out open quick_check stays
-  visible to `stopChecks` until its thread has exited (terminate cannot interrupt SQLite).
+  visible to `stopChecks` until its thread has exited (terminate cannot interrupt SQLite); the
+  on-open auto-purge of the bin commits with its summary audit row too.
 
 ## [0.11.0] - 2026-10-13
 

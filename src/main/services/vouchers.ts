@@ -1095,23 +1095,27 @@ export function purgeOldDeleted(db: DB, days = 30): number {
     )
     .all(`-${days} days`, lock) as { id: number }[]
   const del = db.prepare('DELETE FROM vouchers WHERE id = ?')
-  let purged = 0
-  const purgedIds: number[] = []
-  for (const { id } of rows) {
-    try {
-      del.run(id)
-      purged++
-      purgedIds.push(id)
-    } catch {
-      // e.g. an FK from payroll_runs — leave this voucher in the bin, keep purging the rest.
+  // The deletes and their summary audit row commit together (see deleteVoucher). A refused delete
+  // (an immediate FK) rolls back only its own statement, so the rest still go.
+  return db.transaction(() => {
+    let purged = 0
+    const purgedIds: number[] = []
+    for (const { id } of rows) {
+      try {
+        del.run(id)
+        purged++
+        purgedIds.push(id)
+      } catch {
+        // e.g. an FK from payroll_runs — leave this voucher in the bin, keep purging the rest.
+      }
     }
-  }
-  if (purged > 0) {
-    // WP 3.8: the ids too — each voucher's own create/update/delete rows stay in the trail (audit_log
-    // has no foreign key to vouchers), and this row says where they went.
-    writeAudit(db, 'voucher', 0, 'purge', { autoPurgedFromBin: purged, olderThanDays: days, voucherIds: purgedIds }, null)
-  }
-  return purged
+    if (purged > 0) {
+      // WP 3.8: the ids too — each voucher's own create/update/delete rows stay in the trail (audit_log
+      // has no foreign key to vouchers), and this row says where they went.
+      writeAudit(db, 'voucher', 0, 'purge', { autoPurgedFromBin: purged, olderThanDays: days, voucherIds: purgedIds }, null)
+    }
+    return purged
+  })()
 }
 
 export interface BinRow {

@@ -2,7 +2,7 @@
 // commit together — a failed audit write leaves the voucher exactly where it was.
 import { describe, it, expect } from 'vitest'
 import { seededDb, postSimpleVoucher } from '../db/testdb'
-import { deleteVoucher, getVoucher, purgeVoucher, restoreVoucher } from './vouchers'
+import { deleteVoucher, getVoucher, purgeOldDeleted, purgeVoucher, restoreVoucher, setLockDate } from './vouchers'
 
 type DB = ReturnType<typeof seededDb>
 
@@ -55,5 +55,23 @@ describe('bin writes and their audit rows are one transaction', () => {
     purgeVoucher(db, v.id)
     expect(getVoucher(db, v.id)).toBeNull()
     expect(auditCount(db, v.id, 'purge')).toBe(1)
+  })
+  it('purgeOldDeleted: a failing audit write purges nothing; an FK-blocked voucher still lets the rest go', () => {
+    const db = seededDb()
+    const blocked = postSimpleVoucher(db, { date: '2025-04-05', amount: 5000, kind: 'payment' })
+    const a = postSimpleVoucher(db, { date: '2025-04-06', amount: 5000, kind: 'receipt' })
+    const b = postSimpleVoucher(db, { date: '2025-04-07', amount: 7000, kind: 'receipt' })
+    db.prepare("INSERT INTO payroll_runs (month, voucher_id) VALUES ('2025-04', ?)").run(blocked.id)
+    for (const v of [blocked, a, b]) deleteVoucher(db, v.id)
+    db.prepare("UPDATE vouchers SET deleted_at = datetime('now', '-40 days')").run()
+    setLockDate(db, '2025-04-30')
+    breakAudit(db)
+    expect(() => purgeOldDeleted(db, 30)).toThrow(/audit write failed/)
+    for (const v of [blocked, a, b]) expect(getVoucher(db, v.id)).not.toBeNull()
+    fixAudit(db)
+    expect(purgeOldDeleted(db, 30)).toBe(2)
+    expect(getVoucher(db, blocked.id)).not.toBeNull()
+    expect([getVoucher(db, a.id), getVoucher(db, b.id)]).toEqual([null, null])
+    expect(auditCount(db, 0, 'purge')).toBe(1)
   })
 })
