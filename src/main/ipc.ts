@@ -27,7 +27,7 @@ import * as attachments from './services/attachments'
 import { embedAttachments, restoreAttachmentFiles, restoreAttachmentFilesAt, type RestoreFilesResult, type StashResult } from './db/attachmentBackup'
 import { listBackupsIn, restoreCompanyDb, rollbackRestore, snapshotSync, backupStamp, runWeeklyIntegrityCheckAsync, type BackupInfo } from './db/backup'
 import { checkIntegrity, checkIntegrityAsync, QUICK_CHECK_TIMED_OUT } from './db/integrity'
-import { stopAllChecks, stopChecks } from './db/checkHost'
+import { stopAllChecks, stopChecks, stopChecksUnder } from './db/checkHost'
 import { encryptFile, decryptFile } from './db/crypt'
 import { readCompanyInfo, seedCompany, writeCompanyInfo } from './db/seed'
 import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './registry'
@@ -901,8 +901,9 @@ export function registerIpc(): void {
     log('warn', 'company-deleted', { slug, user: sessionUser?.name ?? null })
     if (current?.slug === slug) closeCurrentCompany()
     forgetFolderKey(companyDir(slug))
-    // WP 7.1 review: a background check (the weekly integrity_check) may still hold the file open.
-    await stopChecks(companyDbPath(slug))
+    // WP 7.1 review: a background check (the weekly integrity_check, a backup's restore check) may
+    // still hold a file in the folder open.
+    await stopChecksUnder(companyDir(slug))
     rmSync(companyDir(slug), { recursive: true, force: true })
     removeCompany(slug)
     // Secrets live outside the company folder; drop them so a future company reusing this slug
@@ -3059,6 +3060,8 @@ export function registerIpc(): void {
     idleClock.touch()
     // The older backups follow the books: none is left plaintext behind a locked business (or
     // encrypted behind an unlocked one, where no key would open it any more).
+    // A backup's restore check still copying one of them would hold it open (Windows: the rename fails).
+    await stopChecksUnder(companyBackupsDir(slug))
     const conv = convertBackups(companyBackupsDir(slug), from, to)
     if (conv.failed.length) log('warn', 'security-backups-not-converted', { slug, failed: conv.failed.length })
     return { backupsConverted: conv.converted, backupsFailed: conv.failed }
@@ -3141,7 +3144,7 @@ export function registerIpc(): void {
     if (!name) throw new Error('There is no backup to check yet — take one first')
     const path = join(companyBackupsDir(c.slug), name)
     if (!existsSync(path)) throw new Error('Backup file not found')
-    const check = await verifyBackupFileAsync(path, { asOn: todayISO(), key: isEncryptedFile(path) ? keyOfHandle(c.db) : null, alsoTrack: [c.db.name] })
+    const check = await verifyBackupFileAsync(path, { asOn: todayISO(), key: isEncryptedFile(path) ? keyOfHandle(c.db) : null })
     if (!c.db.open) throw new Error('The business was closed before the check finished')
     return recordBackupCheck(c.db, check)
   })

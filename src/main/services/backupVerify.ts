@@ -34,9 +34,20 @@ export interface VerifyOptions {
   now?: Date
 }
 
-/** Restore `path` into a scratch folder and check it. Never throws. */
+/** Remove a scratch folder; never throws (a check that has its answer must not fail on cleanup).
+ *  On Windows a handle a killed worker had open may linger for a moment (EBUSY / EPERM): rmSync
+ *  retries those; anything still left is a folder under the OS temp dir, which the OS clears. */
+export function removeScratch(dir: string): void {
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  } catch {
+    // left for the OS temp cleanup — the verdict stands
+  }
+}
+
 const emptySteps = (): BackupCheckSteps => ({ opens: false, quickCheck: false, migrations: null, auditChain: null, balanced: null, company: false })
 
+/** Restore `path` into a scratch folder and check it. Never throws. */
 export function verifyBackupFile(path: string, opts: VerifyOptions): BackupCheck {
   const steps: BackupCheckSteps = emptySteps()
   const encrypted = isEncryptedFile(path)
@@ -91,20 +102,15 @@ export function verifyBackupFile(path: string, opts: VerifyOptions): BackupCheck
     } catch {
       // closing a broken handle
     }
-    if (scratch) rmSync(scratch, { recursive: true, force: true })
+    if (scratch) removeScratch(scratch)
   }
-}
-
-export interface VerifyAsyncOptions extends VerifyOptions {
-  /** More files whose stopChecks stops this check (the live company file — see checkBackupIfDue). */
-  alsoTrack?: string[]
 }
 
 /** verifyBackupFile off the main thread: the same check in the check worker, the same answer.
  *  Never throws for a finding or a worker that dies (that is a failed check, with the reason);
  *  rejects only with CheckStoppedError — stopChecks ended it because the file is being replaced
  *  or removed, which says nothing about the backup. */
-export async function verifyBackupFileAsync(path: string, opts: VerifyAsyncOptions): Promise<BackupCheck> {
+export async function verifyBackupFileAsync(path: string, opts: VerifyOptions): Promise<BackupCheck> {
   const file = checkWorkerFile()
   if (!file) return verifyBackupFile(path, opts)
   const encrypted = isEncryptedFile(path)
@@ -114,7 +120,7 @@ export async function verifyBackupFileAsync(path: string, opts: VerifyAsyncOptio
   try {
     root = mkdtempSync(join(opts.scratchRoot ?? tmpdir(), 'total-backup-check-run-'))
     const job = { kind: 'verify' as const, path, keyHex: key ? key.toString('hex') : null, asOn: opts.asOn, nowIso: now.toISOString(), scratchRoot: root }
-    return await runCheckJob<BackupCheck>(file, job, { alsoTrack: opts.alsoTrack })
+    return await runCheckJob<BackupCheck>(file, job)
   } catch (err) {
     if (err instanceof CheckStoppedError) throw err
     return {
@@ -127,7 +133,7 @@ export async function verifyBackupFileAsync(path: string, opts: VerifyAsyncOptio
       error: `The check could not finish: ${err instanceof Error ? err.message : String(err)}`
     }
   } finally {
-    if (root) rmSync(root, { recursive: true, force: true })
+    if (root) removeScratch(root)
   }
 }
 
@@ -191,7 +197,7 @@ export async function checkBackupIfDue(db: DB, dest: string, tag: string, asOn: 
   if (!db.open || !checkDue(db, tag)) return null
   let check: BackupCheck
   try {
-    check = await verifyBackupFileAsync(dest, { asOn, key: isEncryptedFile(dest) ? keyOfHandle(db) : null, alsoTrack: [db.name] })
+    check = await verifyBackupFileAsync(dest, { asOn, key: isEncryptedFile(dest) ? keyOfHandle(db) : null })
   } catch (err) {
     if (err instanceof CheckStoppedError) return null
     throw err

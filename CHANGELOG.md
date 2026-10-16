@@ -389,11 +389,15 @@ Read these before filing from the next release.
   chunk via `manualChunks`; `scripts/perf-launch.mjs --boot` times the renderer alone.
   `FOCUS_SEARCH_EVENT` moved to `lib/searchEvents.ts` (re-exported). [#135](https://github.com/IrminFlow/total/pull/135)
 - The backup restore check (`services/backupVerify.ts`) runs as a `verify` job in the check worker
-  (`db/checkWorker.ts`; `checkHost.runCheckJob`, also tracked under the live company file for
-  `stopChecks`); `checkBackupIfDue` is async and takes the audit user; a dead worker is a failed
-  check with the reason. `out/main/checkWorker.js` is no longer a rollup input: it is bundled
-  standalone by `scripts/build-check-worker.mjs` (no Electron, AI or MCP code —
-  `checkWorkerBundle.test.ts`). [#136](https://github.com/IrminFlow/total/pull/136)
+  (`db/checkWorker.ts`; `checkHost.runCheckJob`, tracked under the backup it reads only — a
+  `backup:restore` neither stops nor waits for it; company delete / passphrase change stop it with
+  `stopChecksUnder(folder)`); `checkBackupIfDue` is async and takes the audit user; a dead worker
+  is a failed check with the reason; scratch removal retries and never fails a check. The worker
+  zeroes its copy of the key. `out/main/checkWorker.js` is no longer a rollup input: it is bundled
+  standalone by `scripts/build-check-worker.mjs` (no Electron, AI or MCP code; Electron's exports
+  are getters that throw — `checkWorkerBundle.test.ts`); the smoke's main-process probe runs a
+  quick_check and a whole restore check through the built (on Windows CI: packaged) worker.
+  [#136](https://github.com/IrminFlow/total/pull/136)
 - "I've filed" lives in company meta `gstFiled`, not in `assistant_marks` (which has no room for an
   ARN). [#94](https://github.com/IrminFlow/total/pull/94)
 - i18n: `Translate.lang`, `toPlainDate(d, lang)`, `amountInWords(paise, lang)`; the glossary is

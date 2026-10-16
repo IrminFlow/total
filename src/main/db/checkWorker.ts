@@ -22,12 +22,13 @@ const backupVerify = (): typeof BackupVerify => (verifyModule ??= require('../se
 const run = (job: CheckJob): unknown => {
   if (job.kind === 'verify') {
     if (job.keyHex !== null && !/^[0-9a-f]{64}$/.test(job.keyHex)) throw new Error('bad key')
-    return backupVerify().verifyBackupFile(job.path, {
-      key: job.keyHex ? Buffer.from(job.keyHex, 'hex') : null,
-      asOn: job.asOn,
-      now: new Date(job.nowIso),
-      scratchRoot: job.scratchRoot
-    })
+    const key = job.keyHex ? Buffer.from(job.keyHex, 'hex') : null
+    try {
+      return backupVerify().verifyBackupFile(job.path, { key, asOn: job.asOn, now: new Date(job.nowIso), scratchRoot: job.scratchRoot })
+    } finally {
+      // The copy's connection is closed by now; no copy of the raw key outlives the job.
+      key?.fill(0)
+    }
   }
   const db = openForCheck(job.path, job.keyHex ?? null)
   try {

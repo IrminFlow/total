@@ -7,7 +7,7 @@
 // (runCheckJob); the worker file is built on its own (scripts/build-check-worker.mjs) so it carries
 // the migrations / audit / trial-balance code without a shared chunk that needs Electron.
 import { existsSync } from 'fs'
-import { join } from 'path'
+import { join, resolve, sep } from 'path'
 import { Worker } from 'worker_threads'
 import Database from 'better-sqlite3-multiple-ciphers'
 
@@ -113,25 +113,21 @@ export type CheckJob =
   | { kind: 'pragma'; path: string; pragma: CheckPragma; keyHex: string | null }
   | { kind: 'verify'; path: string; keyHex: string | null; asOn: string; nowIso: string; scratchRoot: string }
 
-export interface CheckJobOptions extends PragmaCheckOptions {
-  /** More paths the job counts as reading (stopChecks(any of them) stops it) — the restore check
-   *  of a backup is also tracked under the live company file, whose delete / restore / passphrase
-   *  change removes or rewrites the backups it reads. */
-  alsoTrack?: string[]
-}
+export type CheckJobOptions = PragmaCheckOptions
 
 /** Run `job` in a fresh worker on `file`; the answer, or a rejection when the job fails, the
  *  worker dies (an 'error' or an exit without an answer), it is stopped (CheckStoppedError) or it
  *  runs past `opts.timeoutMs` (CheckTimeoutError). */
 export async function runCheckJob<T>(file: string, job: CheckJob, opts: CheckJobOptions = {}): Promise<T> {
   const worker = new Worker(file)
-  const paths = [...new Set([job.path, ...(opts.alsoTrack ?? [])])]
-  const sets = paths.map((p) => {
-    const set = running.get(p) ?? new Set<Worker>()
-    set.add(worker)
-    running.set(p, set)
-    return [p, set] as const
-  })
+  // Tracked under the file it reads only. A restore check of a backup is NOT tracked under the live
+  // company file: it never opens it (it reads the backup, then its own scratch copy), so a
+  // backup:restore — stopChecks(live file) — does not stop or wait for it (on Windows a long verify
+  // would stall the restore, the #118 timing problem); delete / passphrase change, which remove or
+  // rewrite the backups themselves, stop it through stopChecksUnder(folder).
+  const set = running.get(job.path) ?? new Set<Worker>()
+  set.add(worker)
+  running.set(job.path, set)
   const id = ++seq
   let timer: NodeJS.Timeout | undefined
   // A worker leaves `running` once it can no longer be reading the file: when it has answered
@@ -140,10 +136,8 @@ export async function runCheckJob<T>(file: string, job: CheckJob, opts: CheckJob
   // until SQLite returns — so stopChecks (restore / delete) must still see it and wait for it.
   let answered = false
   const untrack = (): void => {
-    for (const [p, set] of sets) {
-      set.delete(worker)
-      if (set.size === 0 && running.get(p) === set) running.delete(p)
-    }
+    set.delete(worker)
+    if (set.size === 0 && running.get(job.path) === set) running.delete(job.path)
   }
   worker.once('exit', () => untrack())
   try {
@@ -185,9 +179,21 @@ export async function stopChecks(path: string): Promise<void> {
 }
 
 /** Stop every check of every file (a data-folder move copies the whole folder: a backup check
- *  still reading — or creating a `-shm` beside — a file there would make the copy differ). */
+ *  still reading — or creating a `-shm` beside — a file there would make the copy differ). This
+ *  includes the restore checks ('verify' jobs), tracked under the backup they read. */
 export async function stopAllChecks(): Promise<void> {
   await Promise.all([...running.keys()].map((path) => stopChecks(path)))
+}
+
+/** stopChecks for every file inside `dir` (the company folder on delete, the backups folder before
+ *  a passphrase change rewrites every backup): the restore checks reading its backups included. */
+export async function stopChecksUnder(dir: string): Promise<void> {
+  const root = resolve(dir)
+  const inside = [...running.keys()].filter((p) => {
+    const abs = resolve(p)
+    return abs === root || abs.startsWith(root + sep)
+  })
+  await Promise.all(inside.map((p) => stopChecks(p)))
 }
 
 /** How many checks are reading `path` right now (tests). */

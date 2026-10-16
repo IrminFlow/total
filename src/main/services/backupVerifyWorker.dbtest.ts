@@ -2,12 +2,13 @@
 // a 'verify' job) instead of on the main thread. Same check, same verdict: for a good backup, a
 // damaged one, one that needs migrating and an encrypted one, the worker path and the in-process
 // path record identical backup_runs rows (bar the id) and audit rows. A worker that dies is a
-// failed check with the reason (never skipped); stopChecks on the live company file ends a running
-// check and records nothing; the scratch folder is always removed.
+// failed check with the reason (never skipped); a restore's stopChecks(live file) leaves a running
+// check alone, stopChecksUnder(folder) (delete / passphrase change) ends it and nothing is
+// recorded; the scratch folder is always removed.
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
-import { join } from 'path'
+import { dirname, join } from 'path'
 import { migrate } from '../db/migrate'
 import { MIGRATIONS } from '../db/migrations'
 import { seedCompany } from '../db/seed'
@@ -15,7 +16,7 @@ import { TEST_INFO, postSimpleVoucher, testFileDb } from '../db/testdb'
 import { rekeyFile } from '../db/encryption'
 import { newDataKey } from '../db/keyEnvelope'
 import { snapshotTo } from '../db/backup'
-import { runningChecks, setCheckWorkerFile, stopChecks } from '../db/checkHost'
+import { runningChecks, setCheckWorkerFile, stopChecks, stopChecksUnder } from '../db/checkHost'
 import { SYSTEM_AUDIT_USER } from './audit'
 import { checkBackupIfDue, recordBackupCheck, verifyBackupFile, verifyBackupFileAsync } from './backupVerify'
 import type { DB } from '../db/connection'
@@ -144,23 +145,57 @@ describe('the restore check in the check worker', () => {
     db.close()
   }, 60_000)
 
-  it('stopChecks on the live company file ends a running check; nothing is recorded', async () => {
+  it('stopChecks on the live company file (backup:restore) does not stop or wait for a backup\'s check', async () => {
     const hang = join(ROOT, 'hang.js')
     writeFileSync(hang, 'setInterval(() => {}, 1000)\n')
     setCheckWorkerFile(hang)
     const { db, path } = liveDb()
-    const backup = join(ROOT, `snap-${++n}-auto.db`)
+    const backup = join(dirname(path), 'backups', `snap-${++n}-auto.db`)
+    mkdirSync(dirname(backup), { recursive: true })
     await snapshotTo(db, backup)
     const pending = checkBackupIfDue(db, backup, 'auto', AS_ON, SYSTEM_AUDIT_USER)
     await new Promise((r) => setTimeout(r, 50))
-    expect(runningChecks(path)).toBe(1)
     expect(runningChecks(backup)).toBe(1)
-    await stopChecks(path)
-    expect(await pending).toBeNull()
+    // The check reads the backup and its own scratch copy, never the live file: a restore's
+    // stopChecks(live file) returns at once and leaves it running.
     expect(runningChecks(path)).toBe(0)
+    const t0 = Date.now()
+    await stopChecks(path)
+    expect(Date.now() - t0).toBeLessThan(500)
+    expect(runningChecks(backup)).toBe(1)
+    // Delete / passphrase change stop it through the folder (company folder, backups folder).
+    await stopChecksUnder(dirname(path))
+    expect(await pending).toBeNull()
     expect(runningChecks(backup)).toBe(0)
     expect(runRows(db)).toEqual([])
     expect(auditRows(db)).toEqual([])
     db.close()
+  }, 60_000)
+
+  it('stopChecksUnder stops only checks inside the folder', async () => {
+    const hang = join(ROOT, 'hang2.js')
+    writeFileSync(hang, 'setInterval(() => {}, 1000)\n')
+    setCheckWorkerFile(hang)
+    const a = liveDb()
+    const b = liveDb()
+    const backupA = join(dirname(a.path), `snap-${++n}-auto.db`)
+    const backupB = join(dirname(b.path), `snap-${++n}-auto.db`)
+    await snapshotTo(a.db, backupA)
+    await snapshotTo(b.db, backupB)
+    const pa = checkBackupIfDue(a.db, backupA, 'auto', AS_ON, SYSTEM_AUDIT_USER)
+    const pb = verifyBackupFileAsync(backupB, { asOn: AS_ON, key: null, now: NOW })
+    await new Promise((r) => setTimeout(r, 50))
+    // A folder that is only a prefix of the name (ROOT/co vs ROOT/co-12) is not "inside".
+    await stopChecksUnder(join(ROOT, 'co'))
+    expect(runningChecks(backupA)).toBe(1)
+    await stopChecksUnder(dirname(a.path))
+    expect(await pa).toBeNull()
+    expect(runningChecks(backupA)).toBe(0)
+    expect(runningChecks(backupB)).toBe(1)
+    await stopChecksUnder(dirname(b.path))
+    await expect(pb).rejects.toThrow()
+    expect(runningChecks(backupB)).toBe(0)
+    a.db.close()
+    b.db.close()
   }, 60_000)
 })

@@ -8,7 +8,7 @@ import { builtinModules } from 'module'
 import { mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { CHECK_WORKER_FORBIDDEN, buildCheckWorker } from '../../../scripts/build-check-worker.mjs'
+import { CHECK_WORKER_FORBIDDEN, ELECTRON_STUB, buildCheckWorker } from '../../../scripts/build-check-worker.mjs'
 
 describe('the check worker bundle', () => {
   it('is self-contained: Node built-ins and the SQLite driver only; no Electron, AI or MCP code', async () => {
@@ -31,5 +31,15 @@ describe('the check worker bundle', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
+  })
+
+  it('the Electron stand-in throws on any use (a check that reaches Electron fails loudly)', () => {
+    const exp: Record<string, unknown> = {}
+    new Function('exports', ELECTRON_STUB)(exp)
+    expect(Object.keys(exp)).toEqual(expect.arrayContaining(['app', 'BrowserWindow']))
+    expect(() => exp.app).toThrow(/Electron is not available in the check worker \(electron\.app\)/)
+    expect(() => exp.BrowserWindow).toThrow(/electron\.BrowserWindow/)
+    // esbuild's interop reads descriptors, never values, so importing it does not throw.
+    expect(Object.getOwnPropertyDescriptor(exp, 'app')?.get).toBeTypeOf('function')
   })
 })
