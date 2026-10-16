@@ -15,6 +15,7 @@ import type { MoneyOpenBill, MoneyRow, MoneySetup } from '@shared/simple/money'
 import { bannedWordsIn } from '@shared/simple/bannedWords'
 import { useNav, useSession } from '../state/stores'
 import { useDialogs } from '../lib/dialogs'
+import { hasUnsavedChanges } from '../lib/useUnsavedGuard'
 import { MoneyIn } from '../simple/money/MoneyIn'
 import { MoneyOut } from '../simple/money/MoneyOut'
 import { MoveMoney } from '../simple/money/MoveMoney'
@@ -99,6 +100,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   invoke.mockReset()
+  act(() => useDialogs.setState({ queue: [] })) // a question left open must not answer for the next test
 })
 
 const click = (id: string): void => void fireEvent.click(screen.getByTestId(id))
@@ -443,6 +445,31 @@ describe('opened from a bank line ("Pick the bills yourself")', () => {
     click('btn-money-back-to-bank')
     await waitFor(() => expect(useNav.getState().stack).toEqual([{ name: 'simple-bank', bankId: 32 }]))
     expect(bannedWordsIn(visible())).toEqual([])
+  })
+  it('"Back to Bank" clicked the moment the save card shows (before the form lets go of its unsaved guard) still goes back, without asking', async () => {
+    // CI on PR #139: the card is committed before the passive effect that releases the guard, so a
+    // click in between went through nav.back's "discard?" and left Money in on top. A
+    // MutationObserver clicks inside that window every time.
+    act(() => useNav.setState({ stack: [{ name: 'simple-bank' }, { name: 'simple-money-in', ...FROM_LINE }] }))
+    renderUi(<MoneyIn {...FROM_LINE} />)
+    await ready()
+    const guardHeld: boolean[] = []
+    const watch = new MutationObserver(() => {
+      const button = document.querySelector<HTMLButtonElement>('[data-testid="btn-money-back-to-bank"]')
+      if (!button || guardHeld.length) return
+      guardHeld.push(hasUnsavedChanges())
+      button.click()
+    })
+    watch.observe(document.body, { childList: true, subtree: true })
+    try {
+      click('btn-money-save')
+      await waitFor(() => expect(guardHeld).toHaveLength(1))
+    } finally {
+      watch.disconnect()
+    }
+    expect(guardHeld).toEqual([true]) // the window this test is about really was open
+    expect(useNav.getState().stack).toEqual([{ name: 'simple-bank', bankId: 32 }])
+    expect(useDialogs.getState().queue).toEqual([])
   })
   it('Esc → discard goes back to the Bank on that bank too; with no Bank below it opens one', async () => {
     act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-money-out', ...FROM_LINE, party: 20 }] }))
