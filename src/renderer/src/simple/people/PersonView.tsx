@@ -195,11 +195,10 @@ function Person({ p }: { p: PersonData }): React.JSX.Element {
               {t('simple.people.remind')}
             </Button>
           )}
-          {canEdit && (
-            <Button data-testid="btn-person-statement" title={t('simple.people.statementHint')} disabled={busy} onClick={() => void makeStatement()}>
-              {t('simple.people.statement')}
-            </Button>
-          )}
+          {/* Everyone, viewers too: the statement holds nothing the page doesn't already show. */}
+          <Button data-testid="btn-person-statement" title={t('simple.people.statementHint')} disabled={busy} onClick={() => void makeStatement()}>
+            {t('simple.people.statement')}
+          </Button>
           {isOwner && customer && !p.walkIn && (
             <Button data-testid="btn-person-hold" onClick={() => toggle(HOLD)}>
               {p.onHold ? t('simple.people.unhold') : t('simple.people.hold')}
