@@ -88,7 +88,8 @@ describe('the session lock gates every channel', () => {
     // the ungated ones are exactly the picker / PIN screen / logs list
     expect([...ipc.UNGATED_CHANNEL_NAMES].sort()).toEqual([
       'app:info', 'auth:current', 'auth:login', 'auth:logout', 'auth:users', 'backup:importEncrypted', 'company:close', 'company:create',
-      'company:createDemo', 'company:current', 'company:delete', 'company:list', 'company:open', 'log:renderer', 'log:reveal', 'session:unlock'
+      'company:createDemo', 'company:current', 'company:delete', 'company:forgetRemembered', 'company:list', 'company:open', 'company:remembered',
+      'log:renderer', 'log:reveal', 'session:unlock'
     ])
     await ok('auth:login', { userId: 1, pin: '1111' })
     expect((await call('security:get')).ok).toBe(true)
@@ -151,6 +152,70 @@ describe('deleting a business locked with a passphrase', () => {
     expect((await call('company:delete', { slug, confirmName: 'Solo Lock Co' })).code).toBe('passphrase_required')
     await ok('company:delete', { slug, confirmName: 'Solo Lock Co', passphrase: PASS })
     expect(existsSync(dir(slug))).toBe(false)
+  })
+})
+
+describe('remember on this computer: only an owner keeps it', () => {
+  const PASS = 'saffron ledger 404'
+  const PIN = { owner: '5150', acct: '6160', viewer: '7170' }
+  let slug: string
+  let ids: { owner: number; acct: number; viewer: number }
+  const remembered = async (): Promise<string[]> => ok<string[]>('company:remembered')
+
+  it('ticked at the prompt of a business with people, it waits for the sign-in; a viewer / accountant sign-in drops it', async () => {
+    slug = (await ok<{ slug: string }>('company:create', company('Remember People Co'))).slug
+    await ok('company:open', { slug })
+    const owner = await ok<{ id: number }>('users:save', { data: { name: 'Owner', role: 'owner', pin: PIN.owner } })
+    const acct = await ok<{ id: number }>('users:save', { data: { name: 'Asha', role: 'accountant', pin: PIN.acct } })
+    const viewer = await ok<{ id: number }>('users:save', { data: { name: 'Vik', role: 'viewer', pin: PIN.viewer } })
+    ids = { owner: owner.id, acct: acct.id, viewer: viewer.id }
+    await ok('security:passphrase:on', { passphrase: PASS, confirm: PASS })
+    await ok('company:close')
+    for (const [who, pin] of [['viewer', PIN.viewer], ['acct', PIN.acct]] as const) {
+      expect((await ok<{ remember?: string }>('company:open', { slug, passphrase: PASS, remember: true })).remember).toBe('pending')
+      // before anyone signs in, forgetting the open business is the owner's (Settings)
+      expect((await call('company:forgetRemembered', { slug })).code).toBe('not_permitted')
+      await ok('auth:login', { userId: ids[who], pin })
+      expect(await remembered()).not.toContain(slug)
+      expect(await ok<{ remembered: boolean; rememberPending: boolean }>('security:get')).toMatchObject({ remembered: false, rememberPending: false })
+      expect((await call('security:remember:forget')).code).toBe('not_permitted')
+      await ok('company:close')
+      expect((await call('company:open', { slug })).code).toBe('passphrase_required')
+    }
+  })
+
+  it('an owner sign-in keeps it (audited with the owner); viewer / accountant cannot forget it; a locked session is refused', async () => {
+    await ok('company:open', { slug, passphrase: PASS, remember: true })
+    await ok('auth:login', { userId: ids.owner, pin: PIN.owner })
+    expect(await remembered()).toContain(slug)
+    expect(await ok<{ remembered: boolean }>('security:get')).toMatchObject({ remembered: true })
+    await ok('company:close')
+    // the remembered key opens the file; the PIN is still asked
+    expect(await ok<{ locked: boolean; openedWith?: string }>('company:open', { slug })).toMatchObject({ locked: true, openedWith: 'remembered' })
+    for (const [id, pin] of [[ids.viewer, PIN.viewer], [ids.acct, PIN.acct]] as const) {
+      await ok('auth:login', { userId: id, pin })
+      expect((await call('security:remember:forget')).code).toBe('not_permitted')
+      expect((await call('company:forgetRemembered', { slug })).code).toBe('not_permitted')
+      await ok('auth:logout')
+    }
+    expect(await remembered()).toContain(slug)
+    await ok('auth:login', { userId: ids.owner, pin: PIN.owner })
+    await ok('session:lock')
+    expect((await call('security:remember:forget')).code).toBe('session_locked')
+    expect((await call('security:get')).code).toBe('session_locked')
+    await ok('auth:login', { userId: ids.owner, pin: PIN.owner })
+    expect((await ok<{ remembered: boolean }>('security:remember:forget')).remembered).toBe(false)
+  })
+
+  it('deleting a remembered business still asks for its passphrase', async () => {
+    await ok('company:close')
+    await ok('company:open', { slug, passphrase: PASS, remember: true })
+    await ok('auth:login', { userId: ids.owner, pin: PIN.owner })
+    await ok('company:close')
+    expect(await remembered()).toContain(slug)
+    expect((await call('company:delete', { slug, confirmName: 'Remember People Co', pin: PIN.owner })).code).toBe('passphrase_required')
+    await ok('company:delete', { slug, confirmName: 'Remember People Co', pin: PIN.owner, passphrase: PASS })
+    expect(await remembered()).not.toContain(slug)
   })
 })
 

@@ -260,6 +260,118 @@ describe('the passphrase lock', () => {
   })
 })
 
+describe('remember on this computer (opt-in, the data key in the secret store)', () => {
+  let slug: string
+  const PASS = 'tamarind chutney 31'
+  const secretsText = (): string => (existsSync(join(DATA_DIR, 'secrets.json')) ? readFileSync(join(DATA_DIR, 'secrets.json'), 'utf8') : '')
+  const remembered = async (): Promise<string[]> => ok<string[]>('company:remembered')
+  const rememberRows = async (): Promise<Record<string, unknown>[]> =>
+    (await auditRows('security')).filter((r) => r.after && 'rememberedOnThisComputer' in r.after).map((r) => r.after!)
+
+  it('is off by default: opening with the passphrase alone remembers nothing', async () => {
+    slug = (await ok<{ slug: string }>('company:create', company('Remember Traders'))).slug
+    await ok('company:open', { slug })
+    await ok('security:passphrase:on', { passphrase: PASS, confirm: PASS })
+    expect(await ok<{ remembered: boolean; rememberPending: boolean }>('security:get')).toMatchObject({ remembered: false, rememberPending: false })
+    await ok('company:close')
+    const opened = await ok<{ openedWith?: string; remember?: string }>('company:open', { slug, passphrase: PASS })
+    expect(opened.openedWith).toBe('passphrase')
+    expect(opened.remember).toBeUndefined()
+    expect(await remembered()).not.toContain(slug)
+    await ok('company:close')
+    expect((await call('company:open', { slug })).code).toBe('passphrase_required')
+  })
+
+  it('ticked with the right passphrase: the data key (never the passphrase) is kept encrypted; the next open needs no passphrase', async () => {
+    expect((await call('company:open', { slug, passphrase: 'not the passphrase', remember: true })).code).toBe('wrong_passphrase')
+    expect(await remembered()).not.toContain(slug)
+    const opened = await ok<{ remember?: string }>('company:open', { slug, passphrase: PASS, remember: true })
+    expect(opened.remember).toBe('saved')
+    const key = enc.keyForPath(dbFile(slug))!
+    expect(key).toBeTruthy()
+    // secrets.json holds neither the passphrase nor the key in the clear (hex or base64)
+    const text = secretsText()
+    expect(text).toContain('rememberedDataKey')
+    for (const plain of [PASS, key.toString('hex'), key.toString('base64')]) expect(text).not.toContain(plain)
+    expect(await ok<{ remembered: boolean }>('security:get')).toMatchObject({ remembered: true })
+    expect(await remembered()).toContain(slug)
+    expect(await rememberRows()).toEqual([{ rememberedOnThisComputer: true }])
+    await ok('company:close')
+    const again = await ok<{ encrypted: boolean; openedWith?: string }>('company:open', { slug })
+    expect(again).toMatchObject({ encrypted: true, openedWith: 'remembered' })
+    expect((await postReceipt(10_000)).ok).toBe(true)
+  })
+
+  it('a passphrase change keeps the same data key, so the remembered key still opens the books', async () => {
+    await ok('security:passphrase:change', { current: PASS, passphrase: 'tamarind chutney 32', confirm: 'tamarind chutney 32' })
+    await ok('company:close')
+    expect(await ok<{ openedWith?: string }>('company:open', { slug })).toMatchObject({ openedWith: 'remembered' })
+    await ok('security:passphrase:change', { current: 'tamarind chutney 32', passphrase: PASS, confirm: PASS })
+  })
+
+  it('Forget (Settings → Security) drops it, audited; the passphrase is asked again', async () => {
+    const view = await ok<{ remembered: boolean }>('security:remember:forget')
+    expect(view.remembered).toBe(false)
+    expect(secretsText()).not.toContain('rememberedDataKey')
+    expect(await rememberRows()).toEqual([{ rememberedOnThisComputer: true }, { rememberedOnThisComputer: false }].reverse())
+    await ok('company:close')
+    expect((await call('company:open', { slug })).code).toBe('passphrase_required')
+  })
+
+  it('Forget from the company picker (no business open) drops it and records it inside the books', async () => {
+    await ok('company:open', { slug, passphrase: PASS, remember: true })
+    await ok('company:close')
+    await ok('company:forgetRemembered', { slug })
+    expect(await remembered()).not.toContain(slug)
+    expect((await call('company:open', { slug })).code).toBe('passphrase_required')
+    await ok('company:open', { slug, passphrase: PASS })
+    expect((await rememberRows())[0]).toEqual({ rememberedOnThisComputer: false, from: 'picker' })
+    expect((await ok<{ ok: boolean }>('audit:verify')).ok).toBe(true)
+  })
+
+  it('a remembered key that no longer opens the file is dropped and the passphrase asked', async () => {
+    const keys = await import('./services/companyKeys')
+    const { appSecretStore } = await import('./services/secretStore')
+    const { randomBytes } = await import('crypto')
+    keys.storeRememberedKey(slug, randomBytes(32), appSecretStore())
+    await ok('company:close')
+    const stale = await call('company:open', { slug })
+    expect(stale).toMatchObject({ ok: false, code: 'remembered_key_stale', field: 'passphrase' })
+    expect(await remembered()).not.toContain(slug)
+    expect((await call('company:open', { slug })).code).toBe('passphrase_required')
+    await ok('company:open', { slug, passphrase: PASS })
+  })
+
+  it('taking the lock off drops the remembered key (recorded in the conversion audit row)', async () => {
+    await ok('company:close')
+    await ok('company:open', { slug, passphrase: PASS, remember: true })
+    expect(await remembered()).toContain(slug)
+    await ok('security:passphrase:off', { passphrase: PASS })
+    expect(await remembered()).not.toContain(slug)
+    expect(secretsText()).not.toContain('rememberedDataKey')
+    expect(await ok<{ remembered: boolean; encrypted: boolean }>('security:get')).toMatchObject({ remembered: false, encrypted: false })
+    expect((await auditRows('security')).some((r) => r.after?.encrypted === false && r.after?.rememberedOnThisComputer === false)).toBe(true)
+    // remember on a plaintext business is a no-op
+    await ok('company:close')
+    expect((await ok<{ remember?: string }>('company:open', { slug, passphrase: PASS, remember: true })).remember).toBeUndefined()
+    expect(await remembered()).not.toContain(slug)
+  })
+
+  it('turning the lock on again drops a key remembered for the earlier lock', async () => {
+    await ok('security:passphrase:on', { passphrase: PASS, confirm: PASS })
+    await ok('company:close')
+    await ok('company:open', { slug, passphrase: PASS, remember: true })
+    await ok('security:passphrase:off', { passphrase: PASS })
+    const keys = await import('./services/companyKeys')
+    const { appSecretStore } = await import('./services/secretStore')
+    keys.storeRememberedKey(slug, Buffer.alloc(32, 7), appSecretStore())
+    await ok('security:passphrase:on', { passphrase: PASS, confirm: PASS })
+    expect(await remembered()).not.toContain(slug)
+    await ok('company:close')
+    expect((await call('company:open', { slug })).code).toBe('passphrase_required')
+  })
+})
+
 describe('capability flags (finer-grained roles)', () => {
   let ids: { owner: number; acct: number; viewer: number }
   const PIN = { owner: '1111', acct: '2222', viewer: '3333' }

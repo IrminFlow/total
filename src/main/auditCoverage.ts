@@ -90,7 +90,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'simple:handoffTarget': QUERY,
   'company:delete': a('company'),
   // WP 7.2: + the (deferred, at most daily) restore check of the on-open backup.
-  'company:open': a('backup', 'voucher', 'audit_log', 'attachment', 'backup_check'),
+  'company:open': a('backup', 'voucher', 'audit_log', 'attachment', 'backup_check', 'security'),
   'company:close': r('closes the database handle'),
   'company:updateInfo': a('company'),
   'company:lock:set': a('company'),
@@ -119,7 +119,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // ---------- auth / users ----------
   'auth:users': QUERY,
   'auth:current': QUERY,
-  'auth:login': a('user'),
+  'auth:login': a('user', 'security'),
   'auth:logout': a('user'),
   'users:list': QUERY,
   'users:save': a('user'),
@@ -146,6 +146,11 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'security:passphrase:on': a('security', 'backup'),
   'security:passphrase:off': a('security', 'backup'),
   'security:passphrase:change': a('security'),
+  // "Remember on this computer": forget (Settings, owner; the picker, before anyone signs in) —
+  // remembering itself rides on company:open / auth:login ('security' rows there).
+  'security:remember:forget': a('security'),
+  'company:forgetRemembered': a('security'),
+  'company:remembered': r('lists which businesses have a key remembered on this computer (presence only); writes nothing'),
 
   // ---------- settings ----------
   'config:features:set': a('company'),

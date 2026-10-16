@@ -10,7 +10,7 @@ import { LANGUAGES } from '@shared/i18n'
 import { forgetFolderKey, isEncryptedFile, keyForPath, keyOfHandle, openDb, plainCopy, rekeyFile, removeDbFiles, rememberFolderKey } from './db/encryption'
 import { DEFAULT_SCRYPT, newDataKey, unwrapKeyAsync, wrapKeyAsync, type ScryptParams } from './db/keyEnvelope'
 import { insecureTestCipherAllowed } from './services/secrets'
-import { assertNotThrottled, noteRightPassphrase, noteWrongPassphrase, readEnvelope, readEnvelopes, removeEnvelope, unlockCompanyKey, writeEnvelope } from './services/companyKeys'
+import { assertNotThrottled, dropRememberedKey, hasRememberedKey, noteRightPassphrase, noteWrongPassphrase, readEnvelope, readEnvelopes, removeEnvelope, storeRememberedKey, unlockCompanyKey, unlockWithRememberedKey, writeEnvelope } from './services/companyKeys'
 import { commitConvertedCopy, convertBackups, prepareConvertedCopy, removeLeftoverCopies } from './services/dbEncryption'
 import { checkBackupIfDue, latestBackupCheck, listBackupChecks, recordBackupCheck, verifyBackupFileAsync } from './services/backupVerify'
 import { AUTO_LOCK_CHOICES, IdleClock, getAutoLockMinutes, setAutoLockMinutes } from './services/sessionLock'
@@ -237,6 +237,11 @@ let sessionUser: { id: number; name: string; role: Role; capabilities: Capabilit
  *  only (a restart opens unlocked, as a company without users always did). */
 let privacyLock: 'manual' | 'idle' | null = null
 
+/** "Remember on this computer" ticked at the passphrase prompt of a business WITH people: the key
+ *  is stored only once an OWNER signs in to this open (auth:login); any other sign-in, or closing
+ *  the business, drops the request. In memory only — the key itself is the folder's session key. */
+let pendingRemember: string | null = null
+
 /** What the lock screen asks for: a PIN (people), the passphrase, or nothing (a privacy screen). */
 type LockKind = 'pin' | 'passphrase' | 'privacy'
 const lockKindOf = (c: OpenCompany): LockKind => (c.usersExist ? 'pin' : c.encrypted ? 'passphrase' : 'privacy')
@@ -385,6 +390,7 @@ export function closeCurrentCompany(opts: { keepKey?: boolean } = {}): void {
   if (current && !opts.keepKey) forgetFolderKey(companyDir(current.slug))
   idleClock.setMinutes(null)
   privacyLock = null
+  pendingRemember = null
   // Stop the inbox watcher + any pending mirror refresh before the handle closes under them.
   agentBridge.syncInboxWatcher(null)
   // The cached NIC login belongs to this company's identity — never carry it into the next one.
@@ -417,6 +423,10 @@ const UNGATED_CHANNELS = new Set([
   'company:delete',
   'company:open',
   'company:current',
+  // "Remember on this computer" at the picker: presence of a remembered key, and Forget (which only
+  // takes the convenience away — the passphrase still opens the books).
+  'company:remembered',
+  'company:forgetRemembered',
   // Deliberate: a locked session (or one with no session at all) must still be able to back
   // out to the company picker rather than getting stuck behind the gate it can't pass.
   'company:close',
@@ -930,7 +940,7 @@ export function registerIpc(): void {
     // like opening); once it opens the file the PIN check below runs as for any business.
     const keyWasKnown = keyForPath(companyDbPath(slug)) !== null
     // (No key file anywhere = nobody can ever read these books again: nothing left to protect.)
-    if (readEnvelopes(companyDir(slug), slug, appSecretStore()).length) await unlockFolderIfNeeded(slug, passphrase)
+    if (readEnvelopes(companyDir(slug), slug, appSecretStore()).length) await unlockFolderIfNeeded(slug, passphrase, { useRemembered: false })
     // The name check above protects nothing by itself — it's readable off the same screen it's
     // typed into. If this company has users, an active owner's PIN is required too.
     try {
@@ -962,25 +972,108 @@ export function registerIpc(): void {
   })
 
   handle('company:open', async (payload) => {
-    const { slug, passphrase } = z.object({ slug: z.string().min(1), passphrase: z.string().max(1024).optional() }).parse(payload)
+    const { slug, passphrase, remember } = z
+      .object({ slug: z.string().min(1), passphrase: z.string().max(1024).optional(), remember: z.boolean().optional() })
+      .parse(payload)
     if (!existsSync(companyDbPath(slug))) throw new Error('Company database not found')
     // WP 7.2: a business locked with a passphrase needs it (its key is unwrapped and remembered
     // for this open); a plaintext one opens exactly as before — no prompt, nothing asked. The
     // business open until now is closed first (its key forgotten).
     closeCurrentCompany()
-    await unlockFolderIfNeeded(slug, passphrase)
-    return openCompanyNow(slug)
+    const via = await unlockFolderIfNeeded(slug, passphrase)
+    const opened = await openCompanyNow(slug)
+    // "Remember on this computer" (ticked at the prompt, the passphrase just proved right): stored
+    // at once in a business without people (whoever opens it is its owner), else once an owner
+    // signs in (auth:login). Never fails the open.
+    let rememberResult: 'saved' | 'pending' | 'unavailable' | undefined
+    if (remember && via === 'passphrase' && current?.slug === slug) {
+      if (!current.usersExist) rememberResult = rememberOpenKey(current, null)
+      else {
+        pendingRemember = slug
+        rememberResult = 'pending'
+      }
+    }
+    return { ...opened, openedWith: via ?? undefined, ...(rememberResult ? { remember: rememberResult } : {}) }
   })
 
-  /** Throttled passphrase unlock of a company folder (no-op when plaintext or already unlocked). */
-  async function unlockFolderIfNeeded(slug: string, passphrase: string | undefined): Promise<void> {
+  /** Store the open company's key as remembered on this computer, audited ('security', no key in
+   *  the row). 'unavailable' without secure storage. */
+  function rememberOpenKey(c: OpenCompany, user: string | null): 'saved' | 'unavailable' {
+    const key = keyOfHandle(c.db)
+    if (!key) return 'unavailable'
+    const had = hasRememberedKey(c.slug, appSecretStore())
+    try {
+      storeRememberedKey(c.slug, key, appSecretStore())
+    } catch (err) {
+      log('warn', 'remember-key-unavailable', { slug: c.slug, error: err instanceof Error ? err.message : String(err) })
+      return 'unavailable'
+    }
+    if (!had) writeAudit(c.db, 'security', 0, 'update', { rememberedOnThisComputer: false }, { rememberedOnThisComputer: true }, user ? { user } : {})
+    return 'saved'
+  }
+
+  /**
+   * Throttled passphrase unlock of a company folder (no-op when plaintext or already unlocked).
+   * Without a passphrase the key remembered on this computer is tried first (accepted only once it
+   * opens the file); a remembered key that no longer does is dropped and `remembered_key_stale`
+   * asks for the passphrase. Returns how the folder was unlocked (null = nothing to unlock).
+   */
+  async function unlockFolderIfNeeded(slug: string, passphrase: string | undefined, opts: { useRemembered?: boolean } = {}): Promise<'passphrase' | 'remembered' | null> {
     const dbPath = companyDbPath(slug)
-    if (!isEncryptedFile(dbPath) || keyForPath(dbPath)) return
+    if (!isEncryptedFile(dbPath) || keyForPath(dbPath)) return null
+    if (!passphrase && opts.useRemembered !== false) {
+      const r = unlockWithRememberedKey(slug, dbPath, appSecretStore())
+      if (r.key) {
+        rememberFolderKey(companyDir(slug), r.key)
+        return 'remembered'
+      }
+      if (r.dropped) {
+        log('warn', 'remembered-key-dropped', { slug })
+        throw new AppError('remembered_key_stale', 'The passphrase remembered on this computer no longer opens these books, so Total forgot it — type the passphrase', { field: 'passphrase' })
+      }
+    }
     const key = await unlockCompanyKey({
       slug, dbPath, companyDir: companyDir(slug), passphrase, store: appSecretStore(),
       onWrong: (fails) => log('warn', 'passphrase-wrong', { slug, fails })
     })
     rememberFolderKey(companyDir(slug), key)
+    return 'passphrase'
+  }
+
+  // "Remember on this computer" from the company picker: which businesses have a remembered key
+  // (presence only — never the key), and Forget. Forgetting only takes a convenience away (the
+  // passphrase still opens the books), so the picker may do it before anyone signs in; it is
+  // audited inside the books when the remembered key still opens them.
+  handle('company:remembered', () => readRegistry().companies.map((c) => c.slug).filter((slug) => hasRememberedKey(slug, appSecretStore())))
+  handle('company:forgetRemembered', (payload) => {
+    const { slug } = z.object({ slug: z.string().min(1) }).strict().parse(payload)
+    if (current?.slug === slug) {
+      // The open business: Settings → Security's Forget (owner) is the way.
+      if (current.usersExist && sessionUser?.role !== 'owner') throw new AppError('not_permitted', 'You do not have permission to do that')
+      forgetRememberedOf(current, sessionUser?.name ?? null)
+      return null
+    }
+    const key = readRememberedKeyOf(slug)
+    if (!key) return null
+    let db: DB | null = null
+    try {
+      db = openDb(companyDbPath(slug), { key, fileMustExist: true })
+      writeAudit(db, 'security', 0, 'update', { rememberedOnThisComputer: true }, { rememberedOnThisComputer: false, from: 'picker' })
+    } catch (err) {
+      log('warn', 'forget-remembered-audit-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    } finally {
+      db?.close()
+    }
+    dropRememberedKey(slug, appSecretStore())
+    return null
+  })
+  const readRememberedKeyOf = (slug: string): Buffer | null => (hasRememberedKey(slug, appSecretStore()) ? unlockWithRememberedKey(slug, companyDbPath(slug), appSecretStore()).key : null)
+  /** Forget the open company's remembered key, audited when there was one. */
+  function forgetRememberedOf(c: OpenCompany, user: string | null): void {
+    pendingRemember = null
+    if (dropRememberedKey(c.slug, appSecretStore())) {
+      writeAudit(c.db, 'security', 0, 'update', { rememberedOnThisComputer: true }, { rememberedOnThisComputer: false }, user ? { user } : {})
+    }
   }
 
   /** Open `slug` as the current company (the key, if any, already remembered) and run the
@@ -2980,6 +3073,11 @@ export function registerIpc(): void {
     const result = users.login(c.db, userId, pin)
     sessionUser = result
     idleClock.touch()
+    // "Remember on this computer" ticked at this open's passphrase prompt: only an owner keeps it.
+    if (pendingRemember === c.slug) {
+      pendingRemember = null
+      if (result.role === 'owner' && c.encrypted) rememberOpenKey(c, result.name)
+    }
     // WP 6.2: due report packs wait for the first sign-in of a locked company.
     void runDuePacksInBackground(c, { allowed: packsAllowed, current: getUnlockedCompany, canSeeProfit: canSeeProfitNow })
     resumeCapture()
@@ -3071,10 +3169,18 @@ export function registerIpc(): void {
       usersExist: c.usersExist,
       autoLockMinutes: getAutoLockMinutes(c.db),
       autoLockChoices: [...AUTO_LOCK_CHOICES],
-      lastCheck: latestBackupCheck(c.db)
+      lastCheck: latestBackupCheck(c.db),
+      remembered: c.encrypted && hasRememberedKey(c.slug, appSecretStore()),
+      rememberPending: pendingRemember === c.slug
     }
   }
   handle('security:get', () => securityView(), 'viewer')
+  // Settings → Security: forget the key remembered on this computer (owner; audited).
+  handle('security:remember:forget', () => {
+    const c = requireCompany()
+    forgetRememberedOf(c, sessionUser?.name ?? null)
+    return securityView()
+  }, 'owner')
   handle('security:autoLock:set', (p) => {
     const { minutes } = z
       .object({ minutes: z.number().int().refine((m) => (AUTO_LOCK_CHOICES as readonly number[]).includes(m), 'Pick one of the offered minutes').nullable() })
@@ -3154,6 +3260,8 @@ export function registerIpc(): void {
     const c = requireCompany()
     if (c.encrypted) throw new AppError('security_already_locked', 'This business is already locked with a passphrase')
     const key = newDataKey()
+    // A key remembered for an earlier lock of this business can never open the new file.
+    dropRememberedKey(c.slug, appSecretStore())
     const env = await wrapKeyAsync(key, passphrase, scryptParams())
     // The key file goes first: from the moment the file is encrypted it must be there.
     const { mirrored } = writeEnvelope(companyDir(c.slug), c.slug, env, appSecretStore())
@@ -3174,7 +3282,10 @@ export function registerIpc(): void {
     const c = requireCompany()
     if (!c.encrypted) throw new AppError('security_not_locked', 'This business is not locked with a passphrase')
     await assertPassphrase(c, passphrase, 'passphrase')
-    const out = await convertOpenCompany(null, {})
+    const hadRemembered = hasRememberedKey(c.slug, appSecretStore())
+    const out = await convertOpenCompany(null, hadRemembered ? { rememberedOnThisComputer: false } : {})
+    // Nothing to remember once the books are plaintext (recorded in the conversion's audit row).
+    if (hadRemembered && !isEncryptedFile(companyDbPath(c.slug))) dropRememberedKey(c.slug, appSecretStore())
     // The key goes only once nothing needs it: the books are plaintext AND every backup was
     // converted — a backup left encrypted (it failed to convert) still opens with this passphrase.
     if (!isEncryptedFile(companyDbPath(c.slug)) && out.backupsFailed.length === 0) removeEnvelope(companyDir(c.slug), c.slug, appSecretStore())

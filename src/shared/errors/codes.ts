@@ -227,6 +227,9 @@ export const ERROR_MAP = {
   data_folder_link: e('errors.dataFolder.link'),
   data_folder_copy_failed: e('errors.dataFolder.copyFailed'),
   data_folder_pointer_failed: e('errors.dataFolder.pointerFailed'),
+  // "Remember on this computer" (services/companyKeys.ts, ipc.ts)
+  remember_unavailable: e('errors.security.rememberUnavailable'),
+  remembered_key_stale: e('errors.security.rememberedStale', 'passphrase'),
   /** No longer thrown since a business without people can lock its screen (a privacy screen); kept
    *  for an older main's answer, in the new words. */
   lock_needs_people: e('errors.security.lockPrivacyOnly'),
