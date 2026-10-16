@@ -14,6 +14,7 @@ import {
 } from '@shared/auditEntities'
 import { auditTimestampText, rowStatuses, type AuditRowStatus } from '@shared/auditChain'
 import { ChainBanner, useAuditVerification } from './audit/ChainBanner'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../lib/capabilities'
 
 const PAGE_SIZES = [50, 100, 250, 500]
 
@@ -215,6 +216,7 @@ export function EditLogScreen({ voucherId: initialVoucherId }: { voucherId?: num
       return next
     })
 
+  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
   const doExport = async (kind: 'csv' | 'pdf'): Promise<void> => {
     setExporting(kind)
     try {
@@ -239,10 +241,10 @@ export function EditLogScreen({ voucherId: initialVoucherId }: { voucherId?: num
         period={periodLabel}
         secondary={
           <>
-            <Button variant="ghost" data-testid="edit-log-csv" onClick={() => void doExport('csv')} disabled={exporting !== null || total === 0}>
+            <Button variant="ghost" data-testid="edit-log-csv" onClick={() => void doExport('csv')} disabled={exportRefused || exporting !== null || total === 0} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined}>
               {exporting === 'csv' ? 'Exporting…' : 'CSV'}
             </Button>
-            <Button variant="ghost" data-testid="edit-log-pdf" onClick={() => void doExport('pdf')} disabled={exporting !== null || total === 0}>
+            <Button variant="ghost" data-testid="edit-log-pdf" onClick={() => void doExport('pdf')} disabled={exportRefused || exporting !== null || total === 0} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined}>
               {exporting === 'pdf' ? 'Exporting…' : 'PDF'}
             </Button>
           </>

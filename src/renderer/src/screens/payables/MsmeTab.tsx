@@ -18,6 +18,7 @@ import { LedgerLink, VoucherLink } from '../../components/links'
 import { payablesApi } from '../../lib/payablesClient'
 import { useToasts } from '../../state/stores'
 import { pct, usePayablesAsOn } from './common'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../../lib/capabilities'
 
 const BASIS = { agreed: 'Agreed', agreed_capped: 'Agreed > 45 d: capped', no_agreement: 'No agreement: 15 d' } as const
 
@@ -146,6 +147,7 @@ export function MsmeTab({ tabs }: { tabs: ReactNode }): React.JSX.Element {
     for (let k = 0; k < i; k++) p = formMsme1Period(addDays(p.from, -1))
     return p
   })
+  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
   const exportForm = async (): Promise<void> => {
     try {
       const r = await payablesApi.msmeForm1Csv(q)
@@ -169,7 +171,7 @@ export function MsmeTab({ tabs }: { tabs: ReactNode }): React.JSX.Element {
         tabs={tabs}
         controls={<DateInput value={asOn} context={asOn} onChange={setAsOn} testId="input-msme-as-on" ariaLabel="As on" className="w-32" />}
         secondary={
-          <Button data-testid="btn-msme-form1-csv" onClick={() => void exportForm()}>
+          <Button disabled={exportRefused} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} data-testid="btn-msme-form1-csv" onClick={() => void exportForm()}>
             MSME Form 1 CSV
           </Button>
         }

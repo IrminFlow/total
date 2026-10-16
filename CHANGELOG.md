@@ -460,6 +460,17 @@ Read these before filing from the next release.
   consolidation screen's "Unlock <member> for this run" prompt, which re-runs with
   `memberPassphrases`; the passphrase is held in memory only. encryption-at-rest.md says prints are
   not exports. [#144](https://github.com/IrminFlow/total/pull/144)
+- Every export button follows `canExport` (PR #144 gap): payroll's PF ECR / ESI CSV links (the
+  reason in their place), the PT summary's state returns (hidden) and PT CSV, the statutory dues'
+  ECR / ESI / PT links, the edit log's CSV / PDF, Outstandings' bulk statements, the statement of
+  account's Save PDF / Email, e-invoice / EWB exports (and the per-bill EWB JSON), GSTR-1 / 3B /
+  9 / ITC-04 / IMS exports, Form 24Q / 26Q / 27EQ files, budgets, price lists (button and menu),
+  the payment run and MSME Form 1 CSVs, the bank bulk-payment file and the report builder's
+  "Share as JSON" are disabled with "Your sign-in can’t export — ask the owner" (or hidden), and
+  the simple Taxes screen's "prepare the files" step says the owner turned it off
+  (`simple.taxes.step3.exportRefused`, en / hi / hinglish). Owners and users without flags see no
+  change; main still refuses. Owner-only exports (encrypted backup, recovery copy) are unchanged.
+  `exportGating.test.tsx`. [#146](https://github.com/IrminFlow/total/pull/146)
 - **Locked businesses from `total-cli`, MCP and consolidation.** Every `--company` command
   (including `mcp` and `inbox`) opens a business locked with a passphrase from the environment
   variable `TOTAL_PASSPHRASE` — never a flag (command lines are visible in `ps`) — through the app's

@@ -12,6 +12,7 @@ import { posLabel } from '@shared/gst/states'
 import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
 import type { Gst3bManualInput } from '@shared/schemas'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../lib/capabilities'
 
 export interface MonthChoice {
   key: string // YYYY-MM
@@ -266,6 +267,7 @@ export function Gstr1Screen({ initialMonth }: { initialMonth?: string } = {}): R
       ? `Export blocked — ${blocking.length} blocking issue${blocking.length === 1 ? '' : 's'} below must be fixed first.`
       : null
 
+  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
   const doExport = async (): Promise<void> => {
     if (!month) return
     try {
@@ -298,7 +300,7 @@ export function Gstr1Screen({ initialMonth }: { initialMonth?: string } = {}): R
             variant="primary"
             data-testid="btn-gstr1-export"
             onClick={() => void doExport()}
-            disabled={!!exportBlockedReason || validating}
+            disabled={exportRefused || !!exportBlockedReason || validating} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined}
             title={exportBlockedReason ?? undefined}
           >
             Export portal JSON
@@ -527,6 +529,7 @@ export function Gstr3bScreen({ initialMonth }: { initialMonth?: string } = {}): 
     enabled: !!month
   })
 
+  const exportRefused = useCapabilityRefused('canExport') // #146: hide / disable export buttons the owner refused
   const doExport = async (): Promise<void> => {
     if (!month) return
     try {
@@ -585,7 +588,7 @@ export function Gstr3bScreen({ initialMonth }: { initialMonth?: string } = {}): 
         tabs={<GstReturnTabs current="gstr3b" />}
         controls={<MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr3b-month" />}
         actions={
-          <Button variant="primary" data-testid="btn-gstr3b-export" onClick={() => void doExport()} disabled={!info?.gstin}>
+          <Button variant="primary" data-testid="btn-gstr3b-export" onClick={() => void doExport()} disabled={exportRefused || !info?.gstin} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined}>
             Export JSON
           </Button>
         }

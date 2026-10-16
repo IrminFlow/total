@@ -7,6 +7,7 @@ import type { HomeAttentionItem } from '@shared/simple/home'
 import { attentionText, money } from '@shared/simple/explain'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
+import { useCapabilityRefused } from '../../lib/capabilities'
 import { useNav, useToasts } from '../../state/stores'
 import { Button } from '../../components/ui'
 import { cardCls } from '../reports/parts'
@@ -167,6 +168,7 @@ function PrepareFiles({ x }: { x: Regular }): React.JSX.Element {
   const [busy, setBusy] = useState<GstForm | null>(null)
   const [error, setError] = useState<{ text: string; details: string } | null>(null)
   const quarterly = x.period.quarterly
+  const exportRefused = useCapabilityRefused('canExport') // i18n-technical
   if (x.period.soFar) return <p data-testid="taxes-files-wait">{t('simple.taxes.step3.wait', { date: toPlainDate(gstPeriodEnd(x.period), t.lang) })}</p>
   const prepare = async (form: GstForm): Promise<void> => {
     setBusy(form)
@@ -189,6 +191,14 @@ function PrepareFiles({ x }: { x: Regular }): React.JSX.Element {
     quarterly
       ? form === 'gstr1' ? t('simple.taxes.step3.prepare1Quarter') : t('simple.taxes.step3.prepare3bQuarter')
       : form === 'gstr1' ? t('simple.taxes.step3.prepare1') : t('simple.taxes.step3.prepare3b')
+  // #146: a sign-in the owner refused canExport can't save the files (main refuses them too).
+  if (exportRefused) {
+    return (
+      <p className="text-detail text-muted" data-testid="taxes-export-refused">
+        {t('simple.taxes.step3.exportRefused')}
+      </p>
+    )
+  }
   return (
     <>
       {quarterly && (
