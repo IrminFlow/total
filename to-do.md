@@ -97,7 +97,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Companies that closed a year on 0.4.0 show a permanent "Profit & Loss A/c (opening)" residual; a guided re-close would fix it — upgrade notes
 - Pre-0.6 manufacture vouchers don't appear in the Manufacture register (Day book / Stock movements only) — by design, release notes
 - ~~e-invoice original-bill lookup takes the newest sales voucher with that number at ANY party (wrong once numbers restart yearly)~~ DONE — the note's own party, its FY first — PR #120
-- Import undo keeps a party ledger whose opening bill has a user receipt against it (openings stay unequal until fixed by hand) — PR #107, `services/dataImport.ts`
+- ~~Import undo keeps a party ledger whose opening bill has a user receipt against it (openings stay unequal until fixed by hand)~~ DONE — the batch's openings are kept as imported (and reported) while an entry rests on one of its opening bills; Dr = Cr holds — PR #150 — PR #107, `services/dataImport.ts`
 - ~~Stock summary analysis panel runs as on today while the summary runs to the period end (no date shown)~~ DONE — the date and a note are shown; the panel stays as on today (running it to a future period end would change what it shows) — PR #120
 - Barcode labels date / price by the period END — PR #110
 - ~~Cash flow statement has no drill-down; labels PDF, CA pack and e-invoice export write to `exports/` with no save dialog; e-invoice export is whole-period only~~ DONE — drill-down PR #140 (a line opens the Day book on its vouchers, ▸ lists its ledgers → their statements); save dialog (skipped in hermetic runs), optional e-invoice dates — PR #137 — e2e 68–71 notes
@@ -108,9 +108,9 @@ done on main were dropped. One line each; the pointer says where to look.
 - TCS not modelled: 206C(1G) 20 % slab, 206C(1C), LRS — WP 3.3
 - Cash & finance not done: MSME deadlines in the forecast, loan disbursement posting, foreign opening balances — WP 4.4
 - NIC follow-ups needing a migration: store signed QR / signed invoice; cancel IRN / cancel + extend e-way UI — WP 3.5
-- ~~ITC-reversal apply has no audit row of its own~~ DONE — `itc_reversal` rows on apply and post — PR #120
+- ~~ITC-reversal apply has no audit row of its own~~ DONE — `itc_reversal` rows on apply and post — PR #120; ~~an apply with nothing changed still writes a row~~ DONE — no-op, and so is an unchanged `setGst3bManual` — PR #150
 - ~~Backup file names use UTC timestamps~~ DONE — local time since PR #114; one stamp helper + old-name test PR #118 (the list reads mtime) — PR #111
-- ~~Report-pack / saved-report folders use the company slug ("Con" → `con-company/`)~~ DONE — pack folders via `portableFileName`, old folders kept (files inside still slugified, e.g. a saved report "Con" → `NN-con-company.csv`) — PR #120
+- ~~Report-pack / saved-report folders use the company slug ("Con" → `con-company/`)~~ DONE — pack folders via `portableFileName`, old folders kept (~~files inside still slugified, e.g. a saved report "Con" → `NN-con-company.csv`~~ DONE — `packFileBase`, `02-Con.csv` — PR #150) — PR #120
 
 ### GST / tax
 - Historical documents depend on mutable masters (item / ledger rates, HSN, party class): changing a master can change an old return or print; snapshot tax facts per document — GPT review, `services/gst.ts`, `services/edocs.ts`
@@ -221,6 +221,6 @@ done on main were dropped. One line each; the pointer says where to look.
 - No live NIC sandbox scenario — WP 3.5, `docs/e2e-coverage.md`
 - 500k-voucher run and the packaged DMG / EXE perf not verified by the reviewer — PR #104
 - ~~Interrupted multi-migration upgrade not tested~~ DONE — `db/interruptedUpgrade.dbtest.ts`, no runner bug — PR #118
-- Receivables interest on an amount-only bill at its real GST rate not pinned — PR #93
+- ~~Receivables interest on an amount-only bill at its real GST rate not pinned~~ DONE — `receivables.dbtest.ts`, 18% as posted — PR #150 — PR #93
 - PowerShell Documents fallback and locked capture-inbox path only unit-tested on macOS — PR #109
 - CI e2e takes ~18–20 min (sharding is ready if needed) — PR #110
