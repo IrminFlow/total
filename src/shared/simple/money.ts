@@ -14,7 +14,8 @@ import type { MessageKey } from '../i18n'
 import { supplyTypeFor } from '../gst/calc'
 import { chargesGstOn, type GstRegistrationFacts } from '../gst/registration'
 import { solveTaxable } from '../pricing'
-import { allocateToBills, type IntentOpenBill, type MoneyHow, type SimpleIntentInput } from './intents'
+import { allocateToBills, SIMPLE_MAX_DAYS_AHEAD, type IntentOpenBill, type MoneyHow, type SimpleIntentInput } from './intents'
+import { addDaysISO } from '../dates'
 
 /** The ways money moves, as the screens offer them (intents.ts MONEY_HOW). */
 export const MONEY_HOWS: readonly MoneyHow[] = ['cash', 'upi', 'bank', 'card']
@@ -380,6 +381,15 @@ export interface MoneyRow {
   chips: MoneyChip[]
   /** How many bills the entry settles. */
   billCount: number
+  /** Dated after today (simple dates may be up to SIMPLE_MAX_DAYS_AHEAD days ahead). Optional
+   *  (absent = not ahead). */
+  ahead?: true
+}
+
+/** The money list's last day: up to SIMPLE_MAX_DAYS_AHEAD days after the working date (an entry
+ *  simple:post accepted is listed at once), or the period's end when the working date is past it. */
+export function moneyListUntil(workingDate: string, periodEnd: string): string {
+  return workingDate > periodEnd ? periodEnd : addDaysISO(workingDate, SIMPLE_MAX_DAYS_AHEAD)
 }
 
 export interface MoneyEntryView extends MoneyRow {

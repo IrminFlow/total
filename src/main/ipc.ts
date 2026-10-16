@@ -625,7 +625,7 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('simple:money:list', (payload) => {
     const { from, to } = z.object({ from: isoDate, to: isoDate }).strict().parse(payload)
-    return simpleMoney.moneyList(requireCompany().db, from, to)
+    return simpleMoney.moneyList(requireCompany().db, from, to, todayISO())
   }, 'viewer')
   handle('simple:money:entry', (payload) => {
     const { id } = z.object({ id: z.number().int().positive() }).strict().parse(payload)

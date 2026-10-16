@@ -316,6 +316,16 @@ describe('Move money and the list (WP 9.4)', () => {
     expect(screen.getAllByTestId('money-row-chip').map((e) => e.textContent)).toEqual(['Expense', 'Paid bills'])
     expect(bannedWordsIn(visible())).toEqual([])
   })
+  it('the list looks 30 days past the working date; an entry dated ahead carries “Dated ahead”', async () => {
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload: unknown) =>
+      channel === 'simple:money:list' ? { ok: true, data: [{ ...ROWS[0]!, voucherId: 10, date: '2026-11-01', ahead: true }, ...ROWS] } : base(channel, payload))
+    renderUi(<MoneyList />)
+    await waitFor(() => expect(screen.getAllByTestId('money-row-direction')).toHaveLength(4))
+    expect(calls('simple:money:list')[0]).toEqual({ from: '2026-04-01', to: '2026-11-12' })
+    expect(screen.getAllByTestId('money-row-ahead').map((e) => e.textContent)).toEqual(['Dated ahead'])
+    expect(bannedWordsIn(visible())).toEqual([])
+  })
 })
 
 describe('to-do §4: a viewer is told up front (Money in / out / move)', () => {

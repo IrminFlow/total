@@ -49,6 +49,10 @@ const qtyIn = z.union([z.number().int().positive().max(1e12), z.string().trim().
 /** ISO date or typed text ("today", "15 Aug"); omitted = the working date. */
 const dateIn = z.string().trim().min(1).max(40)
 
+/** Simple dates may be at most this many days after the working date (simple:post refuses later
+ *  ones, `simple_far_future`); the money list looks that far ahead too. */
+export const SIMPLE_MAX_DAYS_AHEAD = 30
+
 export const PAID_HOW = ['cash', 'upi', 'card', 'bank', 'credit'] as const
 export type PaidHow = (typeof PAID_HOW)[number]
 export const MONEY_HOW = ['cash', 'upi', 'card', 'bank'] as const

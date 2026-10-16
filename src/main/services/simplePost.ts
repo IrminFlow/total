@@ -24,7 +24,7 @@ import { addDaysISO, fyOf, toDisplayDate } from '@shared/dates'
 import { AppError, ERROR_MAP, isAppError, isErrorCode, type ErrorIssue } from '@shared/errors'
 import { normalizeInvoiceNumber } from '@shared/gst/recon2b'
 import {
-  intentSentences, mapIntent, NeedTaxLedgers, normaliseIntent, simpleIntentSchema,
+  intentSentences, mapIntent, NeedTaxLedgers, normaliseIntent, simpleIntentSchema, SIMPLE_MAX_DAYS_AHEAD,
   type IntentContext, type IntentFacts, type IntentLedger, type IntentOriginal, type IntentVoucherType, type MappedEntry,
   type NormalIntent, type PreviewEntry, type SimplePostResult, type SimplePreview
 } from '@shared/simple/intents'
@@ -430,7 +430,7 @@ interface Saved { entry: MappedEntry; id: number; number: string }
 interface RunOut { saved: Saved[]; facts: IntentFacts; warnings: SaveVoucherWarnings }
 
 /** How far ahead a simple entry may be dated (a typo guard; the accountant editor has none). */
-export const SIMPLE_MAX_DAYS_AHEAD = 30
+export { SIMPLE_MAX_DAYS_AHEAD }
 
 /** Simple mode is stricter than the editor on dates: not inside the lock, not in a closed year
  *  (saveVoucher itself relies on the lock the year-end close sets), not before the books begin,

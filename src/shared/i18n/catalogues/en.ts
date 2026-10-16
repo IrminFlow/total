@@ -1986,6 +1986,7 @@ export const en = {
   'simple.money.chip.expense': 'Expense',
   'simple.money.chip.income': 'Income',
   'simple.money.chip.refund': 'Refund',
+  'simple.money.chip.ahead': 'Dated ahead',
   'simple.money.entry.back': '← Money in and out',
   'simple.money.entry.from': 'From {name}',
   'simple.money.entry.to': 'To {name}',

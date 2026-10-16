@@ -1892,6 +1892,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.money.chip.expense': 'खर्च',
   'simple.money.chip.income': 'आमदनी',
   'simple.money.chip.refund': 'पैसे वापस',
+  'simple.money.chip.ahead': 'आगे की तारीख',
   'simple.money.entry.back': '← पैसे आए और गए',
   'simple.money.entry.from': '{name} से',
   'simple.money.entry.to': '{name} को',
