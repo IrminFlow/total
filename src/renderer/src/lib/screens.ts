@@ -1535,3 +1535,44 @@ export function simplePaletteRows(f: SimpleEntryFacts): SimplePaletteRow[] {
   }
   return rows
 }
+
+// ---------- link parameters (help articles' total://screen/… links) ----------
+
+/** The query parameters a `total://screen/<name>?…` link may carry (help/links.ts). */
+export const LINK_PARAMS = ['section', 'tab', 'filter', 'report', 'side'] as const
+export type LinkParam = (typeof LINK_PARAMS)[number]
+type ScreenOf<N extends Screen['name']> = Extract<Screen, { name: N }>
+type LinkParamValues<N extends Screen['name']> = {
+  [K in LinkParam & keyof ScreenOf<N>]?: readonly Exclude<ScreenOf<N>[K], undefined>[]
+}
+
+/**
+ * The values each screen accepts for a link parameter — typed against the Screen union, so a
+ * value the screen doesn't know fails typecheck. A screen not listed takes no link parameters;
+ * help/links.ts drops any other key / value (and articles.test.ts fails on an article that has
+ * one). Add a screen here when an article links to it with a parameter.
+ */
+export const SCREEN_LINK_PARAMS: { [N in Screen['name']]?: LinkParamValues<N> } = {
+  'simple-section': { section: SIMPLE_SECTION_IDS }, // 'home' opens Home (the gateway)
+  'simple-people': { tab: ['people', 'bills'], filter: ['all', 'customers', 'suppliers', 'owesYou', 'youOwe', 'late'] },
+  'simple-stock': { filter: ['low'] },
+  'simple-reports': { report: ['doing', 'cash', 'owed', 'by-month'], side: ['receivable', 'payable'] },
+  settings: { tab: ['appearance', 'backups', 'bin', 'users', 'security', 'audit', 'nic', 'features', 'invoice', 'receivables', 'agents', 'packs', 'ai', 'about'] },
+  banking: { tab: ['recon', 'import', 'rules', 'cheques', 'pdc', 'bulk', 'brs'] },
+  registers: { tab: ['sales', 'purchase', 'items'] },
+  receivables: { tab: ['control', 'reminders', 'interest', 'collections'] },
+  payables: { tab: ['plan', 'batch', 'runs', 'msme', 'suppliers'] }
+}
+
+/** Split a link's parameters into the ones the screen knows (`kept`) and the rest (`dropped`,
+ *  as `key=value`). Pure. */
+export function screenLinkParams(name: Screen['name'], params: Readonly<Record<string, string>>): { kept: Record<string, string>; dropped: string[] } {
+  const known = (SCREEN_LINK_PARAMS as Partial<Record<string, Partial<Record<string, readonly string[]>>>>)[name] ?? {}
+  const kept: Record<string, string> = {}
+  const dropped: string[] = []
+  for (const [k, v] of Object.entries(params)) {
+    if (known[k]?.includes(v)) kept[k] = v
+    else dropped.push(`${k}=${v}`)
+  }
+  return { kept, dropped }
+}
