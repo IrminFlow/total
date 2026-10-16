@@ -324,14 +324,40 @@ export class Harness {
     }
   }
 
+  /** Close the app — always, and in bounded time. A screen with unsaved answers blocks the window's
+   *  unload (useUnsavedGuard's beforeunload); Playwright's own dismissal of that dialog then raced
+   *  the teardown ("No dialog is showing") and app.close() never resolved, so the runner killed the
+   *  scenario after 5 minutes without its result line. Here the unload is let through
+   *  (will-prevent-unload), and a process still up after 20 s is killed. */
   async close() {
-    try {
-      await this.app?.close()
-    } catch {
-      /* ignore */
-    }
+    const app = this.app
     this.app = null
+    if (this.page) this.page.on('dialog', (d) => void d.accept().catch(() => {}))
     this.page = null
+    if (!app) return
+    // Electron's own switch for "unload anyway" (the window would otherwise refuse to close).
+    await app
+      .evaluate(({ BrowserWindow }) => {
+        for (const w of BrowserWindow.getAllWindows()) w.webContents.on('will-prevent-unload', (e) => e.preventDefault())
+      })
+      .catch(() => {})
+    const proc = app.process()
+    let timer
+    const closed = await Promise.race([
+      app.close().then(() => true, () => true),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), 20000)
+      })
+    ])
+    clearTimeout(timer)
+    if (!closed) {
+      console.error('[harness] the app did not close within 20 s — killing it')
+      try {
+        proc.kill('SIGKILL')
+      } catch {
+        /* already gone */
+      }
+    }
   }
 }
 
@@ -381,6 +407,18 @@ export async function scenario(name, fn, opts = {}) {
   const started = Date.now()
   let ok = false
   let error
+  // A stray rejection must not kill the process before the result line is written (it used to:
+  // closing the app over an unsaved form raised a beforeunload dialog, and Playwright's dialog
+  // auto-dismiss raced the teardown with "No dialog is showing" — an unhandled rejection, exit 1,
+  // no result line). During the run it fails the scenario; during close it is only noted.
+  let closing = false
+  let stray = null
+  const onStray = (err) => {
+    const text = err instanceof Error ? (err.stack ?? err.message) : String(err)
+    if (closing) console.error(`[${name}] ignored while closing the app: ${text.split('\n')[0]}`)
+    else stray ??= text
+  }
+  process.on('unhandledRejection', onStray)
   try {
     await h.launch()
     await fn(h)
@@ -397,10 +435,24 @@ export async function scenario(name, fn, opts = {}) {
       /* ignore */
     }
   } finally {
+    closing = true
     await h.close()
   }
+  // The listener stays: a late rejection from the teardown arrives after close() resolved.
+  if (ok && stray) {
+    ok = false
+    error = `unhandled rejection during the scenario: ${stray}`
+    console.error(`[${name}] FAILED:`, error)
+  }
   console.log(JSON.stringify({ scenario: name, ok, ms: Date.now() - started, ...(error ? { error } : {}) }))
-  process.exit(ok ? 0 : 1)
+  await exitAfterFlush(ok ? 0 : 1)
+}
+
+/** process.exit only once stdout / stderr have handed everything to the OS: on macOS a pipe is
+ *  written asynchronously, and an immediate exit could drop the result line the runner reads. */
+export async function exitAfterFlush(code) {
+  await Promise.all([process.stdout, process.stderr].map((s) => new Promise((resolve) => s.write('', () => resolve()))))
+  process.exit(code)
 }
 
 // ---------------- WP 7.4: dates the way the app sees them ----------------

@@ -109,7 +109,10 @@ await scenario('63-keyboard-simple', async (h) => {
   assert(nav.width <= 80, `the narrow sidebar is narrow (${nav.width} px)`)
   assertEq(nav.sellName, 'Sell', 'each icon button is named by its label')
   assertEq(nav.sellText.trim(), '', 'no label text squeezed beside the icon')
-  await page.focus('[data-testid="simple-nav-sell"]')
+  // Real keyboard order: Tab reaches Home in the sidebar, and the very next Tab is Sell.
+  await tabTo('simple-nav-home')
+  await page.keyboard.press('Tab')
+  assertEq(await active(), 'simple-nav-sell', 'Tab goes from Home to Sell in the sidebar')
   await attached('[data-testid="simple-nav-tip"]')
   assertEq((await page.textContent('[data-testid="simple-nav-tip"]')).trim(), 'Sell', 'focus shows the label beside the icon')
   await layout('Home at 1024×700')
@@ -187,7 +190,9 @@ await scenario('63-keyboard-simple', async (h) => {
   // Help open again, keyboard on the FORM: Esc still closes the top layer (Help) first.
   await page.keyboard.press('Meta+/')
   await attached('[data-testid="help-panel"]')
-  await page.focus('[data-testid="money-in-who-owner"]')
+  // Out of the panel with the keyboard onto the form's "Who paid?" question (one Tab stop, its
+  // picked choice) — the help panel is not modal, so the form stays in the Tab order beside it.
+  await radioTo('money-in-who-customer')
   await page.keyboard.press('Escape')
   await page.waitForSelector('[data-testid="help-panel"]', { state: 'detached', timeout: 5000 })
   assertEq(await page.$('[data-testid="confirm-ok"]'), null, 'that Esc did not reach the form')
@@ -221,7 +226,7 @@ await scenario('63-keyboard-simple', async (h) => {
     for (const theme of ['dark', 'light']) {
       const now = await page.evaluate(() => document.documentElement.dataset.theme ?? 'light')
       if (now !== theme) {
-        await page.focus('[data-testid="btn-theme"]')
+        await tabTo('btn-theme')
         await page.keyboard.press('Enter')
         await page.waitForFunction((t) => (document.documentElement.dataset.theme ?? 'light') === t, theme)
       }
