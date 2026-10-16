@@ -26,8 +26,15 @@ const STAMP_LEN = 19
  *  time (gate polish: a backup taken at 1 am IST was named after the previous day in UTC). Still
  *  fixed-width and sortable; older UTC-named files keep their names (the list sorts by mtime). */
 export function backupStamp(now = new Date()): string {
+  const [y, mo, d, h, mi, s] = localStampParts(now)
+  return `${y}-${mo}-${d}T${h}-${mi}-${s}`
+}
+
+/** The LOCAL date-time parts every backup-file stamp is built from (backupStamp here,
+ *  preUpgradeStamp in preUpgrade.ts): year, then month … second zero-padded to two digits. */
+export function localStampParts(now: Date): [string, string, string, string, string, string] {
   const p = (n: number): string => String(n).padStart(2, '0')
-  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())}T${p(now.getHours())}-${p(now.getMinutes())}-${p(now.getSeconds())}`
+  return [String(now.getFullYear()), p(now.getMonth() + 1), p(now.getDate()), p(now.getHours()), p(now.getMinutes()), p(now.getSeconds())]
 }
 
 /**

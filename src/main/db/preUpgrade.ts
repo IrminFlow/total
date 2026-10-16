@@ -10,7 +10,7 @@ import { existsSync, readdirSync, renameSync, statSync } from 'fs'
 import { join } from 'path'
 import type { DB } from './connection'
 import { keyOfHandle, removeDbFiles } from './encryption'
-import { quickCheckOk, snapshotSync } from './backup'
+import { localStampParts, quickCheckOk, snapshotSync } from './backup'
 import { fsyncDir, fsyncFile } from '../services/dbEncryption'
 import { AppError } from '@shared/errors'
 
@@ -29,8 +29,8 @@ export function preUpgradeOf(file: string): { from: number; to: number; stamp: s
 
 /** Local-time `YYYYMMDD-HHMMSS`. */
 export function preUpgradeStamp(now = new Date()): string {
-  const p = (n: number): string => String(n).padStart(2, '0')
-  return `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`
+  const [y, mo, d, h, mi, s] = localStampParts(now)
+  return `${y}${mo}${d}-${h}${mi}${s}`
 }
 
 export const UPGRADE_COPY_FAILED_MESSAGE = 'Total could not make a safe copy before upgrading the books; free some disk space and try again'
