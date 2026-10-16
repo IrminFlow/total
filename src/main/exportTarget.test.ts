@@ -24,8 +24,11 @@ describe('chooseExportPath', () => {
     await chooseExportPath({ ...req, kind: 'folder' }, { hermetic: () => false, showSaveDialog: show })
     expect(show.mock.calls[0]![0].filters).toBeUndefined()
   })
-  it('hermetic = TOTAL_DATA_DIR set', () => {
-    expect(hermeticRun({ TOTAL_DATA_DIR: '/tmp/x' })).toBe(true)
-    expect(hermeticRun({})).toBe(false)
+  it('hermetic = TOTAL_DATA_DIR set in an unpackaged build (a packaged app always asks)', () => {
+    expect(hermeticRun({ TOTAL_DATA_DIR: '/tmp/x' }, false)).toBe(true)
+    expect(hermeticRun({ TOTAL_DATA_DIR: '/tmp/x' }, null)).toBe(true)
+    expect(hermeticRun({ TOTAL_DATA_DIR: '/tmp/x' }, true)).toBe(false)
+    expect(hermeticRun({}, false)).toBe(false)
+    expect(hermeticRun({}, true)).toBe(false)
   })
 })

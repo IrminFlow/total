@@ -5,8 +5,10 @@ import { join } from 'path'
  * into `<company>/exports/` with no way to choose). The user now gets a native save dialog that
  * starts in the company's exports folder with the file (or folder) name the export always had.
  *
- * Hermetic runs (smoke / e2e / dbtests / the CLI — TOTAL_DATA_DIR set) skip the dialog and write
- * to exports/ exactly as before, so scripted runs never block on a modal.
+ * Hermetic runs (smoke / e2e / dbtests — TOTAL_DATA_DIR set AND an unpackaged build, the repo's
+ * rule for test-only switches, as e2eClock / the insecure test cipher) skip the dialog and write
+ * to exports/ exactly as before, so scripted runs never block on a modal. A packaged app always
+ * asks, whatever the environment says.
  *
  * Pure: the dialog is injected by ipc.ts (no electron import here — unit-tested in exportTarget.test.ts).
  */
@@ -15,7 +17,7 @@ export interface SaveDialogResult {
   filePath?: string
 }
 export interface ExportTargetDeps {
-  /** True when no dialog may be shown (TOTAL_DATA_DIR set). */
+  /** True when no dialog may be shown (TOTAL_DATA_DIR set in an unpackaged build). */
   hermetic: () => boolean
   showSaveDialog: (opts: {
     title: string
@@ -35,7 +37,9 @@ export interface ExportTargetRequest {
   filters?: { name: string; extensions: string[] }[]
 }
 
-export const hermeticRun = (env: NodeJS.ProcessEnv = process.env): boolean => !!env.TOTAL_DATA_DIR
+/** `isPackaged` null = Electron-as-Node (the dbtest runner: `app` is undefined), treated as unpackaged. */
+export const hermeticRun = (env: { TOTAL_DATA_DIR?: string }, isPackaged: boolean | null): boolean =>
+  isPackaged !== true && !!env.TOTAL_DATA_DIR
 
 /** The chosen path, the exports-folder default in a hermetic run, or null when the user cancelled. */
 export async function chooseExportPath(req: ExportTargetRequest, deps: ExportTargetDeps): Promise<string | null> {

@@ -475,7 +475,13 @@ const TRACE_IPC = process.env.TOTAL_IPC_TRACE === '1' && !!process.env.TOTAL_DAT
 function notifyMastersChanged(channel: string): void {
   const entities = masterEntitiesOf(channel)
   if (!entities.length) return
-  for (const w of BrowserWindow.getAllWindows?.() ?? []) if (!w.isDestroyed()) w.webContents.send(MASTERS_CHANGED_EVENT, { entities })
+  // The write has committed: a window that is going away must never turn it into a failed call
+  // (the renderer would show an error for a saved change and a retry would save it twice).
+  try {
+    for (const w of BrowserWindow.getAllWindows?.() ?? []) if (!w.isDestroyed()) w.webContents.send(MASTERS_CHANGED_EVENT, { entities })
+  } catch (err) {
+    log('warn', 'masters-changed', { channel, error: err instanceof Error ? err.message : String(err) })
+  }
 }
 
 function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): void {
@@ -548,7 +554,7 @@ const pickExportPath = (slug: string, req: Omit<ExportTargetRequest, 'exportsDir
   chooseExportPath(
     { ...req, exportsDir: companyExportsDir(slug) },
     {
-      hermetic: () => hermeticRun(),
+      hermetic: () => hermeticRun(process.env, app?.isPackaged ?? null),
       showSaveDialog: (opts) => {
         const win = BrowserWindow.getFocusedWindow?.()
         return win ? dialog.showSaveDialog(win, opts) : dialog.showSaveDialog(opts)
