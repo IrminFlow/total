@@ -1116,8 +1116,10 @@ export const api = {
         issues: GstIssue[]
         roundOff: { voucherId: number; number: string; roundOff: number; lines: string[] }[]
       }>('gst:validate', { from, to }),
-    /** Does the company e-invoice (services/gst.ts einvoicingOn)? */
-    einvoicing: () => call<boolean>('gst:einvoicing'),
+    /** The company's e-invoicing switch (meta `einvoicing`; services/gst.ts getEinvoicing — the first
+     *  read stores the books' history answer as its default). `setEinvoicing` is owner-only, audited. */
+    einvoicing: () => call<{ enabled: boolean }>('gst:einvoicing'),
+    setEinvoicing: (enabled: boolean) => call<{ enabled: boolean }>('einvoicing:set', { enabled }),
     get3bManual: (period: string) => call<Gst3bManualInput>('gst:3bManualGet', { period }),
     set3bManual: (period: string, data: Gst3bManualInput) =>
       call<Gst3bManualInput>('gst:3bManualSet', { period, data }),

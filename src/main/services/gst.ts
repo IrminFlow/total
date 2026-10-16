@@ -23,6 +23,7 @@ import { companyExportsDir } from '../paths'
 import { IN_BOOKS } from './vouchers'
 import { chargesGstOn } from '@shared/gst/registration'
 import { hasTradeSchema } from './tradeLinks'
+import { writeAudit } from './audit'
 
 interface DocVoucherRow {
   id: number; date: string; number: string; kind: 'sales' | 'credit_note' | 'debit_note'
@@ -799,11 +800,11 @@ export function gstr3b(db: DB, company: CompanyInfo, from: string, to: string, p
   return { ...result, circular170: { blocked: books.blocked, reclaimed: entered.itcReclaimed, entered } }
 }
 
-/** Does this company e-invoice? There is no switch for it, so: a REGULAR registration and any
- *  sign of use — NIC live filing set up for e-invoices (the non-secret meta 'nic' row: mode
- *  'einvoice' or an e-invoice base URL), an IRN on a voucher in the books, or an e-invoice JSON
- *  exported (its audit 'export' row). Read-only. */
-export function einvoicingOn(db: DB, company: Pick<CompanyInfo, 'gstRegistrationType'>): boolean {
+/** What the books' history says about e-invoicing (PR #140's heuristic): a REGULAR registration
+ *  and any sign of use — NIC live filing set up for e-invoices (the non-secret meta 'nic' row:
+ *  mode 'einvoice' or an e-invoice base URL), an IRN on a voucher in the books, or an e-invoice
+ *  JSON exported (its audit 'export' row). Read only to seed the explicit setting ONCE. */
+export function einvoicingFromHistory(db: DB, company: Pick<CompanyInfo, 'gstRegistrationType'>): boolean {
   if (company.gstRegistrationType !== 'regular') return false
   const nic = db.prepare("SELECT value FROM meta WHERE key = 'nic'").get() as { value: string } | undefined
   if (nic) {
@@ -818,6 +819,58 @@ export function einvoicingOn(db: DB, company: Pick<CompanyInfo, 'gstRegistration
   return !!db
     .prepare("SELECT 1 FROM audit_log WHERE entity = 'export' AND json_extract(after_json, '$.kind') = 'einvoice' LIMIT 1")
     .get()
+}
+
+export const EINVOICING_META_KEY = 'einvoicing'
+export interface EinvoicingSetting { enabled: boolean }
+
+function storedEinvoicing(db: DB): EinvoicingSetting | null {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(EINVOICING_META_KEY) as { value: string } | undefined
+  if (!row) return null
+  try {
+    const v = JSON.parse(row.value) as { enabled?: unknown }
+    return typeof v?.enabled === 'boolean' ? { enabled: v.enabled } : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The company's e-invoicing switch (meta `einvoicing: { enabled }`, Settings → Company details).
+ * No row yet = the history heuristic's answer, computed ONCE and stored (a company that was
+ * already e-invoicing stays on, every other one starts off), so the IRN / export scan never runs
+ * again. That first store is not a user change — the effective value is the same before and after
+ * — so it writes no audit row (like `deadline_notified`); a read-only handle just answers.
+ */
+export function getEinvoicing(db: DB, company: Pick<CompanyInfo, 'gstRegistrationType'>): EinvoicingSetting {
+  const stored = storedEinvoicing(db)
+  if (stored) return stored
+  const seeded = { enabled: einvoicingFromHistory(db, company) }
+  try {
+    db.prepare('INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)').run(EINVOICING_META_KEY, JSON.stringify(seeded))
+  } catch {
+    // a read-only connection: answer without storing
+  }
+  return storedEinvoicing(db) ?? seeded
+}
+
+/** Owner-only at the IPC layer; audited as a company update with the whole before / after. An
+ *  unchanged value writes nothing. */
+export function setEinvoicing(db: DB, company: Pick<CompanyInfo, 'gstRegistrationType'>, input: EinvoicingSetting): EinvoicingSetting {
+  const before = getEinvoicing(db, company)
+  if (before.enabled === input.enabled) return before
+  const after = { enabled: input.enabled }
+  db.transaction(() => {
+    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(EINVOICING_META_KEY, JSON.stringify(after))
+    writeAudit(db, 'company', 0, 'update', { einvoicing: before }, { einvoicing: after })
+  })()
+  return after
+}
+
+/** Does this company e-invoice? Its switch, for a REGULAR registration only (the IRP issues IRNs
+ *  to registered persons; a composition / unregistered business never e-invoices). */
+export function einvoicingOn(db: DB, company: Pick<CompanyInfo, 'gstRegistrationType'>): boolean {
+  return company.gstRegistrationType === 'regular' && getEinvoicing(db, company).enabled
 }
 
 /** Pre-export validation over the period's extracted documents (G7 panel + export gate). */

@@ -482,6 +482,24 @@ describe('canExport: false refuses every export channel (review follow-up)', () 
   })
 })
 
+describe('the e-invoicing switch is owner-only (review follow-up)', () => {
+  it('einvoicing:set refuses an accountant; the owner sets it (audited); gst:einvoicing returns the setting to a viewer', async () => {
+    const { slug } = await ok<{ slug: string }>('company:create', { ...company('Einvoice Switch Co'), gstin: '27AAPFU0939F1ZV' })
+    await ok('company:open', { slug })
+    const owner = await ok<{ id: number }>('users:save', { data: { name: 'Owner', role: 'owner', pin: '1111' } })
+    const acct = await ok<{ id: number }>('users:save', { data: { name: 'Asha', role: 'accountant', pin: '2222' } })
+    const viewer = await ok<{ id: number }>('users:save', { data: { name: 'Vikram', role: 'viewer', pin: '3333' } })
+    await ok('auth:login', { userId: acct.id, pin: '2222' })
+    expect((await call('einvoicing:set', { enabled: true })).code).toBe('not_permitted')
+    await ok('auth:login', { userId: owner.id, pin: '1111' })
+    expect((await call('einvoicing:set', { enabled: true, extra: 1 })).ok).toBe(false) // strict
+    expect(await ok('einvoicing:set', { enabled: true })).toEqual({ enabled: true })
+    await ok('auth:login', { userId: viewer.id, pin: '3333' })
+    expect(await ok('gst:einvoicing')).toEqual({ enabled: true })
+    await ok('auth:login', { userId: owner.id, pin: '1111' })
+  })
+})
+
 describe('consolidation member passphrases (PR #132) leave no trace', () => {
   const PASS = 'member passphrase zq7-unique'
   /** Every file under the data root that holds the passphrase bytes (logs, audit, WAL, JSON …). */

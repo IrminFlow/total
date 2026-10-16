@@ -1,18 +1,20 @@
-// WP 2.5b — "does this company e-invoice?" (services/gst.ts einvoicingOn): there is no switch, so
-// a REGULAR registration plus any sign of use — NIC live filing set up for e-invoices, an IRN on a
-// voucher in the books, or an e-invoice JSON exported. Only then does gstValidate warn about a
-// sales number the IRP refuses (NIC schema DocDtls.No).
+// WP 2.5b — "does this company e-invoice?" (services/gst.ts einvoicingOn). Review follow-up: an
+// explicit switch (meta `einvoicing: { enabled }`, owner-only einvoicing:set, audited as a company
+// update) whose default is PR #140's history heuristic (einvoicingFromHistory: a REGULAR
+// registration plus any sign of use — NIC live filing set up for e-invoices, an IRN on a voucher in
+// the books, or an e-invoice JSON exported), computed ONCE at the first read and stored. Only while
+// it is on does gstValidate warn about a sales number the IRP refuses (NIC schema DocDtls.No).
 import { describe, expect, it } from 'vitest'
 import { postSimpleVoucher, seededDb, TEST_INFO } from '../db/testdb'
 import { writeAudit } from './audit'
 import { createLedger } from './masters'
 import { saveVoucher } from './vouchers'
 import type { VoucherInput } from '@shared/schemas'
-import { einvoicingOn, gstValidate } from './gst'
+import { einvoicingFromHistory as einvoicingOn, einvoicingOn as switchOn, getEinvoicing, setEinvoicing, gstValidate } from './gst'
 
 const REGULAR = { ...TEST_INFO, gstRegistrationType: 'regular' as const, gstin: '27AAPFU0939F1ZV' }
 
-describe('einvoicingOn', () => {
+describe('einvoicingFromHistory (the default)', () => {
   it('is off by default and for a company that is not regular', () => {
     const db = seededDb()
     expect(einvoicingOn(db, REGULAR)).toBe(false)
@@ -69,7 +71,53 @@ describe('einvoicingOn', () => {
     db.prepare("UPDATE vouchers SET number = 'INV/2025-26/000001' WHERE id = ?").run(sale)
     const issue = (): unknown => gstValidate(db, REGULAR, '2025-04-01', '2025-04-30').find((i) => i.code === 'einvoice_doc_no')
     expect(issue()).toBeUndefined()
+    // the default was stored at that first read (off): a later e-invoice export no longer turns it on
     writeAudit(db, 'export', 0, 'export', null, { kind: 'einvoice', period: '042025' })
+    expect(issue()).toBeUndefined()
+    setEinvoicing(db, REGULAR, { enabled: true })
     expect(issue()).toMatchObject({ severity: 'warning', voucherIds: [sale] })
+  })
+})
+
+describe('the e-invoicing switch (meta einvoicing)', () => {
+  const metaRow = (db: ReturnType<typeof seededDb>): string | undefined =>
+    (db.prepare("SELECT value FROM meta WHERE key = 'einvoicing'").get() as { value: string } | undefined)?.value
+  const companyAudits = (db: ReturnType<typeof seededDb>): { before_json: string | null; after_json: string | null }[] =>
+    db.prepare("SELECT before_json, after_json FROM audit_log WHERE entity = 'company' ORDER BY id").all() as { before_json: string | null; after_json: string | null }[]
+
+  it('the first read stores the history answer once (no audit row); the scan never decides again', () => {
+    const db = seededDb()
+    const id = postSimpleVoucher(db, { date: '2025-04-10', amount: 50000, kind: 'receipt' }).id
+    db.prepare("UPDATE vouchers SET irn = 'abc' WHERE id = ?").run(id)
+    const audits = companyAudits(db).length
+    expect(getEinvoicing(db, REGULAR)).toEqual({ enabled: true }) // was already e-invoicing: stays on
+    expect(metaRow(db)).toBe('{"enabled":true}')
+    expect(companyAudits(db).length).toBe(audits)
+    // the history changes; the stored setting does not
+    db.prepare("UPDATE vouchers SET deleted_at = datetime('now') WHERE id = ?").run(id)
+    expect(switchOn(db, REGULAR)).toBe(true)
+
+    const fresh = seededDb()
+    expect(getEinvoicing(fresh, REGULAR)).toEqual({ enabled: false }) // no sign of use: off
+    writeAudit(fresh, 'export', 0, 'export', null, { kind: 'einvoice', period: '042025' })
+    expect(getEinvoicing(fresh, REGULAR)).toEqual({ enabled: false })
+  })
+
+  it('set is audited as a company update with the whole before / after; unchanged writes nothing; regular only takes effect', () => {
+    const db = seededDb()
+    expect(setEinvoicing(db, REGULAR, { enabled: false })).toEqual({ enabled: false }) // seeds, unchanged
+    const n = companyAudits(db).length
+    expect(setEinvoicing(db, REGULAR, { enabled: true })).toEqual({ enabled: true })
+    const rows = companyAudits(db)
+    expect(rows.length).toBe(n + 1)
+    expect(JSON.parse(rows.at(-1)!.before_json!)).toEqual({ einvoicing: { enabled: false } })
+    expect(JSON.parse(rows.at(-1)!.after_json!)).toEqual({ einvoicing: { enabled: true } })
+    setEinvoicing(db, REGULAR, { enabled: true })
+    expect(companyAudits(db).length).toBe(n + 1)
+    expect(switchOn(db, REGULAR)).toBe(true)
+    expect(switchOn(db, { gstRegistrationType: 'composition' })).toBe(false)
+    // an unreadable row reads as missing and is re-seeded from history
+    db.prepare("UPDATE meta SET value = 'nope' WHERE key = 'einvoicing'").run()
+    expect(getEinvoicing(db, REGULAR)).toEqual({ enabled: false })
   })
 })

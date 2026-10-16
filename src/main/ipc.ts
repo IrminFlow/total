@@ -2076,8 +2076,14 @@ export function registerIpc(): void {
   // (NIC DocDtls.No) only while the company e-invoices.
   handle('gst:einvoicing', () => {
     const c = requireCompany()
-    return gst.einvoicingOn(c.db, c.info)
+    return gst.getEinvoicing(c.db, c.info)
   }, 'viewer')
+  // Review follow-up: the explicit e-invoicing switch (meta `einvoicing`), owner-only, audited.
+  handle('einvoicing:set', (p) => {
+    const input = z.object({ enabled: z.boolean() }).strict().parse(p)
+    const c = requireCompany()
+    return gst.setEinvoicing(c.db, c.info, input)
+  }, 'owner')
   handle('gst:3bManualGet', (p) => {
     const { period } = z.object({ period: z.string().regex(/^\d{6}$/) }).parse(p)
     return configSvc.getGst3bManual(requireCompany().db, period)
