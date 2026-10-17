@@ -159,7 +159,7 @@ describe('the Gateway Compliance card and the simple Taxes screen', () => {
 describe('e-Invoice list: the 30-day IRP countdown', () => {
   const row = (over: Partial<EdocListRow> = {}): EdocListRow => ({
     voucherId: 1, number: 'S/1', date: '2026-10-01', docType: 'INV', partyLedgerId: 2, partyName: 'B', partyGstin: '27AABCG3456H1ZN',
-    total: 100, vehicleNo: null, hasHsn: true, irn: null, ewbNo: null, outwardDbn: false, ewbReason: null, ...over
+    total: 100, vehicleNo: null, hasHsn: true, irn: null, irnCancelledAt: null, ewbNo: null, outwardDbn: false, ewbReason: null, ...over
   })
   const yes = (): boolean => true
   it('counts down to the 30th day; passed after it; never for an IRN, a challan, B2C or outside the window', () => {
