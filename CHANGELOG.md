@@ -340,7 +340,7 @@ what you typed, and a **Back to simple** button.
 
 Read these before filing from the next release.
 
-- **Bills saved from now on keep their own tax facts** (to-do §4 GST), [#TBD](https://github.com/IrminFlow/total/pull/TBD).
+- **Bills saved from now on keep their own tax facts** (to-do §4 GST), [#172](https://github.com/IrminFlow/total/pull/172).
   When a sales or purchase bill, note or challan is saved, the GST rate, cess and HSN of each line
   and the party's GSTIN, state, SEZ / export type and reverse-charge flag are stored with it.
   GSTR-1, GSTR-3B, GSTR-9, the HSN summary, e-invoice / e-way JSON, prints and interest notes use
@@ -691,6 +691,7 @@ Read these before filing from the next release.
   `__tests__/yearEndRecheck.test.tsx`, e2e 67 step 8. [#168](https://github.com/IrminFlow/total/pull/168)
 
 - **Tax-fact snapshots** (to-do §4 GST), [#TBD](https://github.com/IrminFlow/total/pull/TBD): migration "tax-fact
+- **Tax-fact snapshots** (to-do §4 GST), [#172](https://github.com/IrminFlow/total/pull/172): migration "tax-fact
   snapshots" (appended last) adds nullable `vouchers.snap_tax_facts` / `snap_party_gstin` /
   `snap_party_state` / `snap_party_export_type` / `snap_party_rcm` and `snap_gst_rate` /
   `snap_cess_rate` / `snap_hsn` on `voucher_lines` and `inventory_lines` — no backfill, rates in the
