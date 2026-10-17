@@ -134,6 +134,30 @@ function expectOnePass(db: DB, today: string): void {
 }
 
 describe('valuation pass — streamed input = the in-memory input (PR #104)', () => {
+  it('raw rows are read by position: the statement columns are, by name, in RawMovementRow order', () => {
+    const db = seededDb()
+    seedStockFixture(db, { vouchers: 50, items: 3, seed: 3 })
+    const seen: string[] = []
+    const prepare = db.prepare.bind(db)
+    const spy = vi.spyOn(db, 'prepare').mockImplementation(((sql: string) => {
+      if (/FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id\s+WHERE v.date <= \?/.test(sql)) seen.push(sql)
+      return prepare(sql)
+    }) as typeof db.prepare)
+    try {
+      sa.stockSummary(db, '2026-03-31')
+    } finally {
+      spy.mockRestore()
+    }
+    expect(seen.length).toBe(1)
+    // streamMovements reads r[0]..r[8] as these names — a changed SELECT list must fail here.
+    expect(db.prepare(seen[0]!).columns().map((c) => c.name)).toEqual(
+      ['lineId', 'voucherId', 'stockItemId', 'godownId', 'date', 'qtyMilli', 'amount', 'direction', 'isAbsolute']
+    )
+    // And the ORDER BY is explicit (never index order): the pass's key, then line order.
+    expect(seen[0]!).toMatch(/ORDER BY v\.date, v\.id, il\.line_order, il\.id\s*$/)
+    db.close()
+  })
+
   it('on the randomised stock fixture, with derived manufactures and godown views', () => {
     const db = seededDb()
     const fx = seedStockFixture(db, { vouchers: 2500, items: 30, seed: 7 })
