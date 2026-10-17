@@ -23,6 +23,7 @@ let test: AiConnectionResult
 let usage: AiUsageRow[]
 let rates: unknown[]
 let keySetError: string | null
+let canSet: { allowed: boolean; reason: string }
 let drafts: Record<number, AiDraftDto>
 
 function baseView(over: Partial<AiSettingsView> = {}, settings: Partial<AiSettingsView['settings']> = {}): AiSettingsView {
@@ -53,6 +54,7 @@ beforeEach(() => {
   usage = []
   rates = []
   keySetError = null
+  canSet = { allowed: true, reason: 'ok' }
   drafts = {}
   invoke.mockReset()
   invoke.mockImplementation(async (channel: string, payload?: unknown) => {
@@ -71,6 +73,7 @@ beforeEach(() => {
         if (keySetError) return { ok: false, error: keySetError }
         view = { ...view, keyPresent: true, keyHint: '…WXYZ' }
         return { ok: true, data: view }
+      case 'ai:key:canSet': return { ok: true, data: canSet }
       case 'ai:key:clear': return { ok: true, data: view }
       case 'ai:testConnection': return { ok: true, data: test }
       case 'ai:usage': return { ok: true, data: usage }
@@ -133,6 +136,21 @@ describe('Settings → AI helper (simple)', () => {
     expect(document.documentElement.outerHTML).not.toContain('sk-test-0123456789WXYZ')
     await waitFor(() => expect((screen.getByTestId('simple-ai-on') as HTMLButtonElement).disabled).toBe(false))
     expect(screen.getByTestId('simple-ai-on').textContent).toBe('I agree — turn on the AI helper')
+  })
+
+  it('says before anything is pasted that another business holds the key, and locks the box', async () => {
+    canSet = { allowed: false, reason: 'other_company_has_users' }
+    wrap(<AiHelper />)
+    expect((await screen.findByTestId('simple-ai-key-blocked')).textContent).toContain('Another business on this computer has sign-ins')
+    expect((screen.getByTestId('simple-ai-key-input') as HTMLInputElement).disabled).toBe(true)
+    expect(calls('ai:key:set')).toEqual([])
+  })
+
+  it('a signed-in non-owner is told only the owner can change the key', async () => {
+    canSet = { allowed: false, reason: 'owner_only' }
+    useSession.setState({ user: { id: 2, name: 'Asha', role: 'viewer' } } as never)
+    wrap(<AiHelper />)
+    expect((await screen.findByTestId('simple-ai-key-blocked')).textContent).toContain('Only the owner of this business')
   })
 
   it('the models the key offers are kept as they are', async () => {

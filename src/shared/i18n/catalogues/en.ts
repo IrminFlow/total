@@ -2729,6 +2729,8 @@ export const en = {
   'simple.ai.key.confirmTitle': 'A key shared by every business',
   'simple.ai.key.confirmText': 'This business has no sign-ins, so anyone using this computer can change the key every business here uses. Save it?',
   'simple.ai.key.confirmOk': 'Save the key',
+  'simple.ai.key.blockedOwner': 'Only the owner of this business can change the key. Sign in as the owner to do it.',
+  'simple.ai.key.blockedOther': 'Another business on this computer has sign-ins, so the key can only be changed from that business, by its owner. Open it and sign in there.',
   'simple.ai.key.works': 'Works. Models available: {models}.',
   'simple.ai.key.picked': 'Total will use {model}.',
   'simple.ai.key.worksNoList': 'Works, but your AI service did not list the models it offers.',

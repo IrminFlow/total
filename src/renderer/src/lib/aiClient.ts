@@ -13,6 +13,8 @@ export const aiApi = {
   setSettings: (patch: AiSettingsPatch) => call<AiSettingsView>('ai:settings:set', patch),
   acceptNotice: () => call<AiSettingsView>('ai:notice:accept'),
   /** `confirmNoUsers`: no company on this computer has users — the user confirmed that anyone can change the shared key. */
+  /** Whether this company may change the shared key (asked before anything is pasted). */
+  keyCanSet: () => call<{ allowed: boolean; reason: 'ok' | 'owner_only' | 'other_company_has_users' | 'needs_confirmation' }>('ai:key:canSet'),
   setKey: (key: string, confirmNoUsers = false) => call<AiSettingsView>('ai:key:set', { key, confirmNoUsers }),
   clearKey: (confirmNoUsers = false) => call<AiSettingsView>('ai:key:clear', { confirmNoUsers }),
   testConnection: () => call<AiConnectionResult>('ai:testConnection'),

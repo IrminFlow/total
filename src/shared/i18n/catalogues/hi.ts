@@ -2620,6 +2620,8 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.ai.key.confirmTitle': 'हर बिज़नेस की एक ही key',
   'simple.ai.key.confirmText': 'इस बिज़नेस में कोई साइन-इन नहीं है, इसलिए इस कंप्यूटर को चलाने वाला कोई भी वह key बदल सकता है जो यहाँ हर बिज़नेस इस्तेमाल करता है। इसे सेव करें?',
   'simple.ai.key.confirmOk': 'key सेव करें',
+  'simple.ai.key.blockedOwner': 'key सिर्फ़ इस बिज़नेस का मालिक बदल सकता है। बदलने के लिए मालिक के रूप में साइन-इन करें।',
+  'simple.ai.key.blockedOther': 'इस कंप्यूटर के एक दूसरे बिज़नेस में साइन-इन हैं, इसलिए key सिर्फ़ उसी बिज़नेस से, उसके मालिक द्वारा बदली जा सकती है। उसे खोलकर वहाँ साइन-इन करें।',
   'simple.ai.key.works': 'चल रही है। मिलने वाले मॉडल: {models}।',
   'simple.ai.key.picked': 'Total {model} इस्तेमाल करेगा।',
   'simple.ai.key.worksNoList': 'चल रही है, पर आपकी AI सेवा ने अपने मॉडल की सूची नहीं दी।',

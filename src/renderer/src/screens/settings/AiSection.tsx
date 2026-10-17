@@ -242,6 +242,8 @@ function KeyPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean })
   const [test, setTest] = useState<AiConnectionResult | null>(null)
 
   const { user } = useSession()
+  const { data: canSet } = useQuery({ queryKey: ['aiKeyCanSet'], queryFn: aiApi.keyCanSet })
+  const blocked = canSet && !canSet.allowed && (canSet.reason === 'other_company_has_users' || (canSet.reason === 'owner_only' && !isOwner))
   /** The key is shared by every company: in a company without users, ask first (main refuses
    *  outright when another company on this computer has users). */
   const confirmNoUsers = async (): Promise<boolean | null> => {
@@ -279,6 +281,13 @@ function KeyPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean })
           Secure storage is not available on this computer, so a key cannot be saved.
         </Banner>
       )}
+      {blocked && (
+        <Banner tone="info" className="mb-3" testId="ai-key-blocked">
+          {canSet.reason === 'owner_only'
+            ? 'Only the owner of this company can change the API key. Sign in as the owner to do it.'
+            : 'Another company on this computer has users, so the API key can only be changed from that company, by its owner. Open it and sign in there.'}
+        </Banner>
+      )}
       <div className="flex items-end gap-2">
         <Field label="API key" hint={view.keyPresent ? `A key is saved (${view.keyHint}). Type a new one to replace it.` : 'Starts with sk-'}>
           <TextInput
@@ -288,14 +297,14 @@ function KeyPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean })
             className="num"
             value={key}
             placeholder={view.keyPresent ? '••••••••••••' : 'sk-…'}
-            disabled={!isOwner || busy}
+            disabled={!isOwner || !!blocked || busy}
             onChange={(e) => setKey(e.target.value)}
             data-testid="input-ai-key"
           />
         </Field>
         <Button
           variant="primary"
-          disabled={!isOwner || busy || key.trim().length < 8}
+          disabled={!isOwner || !!blocked || busy || key.trim().length < 8}
           onClick={async () => {
             const confirmed = await confirmNoUsers()
             if (confirmed === null) return
@@ -309,7 +318,7 @@ function KeyPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean })
           Save key
         </Button>
         {view.keyPresent && (
-          <Button disabled={!isOwner || busy} onClick={async () => {
+          <Button disabled={!isOwner || !!blocked || busy} onClick={async () => {
               const confirmed = await confirmNoUsers()
               if (confirmed === null) return
               await act(() => aiApi.clearKey(confirmed), 'API key removed')

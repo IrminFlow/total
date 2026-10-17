@@ -2615,6 +2615,8 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.ai.key.confirmTitle': 'Har business ki ek hi key',
   'simple.ai.key.confirmText': 'Is business mein koi sign-in nahi hai, isliye is computer ko chalane wala koi bhi woh key badal sakta hai jo yahan har business use karta hai. Ise save karein?',
   'simple.ai.key.confirmOk': 'Key save karein',
+  'simple.ai.key.blockedOwner': 'Key sirf is business ka malik badal sakta hai. Badalne ke liye malik ke roop mein sign-in karein.',
+  'simple.ai.key.blockedOther': 'Is computer ke ek doosre business mein sign-in hain, isliye key sirf usi business se, uske malik dwara badli ja sakti hai. Use kholkar wahan sign-in karein.',
   'simple.ai.key.works': 'Chal rahi hai. Milne wale model: {models}.',
   'simple.ai.key.picked': 'Total {model} use karega.',
   'simple.ai.key.worksNoList': 'Chal rahi hai, par aapki AI service ne apne models ki list nahi di.',

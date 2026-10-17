@@ -466,6 +466,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // ---------- AI agent (WP 5.1) — conversations are not books; settings, drafts and deletions are audited ----------
   'ai:settings:set': a('ai_settings'),
   'ai:notice:accept': a('ai_settings'),
+  'ai:key:canSet': r('says whether this company may change the shared API key; writes nothing'),
   'ai:key:set': a('ai_settings'),
   'ai:key:clear': a('ai_settings'),
   'ai:testConnection': r('lists the provider\'s models over the network; sends no company data and writes nothing'),
