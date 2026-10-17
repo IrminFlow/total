@@ -88,6 +88,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // mapping, rehearsed and rolled back) and the facts "Back to simple" maps a full screen with.
   'simple:intentForm': r("maps the intent with simple:post's mapping in a transaction that is always rolled back; writes nothing"),
   'simple:handoffTarget': QUERY,
+  'simple:carryBack': r("maps the editor's unsaved state back to the simple form over simple:post's context, loaded in a transaction that is always rolled back; writes nothing"),
   'company:delete': a('company'),
   // WP 7.2: + the (deferred, at most daily) restore check of the on-open backup.
   'company:open': a('backup', 'voucher', 'audit_log', 'attachment', 'backup_check', 'security'),
