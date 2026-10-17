@@ -9,7 +9,7 @@ import { slabsOn } from '@shared/gst/rateTable'
 import type { AccountContext } from '@shared/simple/accountKinds'
 import type { CategoryKey } from '@shared/simple/categories'
 import {
-  billAllocation, emptyMoneyOutForm, linkedBillName, expenseGstApplies, MONEY_OUT_EXPENSE_KEYS, MONEY_OUT_WHO, moneyOutErrors, moneyOutFieldOf, moneyOutIntentFrom,
+  billAllocation, emptyMoneyOutForm, linkedBillKey, tickKeys, toggleBillTick, expenseGstApplies, MONEY_OUT_EXPENSE_KEYS, MONEY_OUT_WHO, moneyOutErrors, moneyOutFieldOf, moneyOutIntentFrom,
   purchaseFromMoneyOut,
   type MoneyOutField, type MoneyOutForm, type MoneyOutWho
 } from '@shared/simple/money'
@@ -100,8 +100,9 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
   // the FY); one no longer open falls back to oldest first.
   useEffect(() => {
     if (!(bill || billId != null) || !bills || form.ticks?.length !== 1 || form.ticks[0] !== bill) return
-    const name = linkedBillName(bills, bill, billId)
-    if (name !== bill) setForm((f) => ({ ...f, ticks: name ? [name] : null }))
+    // Ticks are bill keys (entry + name): two open bills may share a name.
+    const key = linkedBillKey(bills, bill, billId)
+    setForm((f) => ({ ...f, ticks: key ? [key] : null }))
   }, [bills]) // eslint-disable-line react-hooks/exhaustive-deps
   const defaults = setup?.defaultsOut ?? { cash: null, upi: null, card: null, bank: null }
   const ctx = useMemo(
@@ -146,12 +147,10 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
     ...(bankId != null ? { leave: () => goBackToBank(bankId) } : {})
   })
 
-  const ticked = form.ticks ?? alloc.settled.map((s) => s.name)
-  const gets = new Map(alloc.settled.map((s) => [s.name, s.amount]))
-  const toggle = (name: string, on: boolean): void => {
-    const cur = form.ticks ?? ticked
-    update({ ticks: on ? [...cur.filter((n) => n !== name), name] : cur.filter((n) => n !== name) })
-  }
+  // Ticks are keyed by bill (entry + name), never the name: two open bills may share one.
+  const ticked = tickKeys(open, form.ticks) ?? alloc.keys
+  const gets = new Map(alloc.keys.map((k, i) => [k, alloc.settled[i]!.amount]))
+  const toggle = (key: string, on: boolean): void => update({ ticks: toggleBillTick(open, ticked, key, on) })
   const showAdvance = form.who === 'supplier' && form.supplierId != null && (form.amount ?? 0) > 0 && (open.length === 0 || alloc.advance > 0 || alloc.short || form.advance)
 
   // WP 9.10: the saved entry, or the full payment editor with these answers filled in.

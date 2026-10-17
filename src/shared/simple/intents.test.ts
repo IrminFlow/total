@@ -298,12 +298,20 @@ describe('money in / out / move', () => {
     expect(intentSentences(m.facts, t)).toEqual(['₹2,000.00 moved from Cash to HDFC Bank.'])
   })
 
-  it('allocateToBills settles a duplicated bill name once (the oldest)', () => {
-    const r = allocateToBills([{ name: 'A', date: '2025-01-01', pending: 100, voucherId: 1 }, { name: 'A', date: '2025-02-01', pending: 100, voucherId: 2 }], 150, null, false, 'R-1')
-    expect(allocateToBills([{ name: 'A', date: '2025-01-01', pending: 100, voucherId: 1 }, { name: 'A', date: '2025-02-01', pending: 100, voucherId: 2 }], 150, null, true, 'R-1').refs)
-      .toEqual([{ kind: 'against', name: 'A', amount: 100, dueDate: null }, { kind: 'new', name: 'R-1', amount: 50, dueDate: null }])
-    expect(r.refs).toEqual([])
-    expect(r.settled).toEqual([{ name: 'A', amount: 100 }])
+  it('to-do §4: allocateToBills reaches a duplicated bill name in turn — the oldest in full, then the next (refs settle by name, oldest first)', () => {
+    const twins = [{ name: 'A', date: '2025-01-01', pending: 100, voucherId: 1 }, { name: 'A', date: '2025-02-01', pending: 100, voucherId: 2 }]
+    const r = allocateToBills(twins, 150, null, false, 'R-1')
+    expect(r.refs).toEqual([{ kind: 'against', name: 'A', amount: 100, dueDate: null }, { kind: 'against', name: 'A', amount: 50, dueDate: null }])
+    expect(r.settled).toEqual([{ name: 'A', amount: 100 }, { name: 'A', amount: 50 }])
+    expect(r.picked.map((b) => b.voucherId)).toEqual([1, 2])
+    expect(allocateToBills(twins, 250, null, true, 'R-1').refs.at(-1)).toEqual({ kind: 'new', name: 'R-1', amount: 50, dueDate: null })
+    // Named by entry: the older first in full, then the newer.
+    expect(allocateToBills(twins, 130, [{ name: 'A', amount: 100, billId: 1 }, { name: 'A', amount: 30, billId: 2 }], false, 'R-1').refs.map((x) => x.amount)).toEqual([100, 30])
+    // The newer alone would land on the older one (by name): refused on that bill, never settled elsewhere.
+    expect(() => allocateToBills(twins, 100, [{ name: 'A', amount: 100, billId: 2 }], false, 'R-1')).toThrow(expect.objectContaining({ code: 'simple_bill_older_first', field: 'bills.0' }))
+    expect(() => allocateToBills(twins, 150, [{ name: 'A', amount: 50, billId: 1 }, { name: 'A', amount: 100, billId: 2 }], false, 'R-1')).toThrow(expect.objectContaining({ code: 'simple_bill_older_first', field: 'bills.1' }))
+    // Without an entry: the oldest of that name not named yet.
+    expect(allocateToBills(twins, 200, [{ name: 'A', amount: null }, { name: 'A', amount: null }], false, 'R-1').refs.map((x) => x.amount)).toEqual([100, 100])
   })
 })
 

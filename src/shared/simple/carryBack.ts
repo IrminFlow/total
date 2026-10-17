@@ -521,7 +521,7 @@ function ticksFor(
   for (const t of tries) {
     let got: AccountingFormState['billRefs']
     try {
-      got = allocateToBills(open, amount, ticksToBills(open, amount, t.ticks)?.map((b) => ({ name: b.name, amount: b.amount })) ?? null, t.advance, '').refs
+      got = allocateToBills(open, amount, ticksToBills(open, amount, t.ticks)?.map((b) => ({ name: b.name, amount: b.amount, ...(b.billId != null ? { billId: b.billId } : {}) })) ?? null, t.advance, '').refs
     } catch {
       continue
     }

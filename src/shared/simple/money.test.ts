@@ -9,7 +9,7 @@ import { roundToRupee } from '../money'
 import { bannedWordsIn } from './bannedWords'
 import { normaliseIntent } from './intents'
 import {
-  billAllocation, defaultTicks, emptyMoneyInForm, emptyMoneyOutForm, emptyMoveForm, moneyInErrors, moneyInIntentFrom, moneyOutErrors,
+  billAllocation, billKey, billPaidAfter, defaultTicks, linkedBillKey, tickKeys, toggleBillTick, emptyMoneyInForm, emptyMoneyOutForm, emptyMoveForm, moneyInErrors, moneyInIntentFrom, moneyOutErrors,
   linkedBillName, MONEY_OUT_EXPENSE_KEYS, moneyOutFieldOf, moneyOutIntentFrom, moveErrors, moveIntentFrom, purchaseFromMoneyOut, ticksToBills, type MoneyOpenBill
 } from './money'
 import { categoriesFor } from './accountKinds'
@@ -38,8 +38,8 @@ describe('bill ticks (the allocation simple:post runs)', () => {
   })
 
   it('untouched: oldest first up to the amount — one and a half bills', () => {
-    expect(billAllocation(OPEN, 130_000, null, false)).toEqual({ settled: [{ name: 'S-1', amount: 100_000 }, { name: 'S-2', amount: 30_000 }], advance: 0, short: false })
-    expect(defaultTicks(OPEN, 130_000)).toEqual(['S-1', 'S-2'])
+    expect(billAllocation(OPEN, 130_000, null, false)).toEqual({ settled: [{ name: 'S-1', amount: 100_000 }, { name: 'S-2', amount: 30_000 }], keys: ['o:S-1', 'o:S-2'], advance: 0, short: false })
+    expect(defaultTicks(OPEN, 130_000)).toEqual(['o:S-1', 'o:S-2'])
     expect(defaultTicks(OPEN, null)).toEqual([])
   })
   it('more than the bills: the rest is an advance (with or without the answer)', () => {
@@ -50,9 +50,31 @@ describe('bill ticks (the allocation simple:post runs)', () => {
     expect(ticksToBills(OPEN, 80_000, ['S-2', 'S-1'])).toEqual([{ name: 'S-1', amount: 80_000 }])
     expect(ticksToBills(OPEN, 130_000, ['S-2'])).toEqual([{ name: 'S-2', amount: 60_000 }])
     expect(ticksToBills(OPEN, 130_000, null)).toBeNull()
-    expect(billAllocation(OPEN, 130_000, ['S-2'], false)).toEqual({ settled: [{ name: 'S-2', amount: 60_000 }], advance: 0, short: true })
-    expect(billAllocation(OPEN, 130_000, ['S-2'], true)).toEqual({ settled: [{ name: 'S-2', amount: 60_000 }], advance: 70_000, short: false })
-    expect(billAllocation(OPEN, 50_000, [], true)).toEqual({ settled: [], advance: 50_000, short: false })
+    expect(billAllocation(OPEN, 130_000, ['S-2'], false)).toEqual({ settled: [{ name: 'S-2', amount: 60_000 }], keys: ['o:S-2'], advance: 0, short: true })
+    expect(billAllocation(OPEN, 130_000, ['o:S-2'], true)).toEqual({ settled: [{ name: 'S-2', amount: 60_000 }], keys: ['o:S-2'], advance: 70_000, short: false })
+    expect(billAllocation(OPEN, 50_000, [], true)).toEqual({ settled: [], keys: [], advance: 50_000, short: false })
+  })
+
+  it('to-do §4: two open bills of one name (numbering restarts every year) are ticked one by one, by entry', () => {
+    const twins = [{ ...bill('1', '2026-04-05', 50_000), voucherId: 30 }, { ...bill('1', '2025-05-02', 20_000), voucherId: 12 }, { ...bill('2', '2026-04-09', 9_000), voucherId: 31 }]
+    expect(billKey(twins[0]!)).toBe('v:30:1')
+    // Ticking the older one ticks only it.
+    expect(toggleBillTick(twins, [], 'v:12:1', true)).toEqual(['v:12:1'])
+    // Ticking the newer one brings the older with it — bills of one name are settled oldest first —
+    // and the newer one says so.
+    expect(toggleBillTick(twins, ['v:31:2'], 'v:30:1', true)).toEqual(['v:12:1', 'v:30:1', 'v:31:2'])
+    expect(billPaidAfter(twins, twins[0]!)?.voucherId).toBe(12)
+    expect(billPaidAfter(twins, twins[1]!)).toBeNull()
+    // Unticking the older unticks the newer namesake; unticking the newer leaves the older.
+    expect(toggleBillTick(twins, ['v:12:1', 'v:30:1'], 'v:12:1', false)).toEqual([])
+    expect(toggleBillTick(twins, ['v:12:1', 'v:30:1'], 'v:30:1', false)).toEqual(['v:12:1'])
+    // The intent names each bill with its entry when its name is shared, in the order the books settle them.
+    expect(ticksToBills(twins, 60_000, ['v:12:1', 'v:30:1'])).toEqual([{ name: '1', amount: 20_000, billId: 12 }, { name: '1', amount: 40_000, billId: 30 }])
+    expect(ticksToBills(twins, 60_000, ['v:31:2'])).toEqual([{ name: '2', amount: 9_000 }])
+    // A name (a prefill from before keys) is the oldest open bill of that name.
+    expect(tickKeys(twins, ['1'])).toEqual(['v:12:1'])
+    expect(billAllocation(twins, 60_000, ['v:12:1', 'v:30:1'], false)).toEqual({ settled: [{ name: '1', amount: 20_000 }, { name: '1', amount: 40_000 }], keys: ['v:12:1', 'v:30:1'], advance: 0, short: false })
+    expect(linkedBillKey(twins, '1', 30)).toBe('v:30:1')
   })
 })
 

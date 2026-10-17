@@ -148,6 +148,7 @@ export const ERROR_MAP = {
   simple_walk_in_unpaid: e('errors.intent.walkInUnpaid', 'payment'),
   simple_bill_unknown: e('errors.intent.billUnknown', 'bills', ['bill'], 'errors.intent.billUnknownPlain'),
   simple_bill_over: e('errors.intent.billOver', 'bills', ['bill', 'amount'], 'errors.intent.billOverPlain'),
+  simple_bill_older_first: e('errors.intent.billOlderFirst', 'bills', ['bill', 'date'], 'errors.intent.billOlderFirstPlain'),
   simple_bills_short: e('errors.intent.billsShort', 'bills', ['amount'], 'errors.intent.billsShortPlain'),
   simple_bills_exceed: e('errors.intent.billsExceed', 'amount', ['amount'], 'errors.intent.billsExceedPlain'),
   simple_bill_total: e('errors.intent.billTotal', 'amount', ['amount'], 'errors.intent.billTotalPlain'),

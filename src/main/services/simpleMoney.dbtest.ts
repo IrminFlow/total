@@ -24,12 +24,12 @@ import {
   type AccountingFormState, type EditPlan
 } from '@shared/voucherEdit'
 import {
-  billAllocation, emptyMoneyInForm, emptyMoneyOutForm, emptyMoveForm, moneyInErrors, moneyInIntentFrom, moneyOutErrors, moneyOutIntentFrom,
-  moneyListUntil, moneyWho, moveIntentFrom, type MoneyInForm, type MoneyOutForm
+  billAllocation, billKey, emptyMoneyInForm, emptyMoneyOutForm, emptyMoveForm, moneyInErrors, moneyInIntentFrom, moneyOutErrors, moneyOutIntentFrom,
+  moneyListUntil, moneyWho, moveIntentFrom, toggleBillTick, type MoneyInForm, type MoneyOutForm
 } from '@shared/simple/money'
 import { createLedger, createStockItem, listGroups, listLedgers, listStockItems } from './masters'
-import { getVoucher, nextVoucherNumber, saveVoucher, setLockDate } from './vouchers'
-import { partyAllocation } from './analysis'
+import { deleteVoucher, getVoucher, nextVoucherNumber, saveVoucher, setLockDate } from './vouchers'
+import { partyAllocation, partyAllocationWithCredits } from './analysis'
 import { postClose } from './yearEnd'
 import { setFeatures, getFeatures } from './config'
 import { gstr3b } from './gst'
@@ -246,7 +246,7 @@ describe('Money in: the form’s ticks equal the Outstandings allocation', () =>
     expect(moneyBills(db, L('Ramesh'), TODAY).map((b) => [b.name, b.pending])).toEqual([[b1, 100_000], [b2, 60_000]])
     const before = allocation('Ramesh')
     const { out, shown } = moneyIn({ customerId: L('Ramesh'), amount: 130_000, how: 'upi' })
-    expect(shown).toEqual({ settled: [{ name: b1, amount: 100_000 }, { name: b2, amount: 30_000 }], advance: 0, short: false })
+    expect(shown).toMatchObject({ settled: [{ name: b1, amount: 100_000 }, { name: b2, amount: 30_000 }], advance: 0, short: false })
     expectAllocationsEqual(before, allocation('Ramesh'), shown)
     expect(out.facts.settled).toEqual(shown.settled)
     const v = getVoucher(db, out.voucherIds[0]!)!
@@ -260,7 +260,7 @@ describe('Money in: the form’s ticks equal the Outstandings allocation', () =>
     const [b1, b2] = twoBills()
     const before = allocation('Ramesh')
     const { out, shown } = moneyIn({ customerId: L('Ramesh'), amount: 100_000, ticks: [b2], advance: true })
-    expect(shown).toEqual({ settled: [{ name: b2, amount: 60_000 }], advance: 40_000, short: false })
+    expect(shown).toMatchObject({ settled: [{ name: b2, amount: 60_000 }], advance: 40_000, short: false })
     const after = allocation('Ramesh')
     expectAllocationsEqual(before, after, shown)
     expect(after.bills[b1]).toBe(100_000)
@@ -278,7 +278,7 @@ describe('Money in: the form’s ticks equal the Outstandings allocation', () =>
     const [b1, b2] = twoBills()
     const before = allocation('Ramesh')
     const { out, shown } = moneyIn({ customerId: L('Ramesh'), amount: 200_000 })
-    expect(shown).toEqual({ settled: [{ name: b1, amount: 100_000 }, { name: b2, amount: 60_000 }], advance: 40_000, short: false })
+    expect(shown).toMatchObject({ settled: [{ name: b1, amount: 100_000 }, { name: b2, amount: 60_000 }], advance: 40_000, short: false })
     expectAllocationsEqual(before, allocation('Ramesh'), shown)
     expect(getVoucher(db, out.voucherIds[0]!)!.billRefs).toEqual([])
     expect(out.facts.balance).toBe(-40_000)
@@ -503,6 +503,74 @@ describe('Money out: a refund to a customer', () => {
     const before = trace()
     expect(() => post({ kind: 'money_out', customerId: L('Ramesh'), amount: 1_000, from: { how: 'cash' } })).toThrow(expect.objectContaining({ code: 'simple_customer_no_credit', field: 'party' }))
     expect(trace()).toEqual(before)
+  })
+})
+
+describe('to-do §4: bills of one name, and names a credit has had', () => {
+  const at = (date: string, intent: object) => postIntent(db, INFO, { clientId: `twin-${++seq}-x`, ...intent }, date)
+  const pending = (asOn: string) => partyAllocation(db, L('Ramesh'), asOn).bills.map((b) => [b.voucherId, b.number, b.pending])
+
+  /** Two open bills "1" for Ramesh: FY 25-26 (₹200) and FY 26-27 (₹500) — the older was paid when
+   *  the newer was made (so the newer took the plain name), then that receipt was binned. */
+  function twinBills(): { older: number; newer: number } {
+    const older = at('2025-08-01', { kind: 'sale', customerId: L('Ramesh'), number: '1', amount: { amount: 20_000, gstRate: 0 }, payment: { how: 'credit' } }).voucherIds[0]!
+    const paid = at('2025-08-05', { kind: 'money_in', customerId: L('Ramesh'), amount: 20_000, into: { how: 'cash' } }).voucherIds[0]!
+    const newer = at('2026-04-10', { kind: 'sale', customerId: L('Ramesh'), number: '1', amount: { amount: 50_000, gstRate: 0 }, payment: { how: 'credit' } }).voucherIds[0]!
+    deleteVoucher(db, paid)
+    return { older, newer }
+  }
+
+  it('each bill is ticked on its own (by entry); the newer one is paid after its older namesake — the Outstandings allocation agrees', () => {
+    const { older, newer } = twinBills()
+    const day = '2026-04-15'
+    expect(pending(day)).toEqual([[older, '1', 20_000], [newer, '1', 50_000]])
+    const open = moneyBills(db, L('Ramesh'), day)
+    const [kOld, kNew] = open.map(billKey) as [string, string]
+    expect(kOld).not.toBe(kNew)
+    // Ticking the older one ticks only it: ₹200 settles just that bill.
+    const onlyOld = toggleBillTick(open, [], kOld, true)
+    expect(onlyOld).toEqual([kOld])
+    const setup = moneySetup(db)
+    const form = (amount: number, ticks: string[]): MoneyInForm => ({ ...emptyMoneyInForm(day), customerId: L('Ramesh'), amount, how: 'cash', ticks })
+    const before = trace()
+    // The newer alone can't be settled by name while the older is open: refused on the bill, no trace.
+    expect(() => at(day, { kind: 'money_in', customerId: L('Ramesh'), amount: 50_000, into: { how: 'cash' }, bills: [{ name: '1', billId: newer }] })).toThrow(
+      expect.objectContaining({ code: 'simple_bill_older_first', field: 'bills.0' })
+    )
+    expect(trace()).toEqual(before)
+    // The form never sends that: ticking the newer brings the older (paid first).
+    const both = toggleBillTick(open, [], kNew, true)
+    expect(both).toEqual([kOld, kNew])
+    const shown = billAllocation(open, 45_000, both, false)
+    const i = moneyInIntentFrom(form(45_000, both), open, setup.defaultsIn, { ownerId: setup.ownerId })
+    expect(i).toMatchObject({ bills: [{ name: '1', amount: 20_000, billId: older }, { name: '1', amount: 25_000, billId: newer }] })
+    at(day, i)
+    expect(shown.settled).toEqual([{ name: '1', amount: 20_000 }, { name: '1', amount: 25_000 }])
+    expect(pending(day)).toEqual([[newer, '1', 25_000]])
+    // Then the older one alone (now paid): the newer is the only open "1" and takes it all.
+    const left = moneyBills(db, L('Ramesh'), day)
+    const j = moneyInIntentFrom(form(25_000, [billKey(left[0]!)]), left, setup.defaultsIn, { ownerId: setup.ownerId })
+    at(day, j)
+    expect(pending(day)).toEqual([])
+  })
+
+  it('untouched (oldest first) reaches both bills of one name in turn, as the engine does', () => {
+    const { older, newer } = twinBills()
+    const out = at('2026-04-15', { kind: 'money_in', customerId: L('Ramesh'), amount: 30_000, into: { how: 'cash' } })
+    expect(out.facts.settled).toEqual([{ name: '1', amount: 20_000 }, { name: '1', amount: 10_000 }])
+    expect(pending('2026-04-15')).toEqual([[newer, '1', 40_000]])
+    expect(older).toBeLessThan(newer)
+  })
+
+  it('a later bill never reuses the name of a credit that has been used up (it gets the year added)', () => {
+    // An advance "ADV1" from Ramesh, then refunded in full: the credit is settled, its name stays taken.
+    const adv = at(TODAY, { kind: 'money_in', customerId: L('Ramesh'), number: 'ADV1', amount: 10_000, into: { how: 'cash' }, bills: [], advance: true })
+    expect(db.prepare("SELECT name FROM bill_refs WHERE voucher_id = ? AND kind = 'new'").all(adv.voucherIds[0]) as { name: string }[]).toEqual([{ name: 'ADV1' }])
+    at(TODAY, { kind: 'money_out', customerId: L('Ramesh'), amount: 10_000, from: { how: 'cash' } })
+    expect(partyAllocationWithCredits(db, L('Ramesh'), TODAY)).toMatchObject({ credits: [], unappliedCredit: 0, bills: [] })
+    const sale = at(TODAY, { kind: 'sale', customerId: L('Ramesh'), number: 'ADV1', amount: { amount: 5_000, gstRate: 0 }, payment: { how: 'credit' } })
+    expect(db.prepare("SELECT name FROM bill_refs WHERE voucher_id = ? AND kind = 'new'").all(sale.voucherIds[0]) as { name: string }[]).toEqual([{ name: 'ADV1/25-26' }])
+    expect(partyAllocation(db, L('Ramesh'), TODAY).bills.map((b) => [b.number, b.pending])).toEqual([['ADV1/25-26', 5_000]])
   })
 })
 

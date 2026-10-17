@@ -273,12 +273,14 @@ export function loadIntentContext(db: DB, company: CompanyInfo, n: NormalIntent)
       if (p.ratePaise != null && p.ratePaise > 0) prices.set(i, { ratePaise: p.ratePaise, discountPaise: p.discountPaise })
     })
   }
-  // Names still open per party (bills + named credits), over every date — a new bill never reuses one.
+  // Names still open per party (bills + named credits), over every date — a new bill never reuses
+  // one — and every name a named credit has had (an advance / a note's own bill used up since):
+  // reusing it would make the ref that used that credit look like it rests on the new bill.
   const original = n.kind === 'return_sale' || n.kind === 'return_purchase' ? loadOriginal(db, company, ledgers, n.billId, n.date) : null
   const takenNames = new Map<number, Set<string>>()
   for (const pid of [partyId, original?.partyId].filter((x): x is number => x != null)) {
     const a = partyAllocationWithCredits(db, pid, '9999-12-31')
-    takenNames.set(pid, new Set([...a.bills.filter((b) => b.pending > 0).map((b) => b.number), ...a.credits.map((c) => c.name)]))
+    takenNames.set(pid, new Set([...a.bills.filter((b) => b.pending > 0).map((b) => b.number), ...a.credits.map((c) => c.name), ...a.creditNames]))
   }
   // WP 9.5: a return's own bill (its credit) never reuses ANY name the party's bills have had — a
   // note numbered like a settled sale ("1" and "1") would otherwise look settled by that sale's
