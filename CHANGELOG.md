@@ -448,6 +448,18 @@ Read these before filing from the next release.
   unchanged, no longer adds an audit row** (the same rule as other settings). No figure changed.
   [#150](https://github.com/IrminFlow/total/pull/150)
 
+- **Cash forecast: MSME suppliers' bills on their s.15 deadline** (Options → Include, off by
+  default; off, every figure is as before, and the simple "Cash in the next 30 days" and the AI
+  forecast keep the default). On, each open bill of a registered micro / small supplier (accepted
+  on or after its registration date) is placed on its MSMED Act s.15 pay-by date (the agreed
+  period in writing, at most 45 days, else 15 days — the MSME report's date) instead of its own due
+  date, at the same 100 %. A bill already past that date is expected now (first period), and its
+  indicative s.16 interest (three times the bank rate, monthly rests, up to today — the Payables
+  plan's figure) is listed separately under the table: it is in no total and is never posted. With
+  post-dated cheques on as well, a cheque takes its amount off the supplier's bills first and its
+  own date wins, so a bill counts once; only what the cheque leaves stays on the s.15 date, with its
+  share of the interest. [#156](https://github.com/IrminFlow/total/pull/156)
+
 ### For developers
 
 - New banking channels `cheques:backfillPreview` (accountant+, read) and `cheques:backfill`
