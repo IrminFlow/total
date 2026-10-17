@@ -320,7 +320,7 @@ what you typed, and a **Back to simple** button.
   was; a later year can't be repaired before an earlier one. Afterwards the "(opening)" row is
   gone (for closed years) and Retained Earnings carries the difference; each year's own profit,
   this year's figures, Home and Assistants are unchanged except that row. A correct close is
-  reported as matching and Repair does nothing. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  reported as matching and Repair does nothing. [#168](https://github.com/IrminFlow/total/pull/168)
 
 Read these before filing from the next release.
 
@@ -637,7 +637,7 @@ Read these before filing from the next release.
   optional `transferLedgerId`, so a renamed Retained Earnings stays the one ledger), all in one
   transaction that re-checks the result. No migration. Tests: `yearEndRepair.dbtest.ts` (a
   hand-built 0.4.0 journal from `git show v0.4.0:src/main/services/yearEnd.ts`),
-  `__tests__/yearEndRecheck.test.tsx`, e2e 67 step 8. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  `__tests__/yearEndRecheck.test.tsx`, e2e 67 step 8. [#168](https://github.com/IrminFlow/total/pull/168)
 
 - **Electron hardening (D7)** (to-do §4 Security), [#161](https://github.com/IrminFlow/total/pull/161): every IPC
   call is checked against its sender before anything else (`main/ipcSender.ts`, in `handle()`): only
