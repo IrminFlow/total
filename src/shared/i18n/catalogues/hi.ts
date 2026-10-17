@@ -193,6 +193,8 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.handoff.dropped.serials': 'सीरियल नंबर',
   'simple.handoff.dropped.cheque': 'चेक नंबर',
   'simple.handoff.dropped.rounding': 'बदला हुआ राउंड ऑफ़',
+  'simple.handoff.dropped.links': 'जिस ऑर्डर या चालान से यह बना है',
+  'simple.handoff.carriedGotIt': 'ठीक है',
   'simple.palette.kind.ledger': 'खाते',
   'simple.palette.kind.item': 'सामान',
   'simple.palette.kind.voucher': 'एंट्री',

@@ -46,7 +46,7 @@ export interface CarryForms {
 /** Editor fields with no place in the simple form (the banner's words: `simple.handoff.dropped.*`). */
 export const CARRY_DROPPED = [
   'number', 'account', 'extraLines', 'tds', 'tcs', 'costCentres', 'transport', 'currency', 'placeOfSupply', 'optional',
-  'dueDate', 'billName', 'billRefs', 'billSplit', 'godowns', 'serials', 'cheque', 'rounding'
+  'dueDate', 'billName', 'billRefs', 'billSplit', 'godowns', 'serials', 'cheque', 'rounding', 'links'
 ] as const
 export type CarryDropped = (typeof CARRY_DROPPED)[number]
 
@@ -175,7 +175,7 @@ const supplyOf = (ctx: CarryContext, partyId: number | null): SupplyType =>
   supplyTypeFor(ctx.invoice.companyStateCode, (partyId != null ? ctx.ledgers.get(partyId)?.stateCode : null) ?? ctx.invoice.companyStateCode)
 
 /** What the invoice editor holds that a simple form has no place for — named when changed. */
-function invoiceExtras(o: InvoiceFormState, c: InvoiceFormState, dropped: Dropped): void {
+function invoiceExtras(o: InvoiceFormState, c: InvoiceFormState, dropped: Dropped, opts: { returnLinks?: boolean } = {}): void {
   dropped.add('number', c.number.trim() !== '' && c.number.trim() !== o.number.trim())
   dropped.add('transport', c.vehicleNo !== o.vehicleNo || c.transporterId !== o.transporterId || c.distanceKm !== o.distanceKm)
   dropped.add('currency', c.currencyCode !== o.currencyCode || c.fxRateText !== o.fxRateText)
@@ -191,6 +191,9 @@ function invoiceExtras(o: InvoiceFormState, c: InvoiceFormState, dropped: Droppe
     const was = o.rows[i]
     dropped.add('godowns', (r.godownId ?? null) !== (was?.godownId ?? null) || (r.batchId ?? null) !== (was?.batchId ?? null))
     dropped.add('serials', (r.serials?.length ?? 0) > 0 && !same(r.serials, was?.serials))
+    // A line drawn from an order / challan (WP 2.5 links): a return's own links are read by
+    // `returned` itself; on any other bill the simple form has no place for one.
+    if (!opts.returnLinks) dropped.add('links', r.source != null && !same(r.source, was?.source))
   })
 }
 
@@ -239,8 +242,11 @@ interface TradeRows {
 function tradeRows(e: Acc, ctx: CarryContext, partyDr: boolean, accountCls: IntentLedger['cls'], partyOk: (k: RowKind) => boolean): TradeRows {
   const side: TaxSide = e.kind === 'purchase' || e.kind === 'debit_note' ? 'input' : 'output'
   const partySide = partyDr ? 'dr' : 'cr'
-  const posted = e.state.rows.map((r, i) => ({ r, i, k: rowKind(ctx, side, r.ledgerId, e.pending?.rows?.[i]) })).filter((x) => (x.r.amount ?? 0) > 0)
-  const partyRow = posted.find((x) => x.r.drCr === partySide && x.k.kind !== 'tax' && x.k.kind !== 'roundOff')
+  const rows = e.state.rows.map((r, i) => ({ r, i, k: rowKind(ctx, side, r.ledgerId, e.pending?.rows?.[i]) }))
+  const posted = rows.filter((x) => (x.r.amount ?? 0) > 0)
+  const isParty = (x: (typeof rows)[number]): boolean => x.r.drCr === partySide && x.k.kind !== 'tax' && x.k.kind !== 'roundOff'
+  // A bill that rounds to ₹0 (a few paise) keeps its party line at 0 (mapIntent writes it so).
+  const partyRow = posted.find(isParty) ?? rows.find((x) => isParty(x) && x.r.amount === 0 && x.k.kind !== 'unknown')
   if (!partyRow || !partyOk(partyRow.k.kind)) return refuse('party')
   const accountRow = posted.find((x) => x !== partyRow && x.r.drCr !== partySide && x.k.kind === accountCls)
   if (!accountRow) return refuse('lines')
@@ -256,7 +262,7 @@ function tradeRows(e: Acc, ctx: CarryContext, partyDr: boolean, accountCls: Inte
   return {
     partyId: partyRow.k.kind === 'walkIn' ? null : partyRow.r.ledgerId,
     walkIn: partyRow.k.kind === 'walkIn',
-    total: partyRow.r.amount!,
+    total: partyRow.r.amount ?? 0,
     accountId: accountRow.r.ledgerId!,
     taxable: accountRow.r.amount!,
     tax,
@@ -671,7 +677,7 @@ function returned(input: CarryInput<'simple-return-sale'>, ctx: CarryContext, dr
   if (input.current.form === 'invoice') {
     const o = (input.original as Inv).state
     const c = (input.current as Inv).state
-    invoiceExtras(refInv(dropped), c, dropped)
+    invoiceExtras(refInv(dropped), c, dropped, { returnLinks: true })
     dropped.add('account', c.accountId !== refInv(dropped).accountId)
     if (c.partyId !== bill.partyId) return refuse('party')
     const qty: Record<string, string> = {}

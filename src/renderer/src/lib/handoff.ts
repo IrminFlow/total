@@ -352,13 +352,17 @@ export function useKeptForm<T>(init: T | (() => T), slot = 'form'): [T, Dispatch
 
 // ---------------------------------------------------------------- the editor's changes, carried back
 
-/** The hand-off editor's form as it stands (its editor reports every change), per hand-off. */
-const editorStates = new WeakMap<SimpleHandoff, HandoffEntry>()
+/** The hand-off editor's form as it stands (its editor reports every change), per hand-off — and
+ *  as it FIRST reported it (on mount, before the user touched anything). */
+const editorStates = new WeakMap<SimpleHandoff, { first: HandoffEntry; current: HandoffEntry }>()
 
 /** Called by the hand-off's editor (VoucherEntry) with its current state. */
 export function reportHandoffEditor(handoff: SimpleHandoff, entry: HandoffEntry): void {
-  editorStates.set(handoff, entry)
+  const was = editorStates.get(handoff)
+  editorStates.set(handoff, { first: was?.first ?? entry, current: entry })
 }
+
+const sameEntry = (a: HandoffEntry, b: HandoffEntry): boolean => JSON.stringify([a.state, a.pending ?? null]) === JSON.stringify([b.state, b.pending ?? null])
 
 /** Carried lines get fresh keys (carryBack marks them with negative ones). */
 let carriedLineSeq = 1_000_000
@@ -375,8 +379,12 @@ function rekeyLines<F>(form: F): F {
  * nothing to carry); 'refused' = the simple form can't hold this entry.
  */
 async function carryEdits(handoff: SimpleHandoff, below: Screen, depth: number, today: string): Promise<'carried' | 'none' | 'refused'> {
-  const current = editorStates.get(handoff)
-  if (!current || !handoff.intent || !(CARRY_FLOWS as readonly string[]).includes(handoff.from)) return 'none'
+  const seen = editorStates.get(handoff)
+  if (!seen || !handoff.intent || !(CARRY_FLOWS as readonly string[]).includes(handoff.from)) return 'none'
+  const current = seen.current
+  // An editor the user did not touch is "Back to simple" exactly as before: nothing to carry (its
+  // mount may tidy the state — a blank row, a default — which is no change of the user's).
+  if (sameEntry(current, seen.first) || sameEntry(current, handoff.entry)) return 'none'
   const base = peekKept(below, depth, 'form')
   if (base == null) return 'none'
   const flow = handoff.from as CarryFlow
@@ -393,9 +401,13 @@ async function carryEdits(handoff: SimpleHandoff, below: Screen, depth: number, 
 
 /** What a simple flow came back with from the full editor that could not be carried (null = not
  *  carried back). Read once on arrival, like the form. */
-export function useCarriedBack(): CarryDropped[] | null {
-  return useKeptForm<CarryDropped[] | null>(null, 'carriedBack')[0]
+export function useCarriedBack(): CarriedBack {
+  return useKeptForm<CarriedBack>(null, 'carriedBack')[0]
 }
+
+/** What came back: the details that could not ([] = everything did), 'refused' = none of the
+ *  editor's changes (the earlier answers are shown), null = not back from a changed editor. */
+export type CarriedBack = CarryDropped[] | 'refused' | null
 
 // ---------------------------------------------------------------- hooks
 
@@ -497,8 +509,6 @@ export function useAlwaysFullRedirect(): void {
 export function useBackToSimple(): () => Promise<void> {
   const screen = useScreen()
   const nav = useNav()
-  const t = useT()
-  const toast = useToasts()
   const slug = useSession((s) => s.slug)
   const userId = useSession((s) => s.user?.id)
   const today = useSession((s) => s.workingDate)
@@ -536,7 +546,12 @@ export function useBackToSimple(): () => Promise<void> {
       useNav.setState((s) => (s.stack.at(-1) === screen && s.stack.length > 1 ? { stack: s.stack.slice(0, -1) } : s))
       return
     }
-    if (carried === 'refused') toast.push('info', t('simple.handoff.notCarriedBack'))
-    if (!(await (toBelow ? nav.tryBack() : nav.tryGo(target)))) for (const name of remembered) setViewOverride(slug, userId, name, true, true)
-  }, [screen, nav, t, toast, slug, userId, today])
+    // Refused: the discard question is asked as before, and the flow then says (in its note, which
+    // stays until dismissed — never a timed toast) that the editor's changes did not come back.
+    if (carried === 'refused' && below) rewriteKept(below, stack.length - 2, { carriedBack: 'refused' })
+    if (!(await (toBelow ? nav.tryBack() : nav.tryGo(target)))) {
+      for (const name of remembered) setViewOverride(slug, userId, name, true, true)
+      if (carried === 'refused' && below) rewriteKept(below, stack.length - 2, { carriedBack: null })
+    }
+  }, [screen, nav, slug, userId, today])
 }

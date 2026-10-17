@@ -402,6 +402,21 @@ describe('simple:carryBack — the unsaved editor\'s changes back into the simpl
     expect(back.qty[uid]).toBe('2')
   })
 
+  it('review: a walk-in sale whose "Cash sale" does not exist yet comes back as the walk-in (no id of the rolled-back rehearsal), nothing written', () => {
+    expect(db.prepare("SELECT 1 FROM ledgers WHERE name = 'Cash sale'").get()).toBeUndefined()
+    const form: SellForm = { ...emptySellForm(TODAY, { mode: 'items', ratesIncludeGst: false }), customerId: null, paid: 'cash', lines: [{ key: 1, itemId: I('Widget'), qtyText: '1', rate: 10_000, discount: null, auto: false }] }
+    const sent = intent(sellIntent(form))
+    const original = intentForm(db, INFO, sent, TODAY).entries[0]!
+    if (original.form !== 'invoice') throw new Error('invoice form')
+    expect(original.state.partyId).toBeNull()
+    const current = { ...original, state: { ...original.state, rows: [{ ...original.state.rows[0]!, qtyText: '3' }] } } as HandoffEntry
+    const before = trace()
+    const r = carryBackForm(db, INFO, { flow: 'simple-sell', intent: sent, original, current, base: form }, TODAY)
+    expect(trace()).toEqual(before)
+    expect(r).toMatchObject({ ok: true, dropped: [], form: { customerId: null, paid: 'cash', lines: [{ itemId: I('Widget'), qtyText: '3', rate: 10_000 }] } })
+    expect(db.prepare("SELECT 1 FROM ledgers WHERE name = 'Cash sale'").get()).toBeUndefined()
+  })
+
   it('what the simple form has no place for is named; a sale whose debit is no customer is refused', () => {
     const form: SellForm = { ...emptySellForm(TODAY, { mode: 'amount', ratesIncludeGst: false }), customerId: L('Ramesh'), paid: 'credit', amount: 100_000, gstRate: 18 }
     const sent = intent(sellIntent(form))

@@ -369,6 +369,12 @@ describe('carryBack — Returns', () => {
     const form: ReturnForm = { ...emptyReturnForm(TODAY), amount: 25_000, reason: 'Short supply', settle: 'credit' }
     laws('simple-return-purchase', form, { ...emptyReturnForm('2025-08-05'), amount: 100 }, c, (a, b) => expect([a.amount, a.reason]).toEqual([b.amount, b.reason]))
   })
+  it('review: a return of a few paise (the note rounds to ₹0, its party line 0) — both laws', () => {
+    const SALE_AMOUNT: IntentOriginal = { ...ORIGINAL_AMOUNT, voucherId: 72, kind: 'sales', partyId: L.ramesh, accountId: L.sales, billName: 'S-9', number: 'S-9', pending: 40_000, noteReference: 'S-9' }
+    const c = ictx({ original: SALE_AMOUNT })
+    const form: ReturnForm = { ...emptyReturnForm(TODAY), amount: 14, reason: 'x', settle: 'credit' }
+    laws('simple-return-sale', form, { ...emptyReturnForm('2025-08-05'), amount: 100 }, c, (a, b) => expect([a.amount, a.reason]).toEqual([b.amount, b.reason]))
+  })
   it('a return line at another price than the bill’s can’t be held by the simple form', () => {
     const c = ictx({ original: ORIGINAL_ITEMS })
     const form: ReturnForm = { ...emptyReturnForm(TODAY), qty: { u1: '2' } }
@@ -408,6 +414,12 @@ describe('carryBack — what has no place in the simple form', () => {
     } as HandoffEntry
     const r = carry('simple-money-out', f, E, edited, c)
     expect(r).toMatchObject({ ok: true, dropped: ['extraLines', 'tds', 'costCentres'], form: { who: 'expense', payeeId: L.rent, amount: 100_000 } })
+  })
+  it('review: a line drawn from an order or challan in the editor is named (the simple form has no place for it)', () => {
+    const E = handoff(INTENT['simple-sell'](form, c), c)
+    const s = E.state as InvoiceFormState
+    const linked = { ...E, state: { ...s, rows: [{ ...s.rows[0]!, source: { lineUid: 'dc-1', linkType: 'fulfil' } }] } } as unknown as HandoffEntry
+    expect(carry('simple-sell', form, E, linked, c)).toMatchObject({ ok: true, dropped: ['links'] })
   })
   it('refused: a sale whose debit is not a customer, GST that fits no rate', () => {
     const amount: SellForm = { ...emptySellForm(TODAY, { mode: 'amount', ratesIncludeGst: false }), customerId: L.ramesh, paid: 'credit', amount: 100_000, gstRate: 18 }

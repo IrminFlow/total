@@ -188,6 +188,8 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.handoff.dropped.serials': 'serial number',
   'simple.handoff.dropped.cheque': 'cheque number',
   'simple.handoff.dropped.rounding': 'badla hua round off',
+  'simple.handoff.dropped.links': 'jis order ya challan se yeh bana hai',
+  'simple.handoff.carriedGotIt': 'Theek hai',
   'simple.palette.kind.ledger': 'Khate',
   'simple.palette.kind.item': 'Saamaan',
   'simple.palette.kind.voucher': 'Entries',

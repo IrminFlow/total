@@ -354,7 +354,7 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
         <AccountantViewButton testId="btn-sell-accountant-view" title={t('simple.sell.accountantHint')} onOpen={accountantView} />
       </div>
       {!canSave && <ViewerNote top />}
-      <CarriedBackNote dropped={carriedBack} />
+      <CarriedBackNote dropped={carriedBack} hidden={!!savedIds} />
 
       {noSalesAccount && !savedIds && (
         <section role="status" className="mb-4 rounded-lg border border-amber/60 bg-amberbar/10 px-4 py-3" data-testid="sell-no-sales-account">

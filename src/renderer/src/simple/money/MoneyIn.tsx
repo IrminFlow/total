@@ -142,7 +142,7 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
   return (
     <Page data-testid="simple-money-in">
       <MoneyHeader title={t('simple.money.in.title')} sub={t('simple.money.in.sub')} onAccountant={accountantView} />
-      <CarriedBackNote dropped={carriedBack} />
+      <CarriedBackNote dropped={carriedBack} hidden={!!flow.savedIds} />
       {flow.savedIds ? (
         <>
           <SaveCard voucherIds={flow.savedIds} onNew={flow.startNew} onEdit={(id) => nav.go({ name: 'voucher-entry', voucherId: id })} /> {/* i18n-technical */}

@@ -353,7 +353,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
         </div>
       </div>
       {!canSave && <ViewerNote top />}
-      <CarriedBackNote dropped={carriedBack} />
+      <CarriedBackNote dropped={carriedBack} hidden={!!savedIds} />
 
       {noPurchaseAccount && !savedIds && (
         <section role="status" className="mb-4 rounded-lg border border-amber/60 bg-amberbar/10 px-4 py-3" data-testid="buy-no-purchase-account">

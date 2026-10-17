@@ -66,7 +66,7 @@ export function MoveMoney(): React.JSX.Element {
   return (
     <Page data-testid="simple-move-money">
       <MoneyHeader title={t('simple.money.move.title')} sub={t('simple.money.move.sub')} onAccountant={accountantView} />
-      <CarriedBackNote dropped={carriedBack} />
+      <CarriedBackNote dropped={carriedBack} hidden={!!flow.savedIds} />
       {flow.savedIds ? (
         <SaveCard voucherIds={flow.savedIds} onNew={flow.startNew} onEdit={(id) => nav.go({ name: 'voucher-entry', voucherId: id })} /> // i18n-technical
       ) : (

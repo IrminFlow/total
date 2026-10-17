@@ -204,6 +204,8 @@ export const en = {
   'simple.handoff.dropped.serials': 'serial numbers',
   'simple.handoff.dropped.cheque': 'the cheque number',
   'simple.handoff.dropped.rounding': 'a changed round off',
+  'simple.handoff.dropped.links': 'the order or challan it is made from',
+  'simple.handoff.carriedGotIt': 'Got it',
   'simple.palette.kind.ledger': 'Accounts',
   'simple.palette.kind.item': 'Products',
   'simple.palette.kind.voucher': 'Entries',

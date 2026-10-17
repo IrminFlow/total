@@ -343,6 +343,7 @@ describe('the remembered choice', () => {
     const handoff = (editor as Extract<Screen, { name: 'voucher-entry' }>).handoff!
     // The editor reports its changed state (the quantity and the TDS typed there).
     const edited = { ...handoff.entry, state: { ...(handoff.entry.state as typeof BILL.state), rows: [{ ...(BILL.state as typeof BILL.state).rows[0]!, qtyText: '5' }] } } as HandoffEntry
+    act(() => reportHandoffEditor(handoff, handoff.entry)) // on mount
     act(() => reportHandoffEditor(handoff, edited))
     carried = { ok: true, form: { customerId: 7, lines: [{ key: -1, itemId: 4, qtyText: '5', rate: 50_000, discount: null }] }, dropped: ['tds', 'godowns'] }
     const Dirty = (): null => {
@@ -370,6 +371,14 @@ describe('the remembered choice', () => {
     render(withClient(<Flow />))
     expect(screen.getByTestId('qty').textContent).toBe('5:true')
     expect(screen.getByTestId('carried-back-note').textContent).toContain('Some details from the full editor could not be carried: TDS, where the stock is kept and its batch.')
+    // No timer: still there later; it goes only when dismissed (or once the entry is saved).
+    await act(async () => new Promise((r) => setTimeout(r, 50)))
+    expect(screen.getByRole('alert').textContent).toContain('TDS')
+    const saved = render(withClient(<CarriedBackNote dropped={['tds']} hidden />))
+    expect(saved.container.textContent).toBe('')
+    saved.unmount()
+    fireEvent.click(screen.getByTestId('carried-back-note-dismiss'))
+    expect(screen.queryByTestId('carried-back-note')).toBeNull()
   })
 
   it('Back to simple from an UNCHANGED hand-off editor is as before; one the simple form cannot hold says so and keeps the earlier answers', async () => {
@@ -401,16 +410,37 @@ describe('the remembered choice', () => {
     expect(screen.getByTestId('kept').textContent).toBe(JSON.stringify(answers))
     expect(screen.queryByTestId('carried-back-note')).toBeNull()
     first.unmount()
+    // Review: an editor that tidies its state on mount (a blank row) but is not touched after is
+    // not "changed" — main is not even asked, whatever it would say.
+    await act(async () => result.current({ intent, keep: { form: answers } }))
+    handoff = (top() as Extract<Screen, { name: 'voucher-entry' }>).handoff!
+    const tidied = { ...handoff.entry, state: { ...(handoff.entry.state as typeof BILL.state), rows: [...(BILL.state as typeof BILL.state).rows, { itemId: null, qtyText: '', rate: null, discount: null, godownId: null, batchId: null }] } } as HandoffEntry
+    act(() => reportHandoffEditor(handoff, tidied))
+    act(() => reportHandoffEditor(handoff, tidied))
+    carried = { ok: true, form: { ...answers, lines: [{ key: -1 }] }, dropped: ['number'] }
+    const before = carryCalls.length
+    await act(async () => back.result.current())
+    expect(top()).toBe(flow)
+    expect(carryCalls.length).toBe(before)
+    const second = render(withClient(<Flow />))
+    expect(screen.getByTestId('kept').textContent).toBe(JSON.stringify(answers))
+    expect(screen.queryByTestId('carried-back-note')).toBeNull()
+    second.unmount()
     // Refused (say a sale whose debit is no customer): a plain note, then the usual way back.
     await act(async () => result.current({ intent, keep: { form: answers } }))
     handoff = (top() as Extract<Screen, { name: 'voucher-entry' }>).handoff!
+    act(() => reportHandoffEditor(handoff, handoff.entry))
     act(() => reportHandoffEditor(handoff, { ...handoff.entry, state: { ...(handoff.entry.state as typeof BILL.state), partyId: 99 } } as HandoffEntry))
     carried = { ok: false, reason: 'party' }
     await act(async () => back.result.current())
     expect(top()).toBe(flow)
-    expect(useToasts.getState().toasts.map((x) => x.text)).toContain('The changes made in the full app could not be brought back here — your earlier answers are shown.')
+    // Said in the flow's own note, which stays until dismissed (never a timed toast).
+    expect(useToasts.getState().toasts.map((x) => x.text)).not.toContain('The changes made in the full app could not be brought back here — your earlier answers are shown.')
     render(withClient(<Flow />))
     expect(screen.getByTestId('kept').textContent).toBe(JSON.stringify(answers))
+    expect(screen.getByTestId('carried-back-note').textContent).toContain('The changes made in the full app could not be brought back here — your earlier answers are shown.')
+    fireEvent.click(screen.getByTestId('carried-back-note-dismiss'))
+    expect(screen.queryByTestId('carried-back-note')).toBeNull()
   })
 
   it('review: a plain report / Taxes header has the ⋯ "Always" menu — remembered per report, and never into a screen the company cannot use', async () => {

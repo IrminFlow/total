@@ -217,7 +217,7 @@ export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; 
         <AccountantViewButton testId="btn-return-accountant-view" title={t('simple.returns.accountantHint')} onOpen={accountantView} />
       </div>
       {!canSave && <ViewerNote top />}
-      <CarriedBackNote dropped={carriedBack} />
+      <CarriedBackNote dropped={carriedBack} hidden={!!savedIds} />
 
       {savedIds ? (
         <SaveCard
