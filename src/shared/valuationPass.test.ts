@@ -453,3 +453,49 @@ describe('runInventoryPass — observer', () => {
     expect(watched.closing).toEqual(runInventoryPass(input).closing)
   })
 })
+
+// ---------- streamed input (PR #104) ----------
+
+describe('runInventoryPass — a streamed (iterable) input equals the array input', () => {
+  const stream = (moves: readonly InventoryMovement[], closed?: { done: boolean }): Iterable<InventoryMovement> => ({
+    *[Symbol.iterator]() {
+      try {
+        yield* moves
+      } finally {
+        if (closed) closed.done = true
+      }
+    }
+  })
+
+  it('closing, checkpoints, booked values, derived figures and every observed line are identical', () => {
+    for (let seed = 1; seed <= 80; seed++) {
+      const { input, journals } = randomBook(seed, { vouchers: 120 })
+      const costing = new Map<number, VoucherCosting>()
+      journals.forEach((v, i) => {
+        if (i % 3 === 0) costing.set(v, derived(i % 2 ? 2500 : 0))
+        else if (i % 3 === 1) costing.set(v, { rule: 'stored', additionalCostPaise: 900 + i })
+        else costing.set(v, { rule: 'transfer' })
+      })
+      const points = [{ date: '2025-05-05' }, { date: '2025-05-10', voucherId: 40 }, { date: '2025-05-20' }]
+      const seen = (src: Iterable<InventoryMovement>): unknown => {
+        const lines: unknown[] = []
+        const r = runInventoryPass({ ...input, costing, movements: src }, points, { onLine: (e) => lines.push({ ...e, movement: e.movement.lineId }) })
+        return JSON.stringify({ closing: [...r.closing], at: r.at.map((m) => [...m]), booked: [...r.inwardValueByLine], derived: [...r.derived], lines })
+      }
+      expect(seen(stream(input.movements)), `seed ${seed}`).toBe(seen(input.movements))
+      expect(JSON.stringify([...bookedInwardValues({ ...input, costing, movements: stream(input.movements) })])).toBe(
+        JSON.stringify([...bookedInwardValues({ ...input, costing })])
+      )
+    }
+  })
+
+  it('a stream out of pass order is refused, and the stream is closed', () => {
+    const a = line(2, '2025-05-02', 1, 'in', 1000, 500)
+    const b = line(1, '2025-05-01', 1, 'out', 1000)
+    const closed = { done: false }
+    expect(() => runInventoryPass({ items: [item(1, 'fifo')], movements: stream([a, b, a], closed) })).toThrow(/out of pass order/)
+    expect(closed.done).toBe(true)
+    // The same lines as an ARRAY are still ordered by the pass, as before.
+    expect(runInventoryPass({ items: [item(1, 'fifo')], movements: [a, b] }).closing.get(1)!.closingQtyMilli).toBe(0)
+  })
+})

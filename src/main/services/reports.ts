@@ -820,6 +820,11 @@ export function profitAndLoss(
 }
 
 export function balanceSheet(db: DB, booksFrom: string, asOn: string, comparePrior?: boolean): BalanceSheet {
+  // PR #104: the closing stock and the P&L's opening stock share one request's costing reads.
+  return stockAnalysis.withStockPass(db, () => balanceSheetOf(db, booksFrom, asOn, comparePrior))
+}
+
+function balanceSheetOf(db: DB, booksFrom: string, asOn: string, comparePrior?: boolean): BalanceSheet {
   const balances = closingBalances(db, asOn)
   const amountOf = (id: number): number => balances.get(id) ?? 0
   const groups = listGroups(db)

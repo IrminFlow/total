@@ -29,7 +29,7 @@ import {
   historyWhat, needsReorder, planRecipe, stockLevel, type RecipeInput,
   type MadeGoodsSetup, type SavedCountView, type StockList, type StockProductView, type StockRecipe, type StockRow
 } from '@shared/simple/stock'
-import { countLineEffects, stockMovements, stockSummary } from './stockAnalysis'
+import { countLineEffects, stockMovements, stockSummary, withStockPass } from './stockAnalysis'
 import { IN_BOOKS, MOVES_STOCK } from './vouchers'
 import { pricingLoader } from './pricing'
 import { listBomVersions, saveBomVersion } from './bom'
@@ -131,12 +131,14 @@ function recipeOf(db: DB, itemId: number, date: string, versions = listBomVersio
 }
 
 export function stockProduct(db: DB, itemId: number, asOn: string): StockProductView | null {
-  return db.transaction((): StockProductView | null => {
-    const s = stockSummary(db, asOn).find((r) => r.stockItemId === itemId)
+  // PR #104: ONE valuation pass — the register's pass to `asOn` also answers the summary row.
+  return db.transaction((): StockProductView | null => withStockPass(db, () => {
     const f = itemFacts(db).get(itemId)
-    if (!s || !f) return null
+    if (!f) return null
     const fy = fyOf(asOn)
     const reg = stockMovements(db, itemId, fy.from, asOn)
+    const s = stockSummary(db, asOn).find((r) => r.stockItemId === itemId)
+    if (!s) return null
     // Which stock journals are manufactures (made / used) and which move this product both ways
     // (a transfer between places) — any other stock journal is an adjustment, not "made".
     const ids = [...new Set(reg.rows.filter((r) => r.kind === 'stock_journal').map((r) => r.voucherId))]
@@ -180,7 +182,7 @@ export function stockProduct(db: DB, itemId: number, asOn: string): StockProduct
         }))
       }
     }
-  })()
+  }))()
 }
 
 /** A saved stock count reopened: its lines with the difference the ENGINE recorded (the pass

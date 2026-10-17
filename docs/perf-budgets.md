@@ -466,11 +466,79 @@ budgeted cases measured 74 / 81 / 61 / 72 ms (`npm run perf -- --only searchPart
 query is now an index lookup at any size, a broad one is still linear — the 600 ms budget stands.
 `reportEquality` hashes search pages too (`search:<query>:<offset>`); they are unchanged and pass.
 
+## Streamed valuation pass, one pass per request (to-do §4)
+
+**Where the time went** (100k Perf Traders, 132,539 stock lines in the pass, `npm run perf --
+--profile stock` and a phase bench run in-process): the Stock summary was ~1 s under load, of which
+reading the stock lines with `.all()` was 350–760 ms (the statement needs no sort — the WP 7.1
+covering indexes return the lines in pass order), turning the rows into movements ~20 ms, the pass
+itself 65–145 ms, and the costing reads (`voucherCosting`: stock-journal extras, manufactures,
+transfers, `line_links`) the rest — `line_links` alone 20 ms on a quiet run and up to 2.8 s when the
+machine was swapping (random reads). Per-item grouping is not a cost: the pass keeps one state per
+item and walks the lines once. Materialising the lines held ~47 MB of heap at 100k (rows +
+movement objects; ~240 MB at 500k).
+
+**What changed** (`stockAnalysis.ts`, `shared/valuation.ts`):
+
+- The pass input may be any iterable. An array is ordered as before; any other iterable is a
+  stream read once, one voucher at a time, that must arrive in pass order (out of order throws,
+  and the stream is closed on an early stop or an error). `stockSummary` (company-wide),
+  `stockValue`, `stockValuesAt`, `periodConsumption`, `countLineEffects` and `stockMovements`
+  (company-wide) read the lines from `stmt.raw(true).iterate()` straight into the pass — no array.
+  Raw rows (arrays instead of keyed objects) win back the iterator's per-row native call: in the
+  phase bench `iterate()` with row objects was ~30 % slower than `.all()`, raw `iterate()` about
+  equal to the old `.all()` + map (best of 9: 459 vs 434 ms, median 570 vs 687 ms under load
+  50), with the heap held during the pass ~17 MB instead of ~47 MB. A month-chunked `.all()` was as
+  fast as raw `.all()` (363 ms) but the iterator was kept: bounded memory with one statement.
+  The godown views, `voucherLineCosts`, `costAsOf` and `stockByGodown` read their rows more than
+  once and keep the array loader.
+- `withStockPass(db, fn)`: a memo of the closing positions per (as-on, godown) and of
+  `line_links` costing (date-independent) for the length of ONE read-only service call — nested
+  calls share it, nothing survives the call (each IPC request starts empty). Used by
+  `dashboard:all` (the Gateway's series and its FY P&L walked the stock twice — now once), the
+  Balance sheet (closing stock + the P&L's opening stock: `line_links` read once), `reorderPlan`
+  (consumption + summary to the same date) and the simple product view (register + summary).
+- One Outstandings run per request: Home, People and Bills to pay already run the allocation once
+  per side (receivable, payable — different parties and signs), and nothing in those requests
+  runs it twice for the same side and date (`--profile home / people`), so there was nothing to
+  share; a both-sides run in one query would save one statement, not an allocation.
+
+Figures: `stockPassStream.dbtest.ts` compares every streamed reader (summary per quarter end,
+godown summaries, values at, consumption, counts, reorder, every item's movement register — also
+per godown) with the old array input, value by value, on the randomised stock fixture (with and
+without derived manufactures), the demo company and a 10k seed, and every memoised answer with the
+reader called alone; the legacy snapshots, `tradeLegacy`, `tradeValuation` and `reportEquality`
+hashes pass unchanged. Budgets unchanged.
+
+100k, CPU ms per call (user + system — the machine was swapping at load 20–57, so wall-clock
+figures varied 2–10× between runs; CPU time is steadier), three interleaved rounds per side ×
+5 calls on the same seed, origin/main vs this branch: median (best). "Passes" = stock-line reads
+per call, "links" = `line_links` reads — exact counts.
+
+| Operation | Before median (best) | After median (best) | Passes before → after | Links before → after |
+|---|---:|---:|---:|---:|
+| Stock summary (valuation pass) | 491 (388) | 392 (206) | 1 → 1 | 1 → 1 |
+| Profit & loss (FY to date) | 540 (432) | 561 (252) | 1 → 1 | 1 → 1 |
+| Balance sheet (as on today) | 1391 (1121) | 1128 (522) | 2 → 2 | 2 → 1 |
+| Gateway (report:dashboardSeries) | 2480 (1723) | 2170 (1021) | 1 → 1 | 1 → 1 |
+| Gateway (report:dashboard) | 1129 (831) | 931 (544) | 1 → 1 | 1 → 1 |
+| Gateway (dashboard:all, one round trip) | 5793 (2200) | 4446 (1678) | 2 → 1 | 2 → 1 |
+| simple:home | 1856 (808) | 1454 (1162) | 1 → 1 | 1 → 1 |
+| simple:homeAttention | 2230 (1021) | 1800 (1571) | 1 → 1 | 1 → 1 |
+| Reports: how the business is doing | 1701 (830) | 1477 (1187) | 1 → 1 | 1 → 1 |
+
+Read: the stream is time-neutral to slightly faster per pass and holds a fraction of the memory;
+the one-pass memo removes a whole pass from `dashboard:all` and a `line_links` read from the
+Balance sheet. The Balance sheet's second pass is to the day before the books begin (no lines).
+
+500k: see the next table (measured on the same branch after the 100k run).
+
 ## Deferred
 
-- 500k within 3 s for the pass-heavy screens: stream the movement load into `runInventoryPass`
-  (two arrays of ~660k objects at 500k today) and share one pass / one Outstandings run across a
-  round trip; measure on a machine that can cache the file.
+- 500k within 3 s for the pass-heavy screens: ~~stream the movement load into `runInventoryPass`
+  and share one pass per request~~ done (see "Streamed valuation pass"); left: measure on a
+  machine that can cache the file, and a pass shared ACROSS round trips (a cache with
+  invalidation on save — not done: every figure is computed at query time).
 - ~~Full-text search (FTS5 table + triggers) for voucher text~~ — done, see "Voucher text index".
   Left: a term that matches most of the books is still a scan + sort; 500k not re-measured.
 - Launch ≤ 2 s: the Gateway's four reads are one round trip and the backup restore check waits

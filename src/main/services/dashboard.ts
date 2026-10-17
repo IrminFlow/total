@@ -28,7 +28,7 @@ import { gstr1DueDate, gstr3bDueDate } from '@shared/gst/filing'
 import { GST_FILED_META_KEY, normalizeGstFiled, type GstFiledMeta } from '@shared/simple/taxes'
 import { closingBalances, dashboard as dashboardRecent, descendantIdSet, profitAndLoss, stockAgeing } from './reports'
 import { netTradeRows, outstandings } from './analysis'
-import { negativeStock, stockValuesAt } from './stockAnalysis'
+import { negativeStock, stockValuesAt, withStockPass } from './stockAnalysis'
 import { gstr3b, turnover } from './gst'
 import { itc04Periodicity } from '@shared/gst/itc04'
 import { fyOf } from '@shared/dates'
@@ -536,10 +536,12 @@ export function dashboardAll(
   opts: { today: string; from: string; to: string; backups: DashBackupInput[]; parties?: boolean }
 ): DashboardAll<DashboardData, MsmeDueSummary> {
   const parties = opts.parties !== false
-  return db.transaction(() => ({
+  // PR #104: one valuation pass for the request — the dashboard's FY P&L reuses the series'
+  // stock values (same dates) instead of walking the stock lines again.
+  return db.transaction(() => withStockPass(db, () => ({
     series: section(() => computeSeries(db, company, opts)),
     dashboard: section(() => dashboardRecent(db, opts.today, opts.from)),
     msmeDue: parties ? section(() => msmeDueSummary(db, opts.today)) : null,
     promised: parties ? section(() => dashPromisedPayments(db, opts.today)) : null
-  }))()
+  })))()
 }
