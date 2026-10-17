@@ -273,7 +273,8 @@ function SerialsTab(): React.JSX.Element {
 const LABEL_PAGE = { size: 'A4', orientation: 'portrait', marginsMm: { top: 0, right: 0, bottom: 0, left: 0 }, pageNumbers: false } as PrintTemplate['page']
 
 function LabelsTab(): React.JSX.Element {
-  const { to } = useSession()
+  // Labels are priced and dated as on the WORKING date (what the editors default to), not the period end.
+  const { workingDate } = useSession()
   const toast = useToasts()
   const items = useStockItems()
   const { data: levels } = useQuery({ queryKey: ['priceLevels'], queryFn: api.priceLevels.list })
@@ -285,7 +286,7 @@ function LabelsTab(): React.JSX.Element {
     .map(([id, n]) => ({ itemId: Number(id), copies: n }))
     .filter((x) => x.copies > 0)
   const priceLevelId = level === 'first' ? undefined : level === 'none' ? null : Number(level)
-  const query = { items: picked, priceLevelId, date: to }
+  const query = { items: picked, priceLevelId, date: workingDate }
   const { data: preview } = useQuery({
     queryKey: ['labelsPreview', JSON.stringify(query)],
     queryFn: () => api.stock.labelsHtml(query),

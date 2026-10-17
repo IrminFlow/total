@@ -529,6 +529,7 @@ Read these before filing from the next release.
   post-dated cheques on as well, a cheque takes its amount off the supplier's bills first and its
   own date wins, so a bill counts once; only what the cheque leaves stays on the s.15 date, with its
   share of the interest. [#156](https://github.com/IrminFlow/total/pull/156)
+- **Barcode labels** are now priced and dated as on the working date, not the end of the working period. [#168](https://github.com/IrminFlow/total/pull/168)
 
 ### For developers
 

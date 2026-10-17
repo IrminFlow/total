@@ -194,6 +194,26 @@ describe('Banking on DataTable', () => {
   })
 })
 
+// ---------------------------------------------------------------- barcode labels
+
+describe('Barcode labels are dated as on the working date, not the period end', () => {
+  it('asks labelsHtml for the working date while the period ends later', async () => {
+    const asked: Array<{ date: string }> = []
+    handlers['master:stockItems:list'] = () => [{ id: 5, name: 'Widget', barcode: '8901234567890' }]
+    handlers['master:priceLevels:list'] = () => []
+    handlers['stock:labelsHtml'] = (p) => {
+      asked.push(p as { date: string })
+      return { html: '<html></html>' }
+    }
+    act(() => useSession.setState({ to: '2027-03-31', workingDate: '2026-10-14' }))
+    renderScreen(<StockReportsScreen tab="labels" />)
+    const copies = await screen.findByTestId('input-labels-copies-5')
+    fireEvent.change(copies, { target: { value: '2' } })
+    await waitFor(() => expect(asked.length).toBeGreaterThan(0))
+    expect(asked.every((q) => q.date === '2026-10-14')).toBe(true)
+  })
+})
+
 // ---------------------------------------------------------------- stock ageing
 
 describe('Stock ageing runs to today, not the FY end', () => {
