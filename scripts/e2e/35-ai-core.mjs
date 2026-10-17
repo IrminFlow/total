@@ -9,10 +9,11 @@
 // WP 10.6, simple mode: a second (simple) company → Settings → AI helper → paste the key → Check
 // it → turn on → ask Home's box something Ask Total can't answer → the plain answer ("Answered by
 // the AI service", where the figures came from) with model / tokens / tool names only behind
-// Details → the capture estimate in plain words. WP106_SHOTS=<dir> copies those shots there.
+// Details (the drawer is a11y-swept in both themes) → the capture estimate in plain words. WP106_SHOTS=<dir> copies those shots there.
 import fs from 'node:fs'
 import path from 'node:path'
 import { scenario, assert, assertEq } from '../lib/harness.mjs'
+import { sweepInto, waitForSettled, layoutInPage } from '../lib/a11y.mjs'
 
 process.env.TOTAL_AI_MOCK = '1'
 
@@ -239,6 +240,22 @@ await scenario('35-ai-core', async (h) => {
   assert(await plain.$('[data-testid="ai-plain-details"]'), 'Details is there')
   assert(/This answer cost about ₹\d/.test(plainText), `the turn's cost in rupees: ${plainText}`)
   await plainBoth('12-simple-panel-answer')
+  // to-do §8: the escalated (plain) drawer, swept in both themes — the "what is sent" strip and the
+  // "Answered by the AI service" line are there, and names / contrast / layout are clean.
+  assert(await h.page.$('[data-testid="ai-panel-plain"] [data-testid="ai-plain-sent"]'), 'the "what is sent" strip is in the plain drawer')
+  assert((await visibleText('[data-testid="ai-panel-plain"] [data-testid="ai-plain-sent"]')).trim().length > 0, 'the strip says what is sent')
+  const drawerFailures = []
+  for (const theme of ['light', 'dark']) {
+    await setTheme(theme)
+    await h.page.waitForSelector('[data-testid="ai-plain-answer"]')
+    assert((await visibleText('[data-testid="ai-plain-answer"]')).includes('Answered by the AI service'), `${theme}: "Answered by the AI service"`)
+    await sweepInto(h.page, `plain AI drawer/${theme}`, drawerFailures)
+    await waitForSettled(h.page)
+    for (const p of await h.page.evaluate(layoutInPage)) drawerFailures.push(`plain AI drawer/${theme} layout: ${p}`)
+  }
+  await setTheme('light')
+  if (drawerFailures.length) console.log(`[35-ai-core] plain AI drawer: ${drawerFailures.length} findings:\n  ${[...new Set(drawerFailures)].join('\n  ')}`)
+  assertEq(drawerFailures.length, 0, 'the plain AI drawer passes the a11y sweep in both themes')
   await h.page.click('[data-testid="ai-plain-answer"] [data-testid="ai-plain-details"] summary')
   const details = await h.page.$eval('[data-testid="ai-plain-details-body"]', (el) => el.textContent)
   assert(details.includes('Model: ') && details.includes('Tokens: ') && details.includes('find_anomalies'), `Details: model, tokens, tools: ${details}`)

@@ -125,7 +125,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 10.2 | "Why?" sentences | 52, 61 |
 | 10.3 | Tour, empty states, help panel | 52, 63 |
 | 10.5 | Keyboard / a11y / window size, simple shell | 73 (was 12), 63 |
-| 10.6 | AI panel in plain words | 35 |
+| 10.6 | AI panel in plain words | 35 | the escalated plain drawer (`ai-panel-plain`) gets the a11y sweep + layout check in both themes, with the "what is sent" strip and "Answered by the AI service" asserted |
 | 10.8 | Beginner journey | 60 (extended by WP 10.8) |
 
 ## Remaining gaps (deferred)
