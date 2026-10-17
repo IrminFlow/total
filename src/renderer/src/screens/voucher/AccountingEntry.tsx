@@ -485,6 +485,8 @@ export function AccountingEntry({
       // WP 8.5: a new entry in a simple-mode company gets the save card instead of the toast.
       if (saveCard.simple && !voucherId && !draft?.aiDraftId) saveCard.show([saved.id])
       else toast.push('success', `${saved.number} ${voucherId ? 'altered' : 'saved'}`)
+      // To-do §4: an altered bill is frozen on today's party / rate facts — say what moved.
+      for (const w of (saved as { warnings?: { taxFactsChanged?: string[] } }).warnings?.taxFactsChanged ?? []) toast.push('warning', w)
       setWorkingDate(date)
       await queryClient.invalidateQueries()
       // An AI draft is used up by its save — go back to where the user came from.

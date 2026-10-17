@@ -17,6 +17,7 @@ import {
 import { itc04Data } from './jobWork'
 import { descendantIdsByName } from './masters'
 import { IN_BOOKS } from './vouchers'
+import { lineSnapSql, partySnapSql } from './taxFacts'
 import type { Gstr9View, Itc04View } from '@shared/gst/views'
 import { companyExportsDir } from '../paths'
 
@@ -96,7 +97,7 @@ export function fyMonths(fyStartYear: number): { from: string; to: string; perio
 export function itcDocsFor(db: DB, company: CompanyInfo, from: string, to: string): Gstr9ItcDoc[] {
   const head = db.prepare(
     `SELECT v.id, v.number, v.date, vt.kind, v.party_ledger_id AS partyLedgerId, p.name AS partyName,
-            p.state_code AS partyState, COALESCE(p.itc_eligibility, 'eligible') AS itcEligibility
+            ${partySnapSql(db).state} AS partyState, COALESCE(p.itc_eligibility, 'eligible') AS itcEligibility
      FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id LEFT JOIN ledgers p ON p.id = v.party_ledger_id
      WHERE v.id = ?`
   )
@@ -151,17 +152,19 @@ export function itcDocsFor(db: DB, company: CompanyInfo, from: string, to: strin
 
 /** Inward HSN lines (Table 18): purchase inventory lines, tax at the item master rate. */
 function hsnInward(db: DB, company: CompanyInfo, from: string, to: string): Gstr9HsnInLine[] {
+  // To-do §4: a voucher's own tax-fact snapshot (services/taxFacts.ts) wins over today's masters.
+  const f = lineSnapSql(db, 'v', 'il', 'si')
   const rows = db
     .prepare(
-      `SELECT v.id AS voucherId, vt.kind, il.qty_milli AS qtyMilli, il.amount, si.hsn, si.gst_rate AS gstRate, si.cess_rate AS cessRate,
-              u.uqc, u.symbol, p.state_code AS partyState
+      `SELECT v.id AS voucherId, vt.kind, il.qty_milli AS qtyMilli, il.amount, ${f.hsn} AS hsn, ${f.gstRate} AS gstRate, ${f.cessRate} AS cessRate,
+              u.uqc, u.symbol, ${partySnapSql(db).state} AS partyState
        FROM inventory_lines il
        JOIN vouchers v ON v.id = il.voucher_id
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN stock_items si ON si.id = il.stock_item_id
        JOIN units u ON u.id = si.unit_id
        LEFT JOIN ledgers p ON p.id = v.party_ledger_id
-       WHERE vt.kind = 'purchase' AND si.hsn IS NOT NULL AND si.hsn <> '' AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE vt.kind = 'purchase' AND ${f.hsn} IS NOT NULL AND ${f.hsn} <> '' AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(from, to) as { voucherId: number; kind: string; qtyMilli: number; amount: number; hsn: string; gstRate: number | null; cessRate: number | null; uqc: string | null; symbol: string; partyState: string | null }[]

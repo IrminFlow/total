@@ -37,6 +37,7 @@ import {
 import { isSpecial, SPECIAL, type SpecialLedger } from '@shared/dataImport/invoiceBuild'
 import * as masters from './masters'
 import { saveVoucher, deleteVoucher, getVoucher, nextVoucherNumber, getLockDate, setLockDate } from './vouchers'
+import { readTaxFacts, taxFactsFrom, type LineTaxFacts, type VoucherTaxFacts } from './taxFacts'
 import { saveTradeDoc, deleteTradeDoc, closeTradeDoc, cancelTradeDoc } from './tradeDocs'
 import { listTradeDocTypes } from './tradeDocTypes'
 import { findLinkLine } from './tradeLinks'
@@ -922,13 +923,32 @@ const num = (v: unknown): number | null => (v === null || v === undefined || v =
 interface PostSave {
   bankDates: { lineOrder: number; date: string }[]
   frozen: { uid: string; line: number }[]
+  /** To-do §4: the tax-fact snapshot a Books workbook carries (null = none — saved without one). */
+  taxFacts: VoucherTaxFacts | null
+}
+
+/** A Books workbook's tax-fact snapshot of one voucher (its JSON cells), exactly as exported. */
+function taxFactsOf(d: VoucherDraft): VoucherTaxFacts | null {
+  const vm = (d.more ?? {}) as Record<string, unknown>
+  if (vm.snap_tax_facts !== 1) return null
+  const text = (v: unknown): string | null => (typeof v === 'string' ? v : null)
+  const rate = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null)
+  const line = (more: Record<string, unknown> | null | undefined): LineTaxFacts => {
+    const lm = more ?? {}
+    return { gstRate: rate(lm.snap_gst_rate), cessRate: rate(lm.snap_cess_rate), hsn: text(lm.snap_hsn) }
+  }
+  return {
+    party: { gstin: text(vm.snap_party_gstin), state: text(vm.snap_party_state), exportType: text(vm.snap_party_export_type), rcm: rate(vm.snap_party_rcm) },
+    lines: d.ledgerLines.map((l) => line(l.more as Record<string, unknown> | undefined)),
+    inventory: d.items.map((it) => line(it.more as Record<string, unknown> | undefined))
+  }
 }
 
 function voucherInputFor(ctx: Ctx, d: VoucherDraft, vt: { id: number; kind: VoucherKind }, number: string | undefined): { input: VoucherInput; post: PostSave } {
   const line = d.lines[0] ?? 0
   const vm = d.more ?? {}
   const partyId = d.party ? resolveLedgerName(ctx, d.party, vt.kind, d.party, line) : null
-  const post: PostSave = { bankDates: [], frozen: [] }
+  const post: PostSave = { bankDates: [], frozen: [], taxFacts: taxFactsOf(d) }
   const lines = d.ledgerLines.map((l, i) => {
     const lm = l.more ?? {}
     if (str(lm.bank_date)) post.bankDates.push({ lineOrder: i, date: String(lm.bank_date) })
@@ -1098,15 +1118,16 @@ function applyVouchers(ctx: Ctx, drafts: VoucherDraft[]): void {
       if (dup !== null && ctx.opts.duplicate === 'update') {
         const before = getVoucher(ctx.db, dup)!
         const { input, post } = voucherInputFor(ctx, d, vt, d.number ?? undefined)
-        saveVoucher(ctx.db, input, dup, { adoptLineUids: true, historicImport: true })
+        const beforeFacts = readTaxFacts(ctx.db, dup)
+        saveVoucher(ctx.db, input, dup, { adoptLineUids: true, historicImport: true, taxFacts: post.taxFacts })
         afterVoucherSave(ctx, dup, d, post, label)
-        track(ctx, 'voucher', dup, 'update', before, line, sourceKey)
+        track(ctx, 'voucher', dup, 'update', beforeFacts ? { ...before, taxFacts: beforeFacts } : before, line, sourceKey)
         outcome(ctx, line, label, 'update')
         return
       }
       const number = dup !== null && d.number ? freeVoucherNumber(ctx, vt, d.number, d.date) : (d.number ?? undefined)
       const { input, post } = voucherInputFor(ctx, d, vt, number)
-      const saved = saveVoucher(ctx.db, input, undefined, { adoptLineUids: true, historicImport: true })
+      const saved = saveVoucher(ctx.db, input, undefined, { adoptLineUids: true, historicImport: true, taxFacts: post.taxFacts })
       afterVoucherSave(ctx, saved.id, d, post, label)
       track(ctx, 'voucher', saved.id, 'create', null, line, sourceKey)
       const notes = [...d.notes, ...(dup !== null ? [`Numbered ${saved.number} — ${d.number} was taken`] : [])]
@@ -1535,7 +1556,7 @@ export function undoImport(db: DB, batchId: number): UndoResult {
               }
             } else if (it.entity === 'ledger') masters.updateLedger(db, it.entity_id, ledgerInputSchema.parse(before))
             else if (it.entity === 'stockItem') masters.updateStockItem(db, it.entity_id, stockItemInputSchema.parse(itemInputFromRow(before as StockItemRowDb)))
-            else if (it.entity === 'voucher') saveVoucher(db, voucherToInput(before as Voucher), it.entity_id, { historicImport: true })
+            else if (it.entity === 'voucher') saveVoucher(db, voucherToInput(before as Voucher), it.entity_id, { historicImport: true, taxFacts: taxFactsFrom((before as { taxFacts?: unknown }).taxFacts) })
             else if (it.entity === 'bank_date') setBankDate(db, it.entity_id, (before as { bankDate: string | null }).bankDate)
             else if (it.entity === 'group') masters.updateGroup(db, it.entity_id, { name: before.name, parentId: before.parentId })
             else if (it.entity === 'godown') masters.updateGodown(db, it.entity_id, before)

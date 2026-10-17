@@ -567,6 +567,10 @@ export interface SaveVoucherWarnings {
   /** WP 2.5 §3.4: GRN lines this bill draws on that sit in a locked period / closed year — the
    *  price difference is not loaded into stock (the link is frozen, reprices = 0). */
   frozenRepricing?: string[]
+  /** To-do §4 (#172): an altered bill's tax-fact snapshot now differs from the one it had — the
+   *  party's GSTIN / state / SEZ-export type / reverse charge, or a line's rate / cess / HSN
+   *  changed in the masters since it was saved, so its returns and prints follow the new ones. */
+  taxFactsChanged?: string[]
 }
 
 export interface CompanyInfo {

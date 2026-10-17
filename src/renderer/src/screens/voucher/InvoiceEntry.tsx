@@ -477,6 +477,8 @@ export function InvoiceEntry({
       else toast.push('success', `${result.number} ${isEdit ? 'altered' : 'saved'} — ${formatPaise(grandTotal, { symbol: true })}`)
       // Credit limit (warn-only; with Orders & challans on it names the open sales-order value).
       if (result.warnings?.creditLimitExceeded) toast.push('warning', creditLimitWarningText(result.warnings.creditLimitExceeded))
+      // To-do §4: an altered bill is frozen on today's party / rate facts — say what moved.
+      for (const w of result.warnings?.taxFactsChanged ?? []) toast.push('warning', w)
       if (andPdf && kind === 'sales') {
         await api.invoice.pdf(result.id)
       }

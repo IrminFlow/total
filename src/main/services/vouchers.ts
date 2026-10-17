@@ -16,6 +16,7 @@ import { cashBankGroupIds } from './masters'
 import { getFeatures } from './config'
 import { openSalesOrderValue } from './tradeDocs'
 import { writeAudit } from './audit'
+import { readTaxFacts, snapshotTaxFacts, TAX_FACT_KINDS, taxFactsDiff, writeTaxFacts, type VoucherTaxFacts } from './taxFacts'
 import { assertCashFinanceVoucherEditable, binCashFinancePartners, cashFinanceRestorePlan, restoreCashFinancePartners } from './cashFinanceGuards'
 import { ensureTdsPayableLedger, PENDING_PAYABLE_LEDGER, PENDING_TCS_PAYABLE_LEDGER, prepareVoucherTds, prepareVoucherWithholding } from './tds'
 import { parseLineSerials, rebuildItemSerials, syncVoucherSerials } from './serials'
@@ -391,6 +392,10 @@ export interface SaveVoucherHooks {
   /** WP 8.0: a Tally / books import restores history as it was recorded — the GST registration
    *  rule (assertGstAllowed) applies to entries made in Total, not to imported books. */
   historicImport?: boolean
+  /** To-do §4 GST tax-fact snapshot to store exactly (a books import or an undo restoring an
+   *  image; null = none). Absent: a historic import stores none, every other save copies today's
+   *  masters (services/taxFacts.ts). */
+  taxFacts?: VoucherTaxFacts | null
 }
 
 export const IRN_FROZEN =
@@ -845,6 +850,12 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     writeEntry('tds', input.tds ? { sectionId: input.tds.sectionId, baseAmount: input.tds.baseAmount, amount: input.tds.tdsAmount, isManual: input.tds.isManual } : null, preparedTds.basis)
     writeEntry('tcs', input.tcs ? { sectionId: input.tcs.sectionId, baseAmount: input.tcs.baseAmount, amount: input.tcs.tcsAmount, isManual: input.tcs.isManual } : null, preparedTcs.basis)
 
+    // To-do §4 GST: the tax facts this voucher is reported on (rate, cess, HSN, the party's
+    // class) are frozen as the masters give them now — or restored exactly by an import / undo.
+    if (hooks.taxFacts !== undefined) writeTaxFacts(db, voucherId, hooks.taxFacts)
+    else if (hooks.historicImport) writeTaxFacts(db, voucherId, null)
+    else snapshotTaxFacts(db, voucherId)
+
     hooks.withinTransaction?.(voucherId)
 
     // ---- post-save checks (lane I): run INSIDE the transaction so a hard block rolls the
@@ -939,9 +950,20 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
     return voucherId
   })
 
+  const beforeFacts = existingId ? readTaxFacts(db, existingId) : null
   const voucherId = run()
   const after = getVoucher(db, voucherId)!
-  writeAudit(db, 'voucher', voucherId, existingId ? 'update' : 'create', before, after)
+  // The audit row carries the tax-fact snapshot beside the voucher (only when there is one).
+  const afterFacts = readTaxFacts(db, voucherId)
+  writeAudit(db, 'voucher', voucherId, existingId ? 'update' : 'create',
+    before && beforeFacts ? { ...before, taxFacts: beforeFacts } : before,
+    afterFacts ? { ...after, taxFacts: afterFacts } : after)
+  // Review of #172: an altered bill is frozen on TODAY's masters — the party facts (GSTIN, state,
+  // SEZ / export type, reverse charge) are not in the editor, so say what moved.
+  if (existingId && beforeFacts && afterFacts && TAX_FACT_KINDS.has(vt.kind)) {
+    const changed = taxFactsDiff(beforeFacts, afterFacts)
+    if (changed.length) warnings.taxFactsChanged = [`${after.number}: saved again with today's GST details — its returns, e-documents and prints now follow them (${changed.join('; ')})`]
+  }
   if (hold && holdOverride) {
     writeAudit(db, 'credit_override', voucherId, 'create', null, {
       voucherId, number: after.number, ledgerId: input.partyLedgerId, party: hold.name, holdReason: hold.reason, overrideReason: holdOverride
