@@ -16,21 +16,21 @@ comes back to you first.
 How to use it: read the **Ask first** section with your CA. The rest can be a second sitting, or
 skipped for topics you do not sell into (for example TCS or payroll).
 
-Note on three items: the e-invoice applicability (Q17), the e-invoice and e-way bill cancel rules (Q18) and the TCS
+Note on four items (Q17 to Q20): the e-invoice applicability (Q17), the e-invoice and e-way bill cancel rules (Q18) and the TCS
 slabs (Q19 and Q20) are in pull requests #165, #164 and #163. Those are open,
 not merged, when this was written. Their files and ids exist only after they merge. Their lines say
 "open PR".
 
 ---
 
-## Ask first (these change figures on a return)
+## Ask first (these change figures or dates on a return)
 
 1. **GST on sale of an asset: which rule governs?** (GST on sale of assets)
    - Today: Total works out the tax on a sale of a capital good two ways, rule 40(2) (5 points per quarter) and rule 44(6) (remaining months of a 60-month life). It uses the higher.
    - Confirm: is "the higher of the two" safe? Or does one rule govern?
    - In the code: `src/shared/fixedAssetSources.ts`, `cg-two-rules`.
 2. **GST on sale of an asset: where does the extra tax go on GSTR-1?** (GST on sale of assets)
-   - Today: the extra output tax is put on the same tax invoice, so the tax amount is above rate x taxable value. It is also in GSTR-3B 3.1(a). The rule does not name a GSTR-1 table.
+   - Today: the extra output tax is reported on the sale invoice line in GSTR-1, so the tax amount is above rate x taxable value. It is also in GSTR-3B 3.1(a). The seller bears it; the buyer is charged tax on the value only. The rule does not name a GSTR-1 table.
    - Confirm: will the portal accept a B2B invoice like that? Or should the buyer be charged the full amount on the invoice instead?
    - In the code: `src/shared/fixedAssetSources.ts`, `cg-where`.
 3. **GSTR-1 and GSTR-3B due dates** (GST returns and dates)
@@ -191,7 +191,7 @@ not merged, when this was written. Their files and ids exist only after they mer
     - In the code: `src/shared/payables/msmeSources.ts` (Form 1 and Udyam notes).
 36. **MSME bills in the cash forecast** (merged PR #156)
     - Today: if you tick the option, bills of registered micro and small suppliers move to their s.15 date in the forecast. The interest is listed separately and never posted.
-    - Confirm: is the s.15 deadline (45 days with a written agreement, 15 without) used correctly, and is interest 3 times the bank rate compounded monthly or simple?
+    - Confirm: is the s.15 deadline (45 days with a written agreement, 15 without) used correctly, and is the interest worked as 3 times the bank rate, compounded monthly, as s.16 says?
     - In the code: `src/main/services/cashForecast.ts` (`withMsmeFacts`); `src/shared/payables/msme.ts`.
 
 ## Payroll
@@ -276,10 +276,6 @@ not merged, when this was written. Their files and ids exist only after they mer
     - Today: the GPT review left these for a CA: when e-invoicing applies, GST on advances, and the MSME acceptance date.
     - Confirm: your view on each (the first is also Q17).
     - In the code: to-do.md section 5, last line ("GST calendar items from the GPT review").
-55. **Import file formats (not a tax point)**
-    - Today: Busy and Zoho import headers and XML roots are guessed from public information. A CA who uses those programs can send a sample export.
-    - Confirm: only if your CA uses them.
-    - In the code: `src/shared/dataImport/busy.ts`, `src/shared/dataImport/zoho.ts`.
 
 ---
 
