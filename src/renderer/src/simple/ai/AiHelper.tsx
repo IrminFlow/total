@@ -21,6 +21,7 @@ import { useNav, useSession, useToasts } from '../../state/stores'
 import { Badge, Banner, Button, Checkbox, Field, Page, SkeletonRows, TextInput } from '../../components/ui'
 
 const SETTINGS_KEY = ['aiSettings'] // i18n-technical
+const CAN_SET_KEY = ['aiKeyCanSet'] // i18n-technical
 const USAGE_KEY = ['aiUsage'] // i18n-technical
 const RATES_KEY = ['fxRates'] // i18n-technical
 
@@ -63,6 +64,7 @@ export function AiHelper(): React.JSX.Element {
   const { data: view } = useQuery({ queryKey: SETTINGS_KEY, queryFn: aiApi.settings })
   const { data: usage } = useQuery({ queryKey: USAGE_KEY, queryFn: aiApi.usage })
   const { data: rates } = useQuery({ queryKey: RATES_KEY, queryFn: cfApi.fx.rates })
+  const { data: canSet } = useQuery({ queryKey: CAN_SET_KEY, queryFn: aiApi.keyCanSet })
   const [key, setKey] = useState('')
   const [busy, setBusy] = useState<null | 'check' | 'on' | 'off' | 'save' | 'remove'>(null)
   const [check, setCheck] = useState<{ result: AiConnectionResult; picked: string | null } | null>(null)
@@ -95,6 +97,8 @@ export function AiHelper(): React.JSX.Element {
   const s = view.settings
   const noticeCurrent = !!s.noticeAcceptedAt && s.noticeVersion === AI_DATA_NOTICE_VERSION
   const on = view.ready
+  // Asked from main before anything is pasted; its own refusals in ai:key:set stay as the backstop.
+  const keyBlock = canSet && !canSet.allowed && (canSet.reason === 'other_company_has_users' || (canSet.reason === 'owner_only' && !canEdit)) ? canSet.reason : null
   const canTest = view.keyPresent || view.mock || key.trim().length > 0
   const today = todayISO()
   const rate = usdRateOn(rates, today)
@@ -255,6 +259,11 @@ export function AiHelper(): React.JSX.Element {
         <Card title={t('simple.ai.key.title')} testId="simple-ai-key">
           <p className="mb-3 text-small text-muted">{t('simple.ai.key.what')}</p>
           {!view.secureStorageAvailable && <Banner tone="warning" className="mb-3">{t('simple.ai.error.noSecureStorage')}</Banner>}
+          {keyBlock && (
+            <Banner tone="info" className="mb-3" testId="simple-ai-key-blocked">
+              {keyBlock === 'owner_only' ? t('simple.ai.key.blockedOwner') : t('simple.ai.key.blockedOther')}
+            </Banner>
+          )}
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1">
               <Field label={t('simple.ai.key.label')} hint={view.keyPresent && view.keyHint ? t('simple.ai.key.saved', { hint: view.keyHint }) : undefined}>
@@ -265,7 +274,7 @@ export function AiHelper(): React.JSX.Element {
                   className="num"
                   value={key}
                   invalid={!!keyError}
-                  disabled={!canEdit || busy !== null}
+                  disabled={!canEdit || !!keyBlock || busy !== null}
                   onChange={(e) => {
                     setKey(e.target.value)
                     setKeyError(null)
@@ -298,7 +307,7 @@ export function AiHelper(): React.JSX.Element {
             {t('simple.ai.key.shared')}
             {!user ? ` ${t('simple.ai.key.noUsers')}` : ''}
           </p>
-          {view.keyPresent && canEdit && (
+          {view.keyPresent && canEdit && !keyBlock && (
             <Button size="sm" variant="ghost" className="mt-2" disabled={busy !== null} onClick={() => void removeKey()} data-testid="simple-ai-remove-key">
               {t('simple.ai.key.remove')}
             </Button>

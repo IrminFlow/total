@@ -111,6 +111,16 @@ export function keyChangeRule(o: { companyHasUsers: boolean; anyCompanyHasUsers:
   return { ok: true, mode: 'no-users-confirmed' }
 }
 
+export type KeyCanSet = { allowed: boolean; reason: 'ok' | 'owner_only' | 'other_company_has_users' | 'needs_confirmation' }
+
+/** What the key box may offer before anything is pasted. Pure; tested. `allowed` = a save can go
+ *  ahead (possibly after the shared-key confirmation); main's refusals in ai:key:set stay. */
+export function keyCanSet(o: { companyHasUsers: boolean; isOwner: boolean; anyCompanyHasUsers: boolean }): KeyCanSet {
+  if (o.companyHasUsers) return o.isOwner ? { allowed: true, reason: 'ok' } : { allowed: false, reason: 'owner_only' }
+  if (o.anyCompanyHasUsers) return { allowed: false, reason: 'other_company_has_users' }
+  return { allowed: true, reason: 'needs_confirmation' }
+}
+
 /** Who may change a thread: the user who started it, or an accountant / owner. Pure; tested. */
 export function threadAccessAllowed(session: { name: string | null; role: Role }, owner: string | null): boolean {
   if (roleAllows(session.role, 'accountant')) return true
@@ -143,6 +153,11 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     acceptNotice(db(), deps.session().name)
     return view()
   }, 'owner')
+  handle('ai:key:canSet', (p) => {
+    z.object({}).strict().default({}).parse(p ?? {})
+    const c = deps.company()
+    return keyCanSet({ companyHasUsers: c.usersExist, isOwner: roleAllows(deps.session().role, 'owner'), anyCompanyHasUsers: !c.usersExist && deps.anyCompanyHasUsers() })
+  }, 'viewer')
   handle('ai:key:set', (p) => {
     const { key, confirmNoUsers } = aiKeySetSchema.extend({ confirmNoUsers: z.boolean().default(false) }).parse(p)
     const mode = guardKey(confirmNoUsers)

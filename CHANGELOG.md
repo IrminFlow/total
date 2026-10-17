@@ -30,6 +30,9 @@ tests, documentation) and several correctness fixes.
 Every simple screen below also has an **Accountant view** button that opens the full editor with
 what you typed, and a **Back to simple** button.
 
+- The AI key box now tells you before you paste anything if you can't change the key (only the owner can, or another business on this computer has sign-ins), in the simple AI helper and in Settings → AI.
+- Ask Total no longer guesses when you say "pay 5000 to" one of your own accounts: your own bank or cash is a move of money (with a link to Move money), your capital is drawings, and income or loan accounts are asked about by name.
+
 - **Help covers the recent simple-mode features.** Recipes and labour, "Remember on this computer", moving the books folder, "Back to simple" keeping your changes, Bank's Skipped for now / Not this / GST on charges, Money out refunds and "Record a purchase instead", low-stock warnings, and quarterly GST files, in English, Hindi and Hinglish (five more articles now have a Hinglish version).
 - **Make a bill** (Sell). Pick a customer (or leave it empty for a cash customer), add products or
   just an amount, say how it was paid (cash, UPI, card, bank transfer, on credit, partly paid), and

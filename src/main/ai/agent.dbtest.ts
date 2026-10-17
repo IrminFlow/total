@@ -386,6 +386,8 @@ describe('IPC layer: settings, key, gates, audit', () => {
   let events: AiEvent[]
   let provider: MockProvider
   let otherCompanyHasUsers = false
+  let usersExistNow = false
+  let roleNowForKey: Role = 'owner'
   let appAudits: AppKeyAuditEntry[] = []
   const secretsFile = join(mkdtempSync(join(tmpdir(), 'total-ai-')), 'secrets.json')
   const secrets = createSecretStore({ filePath: () => secretsFile, cipher: insecureTestCipher() })
@@ -397,11 +399,13 @@ describe('IPC layer: settings, key, gates, audit', () => {
     events = []
     secrets.deleteScope(APP_SCOPE)
     otherCompanyHasUsers = false
+    usersExistNow = false
+    roleNowForKey = 'owner'
     appAudits = []
     provider = new MockProvider([{ toolCalls: [{ name: 'trial_balance', arguments: { asOn: '2025-08-31' } }] }, { text: 'The trial balance totals ₹1,50,000.00.' }], { models: ['gpt-6.1-sol'] })
     registerAiIpc((ch, fn, role = 'accountant') => handlers.set(ch, { fn: fn as H, role }), {
-      company: () => ({ db: f.db, info: INFO, slug: 'agent-test', usersExist: false }),
-      session: () => ({ name: 'Owner', role: 'owner' }),
+      company: () => ({ db: f.db, info: INFO, slug: 'agent-test', usersExist: usersExistNow }),
+      session: () => ({ name: 'Owner', role: roleNowForKey }),
       roleNow: () => 'owner',
       anyCompanyHasUsers: () => otherCompanyHasUsers,
       appAudit: (e) => appAudits.push(e),
@@ -413,6 +417,20 @@ describe('IPC layer: settings, key, gates, audit', () => {
         return provider
       }
     })
+  })
+
+  it('ai:key:canSet says before any paste who may change the shared key (four answers)', async () => {
+    expect(handlers.get('ai:key:canSet')!.role).toBe('viewer')
+    expect(await call('ai:key:canSet')).toEqual({ allowed: true, reason: 'needs_confirmation' })
+    otherCompanyHasUsers = true
+    expect(await call('ai:key:canSet')).toEqual({ allowed: false, reason: 'other_company_has_users' })
+    // main still refuses the write itself
+    await expect(call('ai:key:set', { key: 'sk-test-0123456789abcdefWXYZ', confirmNoUsers: true })).rejects.toThrow(/Another company here has users/)
+    usersExistNow = true
+    expect(await call('ai:key:canSet')).toEqual({ allowed: true, reason: 'ok' })
+    roleNowForKey = 'accountant'
+    expect(await call('ai:key:canSet')).toEqual({ allowed: false, reason: 'owner_only' })
+    await expect(call('ai:key:canSet', { extra: 1 })).rejects.toThrow()
   })
 
   it('registers role-gated channels', () => {

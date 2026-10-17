@@ -89,7 +89,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - ~~Toasts can briefly cover Save; at 1700 px a toast covers docked Ask Total's question box; DataTable truncates names at 1024 px~~ DONE — PR #130 (toasts clear the measured Save bar and an open panel; name columns ≥ 152 px, money shrinks first, then sideways scroll) — PR #87 / #103
 - ~~Dark mode: the selected + disabled walk-in "Cash" chip is hard to read~~ DONE — PR #119 — PR #111
 - Hindi: ~~dates inside a few main-side error messages, wizard state names~~, preset account names, ~~the PDF footer "Page 1 of 1"~~, reminder-letter bodies (owner's template) stay English; ~~bank suggestions use the company language, not the reader's~~ — PR #105 (struck parts DONE — PR #123; "Hinglish (beta)" label ready behind `HINGLISH_BETA_LABEL`, off)
-- AI helper: a company without sign-ins (while another has them) shows "anyone can change the key" before main refuses; payment draft prefill treats a non-party debit account as an expense without checking its class — PR #101
+- ~~AI helper: a company without sign-ins (while another has them) shows "anyone can change the key" before main refuses; payment draft prefill treats a non-party debit account as an expense without checking its class — PR #101~~ DONE — PR #174
 
 ### Accountant (full app)
 - ~~Credit hold doesn't cover restoring a binned invoice or automatic PDC maturing~~ DONE — restore of a held party's invoice / challan needs the owner's override; maturing a cheque never creates credit, a post-dated invoice to a held party waits (`blockedByHold`) — PR #126
