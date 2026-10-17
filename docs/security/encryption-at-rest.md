@@ -178,7 +178,8 @@ C was rejected because of its asynchronous API.
   unflagged users see what they always did. `canExport` covers `EXPORT_CHANNELS` (capabilities.ts:
   files of the books or a report of them, party statements included — `receivables:statementPdf`,
   `receivables:statementsBulk` — and the statutory / bank upload files, `payroll:ecr` / `payroll:esi`
-  / `payroll:ptCsv`, `bulkPay:export`); prints are not exports and stay ungated by decision — the
+  / `payroll:ptCsv`, `bulkPay:export`, the bank reconciliation PDF `banking:brsPdf`, report packs `pack:runNow` /
+  `pack:save`); prints are not exports and stay ungated by decision — the
   invoice PDF (`invoice:pdf` / `invoice:pdfBatch`), the labels PDF (`stock:labelsPdf`), counter /
   trade-document / payslip / cheque prints and blank import templates (`NOT_EXPORTS`, each with its
   reason) follow their role only. Every channel

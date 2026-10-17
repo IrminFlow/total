@@ -108,6 +108,7 @@ describe('data folder move (IPC, hermetic)', () => {
     expect(existsSync(join(rootB, 'companies', slug, 'company.db-wal'))).toBe(false)
     expect(moved.ok, moved.error).toBe(true)
     expect(moved.data).toMatchObject({ path: rootB, copied: true, relaunching: true })
+    expect(relaunch).not.toHaveBeenCalled() // answer first: the relaunch waits until the pointer is written
     expect((await call('company:current')).data).toBeNull() // closed before the copy
 
     // The pointer names the new folder; the old folder is untouched and carries the note.
@@ -132,9 +133,9 @@ describe('data folder move (IPC, hermetic)', () => {
       db.close()
     }
 
-    await new Promise((r) => setTimeout(r, 1700))
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0), { timeout: 5000, interval: 25 })
     expect(relaunch).toHaveBeenCalledTimes(1)
-    expect(exit).toHaveBeenCalledWith(0)
+    expect(relaunch.mock.invocationCallOrder[0]!).toBeLessThan(exit.mock.invocationCallOrder[0]!)
   })
 
   it('owner-only to pick and move; reading is open', () => {

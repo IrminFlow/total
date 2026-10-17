@@ -11,6 +11,7 @@ import { useSession, useToasts } from '../../state/stores'
 import { Banner, Button, Checkbox, Field, Modal, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { confirmDialog } from '../../lib/dialogs'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../../lib/capabilities'
 
 const refKey = (r: PackReportRef): string => (r.kind === 'builtin' ? `b:${r.key}` : `s:${r.id}`)
 
@@ -29,6 +30,7 @@ export function PacksSection(): React.JSX.Element {
   const toast = useToasts()
   const qc = useQueryClient()
   const canEdit = useSession((s) => s.user?.role !== 'viewer')
+  const exportRefused = useCapabilityRefused('canExport') // PR #155: pack:runNow / pack:save are canExport channels
   const { data: packs, isLoading } = useQuery({ queryKey: ['reportPacks'], queryFn: reportsApi.packs })
   const { data: runs, isLoading: runsLoading } = useQuery({ queryKey: ['reportPackRuns'], queryFn: () => reportsApi.packRuns() })
   const [editing, setEditing] = useState<ReportPack | 'new' | null>(null)
@@ -64,7 +66,7 @@ export function PacksSection(): React.JSX.Element {
 
   return (
     <div>
-      <SectionTitle right={canEdit && <Button variant="primary" onClick={() => setEditing('new')} data-testid="btn-packs-new">New pack</Button>}>Scheduled packs</SectionTitle>
+      <SectionTitle right={canEdit && <Button variant="primary" disabled={exportRefused} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} onClick={() => setEditing('new')} data-testid="btn-packs-new">New pack</Button>}>Scheduled packs</SectionTitle>
       <p className="mb-3 text-body-sm text-muted">
         A pack writes a set of reports — built-in statements and your saved builder reports — as PDF and CSV into a folder, for a period like last month.
         Packs run when the company is opened (a run missed while the app was closed happens once) and hourly while it stays open. XLSX output arrives with the Excel work package.
@@ -86,8 +88,8 @@ export function PacksSection(): React.JSX.Element {
                 </div>
                 {canEdit && (
                   <>
-                    <Button size="sm" onClick={() => void runNow(p)} loading={running === p.id} data-testid={`btn-pack-run-${p.id}`}>Run now</Button>
-                    <Button size="sm" variant="ghost" onClick={() => setEditing(p)}>Edit</Button>
+                    <Button size="sm" disabled={exportRefused} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} onClick={() => void runNow(p)} loading={running === p.id} data-testid={`btn-pack-run-${p.id}`}>Run now</Button>
+                    <Button size="sm" variant="ghost" disabled={exportRefused} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} onClick={() => setEditing(p)}>Edit</Button>
                     <Button size="sm" variant="ghost" onClick={() => void remove(p)}>Delete</Button>
                   </>
                 )}

@@ -450,6 +450,8 @@ Read these before filing from the next release.
 
 ### For developers
 
+- **Export gate sweep covers every role.** `securityReview.dbtest` now scans every IPC handler under `src/main` that writes a file or audits an `export` (directly or through a helper in its file; viewer-role ones included, which the audit-coverage registry does not list), plus every channel whose name says file / print / export, and requires each in `EXPORT_CHANNELS`, `NOT_EXPORTS` or a listed read / input; review: the bank reconciliation PDF (`banking:brsPdf`, written with no gate and no audit row) is now a `canExport` channel with an export audit row, and report packs (`pack:runNow`, `pack:save`) are `canExport` channels; Form 16 / 16A / 27D, self-invoice, barcode-label prints and the template export are listed as non-exports with reasons. The data-folder-move locked case no longer sleeps 1.7 s, and the e-invoicing Company details test waits for the loaded switch (Windows flake). [#155](https://github.com/IrminFlow/total/pull/155)
+
 - New banking channels `cheques:backfillPreview` (accountant+, read) and `cheques:backfill`
   (owner, Zod-strict `{ bankLedgerId?, includeOutside?, voucherIds? }`, audited `cheque`) in
   `services/cheques.ts`; the number reader is `chequeNumberOf` in `shared/chequeRegister.ts`

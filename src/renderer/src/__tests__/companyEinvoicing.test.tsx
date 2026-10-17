@@ -45,8 +45,9 @@ afterEach(() => cleanup())
 describe('Company details: the e-invoicing switch', () => {
   it('shows the stored setting and saves a change with the form through einvoicing:set', async () => {
     renderScreen()
-    const box = (await screen.findByTestId('input-company-einvoicing')) as HTMLInputElement
-    expect(box.checked).toBe(true)
+    // The box renders before gst:einvoicing answers (unchecked); wait for the loaded state.
+    await waitFor(() => expect((screen.getByTestId('input-company-einvoicing') as HTMLInputElement).checked).toBe(true))
+    const box = screen.getByTestId('input-company-einvoicing') as HTMLInputElement
     fireEvent.click(box)
     expect(box.checked).toBe(false)
     expect(calls.some((c) => c.channel === 'einvoicing:set')).toBe(false) // nothing until Save
@@ -57,6 +58,7 @@ describe('Company details: the e-invoicing switch', () => {
   it('an unchanged switch sends nothing on Save', async () => {
     enabled = false
     renderScreen()
+    await waitFor(() => expect(calls.some((c) => c.channel === 'gst:einvoicing')).toBe(true))
     expect(((await screen.findByTestId('input-company-einvoicing')) as HTMLInputElement).checked).toBe(false)
     fireEvent.click(screen.getByText('Save details'))
     await waitFor(() => expect(calls.some((c) => c.channel === 'company:updateInfo')).toBe(true))

@@ -42,6 +42,9 @@ export const EXPORT_CHANNELS: readonly string[] = [
   // PR #144 review: the bank's bulk-payment upload file (each supplier's account number and the
   // amounts) — a file of the books, like the payables run CSV.
   'bulkPay:export',
+  // PR #155 review: the bank reconciliation statement PDF is a report of the books written to a
+  // file (each bank entry, the book and bank balances), like report:pdf — it was neither gated nor audited.
+  'banking:brsPdf',
   'edoc:exportEInvoice',
   'edoc:exportEwb',
   'edoc:ewbJson',
@@ -63,6 +66,10 @@ export const EXPORT_CHANNELS: readonly string[] = [
   'payroll:esi',
   'payroll:ptCsv',
   'payroll:ptReturnCsv',
+  // PR #155 review: a report pack writes its reports (trial balance, P&L …) to a folder — now
+  // (pack:runNow) or on every open from its schedule (pack:save sets the folder and schedule).
+  'pack:runNow',
+  'pack:save',
   'pricing:exportCsv',
   'rb:exportJson',
   // PR #140 review: a party's statement PDF is a report of the books written to a file, like
@@ -89,6 +96,12 @@ export const NOT_EXPORTS: Readonly<Record<string, string>> = {
   'counter:print': 'print of a counter bill',
   'tradeDocs:pdf': 'print of a quotation / order',
   'payroll:payslip': 'print of a payslip',
+  'payroll:form16Pdf': "an employee's tax certificate: a document the business hands over, like a payslip",
+  'tds:form16aPdf': 'TDS certificate (Form 16A) the business hands over',
+  'tcs:form27dPdf': 'TCS certificate (Form 27D) the business hands over',
+  'gst:selfInvoicePdf': 'print of a self-invoice',
+  'stock:labelsPdf': 'barcode label print',
+  'template:export': 'a print-template definition (layout, fonts, column choices): no books data in it',
   'cheque:pdf': 'cheque print',
   'cheque:testGrid': 'cheque alignment test page',
   'cheque:advice': 'payment advice print',
