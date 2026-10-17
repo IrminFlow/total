@@ -10,8 +10,8 @@ import { seedCompany } from './seed'
 const M = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE loan_vouchers_new'))
 
 describe('loan_vouchers disbursement migration', () => {
-  it('is the last migration, a plain rebuild (foreign keys stay on)', () => {
-    expect(M).toBe(MIGRATIONS.length - 1)
+  it('was last when added (the tax-fact snapshot columns follow it), a plain rebuild (foreign keys stay on)', () => {
+    expect(M).toBe(MIGRATIONS.findIndex((sql) => sql.includes('snap_tax_facts')) - 1)
     expect(MIGRATIONS[M]!.trimStart().startsWith('-- @foreign-keys-off')).toBe(false)
   })
 
