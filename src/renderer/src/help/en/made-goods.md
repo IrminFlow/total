@@ -14,4 +14,10 @@ This screen shows only while **Making goods** is turned on in [Features](total:/
 
 ## What one product is made from
 
-The list of what goes into one product is set once, in the full app. Ask your accountant, or see [Accountant view and your CA](total://help/accountant-view).
+The list of what goes into one product is the product's Recipe, below. The earlier recipes are in the full app: see [Accountant view and your CA](total://help/accountant-view).
+
+## Recipe on the product
+
+With Made goods on, open a product in [Stock → Products](total://screen/simple-stock). Its **Recipe** part says "To make 1 Bread you use …". Press **Add a recipe** (or **Change recipe**), pick each material and how much one uses, and, if you like, the labour for each one. Save.
+
+A changed recipe is used from the day you are working on; what you made before keeps the old one. A product cannot go into itself. Made goods fills in the labour for the number you make, and you can still change it.

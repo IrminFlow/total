@@ -25,6 +25,12 @@ Open [Money out](total://screen/simple-money-out) when:
 
 Repaying a loan is not one of the choices yet — ask your accountant to record it in the full app.
 
+## Buying goods? Refunds?
+
+Buying goods is not an expense. On Money out, **Buying goods? Record a purchase instead** opens [Record a purchase](total://help/record-a-purchase) with what you typed.
+
+To pay a customer back money of theirs you hold (an advance, or a return kept for the next bill), pick **A customer (refund)** on Money out. If a supplier owes you nothing back, Money in says so and offers **Record it as other money in**.
+
 ## Paid before the bill?
 
 If a customer pays before you make their bill, answer **Yes** to "Is this for a bill you haven't made yet?". Total keeps it as an advance and takes it off their next bills.

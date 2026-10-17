@@ -19,3 +19,11 @@ Now and then, count what is really on the shelf. Open [Count your stock](total:/
 Every bill, purchase and return moves stock automatically. A count is only needed for things that went missing, broke or were miscounted.
 
 Making your own goods from raw material? See [Made goods](total://help/made-goods).
+
+## Tell me when it runs low
+
+Open a product and fill in **Warn me when** — below how many, in its unit. Leave it blank or 0 to be told only when it runs out. Those products show under [Running low](total://screen/simple-stock?filter=low).
+
+## History and saved counts
+
+A line in a product's history opens that entry — the bill, the purchase, the return or the count. A saved count shows how many Total had, what you counted and what that did to the stock's worth. Undo of a count is refused if some of that stock was sold or used since; edit the entry instead.

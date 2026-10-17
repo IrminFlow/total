@@ -25,6 +25,12 @@ Batayein ki paisa cash mein aaya ya kisi bank account mein.
 
 Loan lautana abhi choices mein nahi hai — apne accountant se kahein ki woh ise full app mein likhein.
 
+## Maal khareed rahe hain? Paise wapas?
+
+Maal khareedna kharcha nahi hai. Paise gaye mein **Maal khareed rahe hain? Purchase likhein** aapke likhe ke saath [Purchase likhein](total://help/record-a-purchase) kholta hai.
+
+Kisi customer ke aapke paas rakhe paise (advance, ya agle bill ke liye rakhi return) lautane ke liye Paise gaye mein **Ek customer (paise wapas)** chunein. Agar kisi supplier ko aapko kuch lautana nahi hai, to Paise aaye yeh batata hai aur **Ise doosri income ki tarah likhein** deta hai.
+
 ## Bill se pehle paise mil gaye?
 
 Agar koi customer uska bill banane se pehle hi paise de de, to "Kya yeh aise bill ke liye hai jo aapne abhi nahi banaya?" ka jawaab **Haan** dein. Total ise advance ki tarah rakhta hai aur uske agle bills mein se kaat deta hai.
