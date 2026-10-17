@@ -320,6 +320,16 @@ what you typed, and a **Back to simple** button.
 
 Read these before filing from the next release.
 
+- **Bills saved from now on keep their own tax facts** (to-do §4 GST), [#TBD](https://github.com/IrminFlow/total/pull/TBD).
+  When a sales or purchase bill, note or challan is saved, the GST rate, cess and HSN of each line
+  and the party's GSTIN, state, SEZ / export type and reverse-charge flag are stored with it.
+  GSTR-1, GSTR-3B, GSTR-9, the HSN summary, e-invoice / e-way JSON, prints and interest notes use
+  those stored facts, so changing an item's rate or HSN, or a party's registration, later no longer
+  rewrites a return or a print already made. **Bills saved before this release are not frozen:**
+  they keep following the masters, exactly as before, until they are opened and saved again. Not
+  covered yet: the party's ITC eligibility, advances (11A / 11B), RCM self-invoices and ITC
+  reversal still read the masters. A corrected supplier GSTIN reaches GSTR-2B matching for earlier
+  bills only once they are saved again.
 - **GSTR-1, GSTR-3B, GSTR-9, HSN, e-invoice and interest notes now take the rate the posted tax
   implies** for "amount only" (ledger-line) sales, credit notes and outward debit notes whose
   Sales ledger has no GST rate. Before, such a document was reported as nil-rated even though Output
@@ -646,6 +656,23 @@ Read these before filing from the next release.
   bill refs settle by name, so a newer namesake alone is refused, `simple_bill_older_first`);
   `allocateBillsWithCredits` adds `creditNames` (stripped from `allocateBills` /
   `partyAllocation`, figures unchanged) and simple:post's taken names include them. No migration.
+- **Tax-fact snapshots** (to-do §4 GST), [#TBD](https://github.com/IrminFlow/total/pull/TBD): migration "tax-fact
+  snapshots" (appended last) adds nullable `vouchers.snap_tax_facts` / `snap_party_gstin` /
+  `snap_party_state` / `snap_party_export_type` / `snap_party_rcm` and `snap_gst_rate` /
+  `snap_cess_rate` / `snap_hsn` on `voucher_lines` and `inventory_lines` — no backfill, rates in the
+  masters' REAL percent (lossless; basis points would round an imported 12.345 %). Place of supply
+  is not stored: readers derive it from `pos_override` + the snapshotted state as before.
+  `services/taxFacts.ts`: `snapshotTaxFacts` (saveVoucher, inside its transaction), `writeTaxFacts`
+  / `readTaxFacts`, and the SQL helpers `snapOr` / `partySnapSql` / `lineSnapSql` the readers use
+  (`extractOutwardDocs`, `rcmInwardByVoucher`, `bookedItcByVoucher`, `extractPurchaseDocs`,
+  `extractEdocInvoices`, `listSalesInvoices`, GSTR-9 `itcDocsFor` / `hsnInward`, receivables'
+  interest class). New `SaveVoucherHooks.taxFacts` (exact facts, or null); a `historicImport`
+  without it stores none. The books workbook carries the voucher columns in its JSON cell and the
+  line ones in each line's JSON cell; import / bulk-edit undo images and the voucher audit row
+  carry `taxFacts`. `taxFacts.dbtest.ts` proves a saved invoice's GSTR-1 / 3B / 9 HSN / e-invoice
+  JSON / print unchanged after its item, ledger and party masters change, and a NULL-snapshot voucher
+  still following them; `gstPostedRateParity`, `reportEquality`, `printLocale`, `booksFidelity` and
+  `voucherEdit` pass unchanged.
 - **Electron hardening (D7)** (to-do §4 Security), [#161](https://github.com/IrminFlow/total/pull/161): every IPC
   call is checked against its sender before anything else (`main/ipcSender.ts`, in `handle()`): only
   the main frame (`senderFrame` is the sender's `mainFrame`, no parent) of the app's own renderer
