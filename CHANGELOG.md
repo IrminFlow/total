@@ -38,6 +38,10 @@ what you typed, and a **Back to simple** button.
 - **Accountant view on People and the reports.** People opens the Outstandings of the side you are looking at, a person's page opens their statement, "How is my business doing" opens the profit and loss for the days shown, "By month" the registers for the busiest month, and Taxes for a business with no GST return opens Company details. Back to simple returns to the same screen. [#173](https://github.com/IrminFlow/total/pull/173)
 - **A gentle reminder before a bill is due.** A customer's page offers "Send a gentle reminder" when a bill falls due within 7 days (nothing late yet), in English, Hindi or Hinglish, by WhatsApp, SMS or copy. [#173](https://github.com/IrminFlow/total/pull/173)
 - **A cash expense in Record a purchase needs no supplier.** An expense (or just an amount) that you pay in full right now is saved with no supplier, exactly like the same expense in Money out ("Paid ₹850.00 for Electricity from Cash."). "Not yet" or "Partly" still asks "Who do you owe? Add the supplier, or pay it now."; a bill with GST you want to claim, and products, still need the supplier. It is a payment, so it shows in Money, not in the purchase list.
+- **Opening a business no longer waits for the backup check; older backups are cleared only after
+  the new one is checked OK.** The copy is still made before the business opens. If the check
+  finds a problem, or Total closes before it ends, nothing older is removed and Home shows the
+  red backup card. [#175](https://github.com/IrminFlow/total/pull/PRNUM)
 - **Help covers the recent simple-mode features.** Recipes and labour, "Remember on this computer", moving the books folder, "Back to simple" keeping your changes, Bank's Skipped for now / Not this / GST on charges, Money out refunds and "Record a purchase instead", low-stock warnings, and quarterly GST files, in English, Hindi and Hinglish (five more articles now have a Hinglish version).
 - **Make a bill** (Sell). Pick a customer (or leave it empty for a cash customer), add products or
   just an amount, say how it was paid (cash, UPI, card, bank transfer, on credit, partly paid), and
@@ -723,6 +727,18 @@ Read these before filing from the next release.
   amount purchases — 3.1(d) = ISRC —, booked input IGST, a credit note) read with the snapshot,
   with it cleared on the same masters, after the masters moved and with the snapshot written back
   (A = B = E, D differs) for a regular, a composition and an unregistered company.
+- **company:open waits for the snapshot only** (to-do §4 Performance, PR #118 review),
+  [#175](https://github.com/IrminFlow/total/pull/PRNUM): the open backup is split
+  (`services/backupOpen.ts`): `snapshotOnOpen` (the copy, its attachments stashed, the audit row,
+  listed in meta `backup.openUnverified`) is awaited; `settleOpenBackup` runs after the reply —
+  the copy's quick_check in the check worker (tracked under the backup), then the prune of older
+  backups ONLY on ok, and the bin purge + attachment sweep only on ok too. Damaged → removed +
+  `backup_runs` failure (red card); the check could not finish → kept + flagged; stopped / closed
+  → nothing written. A copy left unverified (the app quit first) is re-checked by the next open,
+  whose own prune / purge rest on its own backup. backup:restore, company:delete, the passphrase
+  change and a new open cancel the pending check first (`stopChecks`). The snapshot itself stays
+  unbounded (an online backup / VACUUM INTO given up half way is no backup). No migration;
+  `backupCompany` (manual, every 30 min, pre-import, quit) is unchanged.
 - **Electron hardening (D7)** (to-do §4 Security), [#161](https://github.com/IrminFlow/total/pull/161): every IPC
   call is checked against its sender before anything else (`main/ipcSender.ts`, in `handle()`): only
   the main frame (`senderFrame` is the sender's `mainFrame`, no parent) of the app's own renderer

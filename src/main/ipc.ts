@@ -15,6 +15,7 @@ import { DEFAULT_SCRYPT, WrongPassphraseError, newDataKey, unwrapKeyAsync, wrapK
 import { insecureTestCipherAllowed } from './services/secrets'
 import { assertNotThrottled, dropRememberedKey, hasRememberedKey, noteRightPassphrase, noteWrongPassphrase, readEnvelope, readEnvelopes, removeEnvelope, storeRememberedKey, unlockCompanyKey, unlockWithRememberedKey, writeEnvelope } from './services/companyKeys'
 import { commitConvertedCopy, convertBackups, convertCompanyFiles, fileConversionPending, markFileConversion, prepareConvertedCopy, removeLeftoverCopies, resumeFileConversion } from './services/dbEncryption'
+import { settleOpenBackup, snapshotOnOpen, type OpenBackupSettled } from './services/backupOpen'
 import { checkBackupIfDue, latestBackupCheck, listBackupChecks, recordBackupCheck, verifyBackupFileAsync } from './services/backupVerify'
 import { AUTO_LOCK_CHOICES, IdleClock, getAutoLockMinutes, setAutoLockMinutes } from './services/sessionLock'
 import { capabilityAllows, channelCapabilities } from './capabilities'
@@ -322,6 +323,31 @@ export function scheduleBackupCheck(db: DB, dest: string, tag: string): void {
   later(3_000)
 }
 
+/** To-do §4: the open backup's second half (services/backupOpen.ts) — its quick_check verdict,
+ *  then the prune and the bin purge — running after company:open replied. One at a time: a new
+ *  open, a close, a restore, a delete, a lock change or a data-folder move cancels it first. */
+interface OpenFollowUp {
+  db: DB
+  dest: string
+  cancelled: boolean
+  done: Promise<OpenBackupSettled | null>
+}
+let openFollowUp: OpenFollowUp | null = null
+
+/** Tests (and the launch trace): the pending open follow-up, or null. */
+export function pendingOpenFollowUp(): Promise<OpenBackupSettled | null> | null {
+  return openFollowUp?.done ?? null
+}
+
+/** Cancel the open follow-up: it writes, prunes and purges nothing more, and its quick_check is
+ *  stopped (stopChecks on the backup it reads) and waited for. */
+async function cancelOpenFollowUp(): Promise<void> {
+  const f = openFollowUp
+  if (!f) return
+  f.cancelled = true
+  await stopChecks(f.dest)
+}
+
 /** The signed-in user's view of themselves (auth:login / auth:current): role, flags and the
  *  effective capabilities the gate applies. */
 function sessionView(u: { id: number; name: string; role: Role; capabilities: CapabilityFlags | null }): { id: number; name: string; role: Role; capabilities: CapabilityFlags | null; can: Record<Capability, boolean> } {
@@ -414,6 +440,9 @@ export function closeCurrentCompany(opts: { keepKey?: boolean } = {}): void {
   captureOnCompanyClose()
   // WP 6.3: a file loaded into the import wizard never carries over to another company.
   clearLoadedImports()
+  // To-do §4: the open backup's verdict no longer belongs to an open company — nothing more is
+  // pruned or purged (its quick_check may finish on its own; a quit leaves the copy unverified).
+  if (openFollowUp) openFollowUp.cancelled = true
   if (current) {
     closeCompanyDb(current.db)
     current = null
@@ -1007,7 +1036,11 @@ export function registerIpc(): void {
     // row inside the DB itself.
     auditCompanyDeletion(companyDbPath(slug), slug, sessionUser?.name ?? null)
     log('warn', 'company-deleted', { slug, user: sessionUser?.name ?? null })
-    if (current?.slug === slug) closeCurrentCompany()
+    if (current?.slug === slug) {
+      // To-do §4: the open backup's pending check is stopped with the rest (stopChecksUnder below).
+      await cancelOpenFollowUp()
+      closeCurrentCompany()
+    }
     forgetFolderKey(companyDir(slug))
     // WP 7.1 review: a background check (the weekly integrity_check, a backup's restore check) may
     // still hold a file in the folder open.
@@ -1131,10 +1164,59 @@ export function registerIpc(): void {
 
   /** Open `slug` as the current company (the key, if any, already remembered) and run the
    *  on-open housekeeping — company:open, and the passphrase on / off flows that reopen the file. */
+  /** The open backup's second half, after company:open replied (see openCompanyNow). */
+  function startOpenFollowUp(db: DB, slug: string, dest: string): void {
+    const f: OpenFollowUp = { db, dest, cancelled: false, done: Promise.resolve(null) }
+    const stillCurrent = (): boolean => !f.cancelled && current?.db === db
+    f.done = new Promise<void>((r) => setImmediate(r)).then(async () => {
+      const t0 = performance.now()
+      try {
+        const settled = await settleOpenBackup(db, slug, dest, { stillCurrent })
+        if (TRACE_IPC) console.log(`[ipc] (after reply) open backup check ${settled.verdict} ${(performance.now() - t0).toFixed(0)} ms`)
+        if (settled.verdict === 'damaged') log('warn', 'backup-on-open-failed', { slug, error: 'quick_check failed — the snapshot was discarded' })
+        else if (settled.verdict === 'unverified') log('warn', 'backup-on-open-unverified', { slug, file: basename(dest) })
+        for (const r of settled.rechecked) if (r.verdict !== 'ok') log('warn', 'backup-recheck', { slug, file: r.file, verdict: r.verdict })
+        if (!stillCurrent()) return settled
+        if (settled.verdict === 'ok') openHousekeeping(db, slug)
+        // WP 7.2: the automatic restore check (at most daily, again after a failure).
+        if (settled.verdict === 'ok' || settled.verdict === 'unverified') scheduleBackupCheck(db, dest, 'open')
+        return settled
+      } catch (err) {
+        log('warn', 'backup-on-open-check-error', { slug, error: err instanceof Error ? err.message : String(err) })
+        return null
+      } finally {
+        if (openFollowUp === f) openFollowUp = null
+      }
+    })
+    openFollowUp = f
+  }
+
+  /** What rests on a backup that passed its quick_check: the bin purge (binned over 30 days) and,
+   *  WP 6.4, the attachments of purged records (and stored files nothing references). Runs as
+   *  'system' in the audit trail — nobody asked for it — and never fails anything. */
+  function openHousekeeping(db: DB, slug: string): void {
+    try {
+      const purged = runAsAuditUser(SYSTEM_AUDIT_USER, () => vouchers.purgeOldDeleted(db, 30))
+      if (purged > 0) log('info', 'bin-purge', { purged })
+    } catch (err) {
+      // e.g. an over-age binned voucher still referenced by payroll_runs — housekeeping must
+      // never block opening the company.
+      log('warn', 'bin-purge-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    }
+    try {
+      const swept = runAsAuditUser(SYSTEM_AUDIT_USER, () => attachments.sweepAttachments(db, companyAttachmentsDir(slug)))
+      if (swept.rowsRemoved || swept.filesRemoved) log('info', 'attachments-sweep', { ...swept })
+    } catch (err) {
+      log('warn', 'attachments-sweep-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    }
+  }
+
   /** What the last open's file-conversion resume did (convertOpenCompany reports it). */
   let lastFileResume: { converted: number; failed: string[] } | null = null
   async function openCompanyNow(slug: string, opts: { keepKey?: boolean } = {}): Promise<{ slug: string; info: CompanyInfo; integrity: ReturnType<typeof checkIntegrity>; locked: boolean; ui: ReturnType<typeof configSvc.getUi>; encrypted: boolean }> {
     closeCurrentCompany({ keepKey: opts.keepKey ?? true })
+    // To-do §4: a previous open's backup check still running is stopped before this one starts.
+    await cancelOpenFollowUp()
     // WP 7.2 review: what an interrupted lock change / restore / export left beside the books
     // (a plaintext copy, when the lock was being taken off) goes before the books open.
     try {
@@ -1163,18 +1245,22 @@ export function registerIpc(): void {
     }
     // Online backup needs an open handle, so this runs after open (not before, as it used to).
     // A backup failure here must never fail — or desync — the open itself.
-    // WP 7.1: the backup and the integrity check run together — their whole-file quick_checks in
-    // worker threads (db/checkHost.ts) — and both finish before the reply, as before.
-    const backupDone = backupCompany(db, slug, 'open').then(
+    // To-do §4 (PR #118 review): only the SNAPSHOT is waited for here — it is what protects the
+    // books. Its quick_check runs after the reply (in the check worker, tracked under the backup),
+    // and what rests on a good backup waits for that verdict: the prune of older backups and the
+    // bin purge + attachment sweep (services/backupOpen.ts). No snapshot → none of them this time.
+    const snapshotDone = snapshotOnOpen(db, slug).then(
       (dest) => {
-        mark('backup')
-        // WP 7.2: the automatic restore check (at most daily), after this reply.
-        scheduleBackupCheck(db, dest, 'open')
+        mark('snapshot')
+        return dest
       },
-      (err: unknown) => log('warn', 'backup-on-open-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+      (err: unknown) => {
+        log('warn', 'backup-on-open-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+        return null
+      }
     )
     const integrityDone = checkIntegrityAsync(db, companyDbPath(slug)).finally(() => mark('integrity'))
-    await backupDone
+    const dest = await snapshotDone
     const integrity = await integrityDone
     if (!integrity.ok) {
       log('warn', 'integrity', { slug, quickCheck: integrity.quickCheck, unbalanced: integrity.unbalancedVoucherIds })
@@ -1189,24 +1275,7 @@ export function registerIpc(): void {
     void runWeeklyIntegrityCheckAsync(db, companyDbPath(slug)).then((weekly) => {
       if (weekly?.ran && !weekly.ok) log('warn', 'integrity-weekly-failed', { slug, detail: weekly.detail })
     })
-    // Housekeeping below runs as 'system' in the audit trail — nobody asked for it.
-    try {
-      const purged = runAsAuditUser(SYSTEM_AUDIT_USER, () => vouchers.purgeOldDeleted(db, 30))
-      if (purged > 0) log('info', 'bin-purge', { purged })
-    } catch (err) {
-      // e.g. an over-age binned voucher still referenced by payroll_runs — housekeeping must
-      // never block opening the company.
-      log('warn', 'bin-purge-failed', { slug, error: err instanceof Error ? err.message : String(err) })
-    }
-    mark('purge')
-    // WP 6.4: attachments of purged records (and stored files nothing references) go too.
-    try {
-      const swept = runAsAuditUser(SYSTEM_AUDIT_USER, () => attachments.sweepAttachments(db, companyAttachmentsDir(slug)))
-      if (swept.rowsRemoved || swept.filesRemoved) log('info', 'attachments-sweep', { ...swept })
-    } catch (err) {
-      log('warn', 'attachments-sweep-failed', { slug, error: err instanceof Error ? err.message : String(err) })
-    }
-    mark('sweep')
+    if (dest) startOpenFollowUp(db, slug, dest)
     // Post-dated vouchers whose date has arrived flip into the books (audited per voucher).
     // PDCs dated inside a locked period are refused, not silently posted — they stay in the
     // PDC register until the lock is lifted (v0.3 review F3).
@@ -1380,6 +1449,8 @@ export function registerIpc(): void {
     // if the backup fails validation. `current`/`c.db` are still fully intact at that point,
     // since we haven't closed anything yet.
     // WP 7.1 review: no background check may hold the live file open while it is swapped.
+    // To-do §4: nor may the open backup's pending check prune / purge around the swap.
+    await cancelOpenFollowUp()
     await stopChecks(dbPath)
     // WP 7.2: a business locked with a passphrase keeps its lock — a plaintext backup (one made
     // before the lock, if converting it failed) is restored through an encrypted copy of itself.
@@ -3363,6 +3434,8 @@ export function registerIpc(): void {
     const by = sessionUser?.name ?? osAuditUser()
     const keepUser = sessionUser
     const from = keyOfHandle(c.db)
+    // To-do §4: the open backup's pending check prunes nothing while the backups are converted.
+    await cancelOpenFollowUp()
     await backupCompany(c.db, slug, to ? 'pre-encrypt' : 'pre-decrypt', by)
     // WP 7.2 review: no background check (the weekly integrity_check) may hold the live file open
     // while it is swapped — on Windows the rename fails, and its read snapshot keeps the WAL alive.
