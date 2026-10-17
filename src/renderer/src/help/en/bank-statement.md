@@ -12,7 +12,7 @@ Import your bank statement and Total matches it to what you recorded. Anything t
 ## Not sure yet? Wrong match?
 
 - **Skip for now** leaves a line for later. Skipped lines wait under **Skipped for now** (remembered on this computer) with **Bring back**.
-- A line marked done has **Not this**. The line goes back to the lines to answer; the entry stays in your books. If that entry was wrong, open it and remove it.
+- A line marked done has **Not this** (accountants and owners). The line goes back to the lines to answer; the entry stays in your books. If that entry was wrong, open it and remove it.
 
 ## Money paid out, and bank charges
 

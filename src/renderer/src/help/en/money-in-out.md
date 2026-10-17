@@ -29,7 +29,7 @@ Repaying a loan is not one of the choices yet — ask your accountant to record 
 
 Buying goods is not an expense. On Money out, **Buying goods? Record a purchase instead** opens [Record a purchase](total://help/record-a-purchase) with what you typed.
 
-To pay a customer back money of theirs you hold (an advance, or a return kept for the next bill), pick **A customer (refund)** on Money out. If a supplier owes you nothing back, Money in says so and offers **Record it as other money in**.
+To pay a customer back money of theirs you hold (an advance, or a return kept for the next bill), pick **A customer (refund)** on Money out (it shows only while they hold such money). If a supplier owes you nothing back, Money in says so and offers **Record it as other money in**.
 
 ## Paid before the bill?
 

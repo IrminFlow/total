@@ -20,7 +20,7 @@ Agar aap har quarter file karte hain, to [Taxes](total://screen/simple-taxes) me
 
 ## E-invoicing
 
-Jab aapka turnover e-invoicing ki seema se upar ho, to Taxes screen batati hai "E-invoicing aap par ek tareekh se laagu hai — ise chalu karein". Total ise kabhi apne-aap chalu nahi karta, aur aapki taraf se file nahi karta.
+Agar aapne Business details mein apna turnover bhara hai (sirf maalik) aur woh e-invoicing ki seema se upar hai, to Taxes screen batati hai "E-invoicing aap par ek tareekh se laagu hai — ise chalu karein". Yeh sirf soochna hai: Total e-invoicing ko kabhi apne-aap chalu nahi karta.
 
 ## Dates
 

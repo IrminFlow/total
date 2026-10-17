@@ -22,4 +22,4 @@ Passphrase ke saath save kiya gaya backup (Settings → Backups mein **Export en
 
 [Settings → Backups](total://screen/settings?tab=backups) woh folder dikhata hai jismein aapka hisaab aur backups rehte hain. Agar woh OneDrive ya kisi aur cloud-sync folder ke andar hai, to Total chetavni deta hai, kyunki sync karne wala program hisaab mein dakhal de sakta hai.
 
-Badalne ke liye **Doosre folder mein le jaayein…** dabayein aur koi khaali folder chunein. Total sab kuch copy karta hai, copy jaanchta hai aur dobara chalu hota hai. Purana folder mitaya nahi jaata, par us par wapas na jaayein — uska hisaab purana hai. Jahan business mein sign-in hain, wahan sirf maalik ise le ja sakte hain.
+Badalne ke liye **Doosre folder mein le jaayein…** dabayein aur koi khaali folder chunein. Total sab kuch copy karta hai, copy jaanchta hai aur dobara chalu hota hai. (Agar chune folder mein pehle se Total ka hisaab hai, to Total wahi kholta hai aur us par kuch copy nahi karta.) Purana folder mitaya nahi jaata, par us par wapas na jaayein — uska hisaab purana hai. Jahan business mein sign-in hain, wahan sirf maalik ise le ja sakte hain.

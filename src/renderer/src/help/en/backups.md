@@ -22,4 +22,4 @@ A backup saved with a passphrase (**Export encrypted…** in Settings → Backup
 
 [Settings → Backups](total://screen/settings?tab=backups) shows the folder that holds your books and backups. If it is inside OneDrive or another cloud-sync folder, Total warns you, because a sync program can interfere with the books.
 
-To change it, press **Move to another folder…** and pick an empty folder. Total copies everything, checks the copy and restarts. The old folder is not deleted, so do not go back to it — its books are older. Where the business has sign-ins, only the owner can move it.
+To change it, press **Move to another folder…** and pick an empty folder. Total copies everything, checks the copy and restarts. (If the folder you pick already holds Total books, Total opens those and copies nothing over them.) The old folder is not deleted, so do not go back to it — its books are older. Where the business has sign-ins, only the owner can move it.

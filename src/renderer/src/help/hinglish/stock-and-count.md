@@ -20,7 +20,7 @@ Koi product kholkar **Kab batayein** bharein — uske unit mein, kitne se kam ho
 
 ## History aur save ki hui ginti
 
-Product ki history ki koi bhi line us entry ko kholti hai — bill, purchase, return ya ginti. Save ki hui ginti dikhati hai ki Total ke paas kitna tha, aapne kitna gina aur usse stock ki keemat par kya asar pada. Agar us stock mein se kuch baad mein bik gaya ya istemaal ho gaya, to ginti wapas nahi li ja sakti; entry badlein.
+Product ki history ki koi bhi line us entry ko kholti hai — bill, purchase, return ya ginti. Save ki hui ginti dikhati hai ki Total ke paas kitna tha, aapne kitna gina aur usse stock ki keemat par kya asar pada. Ginti (ya bane maal) wapas lene se agar kisi product ka stock zero se neeche chala jaaye — jaise baad mein kuch bik gaya ya istemaal ho gaya — to woh wapas nahi liya ja sakta; entry badlein.
 
 ## Stock apne-aap badalta hai
 

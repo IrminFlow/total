@@ -20,7 +20,7 @@ If you file every quarter, step 3 on [Taxes](total://screen/simple-taxes) is **P
 
 ## E-invoicing
 
-When your turnover is above the limit for e-invoicing, Taxes says "E-invoicing applies to you from a date — turn it on". Total never switches it on by itself, and does not file for you.
+If you have entered your turnover in Business details (owner only) and it is above the limit for e-invoicing, Taxes says "E-invoicing applies to you from a date — turn it on". It is only a notice: Total never switches e-invoicing on by itself.
 
 ## The dates
 

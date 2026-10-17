@@ -12,7 +12,7 @@ Apna bank statement daalein aur Total use aapki likhi entries se mila deta hai. 
 ## Pakka nahi hai? Galat match?
 
 - **Abhi chhodein** kisi line ko baad ke liye rakhta hai. Chhodi hui lines **Abhi chhodi hui** mein rehti hain (is computer par yaad rakhi jaati hain) aur wahan **Wapas laayein** hota hai.
-- Ho chuki line par **Yeh nahi** hota. Line jawab wali lines mein wapas aa jaati hai; entry aapke hisaab mein rehti hai. Woh entry galat thi to use kholkar hata dein.
+- Ho chuki line par **Yeh nahi** hota (accountant aur maalik ke liye). Line jawab wali lines mein wapas aa jaati hai; entry aapke hisaab mein rehti hai. Woh entry galat thi to use kholkar hata dein.
 
 ## Kharche mein gaya paisa aur bank charges
 

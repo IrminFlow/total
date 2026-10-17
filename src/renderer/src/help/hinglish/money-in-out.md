@@ -29,7 +29,7 @@ Loan lautana abhi choices mein nahi hai — apne accountant se kahein ki woh ise
 
 Maal khareedna kharcha nahi hai. Paise gaye mein **Maal khareed rahe hain? Purchase likhein** aapke likhe ke saath [Purchase likhein](total://help/record-a-purchase) kholta hai.
 
-Kisi customer ke aapke paas rakhe paise (advance, ya agle bill ke liye rakhi return) lautane ke liye Paise gaye mein **Ek customer (paise wapas)** chunein. Agar kisi supplier ko aapko kuch lautana nahi hai, to Paise aaye yeh batata hai aur **Ise doosri income ki tarah likhein** deta hai.
+Kisi customer ke aapke paas rakhe paise (advance, ya agle bill ke liye rakhi return) lautane ke liye Paise gaye mein **Ek customer (paise wapas)** chunein (yeh tabhi dikhta hai jab unka aisa paisa aapke paas ho). Agar kisi supplier ko aapko kuch lautana nahi hai, to Paise aaye yeh batata hai aur **Ise doosri income ki tarah likhein** deta hai.
 
 ## Bill se pehle paise mil gaye?
 

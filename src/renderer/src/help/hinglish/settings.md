@@ -15,6 +15,6 @@
 
 ## Is computer par passphrase yaad rakhein
 
-Agar business par passphrase hai, to use maangne wale box mein **Is computer par yaad rakhein** hota hai. Yeh kabhi apne-aap nahi chuna jaata. Chunne par hisaab yahan bina passphrase ke khulta hai. Total computer ke keychain mein ek chaabi rakhta hai, passphrase kabhi nahi. Jo bhi is computer par sign-in kar sakta hai, woh aapka hisaab khol sakega — isliye ise sirf aise computer par chunein jise sirf aap istemaal karte hain.
+Agar business par passphrase hai, to use maangne wale box mein **Is computer par yaad rakhein** hota hai. Yeh kabhi apne-aap nahi chuna jaata. Chunne par hisaab yahan bina passphrase ke khulta hai. Yeh sirf maalik kar sakte hain: jahan sign-in hain, wahan yeh tabhi rakha jaata hai jab us baar maalik sign-in kare. Total computer ke keychain mein ek chaabi rakhta hai, passphrase kabhi nahi. Jo bhi is computer par sign-in kar sakta hai, woh aapka hisaab khol sakega — isliye ise sirf aise computer par chunein jise sirf aap istemaal karte hain.
 
 [Taala aur suraksha](total://screen/simple-security), business ki list aur screen ka taala "Is computer par yaad hai" batate hain, saath mein **Bhool jaayein**. Passphrase hatane par bhi yeh bhool jaata hai.

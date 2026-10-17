@@ -26,4 +26,4 @@ Open a product and fill in **Warn me when** — below how many, in its unit. Lea
 
 ## History and saved counts
 
-A line in a product's history opens that entry — the bill, the purchase, the return or the count. A saved count shows how many Total had, what you counted and what that did to the stock's worth. Undo of a count is refused if some of that stock was sold or used since; edit the entry instead.
+A line in a product's history opens that entry — the bill, the purchase, the return or the count. A saved count shows how many Total had, what you counted and what that did to the stock's worth. Undo of a count (or of made goods) is refused if it would leave some product's stock below zero, for example because some was sold or used since; edit the entry instead.
