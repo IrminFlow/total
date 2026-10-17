@@ -174,7 +174,7 @@ import { bankAcceptSchema } from '@shared/simple/bank'
 import { simpleSetupSchema } from '@shared/simple/setup'
 import { simpleOpeningsSchema } from '@shared/simple/openings'
 import * as openingsSvc from './services/openings'
-import { gstProfileSchema } from '@shared/gst/filing'
+import { gstProfilePatchSchema } from '@shared/gst/filing'
 import {
   setAuditContext, writeAudit, listAudit, pruneAudit, verifyAudit, editLogExport, runAsAuditUser, osAuditUser, SYSTEM_AUDIT_USER
 } from './services/audit'
@@ -2135,6 +2135,12 @@ export function registerIpc(): void {
     const c = requireCompany()
     return gst.getEinvoicing(c.db, c.info)
   }, 'viewer')
+  // To-do §4: what the business profile (gstProfile turnover / exemption) says about e-invoicing
+  // today, the switch, the "turn it on" notice and the IRP 30-day window. Read-only.
+  handle('gst:einvoiceStatus', () => {
+    const c = requireCompany()
+    return gst.einvoiceStatus(c.db, c.info, todayISO())
+  }, 'viewer')
   // Review follow-up: the explicit e-invoicing switch (meta `einvoicing`), owner-only, audited.
   handle('einvoicing:set', (p) => {
     const input = z.object({ enabled: z.boolean() }).strict().parse(p)
@@ -2819,7 +2825,7 @@ export function registerIpc(): void {
   handle('config:features:set', (p) => configSvc.setFeatures(requireCompany().db, featuresSchema.parse(p)), 'owner')
   // WP 8.3: GSTR-1 filing frequency (monthly / quarterly QRMP), meta `gstProfile`.
   handle('gstProfile:get', () => configSvc.getGstProfile(requireCompany().db), 'viewer')
-  handle('gstProfile:set', (p) => configSvc.setGstProfile(requireCompany().db, gstProfileSchema.parse(p)), 'owner')
+  handle('gstProfile:set', (p) => configSvc.setGstProfile(requireCompany().db, gstProfilePatchSchema.parse(p)), 'owner')
   handle('config:invoice:get', () => configSvc.getInvoiceConfig(requireCompany().db), 'viewer')
   handle('config:invoice:set', (p) => configSvc.setInvoiceConfig(requireCompany().db, invoiceConfigSchema.parse(p)), 'owner')
 

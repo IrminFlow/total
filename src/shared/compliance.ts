@@ -7,6 +7,7 @@
  */
 import { gstr3bDueDate } from './gst/filing'
 import { depositDueDate } from './tdsInterest'
+import { EINVOICE_APPLICABILITY_UNVERIFIED, type EinvoiceApplicability } from './gst/einvoiceApplicability'
 
 export type DeadlineKind = 'gst' | 'tds' | 'pf' | 'esi' | 'advance-tax'
 
@@ -245,3 +246,35 @@ export const COMPLIANCE_UNVERIFIED: readonly string[] = [
   'TDS deposit: rule 30(2) of the 1962 Rules (7th of the next month, 30 April for March); the Income-tax Rules 2026 equivalent (rule 218) was read only in secondary sources and is UNVERIFIED',
   'Composition returns (CMP-08, GSTR-4) are not listed here — the simple Taxes screen shows them (rule 62, shared/gst/filing.ts)'
 ]
+
+/** To-do §4 — e-invoice applicability (shared/gst/einvoiceApplicability.ts, every threshold and
+ *  date quoted there from Notification 13/2020-CT and its amendments). When the business profile
+ *  says e-invoicing is REQUIRED and the company's switch (meta `einvoicing`) is off, Company
+ *  details, the Gateway's Compliance card and the simple Taxes screen say "E-invoicing applies to
+ *  you from <date> — turn it on". Never switches anything on. */
+export interface EinvoiceTurnOnNotice {
+  /** The day the law requires it from. */
+  since: string
+  fy: string
+  thresholdPaise: number
+  notification: string
+}
+
+export function einvoiceTurnOnNotice(a: EinvoiceApplicability, enabled: boolean): EinvoiceTurnOnNotice | null {
+  if (enabled || !a.required || !a.since) return null
+  return { since: a.since, fy: a.fy!, thresholdPaise: a.thresholdPaise!, notification: a.notification! }
+}
+
+/** gst:einvoiceStatus (services/gst.ts einvoiceStatus) — one read for Company details, the
+ *  Gateway / simple Taxes chip and the e-Invoice list. */
+export interface EinvoiceStatus {
+  /** The switch (services/gst.ts einvoicingOn — unchanged). */
+  enabled: boolean
+  applicability: EinvoiceApplicability
+  /** Required by the profile while the switch is off. */
+  turnOn: EinvoiceTurnOnNotice | null
+  /** The IRP's 30-day window applies today (switch on + AATO ≥ ₹10 crore, GSTN advisory). */
+  reportingWindowDays: 30 | null
+}
+
+export const EINVOICE_COMPLIANCE_UNVERIFIED = EINVOICE_APPLICABILITY_UNVERIFIED

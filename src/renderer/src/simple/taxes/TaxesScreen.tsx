@@ -63,9 +63,40 @@ export function TaxesScreen({ period }: { period?: string }): React.JSX.Element 
           <p className="mt-2 text-small text-muted">{t('simple.taxes.composition.note')}</p>
         </section>
       )}
+      {x?.kind === 'regular' && <EinvoiceTurnOnCard />}
       {x?.kind === 'regular' && <GstAnswer x={x} />}
       {x && <WithholdingCards items={x.withholding} today={x.today} />}
     </Page>
+  )
+}
+
+const COMPANY_DETAILS = { name: 'company-info' } as const // i18n-technical
+const EINVOICE_STATUS_KEY = ['einvoiceStatus'] // i18n-technical
+
+/** To-do §4: the business profile (Company details → GST) says e-invoicing is required and the
+ *  switch is off — say so in plain words; the button opens Company details, nothing turns on
+ *  by itself (shared/compliance.ts einvoiceTurnOnNotice). */
+export function EinvoiceTurnOnCard(): React.JSX.Element | null {
+  const t = useT()
+  const nav = useNav()
+  // Company details' switch is the owner's (everyone's in a company without users).
+  const { user } = useSession()
+  const isOwner = !user || user.role === 'owner' // i18n-technical
+  const { data } = useQuery({ queryKey: EINVOICE_STATUS_KEY, queryFn: api.gst.einvoiceStatus })
+  const n = data?.turnOn
+  if (!n) return null
+  return (
+    <section className={`${cardCls} mb-4`} data-testid="taxes-einvoice-turn-on">
+      <h2 className="text-lead font-semibold text-ink">{t('simple.taxes.einvoice.title', { date: toPlainDate(n.since, t.lang) })}</h2>
+      <p className="mt-1 text-body text-ink">{t('simple.taxes.einvoice.why', { fy: n.fy, amount: money(n.thresholdPaise) })}</p>
+      {isOwner ? (
+        <button type="button" className="mt-2 text-body font-medium text-blue hover:underline" data-testid="btn-taxes-einvoice-turn-on" onClick={() => nav.go(COMPANY_DETAILS)}>
+          {t('simple.taxes.einvoice.action')}
+        </button>
+      ) : (
+        <p className="mt-2 text-small text-muted" data-testid="taxes-einvoice-ask-owner">{t('simple.taxes.einvoice.askOwner')}</p>
+      )}
+    </section>
   )
 }
 

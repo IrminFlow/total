@@ -417,6 +417,26 @@ Read these before filing from the next release.
   export documents only — B2C bills get no IRN) and under the number in the sales / credit note
   editor — never refused. Source: NIC e-invoice schema, Generate IRN v1.03, `DocDtls.No`
   (read 2026-10-17). [#140](https://github.com/IrminFlow/total/pull/140)
+- **E-invoice applicability from the business profile** (to-do §4). Company details → GST takes the
+  PAN-level aggregate turnover per financial year (every GSTIN of the PAN together, owner-entered,
+  from 2017-18), an "the same PAN has other GSTINs" note and, if it applies, the registrant type
+  Notification 13/2020-CT leaves out (SEZ unit, government department, local authority, insurer /
+  bank / FI incl. NBFC, GTA, passenger transport, multiplex cinema — 61/2020-CT, 23/2021-CT,
+  rule 54(2)/(3)/(4)/(4A)). From it Total works out whether rule 48(4) e-invoicing applies and
+  from when: aggregate turnover in ANY preceding FY from 2017-18 (70/2020-CT) exceeding the
+  threshold in force — ₹500 cr from 1 Oct 2020 (13/2020 as amended by 61/2020), ₹100 cr from
+  1 Jan 2021 (88/2020), ₹50 cr from 1 Apr 2021 (05/2021), ₹20 cr from 1 Apr 2022 (01/2022),
+  ₹10 cr from 1 Oct 2022 (17/2022), ₹5 cr from 1 Aug 2023 (10/2023); "exceeds" is strict and a
+  year counts from the next 1 April. When it applies and the e-invoicing switch is off, Company
+  details, the Gateway's Compliance card and the simple Taxes screen say "E-invoicing applies to
+  you from <date> — turn it on" — nothing is switched on by itself. With the switch on and AATO of
+  ₹10 cr and above for the FY before the invoice (GSTN advisory, 5 Nov 2024, from 1 Apr 2025), the
+  e-Invoice list shows a "Report to the IRP in N days" chip on B2B invoices / notes without an IRN
+  (dated 1 April → last day 30 April). The e-invoice number warning above also fires while the
+  profile says e-invoicing is required. No figure changed. Every notification is quoted in
+  `src/shared/gst/einvoiceApplicability.ts`; UNVERIFIED: amendments after 10/2023-CT, which year's
+  AATO the IRP window reads, the earlier ₹100 cr window (13 Sep 2023 advisory), OIDAR / rule 14
+  classes — `EINVOICE_APPLICABILITY_UNVERIFIED`. [#165](https://github.com/IrminFlow/total/pull/165)
 - **Cheque register: fill it from earlier entries** (Banking → Cheques). Payments saved before
   the bank had a cheque book carry their cheque number on the voucher but were never in the
   register, so after an upgrade the register was empty and "Leaves left" / the next leaf were
@@ -577,6 +597,15 @@ Read these before filing from the next release.
   OS), `will-navigate` / `will-redirect` (refused except the dev server's origin) and
   `will-attach-webview` (refused) — applied to EVERY web contents through `web-contents-created`
   (the hidden PDF window too); `windowPolicy.test.ts`.
+- **E-invoice applicability** (to-do §4), [#165](https://github.com/IrminFlow/total/pull/165): no migration —
+  company meta `gstProfile` gains optional `turnover: { years: [{ fy, paise }], otherGstins? }` and
+  `einvoiceExemption`; `gstProfile:set` now takes a Zod-strict PATCH (`gstProfilePatchSchema`:
+  absent = keep, null = clear; audited company update with the whole before / after), so the
+  filing picker never wipes the turnover. Pure `einvoiceApplicability(profile, today)` →
+  `{ required, since?, reason, reportingWindowDays?: 30 }` in `shared/gst/einvoiceApplicability.ts`,
+  `einvoiceTurnOnNotice` + `EinvoiceStatus` in `shared/compliance.ts`, new read channel
+  `gst:einvoiceStatus` (viewer; services/gst.ts `einvoiceStatus`). `einvoicingOn` unchanged;
+  `gstValidate` passes `einvoicing: einvoicingOn || required on the period's last day`.
 
 - **TCS after WP 3.3** ([#163](https://github.com/IrminFlow/total/pull/163)), no migration:
   `src/shared/tcsSources.ts` (quoted sources with URL / where read / access date, `TCS_SLABS`,

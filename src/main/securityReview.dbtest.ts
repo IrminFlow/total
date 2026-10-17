@@ -599,6 +599,29 @@ describe('the e-invoicing switch is owner-only (review follow-up)', () => {
   })
 })
 
+describe('the e-invoice business profile (to-do §4)', () => {
+  it('gstProfile:set takes the turnover from the owner only (Zod-strict patch, audited); gst:einvoiceStatus answers a viewer', async () => {
+    const { slug } = await ok<{ slug: string }>('company:create', { ...company('Einvoice Profile Co'), gstin: '27AAPFU0939F1ZV' })
+    await ok('company:open', { slug })
+    const owner = await ok<{ id: number }>('users:save', { data: { name: 'Owner', role: 'owner', pin: '1111' } })
+    const acct = await ok<{ id: number }>('users:save', { data: { name: 'Asha', role: 'accountant', pin: '2222' } })
+    const viewer = await ok<{ id: number }>('users:save', { data: { name: 'Vikram', role: 'viewer', pin: '3333' } })
+    const turnover = { years: [{ fy: '2024-25', paise: 6_000_000_000 }], otherGstins: true }
+    await ok('auth:login', { userId: acct.id, pin: '2222' })
+    expect((await call('gstProfile:set', { turnover })).code).toBe('not_permitted')
+    await ok('auth:login', { userId: owner.id, pin: '1111' })
+    expect((await call('gstProfile:set', { turnover: { ...turnover, extra: 1 } })).ok).toBe(false) // strict
+    expect((await call('gstProfile:set', { turnover: { years: [{ fy: '2024-25', paise: 1.5 }] } })).ok).toBe(false)
+    expect(await ok('gstProfile:set', { turnover })).toEqual({ filing: 'monthly', turnover })
+    expect(await ok('gstProfile:set', { filing: 'quarterly' })).toEqual({ filing: 'quarterly', turnover })
+    await ok('auth:login', { userId: viewer.id, pin: '3333' })
+    const status = await ok<{ enabled: boolean; turnOn: { since: string } | null }>('gst:einvoiceStatus')
+    expect(status.enabled).toBe(false) // never switched on by the profile
+    expect(status.turnOn?.since).toBe('2025-04-01')
+    await ok('auth:login', { userId: owner.id, pin: '1111' })
+  })
+})
+
 describe('consolidation member passphrases (PR #132) leave no trace', () => {
   const PASS = 'member passphrase zq7-unique'
   /** Every file under the data root that holds the passphrase bytes (logs, audit, WAL, JSON …). */

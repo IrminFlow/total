@@ -9,6 +9,7 @@ import { GST_STATE_LIST } from '@shared/gst/states'
 import { gstinErrorMessage } from '../lib/gstinError'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 import { dataFolder, pathSep } from '../lib/platform'
+import { EinvoiceProfileSection, draftFromProfile, profileFromDraft, type EinvoiceProfileDraft } from './gst/EinvoiceProfile'
 
 const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/
 const TAN_RE = /^[A-Z]{4}\d{5}[A-Z]$/
@@ -30,6 +31,15 @@ export function CompanyInfoScreen(): React.JSX.Element {
   const savedEinvoicing = einvoicingSetting?.enabled ?? false
   const [einvoicing, setEinvoicing] = useState(savedEinvoicing)
   useEffect(() => setEinvoicing(savedEinvoicing), [savedEinvoicing])
+  // To-do §4: the business profile e-invoice applicability reads (meta gstProfile turnover /
+  // exemption) — saved with the form through gstProfile:set; the status says whether the law
+  // requires e-invoicing (never switches it on).
+  const { data: einvoiceStatus } = useQuery({ queryKey: ['einvoiceStatus'], queryFn: api.gst.einvoiceStatus, enabled: showFiling })
+  const savedProfileKey = JSON.stringify(profileFromDraft(draftFromProfile(gstProfile?.turnover, gstProfile?.einvoiceExemption)))
+  const [einvDraft, setEinvDraft] = useState<EinvoiceProfileDraft>(() => draftFromProfile(gstProfile?.turnover, gstProfile?.einvoiceExemption))
+  useEffect(() => setEinvDraft(draftFromProfile(gstProfile?.turnover, gstProfile?.einvoiceExemption)), [gstProfile])
+  const einvProfile = profileFromDraft(einvDraft)
+  const einvProfileChanged = gstProfile !== undefined && JSON.stringify(einvProfile) !== savedProfileKey
   const toast = useToasts()
   const nav = useNav()
   const [name, setName] = useState(info?.name ?? '')
@@ -71,7 +81,8 @@ export function CompanyInfoScreen(): React.JSX.Element {
     pan !== (info?.pan ?? '') ||
     tan !== (info?.tan ?? '') ||
     (showFiling && filing !== savedFiling) ||
-    (showFiling && einvoicingSetting !== undefined && einvoicing !== savedEinvoicing)
+    (showFiling && einvoicingSetting !== undefined && einvoicing !== savedEinvoicing) ||
+    (showFiling && einvProfileChanged)
   useUnsavedGuard(dirty)
 
   const gstinError = gstinErrorMessage(gstin, stateCode)
@@ -100,14 +111,16 @@ export function CompanyInfoScreen(): React.JSX.Element {
         tan: tan.trim() ? tan.trim().toUpperCase() : null
       })
       if (slug) setCompany(slug, updated)
-      if (showFiling && updated.gstRegistrationType === 'regular' && filing !== savedFiling) {
-        await api.gstProfile.set({ filing })
+      if (showFiling && updated.gstRegistrationType === 'regular' && (filing !== savedFiling || einvProfileChanged)) {
+        await api.gstProfile.set({ ...(filing !== savedFiling ? { filing } : {}), ...(einvProfileChanged ? einvProfile : {}) })
         await queryClient.invalidateQueries({ queryKey: ['gstProfile'] })
         await queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+        await queryClient.invalidateQueries({ queryKey: ['einvoiceStatus'] })
       }
       if (showFiling && updated.gstRegistrationType === 'regular' && einvoicingSetting !== undefined && einvoicing !== savedEinvoicing) {
         await api.gst.setEinvoicing(einvoicing)
         await queryClient.invalidateQueries({ queryKey: ['einvoicing'] })
+        await queryClient.invalidateQueries({ queryKey: ['einvoiceStatus'] })
       }
       toast.push('success', 'Company details saved')
     } catch (err) {
@@ -171,6 +184,16 @@ export function CompanyInfoScreen(): React.JSX.Element {
             hint="Turns on the e-invoice checks — e.g. a sales number the IRP would refuse. Saved with the details."
             checked={einvoicing}
             onChange={setEinvoicing}
+          />
+        )}
+        {showFiling && gstProfile !== undefined && (
+          <EinvoiceProfileSection
+            draft={einvDraft}
+            onDraft={setEinvDraft}
+            status={einvoiceStatus}
+            switchOn={einvoicing}
+            onTurnOn={() => setEinvoicing(true)}
+            today={todayISO()}
           />
         )}
         {regChanged ? (

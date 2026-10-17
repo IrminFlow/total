@@ -299,7 +299,10 @@ export function InvoiceEntry({
   const einvoiceKind = kind === 'sales' || kind === 'credit_note'
   const { data: einvoicing } = useQuery({ queryKey: ['einvoicing'], queryFn: () => api.gst.einvoicing(), enabled: einvoiceKind, staleTime: 60_000 })
   const shownNumber = isEdit ? alterNumber : numberField.value === NUMBER_LOADING ? '' : numberField.value
-  const numberWarning = einvoiceKind && einvoicing?.enabled === true && computed.chargesGst ? einvoiceDocNoWarning(shownNumber) : null
+  // To-do §4: also while the business profile says e-invoicing is required (switch off or not).
+  const { data: einvoiceStatus } = useQuery({ queryKey: ['einvoiceStatus'], queryFn: () => api.gst.einvoiceStatus(), enabled: einvoiceKind, staleTime: 60_000 })
+  const einvoices = einvoicing?.enabled === true || einvoiceStatus?.applicability?.required === true
+  const numberWarning = einvoiceKind && einvoices && computed.chargesGst ? einvoiceDocNoWarning(shownNumber) : null
   // WP 2.6: the grid prices sales lines through the resolver (party rate › level › scheme …).
   const linePricing = useInvoicePricing(kind, partyId, date, supply, fxActive ? currencyCode : '')
 

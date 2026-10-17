@@ -8,7 +8,7 @@ import type {
 import type { DayBookRow } from '@shared/reports'
 import { formatPaise, formatPaiseCompact } from '@shared/money'
 import { toDisplayDate, toDisplayDateTime, toMonthLabel, todayISO } from '@shared/dates'
-import { COMPLIANCE_UNVERIFIED, upcomingDeadlines } from '@shared/compliance'
+import { COMPLIANCE_UNVERIFIED, EINVOICE_COMPLIANCE_UNVERIFIED, upcomingDeadlines } from '@shared/compliance'
 import { GST_FILING_UNVERIFIED } from '@shared/gst/filing'
 import { api } from '../../lib/client'
 import { useNav, useSession } from '../../state/stores'
@@ -253,6 +253,9 @@ export function ComplianceCard({
   // WP 8.3: GSTR-1 follows the filing frequency (meta gstProfile; missing = monthly).
   const { data: gstProfile } = useQuery({ queryKey: ['gstProfile'], queryFn: api.gstProfile.get, enabled: regType === 'regular' })
   const gstFiling = gstProfile?.filing ?? 'monthly'
+  // To-do §4: the business profile says e-invoicing is required and the switch is off.
+  const { data: einvoiceStatus } = useQuery({ queryKey: ['einvoiceStatus'], queryFn: api.gst.einvoiceStatus, enabled: regType === 'regular' })
+  const einvoiceTurnOn = einvoiceStatus?.turnOn ?? null
   const deadlines = useMemo(() => upcomingDeadlines(today, regType, hasPayroll, 30, { tds: tdsApplies, gstFiling, stateCode: info?.stateCode }), [today, regType, hasPayroll, tdsApplies, gstFiling, info?.stateCode])
   // GST and TDS have their own rows; the list carries the rest (PF/ESI/advance tax).
   const others = deadlines.filter((d) => d.kind !== 'gst' && !(d.kind === 'tds' && tds))
@@ -326,6 +329,14 @@ export function ComplianceCard({
                 </dl>
               </div>
             )
+          )}
+          {einvoiceTurnOn && (
+            <div data-testid="dash-einvoice-turn-on" {...drillRowProps(() => nav.go({ name: 'company-info' }))} className={stackRowCls}>
+              <span className="text-body-sm text-ink">E-invoicing</span>
+              <span title={`FY ${einvoiceTurnOn.fy} aggregate turnover exceeds ₹${einvoiceTurnOn.thresholdPaise / 1_000_000_000} crore (Notification ${einvoiceTurnOn.notification}). ${EINVOICE_COMPLIANCE_UNVERIFIED.join(' · ')}`}>
+                <Badge tone="warning" testId="chip-einvoice-turn-on">E-invoicing applies to you from {toDisplayDate(einvoiceTurnOn.since)} — turn it on</Badge>
+              </span>
+            </div>
           )}
           <PromisedChip />
           <TasksDueChip />
