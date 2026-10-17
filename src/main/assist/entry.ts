@@ -107,10 +107,17 @@ function firstError(errs: Partial<Record<string, MessageKey>>, t: Translate): st
  *  a loan, or anything else (no simple choice — asked about, never booked as an expense). */
 type OtherAccount = { kind: 'move' | 'owner' | 'income' | 'loan' | 'other'; id: number; name: string }
 
+const OTHER_CLASSES = ['cash', 'bank', 'income', 'tax', 'other'] as const
+
 function otherAccount(db: DB, said: string, today: string): OtherAccount | { choose: Extract<NameResult, { status: 'choose' }> } | null {
-  const found = findLedger(db, said, ['cash', 'bank', 'income', 'tax', 'other'], today)
+  const found = findLedger(db, said, OTHER_CLASSES, today)
   if (found.status === 'none') return null
   if (found.status === 'choose') return { choose: found }
+  return otherAccountById(db, found.id, found.name)
+}
+
+function otherAccountById(db: DB, id: number, name: string): OtherAccount {
+  const found = { id, name }
   const cls = ledgerClassifier(db).cls(found.id)
   const group = (db.prepare('SELECT group_id AS g FROM ledgers WHERE id = ?').get(found.id) as { g: number }).g
   const capital = descendantIdsByName(db, ['Capital Account'])
@@ -131,9 +138,25 @@ function moneyOut(db: DB, company: CompanyInfo, s: AssistEntrySlots, input: AskI
   let payeeId: number | null = null
   let missing: string | null = null
   const ownerish = OWNER_WORDS.test(`${s.what ?? ''} ${s.party ?? ''}`)
-  if (input.picks?.party) {
-    who = 'supplier'
-    supplierId = input.picks.party
+  const redirectFor = (other: OtherAccount): Built => ({
+    prefill: { screen: 'simple-money-out', who: 'expense' }, intent: null, missing: null, readAs,
+    redirect: {
+      sentence: t(({ move: 'assist.entry.isMove', income: 'assist.entry.isIncome', loan: 'assist.entry.isLoan', other: 'assist.entry.isOther', owner: 'assist.entry.isOther' } as const)[other.kind], { name: other.name }),
+      ...(other.kind === 'move' ? { link: { label: t('assist.link.moveMoney'), target: { screen: 'simple-move-money' } } } : {})
+    }
+  })
+  // A pick answers a "Which …?" — from the supplier list OR from the other-accounts list below,
+  // so it is read by its class again (a picked bank is a move, never a supplier).
+  const pickCls = input.picks?.party ? ledgerClassifier(db).cls(input.picks.party) : null
+  if (input.picks?.party && (pickCls === 'creditor' || pickCls === 'expense')) {
+    if (pickCls === 'creditor') {
+      who = 'supplier'
+      supplierId = input.picks.party
+    } else payeeId = input.picks.party
+  } else if (input.picks?.party) {
+    const picked = otherAccountById(db, input.picks.party, ledgerClassifier(db).name(input.picks.party) ?? '')
+    if (picked.kind !== 'owner') return redirectFor(picked)
+    who = 'owner'
   } else if (ownerish) {
     who = 'owner'
   } else if (s.party) {
@@ -149,13 +172,7 @@ function moneyOut(db: DB, company: CompanyInfo, s: AssistEntrySlots, input: AskI
         if (other && 'choose' in other) return { prefill: { screen: 'simple-money-out', who: 'expense' }, intent: null, missing: null, choice: choose('party', t('assist.which', { name: s.party }), other.choose), readAs }
         if (other?.kind === 'owner') {
           who = 'owner'
-        } else if (other) {
-          const sentence = t(({ move: 'assist.entry.isMove', income: 'assist.entry.isIncome', loan: 'assist.entry.isLoan', other: 'assist.entry.isOther' } as const)[other.kind], { name: other.name })
-          return {
-            prefill: { screen: 'simple-money-out', who: 'expense' }, intent: null, missing: null, readAs,
-            redirect: { sentence, ...(other.kind === 'move' ? { link: { label: t('assist.link.moveMoney'), target: { screen: 'simple-move-money' } } } : {}) }
-          }
-        }
+        } else if (other) return redirectFor(other)
       }
       if (who !== 'owner' && payeeId == null) {
         who = 'supplier'

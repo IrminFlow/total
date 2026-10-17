@@ -249,6 +249,13 @@ describe('Ask Total on hand-worked books', () => {
     const loan = await ask('pay 5000 to Term Loan')
     expect(loan.entry).toBeUndefined()
     expect(loan.sentences.join(' ')).toContain('Term Loan is a loan account')
+    // A pick from a "Which …?" is read by its class again: a picked bank is a move, never a supplier.
+    const bankId = (await ok<{ id: number; name: string }[]>('master:ledgers:list')).find((l) => l.name === 'HDFC Bank')!.id
+    const pickedBank = await ask('pay 5000 to HDFC', { picks: { party: bankId } })
+    expect(pickedBank.entry).toBeUndefined()
+    expect(pickedBank.sentences.join(' ')).toContain('HDFC Bank is one of your own cash or bank accounts')
+    expect((await ask('pay 5000 to Mohan', { picks: { party: ids.mohan } })).entry?.prefill).toMatchObject({ who: 'supplier', party: ids.mohan })
+    await expect(ok('assist:draft', { text: 'pay 5000 to HDFC Bank', today: T })).rejects.toThrow(/own cash or bank accounts/)
     // A real supplier and an expense account are unchanged.
     expect((await ask('pay 5000 to Mohan')).entry?.prefill).toMatchObject({ who: 'supplier', party: ids.mohan })
     expect((await ask('pay 5000 to Rent')).entry?.prefill).toMatchObject({ who: 'expense', payee: ids.rent })
