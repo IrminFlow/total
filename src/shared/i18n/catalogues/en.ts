@@ -2091,6 +2091,7 @@ export const en = {
   'simple.money.entry.back': '← Money in and out',
   'simple.money.entry.from': 'From {name}',
   'simple.money.entry.to': 'To {name}',
+  'simple.money.whoFor': '{what} ({name})',
   'simple.money.entry.into': 'Into {account}',
   'simple.money.entry.outOf': 'From {account}',
   'simple.money.entry.moved': 'Moved from {from} to {to}',

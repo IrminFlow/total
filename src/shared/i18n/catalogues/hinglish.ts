@@ -1992,6 +1992,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.money.entry.back': '← Paise aaye aur gaye',
   'simple.money.entry.from': '{name} se',
   'simple.money.entry.to': '{name} ko',
+  'simple.money.whoFor': '{what} ({name})',
   'simple.money.entry.into': '{account} mein',
   'simple.money.entry.outOf': '{account} se',
   'simple.money.entry.moved': '{from} se {to} mein bheje',

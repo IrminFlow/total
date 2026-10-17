@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { MessageKey } from '@shared/i18n'
 import { formatPaise } from '@shared/money'
 import { toPlainDate } from '@shared/dates'
-import { moneyListUntil, type MoneyChip, type MoneyDirection, type MoneyRow } from '@shared/simple/money'
+import { moneyListUntil, moneyWho, type MoneyChip, type MoneyDirection, type MoneyRow } from '@shared/simple/money'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useNav, useSession } from '../../state/stores'
@@ -80,7 +80,7 @@ function MoneyTable(): React.JSX.Element {
           )
         },
         // A move says where it went from and to; anything else, who paid / was paid.
-        { id: 'who', header: t('simple.money.col.who'), kind: 'text', hideable: false, groupable: false, value: (r) => (r.direction === 'move' ? `${r.account} → ${r.who}` : r.who) }, // i18n-technical
+        { id: 'who', header: t('simple.money.col.who'), kind: 'text', hideable: false, groupable: false, value: (r) => (r.direction === 'move' ? `${r.account} → ${r.who}` : moneyWho(r, t)) }, // i18n-technical
         {
           id: 'direction', header: t('simple.money.col.direction'), kind: 'text', width: 110, // i18n-technical
           value: (r) => lbl(DIR_TEXT[r.direction]),
@@ -171,7 +171,7 @@ function EntryView({ entryId }: { entryId: number }): React.JSX.Element {
   const head =
     e.direction === 'move'
       ? t('simple.money.entry.moved', { from: e.account, to: e.who })
-      : `${e.direction === 'in' ? t('simple.money.entry.from', { name: e.who }) : t('simple.money.entry.to', { name: e.who })} · ${
+      : `${e.direction === 'in' ? t('simple.money.entry.from', { name: e.who }) : t('simple.money.entry.to', { name: moneyWho(e, t) })} · ${
           e.direction === 'in' ? t('simple.money.entry.into', { account: e.account }) : t('simple.money.entry.outOf', { account: e.account })
         }`
   const title = e.direction === 'in' ? t('simple.money.in.title') : e.direction === 'out' ? t('simple.money.out.title') : t('simple.money.move.title')

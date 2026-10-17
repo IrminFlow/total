@@ -1997,6 +1997,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.money.entry.back': '← पैसे आए और गए',
   'simple.money.entry.from': '{name} से',
   'simple.money.entry.to': '{name} को',
+  'simple.money.whoFor': '{what} ({name})',
   'simple.money.entry.into': '{account} में',
   'simple.money.entry.outOf': '{account} से',
   'simple.money.entry.moved': '{from} से {to} में भेजे',

@@ -10,7 +10,7 @@
 // through pricing.ts `solveTaxable` (the editor's calculation), and what was recorded is said by
 // simple:preview's sentences.
 
-import type { MessageKey } from '../i18n'
+import type { MessageKey, Translate } from '../i18n'
 import { supplyTypeFor } from '../gst/calc'
 import { chargesGstOn, type GstRegistrationFacts } from '../gst/registration'
 import { solveTaxable } from '../pricing'
@@ -416,6 +416,9 @@ export interface MoneyRow {
   direction: MoneyDirection
   /** Who paid / was paid (a party or the other account); for a move, where it went. */
   who: string
+  /** A payment of a supplier's GST bill for an expense: that expense account ("Electricity"), read
+   *  from the bill it settles — shown as "Electricity (Bharat Power)". Optional (absent = none). */
+  forWhat?: string
   partyId: number | null
   /** The cash / bank account (a move: where it came from). */
   account: string
@@ -432,6 +435,11 @@ export interface MoneyRow {
  *  simple:post accepted is listed at once), or the period's end when the working date is past it. */
 export function moneyListUntil(workingDate: string, periodEnd: string): string {
   return workingDate > periodEnd ? periodEnd : addDaysISO(workingDate, SIMPLE_MAX_DAYS_AHEAD)
+}
+
+/** The list's / view's "who": "Electricity (Bharat Power)" for a GST-bill expense, else the name. */
+export function moneyWho(r: Pick<MoneyRow, 'who' | 'forWhat'>, t: Translate): string {
+  return r.forWhat ? t('simple.money.whoFor', { what: r.forWhat, name: r.who }) : r.who
 }
 
 export interface MoneyEntryView extends MoneyRow {

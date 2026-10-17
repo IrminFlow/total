@@ -17,6 +17,7 @@ import { readCompanyInfo, writeCompanyInfo } from '../db/seed'
 import type { DB } from '../db/connection'
 import type { CompanyInfo, Group, Voucher, VoucherKind } from '@shared/domain'
 import { gstRegistrationOf } from '@shared/gst/registration'
+import { translator } from '@shared/i18n'
 import { stockItemInputSchema, type VoucherInputParsed } from '@shared/schemas'
 import {
   buildAccountingPayload, buildInvoicePayload, derivePartyId, planVoucherEdit, taxLedgerIdsFrom, taxSideOf, voucherTaxLedgers,
@@ -24,7 +25,7 @@ import {
 } from '@shared/voucherEdit'
 import {
   billAllocation, emptyMoneyInForm, emptyMoneyOutForm, emptyMoveForm, moneyInErrors, moneyInIntentFrom, moneyOutErrors, moneyOutIntentFrom,
-  moneyListUntil, moveIntentFrom, type MoneyInForm, type MoneyOutForm
+  moneyListUntil, moneyWho, moveIntentFrom, type MoneyInForm, type MoneyOutForm
 } from '@shared/simple/money'
 import { createLedger, createStockItem, listGroups, listLedgers, listStockItems } from './masters'
 import { getVoucher, nextVoucherNumber, saveVoucher, setLockDate } from './vouchers'
@@ -532,6 +533,28 @@ describe('Move money, the list, the setup', () => {
     expect(moneyEntry(db, mo.voucherIds[0]!)).toBeNull()
     // A sales bill is not a money entry.
     expect(moneyEntry(db, getVoucher(db, mi.voucherIds[0]!)!.id - 1)).toBeNull()
+  })
+
+  it('to-do §4: paying a GST bill for an expense names the expense (“Rent (Bharat Steel)”) and carries the expense chip — read from the bill it settles', () => {
+    const rent = moneyOut({ who: 'expense', payeeId: L('Rent'), amount: 118_000, gstBill: true, billSupplierId: L('Bharat Steel'), billNo: 'RENT-AUG', gstRate: 18, how: 'bank' }).out
+    const pay = rent.voucherIds[1]!
+    // A goods bill (Purchases) paid now: the supplier only, as before.
+    const goods = post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: 'BS-1', date: TODAY, amount: { amount: 50_000, gstRate: 0 }, payment: { how: 'cash' } })
+    // A later payment of a part-paid expense bill, from Money out → a supplier: the bill it settles says what it was for.
+    const part = post({ kind: 'purchase', supplierId: L('Delhi Traders'), billNo: 'DT-RENT', date: TODAY, amount: { amount: 10_000, accountId: L('Rent'), gstRate: 18 }, payment: { how: 'credit' } })
+    expect(part.facts.forWhat).toBe('Rent')
+    const later = moneyOut({ who: 'supplier', supplierId: L('Delhi Traders'), amount: 11_800, how: 'cash' }).out
+    const list = moneyList(db, '2025-04-01', TODAY)
+    const row = (id: number) => list.find((x) => x.voucherId === id)!
+    expect(row(pay)).toMatchObject({ who: 'Bharat Steel', forWhat: 'Rent', chips: ['bills', 'expense'] })
+    expect(row(goods.voucherIds[1]!)).toMatchObject({ who: 'Bharat Steel', chips: ['bills'] })
+    expect(row(goods.voucherIds[1]!).forWhat).toBeUndefined()
+    expect(row(later.voucherIds[0]!)).toMatchObject({ who: 'Delhi Traders', forWhat: 'Rent', chips: ['bills', 'expense'] })
+    expect(moneyEntry(db, pay)).toMatchObject({ forWhat: 'Rent', chips: ['bills', 'expense'] })
+    expect(moneyWho(row(pay), translator('en'))).toBe('Rent (Bharat Steel)')
+    // Binning the bill: nothing to read it from, the payment names the supplier only.
+    db.prepare("UPDATE vouchers SET deleted_at = '2025-08-14T00:00:00Z' WHERE id = ?").run(rent.voucherIds[0])
+    expect(moneyEntry(db, pay)!.forWhat).toBeUndefined()
   })
 
   it('the money list reaches as far ahead as simple:post allows (+30 days); rows after today say “dated ahead”', () => {
