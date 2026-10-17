@@ -9,7 +9,7 @@ import type { SimplePreview } from '@shared/simple/intents'
 import { CATEGORIES } from '@shared/simple/categories'
 import { categoriesFor } from '@shared/simple/accountKinds'
 import {
-  asksAmountRate, BUY_MODES, buyFormErrors, buyGst, buyTotals, emptyBuyForm, productsNeedGst, purchaseIntentFrom, purchasePreviewLine, showsPriceBasis, switchBuyBasis,
+  asksAmountRate, BUY_MODES, isCashExpense, buyFormErrors, buyGst, buyTotals, emptyBuyForm, productsNeedGst, buyIntentFrom, purchasePreviewLine, showsPriceBasis, switchBuyBasis,
   type BuyContext, type BuyField, type BuyForm, type BuyLine, type BuyMode
 } from '@shared/simple/buy'
 import type { MessageKey } from '@shared/i18n'
@@ -64,6 +64,16 @@ function readIncl(slug: string | null): boolean | null {
 }
 
 /** Has the form anything the user typed (worth asking before throwing it away)? */
+const MONEY_OUT_FIELD: Record<string, string> = { party: 'account', from: 'payment' } // i18n-technical: field paths
+const moveFields = (c: CaughtError): Error => {
+  const f = (x: string | undefined): string | undefined => (x ? (MONEY_OUT_FIELD[x.split('.')[0]!] ?? x) : x)
+  return Object.assign(new Error(c.message), {
+    ...(c.code ? { code: c.code } : {}),
+    ...(f(c.field) ? { field: f(c.field) } : {}),
+    ...(c.params ? { params: c.params } : {}),
+    ...(c.issues ? { issues: c.issues.map((i) => ({ ...i, ...(f(i.field) ? { field: f(i.field) } : {}) })) } : {})
+  })
+}
 const isDirty = (f: BuyForm, party?: number): boolean =>
   (f.supplierId != null && f.supplierId !== party) || f.billNo.trim() !== '' || f.amount != null || f.categoryId != null || f.note.trim() !== '' || f.lines.some((l) => l.itemId != null)
 
@@ -149,7 +159,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
 
   const errors = useFormErrors<BuyField>(
     {
-      date: form.date, party: form.supplierId, billNo: form.billNo, items: form.lines, account: form.categoryId, amount: form.amount, gstRate: form.gstRate,
+      date: form.date, party: `${form.supplierId}|${ctx ? isCashExpense(form, ctx) : false}|${form.paid}`, billNo: form.billNo, items: form.lines, account: form.categoryId, amount: form.amount, gstRate: form.gstRate,
       gstOnBill: `${form.gstOnBill}|${form.mode}|${ctx ? productsNeedGst(form, ctx) : false}`, payment: `${form.paid}|${form.partAmount}|${form.partHow}`
     },
     { simple: true, t }
@@ -168,7 +178,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
 
   // ---------- the plain preview line (simple:preview, rehearsed — nothing saved) ----------
   const ready = !!ctx && !!setup && Object.keys(clientErrors).length === 0
-  const intent = useMemo(() => (ready ? purchaseIntentFrom(form, ctx!, setup!.defaults) : null), [ready, form, ctx, setup])
+  const intent = useMemo(() => (ready ? buyIntentFrom(form, ctx!, setup!.defaults) : null), [ready, form, ctx, setup])
   const intentKey = intent ? JSON.stringify(intent) : ''
   const previewRef = useRef(poster.preview)
   previewRef.current = poster.preview
@@ -206,12 +216,16 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
       if (typeof caught.params?.voucherId === 'number') setDupId(caught.params.voucherId)
       return
     }
-    const mapped = errors.apply(err)
+    // A cash expense is Money out's entry: its "party" is the expense account, its "from" the payment.
+    const moved = cashRef.current && err instanceof Error ? moveFields(err as CaughtError) : err
+    const mapped = errors.apply(moved)
     if (mapped.general || Object.keys(mapped.fields).length === 0) {
       setGeneral({ text: mapped.general || t('simple.buy.err.problem'), details: mapError(caught, { simple: true, t }).details })
     }
   }
 
+  const cashRef = useRef(false)
+  cashRef.current = !!ctx && isCashExpense(form, ctx)
   const placeRef = useRef(place)
   placeRef.current = place
 
@@ -225,7 +239,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
       return
     }
     try {
-      const r = await poster.post(purchaseIntentFrom(form, ctx, setup.defaults))
+      const r = await poster.post(buyIntentFrom(form, ctx, setup.defaults))
       setSavedIds(r.voucherIds)
       for (const k of ['simpleBuySetup', 'simplePurchases', 'ledgers', 'stockItems', 'dashboard']) void queryClient.invalidateQueries({ queryKey: [k] }) // i18n-technical
     } catch (err) {

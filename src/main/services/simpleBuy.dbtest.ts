@@ -20,7 +20,8 @@ import {
   buildAccountingPayload, buildInvoicePayload, derivePartyId, emptyInvoiceState, planVoucherEdit, taxLedgerIdsFrom, taxSideOf, voucherTaxLedgers,
   type AccountingFormState, type EditPlan, type InvoiceFormState
 } from '@shared/voucherEdit'
-import { emptyBuyForm, purchaseIntentFrom, buyFormErrors, buyTotals, type BuyContext, type BuyForm } from '@shared/simple/buy'
+import { emptyMoneyOutForm, moneyOutIntentFrom } from '@shared/simple/money'
+import { buyIntentFrom, emptyBuyForm, purchaseIntentFrom, buyFormErrors, buyTotals, type BuyContext, type BuyForm } from '@shared/simple/buy'
 import { createLedger, createStockItem, listGroups, listLedgers, listStockItems } from './masters'
 import { getVoucher, nextVoucherNumber, saveVoucher } from './vouchers'
 import { partyAllocation } from './analysis'
@@ -364,5 +365,59 @@ describe('PR #171 review: an amount typed WITH GST is the printed total, in ever
         roundTrips(o.voucherIds[0]!, 'accounting')
       }
     }
+  })
+})
+
+describe('to-do §4: a cash expense with no supplier is Money out’s expense entry', () => {
+  const ctxOf = (d: DB): { ctx: BuyContext; defaults: ReturnType<typeof buySetup>['defaults'] } => {
+    const setup = buySetup(d)
+    return { ctx: { invoice: invoiceCtx(d), purchaseAccountId: setup.purchaseAccountId }, defaults: setup.defaults }
+  }
+  const noSupplier = (patch: Partial<BuyForm> = {}): BuyForm => ({
+    ...emptyBuyForm('2025-08-10', { mode: 'expense', ratesIncludeGst: true }), mode: 'expense', categoryId: L('Electricity'), amount: 85_050, paid: 'cash', gstOnBill: false, note: 'August', ...patch
+  })
+
+  it('= the entry Money out posts for the same expense in a twin company; same GSTR-3B; not a bill; Undo bins it', () => {
+    const { ctx, defaults } = ctxOf(db)
+    const form = noSupplier()
+    expect(buyFormErrors(form, ctx)).toEqual({})
+    const out = postIntent(db, info, { clientId: 'cash-expense-1', ...buyIntentFrom(form, ctx, defaults) }, TODAY)
+    expect(out.entries.map((e) => e.kind)).toEqual(['payment'])
+    expect(out.facts).toMatchObject({ kind: 'money_out', total: 85_050, paid: 85_050, toName: 'Electricity' })
+
+    const twin = company(INFO)
+    const tw = postIntent(
+      twin, INFO,
+      { clientId: 'twin-money-out-1', ...moneyOutIntentFrom({ ...emptyMoneyOutForm('2025-08-10'), who: 'expense', amount: 85_050, how: 'cash', payeeId: L('Electricity', twin), note: 'August' }, [], ctxOf(twin).defaults,
+        { facts: gstRegistrationOf(INFO), companyStateCode: '27', supplierState: () => null, drawingsId: null }) },
+      TODAY
+    )
+    expect(rows(db, out.voucherIds[0]!)).toEqual(rows(twin, tw.voucherIds[0]!))
+    expect(itcOf(db, INFO)).toEqual(itcOf(twin, INFO))
+
+    // It is the payment it is: no purchase bill, so no supplier on the purchase list; it re-opens in
+    // the payment editor unchanged.
+    expect(purchasesList(db, '2025-04-01', TODAY, TODAY)).toEqual([])
+    roundTrips(out.voucherIds[0]!, 'accounting')
+    // Undo bins a fresh one (a group of one) — the first was re-saved by the editor round trip.
+    const again = postIntent(db, info, { clientId: 'cash-expense-1b', ...buyIntentFrom(form, ctx, defaults) }, TODAY)
+    undoSave(db, again.voucherIds)
+    expect(count(`SELECT COUNT(*) AS n FROM vouchers WHERE id = ${again.voucherIds[0]} AND deleted_at IS NOT NULL`)).toBe(1)
+  })
+
+  it('a company that can’t claim GST: before GST typed = the folded cost; not yet / partly / a GST bill to claim / products still need the supplier', () => {
+    const d = company(UNREG)
+    const { ctx, defaults } = ctxOf(d)
+    const rent = L('Rent', d)
+    const out = postIntent(d, UNREG, { clientId: 'cash-expense-2', ...buyIntentFrom(noSupplier({ categoryId: rent, amount: 100_000, ratesIncludeGst: false, gstRate: 18 }), ctx, defaults) }, TODAY)
+    expect(out.facts.total).toBe(118_000)
+    const lines = d.prepare('SELECT ledger_id, dr_cr, amount FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order').all(out.voucherIds[0]!)
+    expect(lines).toEqual([{ ledger_id: rent, dr_cr: 'dr', amount: 118_000 }, { ledger_id: buySetup(d).defaults.cash, dr_cr: 'cr', amount: 118_000 }])
+
+    const regular = ctxOf(db).ctx
+    expect(buyFormErrors(noSupplier({ paid: 'credit' }), regular).party).toBe('simple.buy.err.supplierOwe')
+    expect(buyFormErrors(noSupplier({ paid: 'part', partAmount: 100 }), regular).party).toBe('simple.buy.err.supplierOwe')
+    expect(buyFormErrors(noSupplier({ gstOnBill: true, gstRate: 18 }), regular).party).toBe('simple.buy.err.supplierGst')
+    expect(buyFormErrors(noSupplier({ mode: 'items', lines: [ln(1, 'Widget', '1', 100)] }), regular).party).toBe('simple.buy.err.supplier')
   })
 })

@@ -21,7 +21,7 @@ import { normaliseIntent } from '@shared/simple/intents'
 import type { MoneyOpenBill } from '@shared/simple/money'
 import { billOnly, carryBack, type CarryContext, type CarryFlow, type CarryForms, type CarryResult } from '@shared/simple/carryBack'
 import { saleIntentFrom, type SellForm } from '@shared/simple/sell'
-import { purchaseIntentFrom, type BuyForm } from '@shared/simple/buy'
+import { buyIntentFrom, type BuyForm } from '@shared/simple/buy'
 import { moneyInIntentFrom, moneyOutIntentFrom, moveIntentFrom, type MoneyInForm, type MoneyOutForm, type MoveForm } from '@shared/simple/money'
 import { returnIntentFrom, type ReturnForm } from '@shared/simple/returns'
 import { listGroups } from './masters'
@@ -123,7 +123,7 @@ function remapForm(db: DB, company: CompanyInfo, flow: CarryFlow, form: CarryFor
       intent = saleIntentFrom(form as SellForm, sell, none)
       break
     case 'simple-buy':
-      intent = purchaseIntentFrom(form as BuyForm, buy, none)
+      intent = buyIntentFrom(form as BuyForm, buy, none)
       break
     case 'simple-money-in': {
       const f = form as MoneyInForm

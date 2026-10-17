@@ -291,6 +291,43 @@ export type BuyMoneyDefaults = Record<MoneyHow, number | null>
  *  to the cost" exactly when the prices were typed before GST. */
 const intentGstOnBill = (g: BuyGst): boolean => g === 'claim' || g === 'fold'
 
+type WithoutClientId<T> = T extends unknown ? Omit<T, 'clientId'> : never
+/** What Record a purchase posts: a `purchase`, or — a cash expense with no supplier — Money out's
+ *  own `money_out` on that expense account. */
+export type BuyIntentDraft = WithoutClientId<Extract<SimpleIntentInput, { kind: 'purchase' | 'money_out' }>>
+
+/** WP 10.8 leftovers: an expense / just-an-amount bill paid in full, now, needs no supplier — it
+ *  is Money out's expense entry (nothing is owed, so no creditor; no GST is claimed, because a
+ *  claim needs the supplier's invoice). Products always need a supplier (stock purchase rules). */
+export function isCashExpense(form: BuyForm, ctx: BuyContext): boolean {
+  return form.supplierId == null && form.mode !== 'items' && form.paid !== 'credit' && form.paid !== 'part' && buyGst(form, ctx) !== 'claim'
+}
+
+/** The expense account a no-supplier entry goes to (the category, or the default purchase account). */
+const cashExpenseAccountId = (form: BuyForm, ctx: BuyContext): number | null => (form.mode === 'expense' ? form.categoryId : ctx.purchaseAccountId)
+
+/** What Save sends: the `purchase`, or — a cash expense with no supplier — Money out's `money_out`. */
+export function buyIntentFrom(form: BuyForm, ctx: BuyContext, defaults: BuyMoneyDefaults): BuyIntentDraft {
+  const g = buyGst(form, ctx)
+  if (isCashExpense(form, ctx)) {
+    const how = form.paid as MoneyHow
+    const accountId = form.accountId ?? defaults[how] ?? undefined
+    const payee = cashExpenseAccountId(form, ctx)
+    // Typed with GST (or no GST on the bill): the amount is what left the till; GST folded into
+    // the cost of a company that can't claim it is the bill's total as the form shows it.
+    const amount = g === 'fold' ? buyTotals(form, ctx).total : (form.amount ?? 0)
+    return {
+      kind: 'money_out' as const,
+      date: form.date,
+      amount,
+      from: { how, ...(accountId != null ? { accountId } : {}) },
+      ...(payee != null ? { payeeId: payee } : {}),
+      ...(form.note.trim() ? { narration: form.note.trim() } : {})
+    }
+  }
+  return purchaseIntentFrom(form, ctx, defaults)
+}
+
 /** The form's answers as the `purchase` intent (without its clientId — useSimplePost adds it).
  *  Only call with a supplier picked (buyFormErrors checks it). */
 export function purchaseIntentFrom(form: BuyForm, ctx: BuyContext, defaults: BuyMoneyDefaults): Omit<Extract<SimpleIntentInput, { kind: 'purchase' }>, 'clientId'> {
@@ -342,7 +379,10 @@ export type BuyField = 'date' | 'party' | 'billNo' | 'items' | 'account' | 'amou
 export function buyFormErrors(form: BuyForm, ctx: BuyContext): Partial<Record<BuyField, MessageKey>> {
   const out: Partial<Record<BuyField, MessageKey>> = {}
   const g = buyGst(form, ctx)
-  if (form.supplierId == null) out.party = 'simple.buy.err.supplier'
+  if (form.supplierId == null && !isCashExpense(form, ctx)) {
+    out.party =
+      form.mode === 'items' ? 'simple.buy.err.supplier' : form.paid === 'credit' || form.paid === 'part' ? 'simple.buy.err.supplierOwe' : 'simple.buy.err.supplierGst'
+  }
   if (form.mode === 'items') {
     const { lines, incomplete } = buyIntentLines(form, ctx)
     const bad = incomplete.map((i) => form.lines[i]!)
@@ -369,6 +409,8 @@ const money = (p: number): string => formatPaise(p, { symbol: true })
 /** The plain line shown before Save — "Bill ₹1,180.00 from Bharat Steel. ₹500.00 paid by UPI now,
  *  ₹680.00 still to pay by 20 Nov 2026." — from simple:preview's facts (computed by main). */
 export function purchasePreviewLine(f: IntentFacts, t: Translate): string {
+  // A cash expense with no supplier is Money out's entry: "Paid ₹X for Rent from Cash."
+  if (f.kind === 'money_out') return t('simple.buy.preview.cashExpense', { amount: money(f.total), what: f.toName ?? '', account: f.moneyAccount ?? '' })
   const head = t('simple.buy.preview.bill', { amount: money(f.total), name: f.partyName ?? '' })
   const how = f.how ?? 'cash'
   const due = f.dueDate ? toPlainDate(f.dueDate, t.lang) : ''
