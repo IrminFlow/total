@@ -516,6 +516,22 @@ describe('every export-audited channel is gated by canExport unless it is a prin
       if (map.get(ch) !== 'canExport' && map.get(ch) !== 'canPost') missed.push(ch)
     }
     expect(missed).toEqual([])
+    // Source scan, whatever the channel's role: a handler that audits an 'export' (auditExport(...) or
+    // writeAudit(db, 'export', ...)) must be gated by canExport or listed in NOT_EXPORTS. Viewer-role
+    // channels are not in AUDIT_COVERAGE, so the registry loop above cannot see them.
+    const { readdirSync, readFileSync } = await import('fs')
+    const dir = __dirname
+    const unlisted: string[] = []
+    for (const f of readdirSync(dir).filter((n) => /^ipc.*\.ts$/.test(n) && !/test\.ts$/.test(n))) {
+      const parts = readFileSync(join(dir, f), 'utf8').split(/\n\s*handle\(\s*'/).slice(1)
+      for (const part of parts) {
+        const ch = part.slice(0, part.indexOf("'"))
+        if (!/auditExport\(|writeAudit\([^)]*'export'/.test(part.split(/\n {2}(?:handle\(|const |let |function |\/\/)/)[0] ?? '')) continue
+        if (ch in caps.NOT_EXPORTS) continue
+        if (map.get(ch) !== 'canExport' && map.get(ch) !== 'canPost') unlisted.push(`${ch} (${f})`)
+      }
+    }
+    expect(unlisted).toEqual([])
     for (const ch of Object.keys(caps.NOT_EXPORTS)) expect(ipc.CHANNEL_ROLES.has(ch), ch).toBe(true)
   })
 })

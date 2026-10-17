@@ -132,9 +132,8 @@ describe('data folder move (IPC, hermetic)', () => {
       db.close()
     }
 
-    await new Promise((r) => setTimeout(r, 1700))
+    await vi.waitFor(() => expect(exit).toHaveBeenCalledWith(0), { timeout: 5000, interval: 25 })
     expect(relaunch).toHaveBeenCalledTimes(1)
-    expect(exit).toHaveBeenCalledWith(0)
   })
 
   it('owner-only to pick and move; reading is open', () => {
