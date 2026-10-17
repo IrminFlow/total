@@ -28,7 +28,8 @@ import { Card, Choices, MoneyFooter, MoneyHeader } from './MoneyParts'
 import { ensureCategoryAccount } from './ensureAccount'
 import { useMoneyFlow } from './useMoneyFlow'
 import { BackToBankButton, goBackToBank } from './backToBank'
-import { useAccountantView, useKeptForm } from '../../lib/handoff'
+import { useAccountantView, useCarriedBack, useKeptForm } from '../../lib/handoff'
+import { CarriedBackNote } from '../CarriedBackNote'
 
 const WHO_TEXT: Record<MoneyOutWho, MessageKey> = {
   supplier: 'simple.money.out.who.supplier',
@@ -78,6 +79,7 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
   const groups = useGroups()
   const { data: setup } = useQuery({ queryKey: ['simpleMoneySetup', 'out'], queryFn: () => api.simpleMoney.setup({ customerCredits: true }) }) // i18n-technical
   const blank = (): MoneyOutForm => emptyMoneyOutForm(workingDate)
+  const carriedBack = useCarriedBack()
   const [form, setForm] = useKeptForm<MoneyOutForm>(() => {
     const f = emptyMoneyOutForm(date ?? workingDate, { supplierId: party ?? null, amount: amount ?? null, bill: bill ?? null, bankId: bankId ?? null, reference: reference ?? null, note: note ?? null })
     return ask ? moneyOutFromAsk(f, ask.prefill) : f
@@ -177,6 +179,7 @@ export function MoneyOut({ party, amount, bill, billId, date, bankId, reference,
   return (
     <Page data-testid="simple-money-out">
       <MoneyHeader title={t('simple.money.out.title')} sub={t('simple.money.out.sub')} onAccountant={accountantView} />
+      <CarriedBackNote dropped={carriedBack} hidden={!!flow.savedIds} />
       {flow.savedIds ? (
         <>
           <SaveCard voucherIds={flow.savedIds} onNew={flow.startNew} onEdit={(id) => nav.go({ name: 'voucher-entry', voucherId: id })} /> {/* i18n-technical */}

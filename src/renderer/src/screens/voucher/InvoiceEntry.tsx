@@ -68,7 +68,8 @@ export function InvoiceEntry({
   voucherId,
   voucher,
   initial,
-  pending
+  pending,
+  onHandoffState
 }: {
   typeId: number
   kind: VoucherKind
@@ -80,6 +81,9 @@ export function InvoiceEntry({
   /** WP 9.10 hand-off: a party that does not exist yet (the walk-in) — named in the pick and
    *  created on save, as the editor does on first use (lib/handoff.ts useHandoffLedgers). */
   pending?: HandoffPendingRefs
+  /** WP 9.10 hand-off: told the form as it stands (a number only once typed), so "Back to simple"
+   *  can carry the changes back (lib/handoff.ts). */
+  onHandoffState?: (state: InvoiceFormState, pending: HandoffPendingRefs) => void
 }): React.JSX.Element {
   const isEdit = voucherId != null
   const { info, workingDate, setWorkingDate, user } = useSession()
@@ -275,6 +279,14 @@ export function InvoiceEntry({
     }),
     [date, isEdit, alterNumber, numberField.forPayload, partyId, accountId, rows, narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, manualNewBillMode, noteBillRefs, initial, kind, tds, tcs, taxedOriginal]
   )
+  // A bill name still following the number (not typed) is reported as the hand-off had it: blank —
+  // the number arriving from the numbering query is no change of the user's.
+  useEffect(() => {
+    onHandoffState?.(
+      { ...formState, number: numberField.touched ? formState.number : '', billName: billNameTouched ? formState.billName : '' },
+      pendingParty ? { party: pendingParty } : {}
+    )
+  }, [onHandoffState, formState, numberField.touched, billNameTouched, pendingParty])
 
   const computed = useMemo(() => computeInvoice(formState, ctx), [formState, ctx])
   const { supply, fxActive } = computed

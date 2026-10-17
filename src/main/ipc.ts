@@ -167,6 +167,7 @@ import * as simpleTaxes from './services/simpleTaxes'
 import { doingQuerySchema, owedQuerySchema } from '@shared/simple/reports'
 import { gstFiledInputSchema, quarterExportMonths, taxesQuerySchema } from '@shared/simple/taxes'
 import { simpleIntentSchema } from '@shared/simple/intents'
+import { CARRY_FLOWS } from '@shared/simple/carryBack'
 import { peopleListSchema, personRemindedSchema, personUpdateSchema, personViewSchema } from '@shared/simple/people'
 import { bankAcceptSchema } from '@shared/simple/bank'
 import { simpleSetupSchema } from '@shared/simple/setup'
@@ -734,6 +735,35 @@ export function registerIpc(): void {
     const { intent, today } = simpleIntentPayload.parse(payload)
     const c = requireCompany()
     return simplePost.intentForm(c.db, c.info, intent, today ?? todayISO())
+  }, 'viewer')
+  // WP 9.10 follow-up: "Back to simple" from an unsaved hand-off editor — its changes carried back
+  // into the simple form (pure carryBack over simple:post's context, rolled back). The entries and
+  // the form are the renderer's own state handed through; carryBack reads only their known fields.
+  const handoffEntryPayload = z
+    .object({
+      role: z.string(),
+      kind: z.string(),
+      voucherTypeId: z.number().int(),
+      amount: z.number().int(),
+      form: z.enum(['invoice', 'accounting', 'physical', 'manufacture']),
+      state: z.object({ date: isoDate }).passthrough(),
+      pending: z.record(z.string(), z.unknown()).optional()
+    })
+    .strict()
+  handle('simple:carryBack', (payload) => {
+    const p = z
+      .object({
+        flow: z.enum(CARRY_FLOWS),
+        intent: simpleIntentSchema,
+        original: handoffEntryPayload,
+        current: handoffEntryPayload,
+        base: z.record(z.string(), z.unknown()),
+        today: isoDate.optional()
+      })
+      .strict()
+      .parse(payload)
+    const c = requireCompany()
+    return simpleHandoff.carryBackForm(c.db, c.info, p as unknown as simpleHandoff.CarryBackRequest, p.today ?? todayISO())
   }, 'viewer')
   handle('simple:handoffTarget', (payload) => {
     const q = z.object({ voucherId: z.number().int().positive().optional(), ledgerId: z.number().int().positive().optional() }).strict().parse(payload)

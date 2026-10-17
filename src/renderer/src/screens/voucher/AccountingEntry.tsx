@@ -60,7 +60,8 @@ export function AccountingEntry({
   voucher,
   initial,
   fallbackReason,
-  pending
+  pending,
+  onHandoffState
 }: {
   typeId: number
   kind: VoucherKind
@@ -73,6 +74,9 @@ export function AccountingEntry({
   fallbackReason?: string | null
   /** WP 9.10 hand-off: rows whose account is created on save (by row index of `initial`). */
   pending?: HandoffPendingRefs
+  /** WP 9.10 hand-off: told the form as it stands (a number only once typed), so "Back to simple"
+   *  can carry the changes back (lib/handoff.ts). */
+  onHandoffState?: (state: AccountingFormState, pending: HandoffPendingRefs) => void
 }): React.JSX.Element {
   const t = useT()
   const createPending = useHandoffLedgers()
@@ -397,6 +401,9 @@ export function AccountingEntry({
     }),
     [date, voucherId, alterNumber, numberField.forPayload, rows, narration, instrumentNo, billRefs, advanceReceipt, optionalVoucher, tds, tcs, initial, stockLines, draftReference]
   )
+  useEffect(() => {
+    onHandoffState?.({ ...formState, number: numberField.touched ? formState.number : '' }, { rows: rows.map((r) => r.pending ?? null) })
+  }, [onHandoffState, formState, numberField.touched, rows])
 
   // Builds the exact VoucherInputParsed shape `save` posts.
   const buildPayload = useCallback((): VoucherInputParsed | null => {

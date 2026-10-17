@@ -16,7 +16,8 @@ import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateA
 import { create } from 'zustand'
 import { useQueryClient } from '@tanstack/react-query'
 import type { VoucherKind } from '@shared/domain'
-import { INTENT_SCREEN, type HandoffCreate, type HandoffFacts, type HandoffPending, type SimpleHandoff } from '@shared/simple/handoff'
+import { INTENT_SCREEN, type HandoffCreate, type HandoffEntry, type HandoffFacts, type HandoffPending, type SimpleHandoff } from '@shared/simple/handoff'
+import { CARRY_FLOWS, type CarryDropped, type CarryFlow, type CarryForms } from '@shared/simple/carryBack'
 import type { SimpleIntentInput } from '@shared/simple/intents'
 import { api } from './client'
 import { useT } from './i18n'
@@ -312,6 +313,16 @@ useSession.subscribe((s, prev) => {
   if (s.slug !== prev.slug) dropKeptForms()
 })
 
+/** The kept answers of one slot at a nav entry (not taken). */
+function peekKept(screen: Screen | undefined, depth: number, slot: string): unknown {
+  return keptForms.find((k) => k.depth === depth && k.screen === screen)?.slots[slot]
+}
+
+/** Replace slots of the answers kept at a nav entry (the carried-back form). */
+function rewriteKept(screen: Screen, depth: number, slots: Record<string, unknown>): void {
+  keptForms = keptForms.map((k) => (k.depth === depth && k.screen === screen ? { ...k, slots: { ...k.slots, ...slots } } : k))
+}
+
 /** True when `screen` at `depth` of the stack holds kept answers (not yet taken). */
 export function hasKeptForm(screen: Screen | undefined, depth: number): boolean {
   return screen != null && keptForms.some((k) => k.depth === depth && k.screen === screen)
@@ -338,6 +349,65 @@ export function useKeptForm<T>(init: T | (() => T), slot = 'form'): [T, Dispatch
   }, [])
   return state
 }
+
+// ---------------------------------------------------------------- the editor's changes, carried back
+
+/** The hand-off editor's form as it stands (its editor reports every change), per hand-off — and
+ *  as it FIRST reported it (on mount, before the user touched anything). */
+const editorStates = new WeakMap<SimpleHandoff, { first: HandoffEntry; current: HandoffEntry }>()
+
+/** Called by the hand-off's editor (VoucherEntry) with its current state. */
+export function reportHandoffEditor(handoff: SimpleHandoff, entry: HandoffEntry): void {
+  const was = editorStates.get(handoff)
+  editorStates.set(handoff, { first: was?.first ?? entry, current: entry })
+}
+
+const sameEntry = (a: HandoffEntry, b: HandoffEntry): boolean => JSON.stringify([a.state, a.pending ?? null]) === JSON.stringify([b.state, b.pending ?? null])
+
+/** Carried lines get fresh keys (carryBack marks them with negative ones). */
+let carriedLineSeq = 1_000_000
+function rekeyLines<F>(form: F): F {
+  const f = form as F & { lines?: { key: number }[] }
+  if (!Array.isArray(f.lines)) return form
+  return { ...f, lines: f.lines.map((l) => (l.key < 0 ? { ...l, key: ++carriedLineSeq } : l)) }
+}
+
+/**
+ * The editor's changes back into the simple form kept below it (shared/simple/carryBack.ts, run by
+ * simple:carryBack over simple:post's context): 'carried' = the kept form now holds them (and the
+ * fields that could not come along, slot `carriedBack`); 'none' = nothing changed there (or
+ * nothing to carry); 'refused' = the simple form can't hold this entry.
+ */
+async function carryEdits(handoff: SimpleHandoff, below: Screen, depth: number, today: string): Promise<'carried' | 'none' | 'refused'> {
+  const seen = editorStates.get(handoff)
+  if (!seen || !handoff.intent || !(CARRY_FLOWS as readonly string[]).includes(handoff.from)) return 'none'
+  const current = seen.current
+  // An editor the user did not touch is "Back to simple" exactly as before: nothing to carry (its
+  // mount may tidy the state — a blank row, a default — which is no change of the user's).
+  if (sameEntry(current, seen.first) || sameEntry(current, handoff.entry)) return 'none'
+  const base = peekKept(below, depth, 'form')
+  if (base == null) return 'none'
+  const flow = handoff.from as CarryFlow
+  try {
+    const r = await api.simple.carryBack({ flow, intent: handoff.intent, original: handoff.entry, current, base: base as CarryForms[CarryFlow] }, today)
+    if (!r.ok) return 'refused'
+    if (r.dropped.length === 0 && JSON.stringify(r.form) === JSON.stringify(base)) return 'none'
+    rewriteKept(below, depth, { form: rekeyLines(r.form), carriedBack: r.dropped })
+    return 'carried'
+  } catch {
+    return 'refused'
+  }
+}
+
+/** What a simple flow came back with from the full editor that could not be carried (null = not
+ *  carried back). Read once on arrival, like the form. */
+export function useCarriedBack(): CarriedBack {
+  return useKeptForm<CarriedBack>(null, 'carriedBack')[0]
+}
+
+/** What came back: the details that could not ([] = everything did), 'refused' = none of the
+ *  editor's changes (the earlier answers are shown), null = not back from a changed editor. */
+export type CarriedBack = CarryDropped[] | 'refused' | null
 
 // ---------------------------------------------------------------- hooks
 
@@ -381,12 +451,14 @@ export function useAccountantView(self: Name | Screen): (req: AccountantViewRequ
       const kept = !!req.keep
       if (req.keep) keepForm(req.keep)
       try {
-        const r = await api.simple.intentForm({ ...req.intent, clientId: req.clientId ?? HANDOFF_CLIENT_ID } as SimpleIntentInput, today)
+        const sent = { ...req.intent, clientId: req.clientId ?? HANDOFF_CLIENT_ID } as SimpleIntentInput
+        const r = await api.simple.intentForm(sent, today)
         const [entry, ...rest] = r.entries
         if (!entry) return nav.go(blank, { force: kept })
         const handoff: SimpleHandoff = {
           from: screen.name,
           kind: r.kind,
+          intent: sent,
           entry,
           others: rest.map((e) => ({ role: e.role, kind: e.kind, amount: e.amount })),
           missing: r.missing,
@@ -439,6 +511,7 @@ export function useBackToSimple(): () => Promise<void> {
   const nav = useNav()
   const slug = useSession((s) => s.slug)
   const userId = useSession((s) => s.user?.id)
+  const today = useSession((s) => s.workingDate)
   return useCallback(async () => {
     const q = factsQuery(screen, savedIdFor(screen))
     let facts: HandoffFacts | null = null
@@ -465,7 +538,20 @@ export function useBackToSimple(): () => Promise<void> {
     // chooses to stay on an unsaved editor.
     const names = backToSimpleClears(screen, target)
     const remembered = names.filter((name) => readRememberedOverride(slug, userId, name))
+    // The editor's changes go back with it where the simple form can hold them: no discard
+    // question then (nothing is lost but what the form's note names).
+    const carried = toBelow && screen.handoff && below ? await carryEdits(screen.handoff, below, stack.length - 2, today) : 'none'
     for (const name of names) setViewOverride(slug, userId, name, false)
-    if (!(await (toBelow ? nav.tryBack() : nav.tryGo(target)))) for (const name of remembered) setViewOverride(slug, userId, name, true, true)
-  }, [screen, nav, slug, userId])
+    if (carried === 'carried') {
+      useNav.setState((s) => (s.stack.at(-1) === screen && s.stack.length > 1 ? { stack: s.stack.slice(0, -1) } : s))
+      return
+    }
+    // Refused: the discard question is asked as before, and the flow then says (in its note, which
+    // stays until dismissed — never a timed toast) that the editor's changes did not come back.
+    if (carried === 'refused' && below) rewriteKept(below, stack.length - 2, { carriedBack: 'refused' })
+    if (!(await (toBelow ? nav.tryBack() : nav.tryGo(target)))) {
+      for (const name of remembered) setViewOverride(slug, userId, name, true, true)
+      if (carried === 'refused' && below) rewriteKept(below, stack.length - 2, { carriedBack: null })
+    }
+  }, [screen, nav, slug, userId, today])
 }

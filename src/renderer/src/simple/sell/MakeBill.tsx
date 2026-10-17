@@ -28,7 +28,8 @@ import { SaveCard } from '../SaveCard'
 import { BillLines, type FormLine } from './BillLines'
 import { AmountLine } from './AmountLine'
 import { PaidHow } from './PaidHow'
-import { useAccountantView, useKeptForm } from '../../lib/handoff'
+import { useAccountantView, useCarriedBack, useKeptForm } from '../../lib/handoff'
+import { CarriedBackNote } from '../CarriedBackNote'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
 import { useCanSave, ViewerNote } from '../ViewerNote'
@@ -85,6 +86,7 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
     [workingDate, startMode, slug]
   )
   // WP 10.1: an Ask Total entry request opens the bill pre-filled (askPrefill.ts — the draft's own mapping).
+  const carriedBack = useCarriedBack()
   const [form, setForm] = useKeptForm<SellForm & { lines: FormLine[] }>(() =>
     ask ? sellFromAsk(blank(), ask.prefill, (l) => ({ ...l, key: ++lineSeq, auto: l.auto ?? true })) : party != null ? { ...blank(), customerId: party, paid: CREDIT } : blank()
   )
@@ -352,6 +354,7 @@ export function MakeBill({ party, ask }: { party?: number; ask?: AskOpen<'simple
         <AccountantViewButton testId="btn-sell-accountant-view" title={t('simple.sell.accountantHint')} onOpen={accountantView} />
       </div>
       {!canSave && <ViewerNote top />}
+      <CarriedBackNote dropped={carriedBack} hidden={!!savedIds} />
 
       {noSalesAccount && !savedIds && (
         <section role="status" className="mb-4 rounded-lg border border-amber/60 bg-amberbar/10 px-4 py-3" data-testid="sell-no-sales-account">

@@ -13,7 +13,7 @@
 // exist after the rollback and names it, so the editor shows an empty pick instead of a dangling id.
 import type { VoucherKind } from '../domain'
 import type { AccountingFormState, InvoiceFormState, ManufactureFormState, PhysicalFormState, TaxSide } from '../voucherEdit'
-import type { IntentRole, SimpleIntentKind } from './intents'
+import type { IntentRole, SimpleIntentInput, SimpleIntentKind } from './intents'
 
 /** How the editor makes an account the rehearsal had to create, the way it does on first use:
  *  the counter's walk-in customer (counter.ts ensureWalkIn), a GST ledger of the bill's side
@@ -65,6 +65,9 @@ export interface SimpleHandoff {
   /** The simple screen it came from (registry name) — "Back to simple" returns there. */
   from: string
   kind: SimpleIntentKind
+  /** The answers it was made from (what simple:intentForm mapped) — "Back to simple" from an
+   *  unsaved editor carries its changes back over them (shared/simple/carryBack.ts). */
+  intent?: SimpleIntentInput
   entry: HandoffEntry
   /** The other parts of the same answers (a payment made now, a refund), not in this editor. */
   others: { role: IntentRole; kind: VoucherKind; amount: number }[]

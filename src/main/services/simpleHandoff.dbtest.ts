@@ -26,7 +26,13 @@ import type { HandoffCreate, HandoffEntry } from '@shared/simple/handoff'
 import { createLedger, createStockItem, listGroups, listLedgers, listStockItems } from './masters'
 import { getVoucher, nextVoucherNumber, saveVoucher } from './vouchers'
 import { intentForm, postIntent } from './simplePost'
-import { handoffFacts } from './simpleHandoff'
+import { carryBackForm, handoffFacts } from './simpleHandoff'
+import { emptySellForm, saleIntentFrom, type SellForm } from '@shared/simple/sell'
+import { emptyBuyForm, purchaseIntentFrom, type BuyForm } from '@shared/simple/buy'
+import { emptyMoneyInForm, moneyInIntentFrom, type MoneyInForm } from '@shared/simple/money'
+import { emptyReturnForm, type ReturnForm } from '@shared/simple/returns'
+import type { CarryFlow, CarryForms } from '@shared/simple/carryBack'
+import { moneyBills } from './simpleMoney'
 import { setBom } from './bom'
 import { ensureWalkIn } from './counter'
 import { rehearse } from '../ai/drafting/rehearse'
@@ -311,6 +317,118 @@ describe('simple:intentForm — the editor state of the current answers', () => 
   })
 })
 
+describe('simple:carryBack — the unsaved editor\'s changes back into the simple form', () => {
+  const NONE = { cash: null, upi: null, card: null, bank: null }
+  function invoiceCtx(): Omit<Parameters<typeof buildInvoicePayload>[1], 'kind'> {
+    const ledgers = listLedgers(db)
+    const items = listStockItems(db)
+    return {
+      companyStateCode: INFO.stateCode, ...gstRegistrationOf(readCompanyInfo(db)),
+      items: new Map(items.map((i) => [i.id, { gstRate: i.gstRate, cessRate: i.cessRate }])),
+      ledgers: new Map(ledgers.map((l) => [l.id, { stateCode: l.stateCode, gstRate: l.gstRate, tdsPayableSectionId: l.tdsPayableSectionId }]))
+    }
+  }
+  const sellIntent = (f: SellForm): Record<string, unknown> => saleIntentFrom(f, { invoice: invoiceCtx(), salesAccountId: L('Sales') }, NONE)
+  const buyIntent = (f: BuyForm): Record<string, unknown> => purchaseIntentFrom(f, { invoice: invoiceCtx(), purchaseAccountId: L('Purchases') }, NONE)
+
+  /** Hand `raw` off, change the editor's state with `edit`, carry it back over `base`: nothing
+   *  written; nothing dropped; the carried form, posted through simple:post, saves exactly what
+   *  the editor would have saved. Returns the carried form. */
+  function carriesAsEdited<F extends CarryFlow>(flow: F, raw: Record<string, unknown>, base: CarryForms[F], edit: (e: HandoffEntry) => HandoffEntry, toIntent: (f: CarryForms[F]) => Record<string, unknown>): CarryForms[F] {
+    const sent = intent(raw)
+    const original = intentForm(db, INFO, sent, TODAY).entries[0]!
+    const current = edit(original)
+    const before = trace()
+    const r = carryBackForm(db, INFO, { flow, intent: sent, original, current, base }, TODAY)
+    expect(trace()).toEqual(before)
+    if (!r.ok) throw new Error(`refused: ${r.reason}`)
+    expect(r.dropped).toEqual([])
+    const viaEditor = rehearse(db, () => rows(editorSave(current)))
+    const out = post(toIntent(r.form as CarryForms[F]))
+    expect(rows(out.voucherIds[0]!)).toEqual(viaEditor)
+    return r.form as CarryForms[F]
+  }
+
+  it('a product bill: a quantity and the note changed in the editor, prices typed with GST kept as typed', () => {
+    const form: SellForm = {
+      ...emptySellForm(TODAY, { mode: 'items', ratesIncludeGst: true }), customerId: L('Ramesh'), paid: 'credit',
+      lines: [{ key: 1, itemId: I('Widget'), qtyText: '2', rate: 59_000, discount: null, auto: false }, { key: 2, itemId: I('Flour'), qtyText: '4', rate: 10_500, discount: null, auto: false }]
+    }
+    const back = carriesAsEdited('simple-sell', sellIntent(form), form, (e) => {
+      const s = e.state as InvoiceFormState
+      return { ...e, state: { ...s, narration: 'Changed in the full app', rows: [s.rows[0]!, { ...s.rows[1]!, qtyText: '6' }] } } as HandoffEntry
+    }, sellIntent)
+    expect(back.lines[0]).toEqual(form.lines[0])
+    expect(back).toMatchObject({ ratesIncludeGst: true, note: 'Changed in the full app', lines: [{}, { itemId: I('Flour'), qtyText: '6', rate: 10_500 }] })
+  })
+
+  it('a just-an-amount expense bill: another amount and date in the editor', () => {
+    const form: BuyForm = { ...emptyBuyForm(TODAY, { mode: 'expense', ratesIncludeGst: false }), supplierId: L('Bharat Steel'), billNo: 'R-9', categoryId: L('Rent'), amount: 100_000, gstRate: 18 }
+    const back = carriesAsEdited('simple-buy', buyIntent(form), form, (e) => {
+      const s = e.state as AccountingFormState
+      const scale = (id: number | null, amt: number | null): number | null =>
+        id === L('Bharat Steel') ? 295_000 : id === L('Rent') ? 250_000 : amt === 9000 ? 22_500 : amt
+      return { ...e, state: { ...s, date: '2025-08-12', rows: s.rows.map((r) => ({ ...r, amount: scale(r.ledgerId, r.amount) })), billRefs: s.billRefs.map((b) => ({ ...b, amount: 295_000, dueDate: '2025-08-12' })) } } as HandoffEntry
+    }, buyIntent)
+    expect(back).toMatchObject({ mode: 'expense', categoryId: L('Rent'), amount: 250_000, gstRate: 18, date: '2025-08-12', billNo: 'R-9' })
+  })
+
+  it('money in: the bill ticked in the editor comes back as the tick', () => {
+    const s1 = post({ kind: 'sale', customerId: L('Ramesh'), date: '2025-06-01', amount: { amount: '300', gstRate: 0 } })
+    post({ kind: 'sale', customerId: L('Ramesh'), date: '2025-06-05', amount: { amount: '200', gstRate: 0 } })
+    const open = moneyBills(db, L('Ramesh'), TODAY)
+    const second = open[1]!.name
+    const form: MoneyInForm = { ...emptyMoneyInForm(TODAY), customerId: L('Ramesh'), amount: 20_000, how: 'cash', accountId: L('Cash') }
+    const toIntent = (f: MoneyInForm): Record<string, unknown> => moneyInIntentFrom(f, open, NONE, { ownerId: null })
+    const back = carriesAsEdited('simple-money-in', toIntent(form), form, (e) => {
+      const s = e.state as AccountingFormState
+      return { ...e, state: { ...s, billRefs: [{ kind: 'against', name: second, amount: 20_000, dueDate: null }] } } as HandoffEntry
+    }, toIntent)
+    expect(back.ticks).toEqual([second])
+    expect(s1.voucherIds).toHaveLength(1)
+  })
+
+  it('a return of products: another quantity in the editor', () => {
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '4', rate: '500' }] })
+    const v = getVoucher(db, sale.voucherIds[0]!)!
+    const uid = v.inventory[0]!.lineUid!
+    const form: ReturnForm = { ...emptyReturnForm(TODAY), qty: { [uid]: '1' }, reason: 'Damaged' }
+    const toIntent = (f: ReturnForm): Record<string, unknown> => ({ kind: 'return_sale', billId: v.id, date: f.date, narration: f.reason, items: [{ lineUid: uid, qty: f.qty[uid] }] })
+    const back = carriesAsEdited('simple-return-sale', toIntent(form), form, (e) => {
+      const s = e.state as InvoiceFormState
+      // The bill split follows the note's new total (₹1,180 for two), as the editor's save needs.
+      return { ...e, state: { ...s, rows: [{ ...s.rows[0]!, qtyText: '2' }], noteBillRefs: s.noteBillRefs.map((r) => ({ ...r, amount: 118_000 })) } } as HandoffEntry
+    }, toIntent)
+    expect(back.qty[uid]).toBe('2')
+  })
+
+  it('review: a walk-in sale whose "Cash sale" does not exist yet comes back as the walk-in (no id of the rolled-back rehearsal), nothing written', () => {
+    expect(db.prepare("SELECT 1 FROM ledgers WHERE name = 'Cash sale'").get()).toBeUndefined()
+    const form: SellForm = { ...emptySellForm(TODAY, { mode: 'items', ratesIncludeGst: false }), customerId: null, paid: 'cash', lines: [{ key: 1, itemId: I('Widget'), qtyText: '1', rate: 10_000, discount: null, auto: false }] }
+    const sent = intent(sellIntent(form))
+    const original = intentForm(db, INFO, sent, TODAY).entries[0]!
+    if (original.form !== 'invoice') throw new Error('invoice form')
+    expect(original.state.partyId).toBeNull()
+    const current = { ...original, state: { ...original.state, rows: [{ ...original.state.rows[0]!, qtyText: '3' }] } } as HandoffEntry
+    const before = trace()
+    const r = carryBackForm(db, INFO, { flow: 'simple-sell', intent: sent, original, current, base: form }, TODAY)
+    expect(trace()).toEqual(before)
+    expect(r).toMatchObject({ ok: true, dropped: [], form: { customerId: null, paid: 'cash', lines: [{ itemId: I('Widget'), qtyText: '3', rate: 10_000 }] } })
+    expect(db.prepare("SELECT 1 FROM ledgers WHERE name = 'Cash sale'").get()).toBeUndefined()
+  })
+
+  it('what the simple form has no place for is named; a sale whose debit is no customer is refused', () => {
+    const form: SellForm = { ...emptySellForm(TODAY, { mode: 'amount', ratesIncludeGst: false }), customerId: L('Ramesh'), paid: 'credit', amount: 100_000, gstRate: 18 }
+    const sent = intent(sellIntent(form))
+    const original = intentForm(db, INFO, sent, TODAY).entries[0]!
+    const s = original.state as AccountingFormState
+    const typed = { ...original, state: { ...s, number: 'S-99', optional: true } } as HandoffEntry
+    expect(carryBackForm(db, INFO, { flow: 'simple-sell', intent: sent, original, current: typed, base: form }, TODAY)).toMatchObject({ ok: true, dropped: ['number', 'optional'] })
+    const notParty = { ...original, state: { ...s, rows: s.rows.map((r) => (r.ledgerId === L('Ramesh') ? { ...r, ledgerId: L('Rent') } : r)) } } as HandoffEntry
+    expect(carryBackForm(db, INFO, { flow: 'simple-sell', intent: sent, original, current: notParty, base: form }, TODAY)).toEqual({ ok: false, reason: 'party' })
+  })
+})
+
 describe('simple:handoffTarget — what "Back to simple" needs', () => {
   it('a voucher in the books with its kind; a note with its original bill; a binned voucher has none', () => {
     const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '4', rate: '500' }] })
@@ -346,6 +464,8 @@ describe('simple:handoffTarget — what "Back to simple" needs', () => {
     const cash = (await ok<{ id: number; name: string }[]>('master:ledgers:list')).find((l) => l.name === 'Cash')!
     const unit = (await ok<{ id: number; symbol: string }[]>('master:units:list')).find((u) => u.symbol === 'Nos')!
     const item = await ok<{ id: number }>('master:stockItems:create', { name: 'Soap', unitId: unit.id, openingQtyMilli: 5000, openingValue: 5000 })
+    const cashGroup = (await ok<{ id: number; name: string }[]>('master:groups:list')).find((g) => g.name === 'Cash-in-Hand')!
+    const till = await ok<{ id: number }>('master:ledgers:create', { name: 'Till', groupId: cashGroup.id, openingBalance: 0, gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null })
     await ok('users:save', { data: { name: 'Olive', role: 'owner', pin: '1111' } })
     const viewer = await ok<{ id: number }>('users:save', { data: { name: 'Vik', role: 'viewer', pin: '2222' } })
     await ok('auth:logout')
@@ -354,6 +474,14 @@ describe('simple:handoffTarget — what "Back to simple" needs', () => {
     expect(hf.kind).toBe('stock_count')
     expect(hf.entries).toHaveLength(1)
     expect(await ok('simple:handoffTarget', { ledgerId: cash.id })).toEqual({ ledger: { id: cash.id, isParty: false } })
+    // simple:carryBack: a viewer read too (a move of money between the two cash accounts).
+    const moveIntent = { clientId: 'viewer-carry-1', kind: 'move_money', date: '2025-08-14', amount: 5000, fromId: cash.id, toId: till.id }
+    const mf = await ok<{ entries: HandoffEntry[] }>('simple:intentForm', { intent: moveIntent, today: '2025-08-14' })
+    const e = mf.entries[0]!
+    const changed = { ...e, state: { ...e.state, rows: (e.state as AccountingFormState).rows.map((r) => ({ ...r, amount: 7000 })) } }
+    const base = { date: '2025-08-14', amount: 5000, fromId: cash.id, toId: till.id, reference: '', note: '' }
+    expect(await ok('simple:carryBack', { flow: 'simple-move-money', intent: moveIntent, original: e, current: changed, base, today: '2025-08-14' })).toEqual({ ok: true, form: { ...base, amount: 7000 }, dropped: [] })
+    expect(await call('simple:carryBack', { flow: 'simple-stock-count', intent: moveIntent, original: e, current: changed, base })).toMatchObject({ ok: false })
     expect(await call('simple:handoffTarget', { voucherId: 'x' })).toMatchObject({ ok: false })
     expect((await ok<unknown[]>('report:dayBook', { from: '2025-04-01', to: '2026-03-31' })).length).toBe(0)
   })

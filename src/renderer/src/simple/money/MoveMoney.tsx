@@ -12,7 +12,8 @@ import { NewAccountDialog } from '../NewAccountDialog'
 import { SaveCard } from '../SaveCard'
 import { Card, MoneyFooter, MoneyHeader } from './MoneyParts'
 import { useMoneyFlow } from './useMoneyFlow'
-import { useAccountantView, useKeptForm } from '../../lib/handoff'
+import { useAccountantView, useCarriedBack, useKeptForm } from '../../lib/handoff'
+import { CarriedBackNote } from '../CarriedBackNote'
 
 const F = { date: 'date', amount: 'amount', from: 'from', to: 'to' } as const // i18n-technical: form field paths
 const T_FROM = 'select-move-from' // i18n-technical: test ids
@@ -38,6 +39,7 @@ export function MoveMoney(): React.JSX.Element {
   // A business set up with the wizard has only Cash: add the bank right here (never a dead end).
   const noBank = !!setup && !accounts.some((a) => a.kind === 'bank')
   const blank = (): MoveForm => emptyMoveForm(workingDate)
+  const carriedBack = useCarriedBack()
   const [form, setForm] = useKeptForm<MoveForm>(blank)
   const update = (patch: Partial<MoveForm>): void => setForm((f) => ({ ...f, ...patch }))
   const clientErrors = useMemo(() => moveErrors(form), [form])
@@ -64,6 +66,7 @@ export function MoveMoney(): React.JSX.Element {
   return (
     <Page data-testid="simple-move-money">
       <MoneyHeader title={t('simple.money.move.title')} sub={t('simple.money.move.sub')} onAccountant={accountantView} />
+      <CarriedBackNote dropped={carriedBack} hidden={!!flow.savedIds} />
       {flow.savedIds ? (
         <SaveCard voucherIds={flow.savedIds} onNew={flow.startNew} onEdit={(id) => nav.go({ name: 'voucher-entry', voucherId: id })} /> // i18n-technical
       ) : (
