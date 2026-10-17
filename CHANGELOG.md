@@ -320,7 +320,11 @@ what you typed, and a **Back to simple** button.
   was; a later year can't be repaired before an earlier one. Afterwards the "(opening)" row is
   gone (for closed years) and Retained Earnings carries the difference; each year's own profit,
   this year's figures, Home and Assistants are unchanged except that row. A correct close is
-  reported as matching and Repair does nothing. [#168](https://github.com/IrminFlow/total/pull/168)
+  reported as matching and Repair does nothing. A 0.4.0 close made on a group whose nature
+  migration 018 later repaired is re-closed too (the missed income / expense ledger closed, a
+  zeroed balance-sheet ledger given its balance back); when such an entry carries amounts to
+  several capital / reserve ledgers and none is named Retained Earnings, Total can't tell which
+  took the profit and leaves the year for you to re-close by hand. [#168](https://github.com/IrminFlow/total/pull/168)
 
 Read these before filing from the next release.
 
@@ -636,7 +640,10 @@ Read these before filing from the next release.
   The old journal goes through `deleteVoucher`, the corrected one through `postClose` (new
   optional `transferLedgerId`, so a renamed Retained Earnings stays the one ledger), all in one
   transaction that re-checks the result. No migration. Tests: `yearEndRepair.dbtest.ts` (a
-  hand-built 0.4.0 journal from `git show v0.4.0:src/main/services/yearEnd.ts`),
+  hand-built 0.4.0 journal from `git show v0.4.0:src/main/services/yearEnd.ts`; review cases:
+  two 0.4.0 years in one run, a migration-018 misnatured group with a renamed Retained Earnings,
+  an ambiguous transfer ledger, a voucher booked after the preview), `yearEndRepairIpc.dbtest.ts`
+  (roles, `canSeeProfit`, strict payloads),
   `__tests__/yearEndRecheck.test.tsx`, e2e 67 step 8. [#168](https://github.com/IrminFlow/total/pull/168)
 
 - **Electron hardening (D7)** (to-do §4 Security), [#161](https://github.com/IrminFlow/total/pull/161): every IPC

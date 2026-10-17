@@ -157,8 +157,15 @@ function RecheckBody(): React.JSX.Element {
       {todo.map((y) => (
         <div key={y.fyStartYear} className="mt-4" data-testid={`year-end-recheck-fy-${y.fyStartYear}`}>
           <p className="mb-2 text-body-sm">
-            FY {y.label}: <Money paise={Math.abs(y.residual)} /> of the year&apos;s {y.residual <= 0 ? 'profit' : 'loss'} was not carried to{' '}
-            {y.diffs.find((d) => d.transfer)?.name ?? 'Retained Earnings'}. The corrected closing entry, dated {toDisplayDate(y.date)}:
+            {y.residual === 0 ? (
+              <>FY {y.label}: the closing entry moved different accounts than Total moves today.</>
+            ) : (
+              <>
+                FY {y.label}: <Money paise={Math.abs(y.residual)} /> of the year&apos;s {y.residual < 0 ? 'profit' : 'loss'} was not carried to{' '}
+                {y.diffs.find((d) => d.transfer)?.name ?? 'Retained Earnings'}.
+              </>
+            )}{' '}
+            The corrected closing entry, dated {toDisplayDate(y.date)}:
           </p>
           <DataTable
             viewId="year-end-recheck-lines"

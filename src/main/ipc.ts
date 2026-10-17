@@ -1327,7 +1327,9 @@ export function registerIpc(): void {
   // only); the owner's repair re-closes the differing years oldest first in one transaction.
   handle('yearEnd:repairPreview', (p) => {
     z.object({}).strict().parse(p ?? {})
-    return yearEndRepair.repairPreview(requireCompany().db)
+    // The repair compares against this preview with the company's booksFrom — the same here.
+    const c = requireCompany()
+    return yearEndRepair.repairPreview(c.db, c.info.booksFrom)
   }, 'accountant')
   handle('yearEnd:repair', (p) => {
     const input = z

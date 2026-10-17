@@ -50,16 +50,37 @@ function storedClose(db: DB, fyStartYear: number): { id: number; number: string;
   return { ...v, lines }
 }
 
-/** The ledger the stored journal carried the profit to: its one balance-sheet ledger; with
- *  several (a 0.4.0 close that zeroed a then-misnatured ledger) the one named Retained Earnings,
- *  else the largest. None → Retained Earnings by name (null id = created on repair). */
-function transferOf(db: DB, lines: StoredLine[]): { id: number | null; name: string } {
+/** The ledger the stored journal carried the profit to. 0.4.0 always posted it to the ledger
+ *  then named "Retained Earnings" (found or created under Reserves & Surplus, else Capital
+ *  Account), so: its one balance-sheet ledger; with several (a 0.4.0 close that also zeroed a
+ *  then-misnatured balance-sheet ledger) the one named Retained Earnings, else the ONE under
+ *  Capital Account / Reserves & Surplus — never a guess (`ambiguous`: the year is then left alone,
+ *  so a repair can never carry a year's profit to, say, Furniture). None → Retained Earnings by
+ *  name (null id = created on repair). */
+function transferOf(db: DB, lines: StoredLine[]): { id: number | null; name: string; ambiguous?: boolean } {
   const others = lines.filter((l) => l.nature !== 'income' && l.nature !== 'expense')
-  const named = others.find((l) => l.name.toLowerCase() === 'retained earnings')
-  const pick = others.length === 1 ? others[0] : named ?? [...others].sort((a, b) => Math.abs(b.net) - Math.abs(a.net))[0]
-  if (pick) return { id: pick.ledgerId, name: pick.name }
+  if (others.length === 1) return { id: others[0]!.ledgerId, name: others[0]!.name }
+  if (others.length > 1) {
+    const named = others.find((l) => l.name.toLowerCase() === 'retained earnings')
+    if (named) return { id: named.ledgerId, name: named.name }
+    const equity = others.filter((l) => underEquity(db, l.ledgerId))
+    if (equity.length === 1) return { id: equity[0]!.ledgerId, name: equity[0]!.name }
+    return { id: null, name: 'Retained Earnings', ambiguous: true }
+  }
   const re = db.prepare("SELECT id, name FROM ledgers WHERE name = 'Retained Earnings' COLLATE NOCASE").get() as { id: number; name: string } | undefined
   return re ? { id: re.id, name: re.name } : { id: null, name: 'Retained Earnings' }
+}
+
+/** True when the ledger's group is (or sits under) Capital Account / Reserves & Surplus. */
+function underEquity(db: DB, ledgerId: number): boolean {
+  return !!db
+    .prepare(
+      `WITH RECURSIVE up(id, parent_id, name) AS (
+         SELECT g.id, g.parent_id, g.name FROM groups g JOIN ledgers l ON l.group_id = g.id WHERE l.id = ?
+         UNION ALL SELECT g.id, g.parent_id, g.name FROM groups g JOIN up ON g.id = up.parent_id)
+       SELECT 1 FROM up WHERE name IN ('Capital Account', 'Reserves & Surplus') LIMIT 1`
+    )
+    .get(ledgerId)
 }
 
 /** Sentinel id for a Retained Earnings ledger that does not exist yet (preview only). */
@@ -102,7 +123,9 @@ function yearCheck(db: DB, fyStartYear: number, booksFrom: number): CloseRepairY
   const needsRepair = diffs.length > 0
   let blocked: string | null = null
   if (needsRepair && fyStartYear < booksFrom) blocked = `The books start in FY ${fyFromStartYear(booksFrom).label}, after this year`
-  else if (needsRepair && corrected.length === 0) {
+  else if (needsRepair && transfer.ambiguous) {
+    blocked = 'The closing entry carries amounts to several balance-sheet ledgers and Total can’t tell which one took the profit — repair it by hand (bin it, then close the year again)'
+  } else if (needsRepair && corrected.length === 0) {
     blocked = 'Under today’s rule this year has no income or expense to close — move its closing entry to the bin to reopen the year'
   } else if (needsRepair && stored.date !== fy.to) blocked = `The closing entry is dated ${stored.date}, not ${fy.to}`
   return {
