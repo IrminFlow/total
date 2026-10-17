@@ -14,6 +14,14 @@ Then your bills carry no GST and there is nothing to file. If you register later
 2. **GST on your purchases** — what suppliers charged you, which usually comes off what you owe. Total also says how much of it your suppliers have not yet confirmed on the portal (their GSTR-2B).
 3. **To pay** — what is left to pay in cash, and by when.
 
+## Quarterly filers
+
+If you file every quarter, step 3 on [Taxes](total://screen/simple-taxes) is **Prepare the GSTR-1 files for the quarter** (and GSTR-3B). It makes the quarter's three monthly files in one folder. Ask your CA how to upload them for your quarterly return. The "Open GSTR-1 / GSTR-3B" links of a quarter open its last month, the month the return is filed for.
+
+## E-invoicing
+
+If you have entered your turnover in Business details (owner only) and it is above the limit for e-invoicing, Taxes says "E-invoicing applies to you from a date — turn it on". It is only a notice: Total never switches e-invoicing on by itself.
+
 ## The dates
 
 - **GSTR-1** (your sales): by the 11th of the next month. If you file every quarter, by the 13th after the quarter (Notification 83/2020-Central Tax).

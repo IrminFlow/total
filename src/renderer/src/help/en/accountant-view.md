@@ -17,3 +17,9 @@ The owner can switch the whole business to the full app in [How Total looks](tot
 - [Reports → For your CA](total://screen/simple-section?section=reports) has every report your accountant asks for, and an export to Excel.
 - Give them an encrypted backup (**Export encrypted…** in [Settings → Backups](total://screen/settings?tab=backups), owner only) and its passphrase — they open it in their own copy of Total.
 - If they work on this computer, give them their own sign-in in [Settings → People & roles](total://screen/settings?tab=users).
+
+## Back to simple keeps your changes
+
+Opened the full editor from a simple form, changed something there (a quantity, the customer, a note) and pressed **Back to simple** without saving? The simple form shows your changes, and does not ask you to discard anything.
+
+If the full editor had something the simple form has no place for — an entry number, TDS, transport details — a note lists it and stays until you close it or save. Save those in the full app. If the answers could not be carried at all, the full form opens empty and says so: "Some answers could not be carried over".

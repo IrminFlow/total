@@ -9,6 +9,15 @@ Apna bank statement daalein aur Total use aapki likhi entries se mila deta hai. 
 3. Har nayi line ke liye Total batata hai ki woh kya hai — kisi customer ka payment, kisi supplier ko kiya payment, bank charges — aur saath mein wajah bhi ("kyunki …"). Ise check karein, zaroorat ho to badlein, aur **Save karein** dabayein. **Jawab di gayi saari … lines save karein** har us line ko save karta hai jiska jawaab de diya gaya hai.
 4. Jo lines aap pehle hi likh chuke the, woh apne-aap mil jaati hain aur done dikhti hain.
 
+## Pakka nahi hai? Galat match?
+
+- **Abhi chhodein** kisi line ko baad ke liye rakhta hai. Chhodi hui lines **Abhi chhodi hui** mein rehti hain (is computer par yaad rakhi jaati hain) aur wahan **Wapas laayein** hota hai.
+- Ho chuki line par **Yeh nahi** hota (accountant aur maalik ke liye). Line jawab wali lines mein wapas aa jaati hai; entry aapke hisaab mein rehti hai. Woh entry galat thi to use kholkar hata dein.
+
+## Kharche mein gaya paisa aur bank charges
+
+Agar paisa kisi kharche mein gaya, to Total poochta hai "Kya aapke paas GST wala bill hai?", jaise Paise gaye mein poochta hai. **Bank charges** ke liye **Charge mein GST shamil hai** chunein, taaki woh GST aapke wapas lene wale GST mein gina jaaye.
+
 ## Upar wali line
 
 Total aapke hisaab ko bank se milata hai. Jab dono barabar hon, to yeh bata deta hai. Jab farak ho, to batata hai ki kitni entries mein farak hai — aam taur par aapke hisaab ki woh entries jo bank ne abhi nahi dikhayin, jaise woh cheque jo abhi clear nahi hue — aur **dekhein** milaan ki poori screen kholta hai.

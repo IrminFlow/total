@@ -14,6 +14,14 @@ Tab aapke bills par GST nahi lagta aur file karne ko kuch nahi hai. Agar aap baa
 2. **Purchase par diya GST** — suppliers ne aapse jo liya, jo aam taur par aapke bharne wale GST mein se kam ho jaata hai. Total yeh bhi batata hai ki ismein se kitna aapke suppliers ne abhi portal par confirm nahi kiya hai (unka GSTR-2B).
 3. **Cash mein bharna hai** — cash mein kitna bharna baaki hai, aur kab tak.
 
+## Quarterly filers
+
+Agar aap har quarter file karte hain, to [Taxes](total://screen/simple-taxes) mein teesra step hai **Quarter ki GSTR-1 files taiyaar karein** (aur GSTR-3B). Yeh quarter ke teeno mahine ki files ek folder mein banata hai. Quarterly return ke liye unhe kaise upload karein, yeh apne CA se poochein. Quarter ke "GSTR-1 / GSTR-3B kholein" links uska aakhri mahina kholte hain, yaani woh mahina jiske liye return bhara jaata hai.
+
+## E-invoicing
+
+Agar aapne Business details mein apna turnover bhara hai (sirf maalik) aur woh e-invoicing ki seema se upar hai, to Taxes screen batati hai "E-invoicing aap par ek tareekh se laagu hai — ise chalu karein". Yeh sirf soochna hai: Total e-invoicing ko kabhi apne-aap chalu nahi karta.
+
 ## Dates
 
 - **GSTR-1** (aapki sale): agle mahine ki 11 tareekh tak. Agar aap har quarter file karte hain, to quarter ke baad 13 tareekh tak (Notification 83/2020-Central Tax).
