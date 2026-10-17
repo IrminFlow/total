@@ -12,6 +12,7 @@ import { autoMap, mappingFromNames } from '@shared/dataImport/detect'
 import { TARGETS } from '@shared/dataImport/targets'
 import { formatPaise } from '@shared/money'
 import { xlsxReport } from '../lib/reportExport'
+import { useCapabilityRefused } from '../lib/capabilities'
 
 /**
  * System → Import (WP 6.3): one wizard for Excel / CSV tables (any target, generic or a Busy /
@@ -569,6 +570,7 @@ async function downloadErrors(result: ImportRunResult, fileName: string, toast: 
 
 function PreviewStep(props: { file: ImportLoadResult; result: ImportRunResult; busy: boolean; templateName: string; onTemplateName: (s: string) => void; onBack: () => void; onImport: () => void }): React.JSX.Element {
   const toast = useToasts()
+  const exportRefused = useCapabilityRefused('canExport') // #148 review: the report is written through export:xlsx, which main refuses then
   const { result } = props
   const t = totals(result)
   return (
@@ -589,7 +591,7 @@ function PreviewStep(props: { file: ImportLoadResult; result: ImportRunResult; b
         />
       </Panel>
       <div className="flex flex-wrap items-end justify-end gap-2">
-        {t.errors > 0 && <Button variant="ghost" onClick={() => void downloadErrors(result, props.file.fileName, toast)} data-testid="btn-import-errors">Error report (.xlsx)</Button>}
+        {t.errors > 0 && !exportRefused && <Button variant="ghost" onClick={() => void downloadErrors(result, props.file.fileName, toast)} data-testid="btn-import-errors">Error report (.xlsx)</Button>}
         {props.file.kind === 'table' && (
           <Field label="Remember this mapping as" className="w-60">
             <TextInput value={props.templateName} onChange={(e) => props.onTemplateName(e.target.value)} placeholder="optional name" data-testid="import-template-name" />
@@ -607,6 +609,7 @@ function PreviewStep(props: { file: ImportLoadResult; result: ImportRunResult; b
 function DoneStep({ result, onAnother }: { result: ImportRunResult; onAnother: () => void }): React.JSX.Element {
   const nav = useNav()
   const toast = useToasts()
+  const exportRefused = useCapabilityRefused('canExport')
   const qc = useQueryClient()
   const [undone, setUndone] = useState(false)
   return (
@@ -619,7 +622,7 @@ function DoneStep({ result, onAnother }: { result: ImportRunResult; onAnother: (
         <ResultSummary result={result} testId="import-done-summary" />
       </Panel>
       <div className="flex flex-wrap justify-end gap-2">
-        {totals(result).errors > 0 && <Button variant="ghost" onClick={() => void downloadErrors(result, 'import', toast)}>Error report (.xlsx)</Button>}
+        {totals(result).errors > 0 && !exportRefused && <Button variant="ghost" onClick={() => void downloadErrors(result, 'import', toast)}>Error report (.xlsx)</Button>}
         {result.batchId && !undone && (
           <Button
             variant="ghost"

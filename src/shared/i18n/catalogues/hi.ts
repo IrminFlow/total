@@ -1244,6 +1244,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.taxes.step3.prepare1': 'GSTR-1 फ़ाइल तैयार करें',
   'simple.taxes.step3.prepare3b': 'GSTR-3B फ़ाइल तैयार करें',
   'simple.taxes.step3.notYet': 'अभी तैयार नहीं हुई।',
+  'simple.taxes.step3.exportRefused': 'मालिक ने आपके साइन-इन के लिए हिसाब की फ़ाइलें सेव करना बंद किया है — फ़ाइलें मालिक से तैयार करवाएँ।',
   'simple.taxes.step3.wait': 'अवधि पूरी होने के बाद, यानी {date} के बाद, आप फ़ाइलें तैयार कर सकते हैं।',
   'simple.taxes.step3.quarterly': 'Total तिमाही की फ़ाइलें महीने-दर-महीने तैयार करता है — हर महीने की एक फ़ाइल, तीनों एक फ़ोल्डर में। तिमाही रिटर्न के लिए इन्हें कैसे अपलोड करना है, यह अपने CA से पूछें।',
   'simple.taxes.step3.saved': 'फ़ाइल सेव हो गई — Total ने उसका फ़ोल्डर खोल दिया है।',

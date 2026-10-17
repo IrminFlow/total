@@ -12,6 +12,7 @@ import { VoucherLink } from '../../components/links'
 import { api } from '../../lib/client'
 import { payablesApi } from '../../lib/payablesClient'
 import { useToasts } from '../../state/stores'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../../lib/capabilities'
 
 function LinesTable({ lines, posted }: { lines: PaymentRunLine[]; posted: boolean }): React.JSX.Element {
   return (
@@ -82,6 +83,7 @@ export function RunSummary({ run }: { run: PaymentRun }): React.JSX.Element {
       setPrinting(false)
     }
   }
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportCsv = async (): Promise<void> => {
     try {
       const r = await payablesApi.runExportCsv(run.id)
@@ -101,7 +103,7 @@ export function RunSummary({ run }: { run: PaymentRun }): React.JSX.Element {
         <Button data-testid="btn-payables-run-cheques" disabled={printing} onClick={() => void printCheques()}>
           Print cheques
         </Button>
-        <Button data-testid="btn-payables-run-csv" onClick={() => void exportCsv()}>
+        <Button disabled={exportRefused} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} data-testid="btn-payables-run-csv" onClick={() => void exportCsv()}>
           Bank payment file (CSV)
         </Button>
       </div>

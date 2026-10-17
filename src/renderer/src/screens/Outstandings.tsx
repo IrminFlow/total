@@ -17,6 +17,7 @@ import type { OutstandingBill, OutstandingParty } from '@shared/reports'
 import { LedgerLink, VoucherLink } from '../components/links'
 import { openLedgerStatement } from '../lib/drill'
 import { StatementModal } from '../components/receivables/StatementModal'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../lib/capabilities'
 
 const bucket = (i: 0 | 1 | 2 | 3) => (p: OutstandingParty) => p.buckets[i]
 
@@ -203,6 +204,7 @@ function StatementsSection({ parties, onPreview }: { parties: OutstandingParty[]
   const [pick, setPick] = useState<number | ''>('')
   const [busy, setBusy] = useState(false)
   const from = fyOf(to).from
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const bulk = async (pickFolder: boolean): Promise<void> => {
     if (busy) return
     setBusy(true)
@@ -231,8 +233,8 @@ function StatementsSection({ parties, onPreview }: { parties: OutstandingParty[]
         </Button>
       </div>
       <div className="flex flex-wrap gap-2">
-        <Button size="sm" data-testid="btn-statements-bulk" disabled={busy} onClick={() => void bulk(false)}>All parties → exports</Button>
-        <Button size="sm" variant="ghost" data-testid="btn-statements-folder" disabled={busy} onClick={() => void bulk(true)}>All parties → folder…</Button>
+        <Button size="sm" data-testid="btn-statements-bulk" disabled={exportRefused || busy} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} onClick={() => void bulk(false)}>All parties → exports</Button>
+        <Button size="sm" variant="ghost" data-testid="btn-statements-folder" disabled={exportRefused || busy} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} onClick={() => void bulk(true)}>All parties → folder…</Button>
       </div>
     </DrawerSection>
   )

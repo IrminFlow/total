@@ -4,7 +4,7 @@
 // debit notes) in the books — and their sums are Home's "customers owe you" / "you owe
 // suppliers" tiles (and their advances). Plus: a person's open bills = the Outstandings rows;
 // Bills to pay = every supplier's open bill with the week / month totals; a sent reminder is a
-// reminder_log row with its audit row (WhatsApp / SMS → 'phone', copied → 'other'; refused when
+// reminder_log row with its audit row (WhatsApp → 'whatsapp', SMS → 'sms' since PR #148, copied → 'other'; refused when
 // nothing is late); phone / WhatsApp / days to pay go through masters.updateLedger (one audited
 // `ledger` update; a bad number refused on its field, nothing written); a viewer reads the
 // People channels and can't write through them.
@@ -168,15 +168,18 @@ describe('writes', () => {
     const before = count("SELECT COUNT(*) n FROM audit_log WHERE entity = 'reminder'")
     const { logId } = personReminded(db, L('Ramesh'), 'whatsapp', TODAY)
     const [row] = reminderLog(db, TODAY, TODAY, L('Ramesh'))
-    expect(row).toMatchObject({ id: logId, bucket: 'firm', date: TODAY, amount: 125_000, channel: 'phone', documentPath: null, days: 59 })
+    expect(row).toMatchObject({ id: logId, bucket: 'firm', date: TODAY, amount: 125_000, channel: 'whatsapp', documentPath: null, days: 59 })
     const audit = db.prepare("SELECT after_json AS a FROM audit_log WHERE entity = 'reminder' ORDER BY id DESC LIMIT 1").get() as { a: string }
-    expect(JSON.parse(audit.a)).toMatchObject({ via: 'whatsapp', channel: 'phone', forced: false })
+    expect(JSON.parse(audit.a)).toMatchObject({ via: 'whatsapp', channel: 'whatsapp', forced: false })
     expect(count("SELECT COUNT(*) n FROM audit_log WHERE entity = 'reminder'")).toBe(before + 1)
     personReminded(db, L('Ramesh'), 'copied', TODAY)
-    expect(reminderLog(db, TODAY, TODAY, L('Ramesh')).map((r) => r.channel)).toEqual(['other', 'phone'])
+    expect(reminderLog(db, TODAY, TODAY, L('Ramesh')).map((r) => r.channel)).toEqual(['other', 'whatsapp'])
     // The second one sits inside the "don't remind within N days" window — logged, flagged.
     expect(JSON.parse((db.prepare("SELECT after_json AS a FROM audit_log WHERE entity = 'reminder' ORDER BY id DESC LIMIT 1").get() as { a: string }).a)).toMatchObject({ via: 'copied', forced: true })
     expect(personView(db, INFO, L('Ramesh'), TODAY)!.reminder).toMatchObject({ lastSent: TODAY, allowed: false })
+    personReminded(db, L('Ramesh'), 'sms', TODAY)
+    expect(reminderLog(db, TODAY, TODAY, L('Ramesh')).map((r) => r.channel)).toEqual(['sms', 'other', 'whatsapp'])
+    expect(JSON.parse((db.prepare("SELECT after_json AS a FROM audit_log WHERE entity = 'reminder' ORDER BY id DESC LIMIT 1").get() as { a: string }).a)).toMatchObject({ via: 'sms', channel: 'sms', forced: true })
     expect(() => personReminded(db, L('Sita'), 'sms', TODAY)).toThrow(expect.objectContaining({ code: 'simple_people_nothing_late' }))
     expect(() => personReminded(db, L('Bharat Steel'), 'sms', TODAY)).toThrow(expect.objectContaining({ code: 'simple_people_nothing_late' }))
     expect(() => personReminded(db, L('Sales'), 'sms', TODAY)).toThrow(expect.objectContaining({ code: 'simple_people_not_party' }))

@@ -161,6 +161,13 @@ describe('migrate', () => {
     expect(empty.map((m) => m.n)).toEqual([])
   })
 
+  it('the reminder_log channel rebuild (PR #148) is the last migration (number by position)', () => {
+    const last = MIGRATIONS.at(-1)!
+    expect(last.startsWith('-- @foreign-keys-off')).toBe(true)
+    expect(last).toContain('CREATE TABLE reminder_log_new')
+    expect(last).toContain("'whatsapp', 'sms'")
+  })
+
   it('applies every migration exactly once and records them all', () => {
     const db = freshDb()
     const row = db.prepare('SELECT COUNT(*) AS n FROM migrations').get() as { n: number }

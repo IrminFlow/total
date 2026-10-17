@@ -251,6 +251,13 @@ what you typed, and a **Back to simple** button.
   smaller. A reminder written in a language other than yours (People → Send a reminder) waits for
   that language's words the same way, instead of showing the English message under the Hinglish
   or Hindi choice. [#143](https://github.com/IrminFlow/total/pull/143), [#145](https://github.com/IrminFlow/total/pull/145)
+- **The help in Hindi and Hinglish is loaded when you open it.** The translated help articles
+  are no longer part of the start code (another 69 kB smaller); they load the first time the help
+  panel opens in Hindi or Hinglish, or when you search the help. Until then — a moment — the
+  English article shows, never an empty panel. [#148](https://github.com/IrminFlow/total/pull/148)
+- **A reminder sent on WhatsApp or by SMS is listed as WhatsApp or SMS.** People → Send a
+  reminder used to record both as "phone" in the reminder list (Credit control). Reminders sent
+  before this change keep "phone". [#148](https://github.com/IrminFlow/total/pull/148)
 
 - **Quarterly GST filers prepare their files on the Taxes screen.** If you file GST every
   quarter, step 3 no longer sends you to the full app: "Prepare the GSTR-1 files for the quarter"
@@ -471,6 +478,28 @@ Read these before filing from the next release.
   consolidation screen's "Unlock <member> for this run" prompt, which re-runs with
   `memberPassphrases`; the passphrase is held in memory only. encryption-at-rest.md says prints are
   not exports. [#144](https://github.com/IrminFlow/total/pull/144)
+- Every export button follows `canExport` (PR #144 gap): payroll's PF ECR / ESI CSV links (the
+  reason in their place), the PT summary's state returns (hidden) and PT CSV, the statutory dues'
+  ECR / ESI / PT links, the edit log's CSV / PDF, Outstandings' bulk statements, the statement of
+  account's Save PDF / Email, e-invoice / EWB exports (and the per-bill EWB JSON), GSTR-1 / 3B /
+  9 / ITC-04 / IMS exports, Form 24Q / 26Q / 27EQ files, budgets, price lists (button and menu),
+  the payment run and MSME Form 1 CSVs, the bank bulk-payment file, the report builder's
+  "Share as JSON", the P&L / balance sheet / cash flow / ratios header PDF / CSV (`HeaderExport`)
+  and the import wizard's error report are disabled with "Your sign-in can’t export — ask the owner" (or hidden), and
+  the simple Taxes screen's "prepare the files" step says the owner turned it off
+  (`simple.taxes.step3.exportRefused`, en / hi / hinglish). Owners and users without flags see no
+  change; main still refuses. Owner-only exports (encrypted backup, recovery copy) are unchanged.
+  `exportGating.test.tsx`. [#148](https://github.com/IrminFlow/total/pull/148)
+- Migration 053 (last; `-- @foreign-keys-off` table rebuild, every row and id kept, the
+  AUTOINCREMENT high-water mark kept like migration 024 — a deleted reminder's id is never reissued, its audit row names it — index
+  recreated): `reminder_log.channel` accepts `whatsapp` and `sms`. `REMINDER_LOG_CHANNELS` /
+  `ReminderLogChannel` (shared/receivables/config.ts) type the log; the letter's
+  `REMINDER_CHANNELS` (what `receivables:remind` accepts) is unchanged. `REMINDER_LOG_CHANNEL` maps
+  WhatsApp → `whatsapp`, SMS → `sms`, copied → `other`; the audit row's `via` / `forced` are
+  unchanged and the cadence reads every channel as before. `migrationReminderChannels.dbtest.ts`.
+  The help articles' lazy chunks: `help/hiFiles.ts` / `hinglishFiles.ts`, `loadHelpLanguage`,
+  `useHelpLanguage` (help/useHelp.ts); `HELP_FILES` now holds `en` only.
+  [#148](https://github.com/IrminFlow/total/pull/148)
 - **Locked businesses from `total-cli`, MCP and consolidation.** Every `--company` command
   (including `mcp` and `inbox`) opens a business locked with a passphrase from the environment
   variable `TOTAL_PASSPHRASE` — never a flag (command lines are visible in `ps`) — through the app's

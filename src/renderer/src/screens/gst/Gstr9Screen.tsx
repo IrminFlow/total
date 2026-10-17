@@ -18,6 +18,7 @@ import { LedgerLink, VoucherLink } from '../../components/links'
 import { openVoucher } from '../../lib/drill'
 import { GstReturnTabs } from '../GstReturns'
 import { FySelect, SourcesSection, UnverifiedBanner } from './common'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../../lib/capabilities'
 
 const SOURCE_BADGE: Record<Gstr9Row['source'], { label: string; tone: 'neutral' | 'info' | 'warning' }> = {
   books: { label: 'Vouchers', tone: 'neutral' },
@@ -103,6 +104,7 @@ export function Gstr9Screen(): React.JSX.Element {
   const { data, isLoading } = useQuery({ queryKey: ['gstr9', fy], queryFn: () => api.gst.gstr9(fy) })
   const diffs = (data?.compare ?? []).filter((c) => diffTotal(c) !== 0)
 
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const doExport = async (): Promise<void> => {
     try {
       const r = await api.gst.exportGstr9(fy)
@@ -119,7 +121,7 @@ export function Gstr9Screen(): React.JSX.Element {
         tabs={<GstReturnTabs current="gstr9" />}
         controls={<FySelect value={fy} onChange={setFy} testId="input-gstr9-fy" />}
         actions={
-          <Button variant="primary" data-testid="btn-gstr9-export" onClick={() => void doExport()} disabled={!data}>
+          <Button variant="primary" data-testid="btn-gstr9-export" onClick={() => void doExport()} disabled={exportRefused || !data} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined}>
             Export CSV + JSON
           </Button>
         }

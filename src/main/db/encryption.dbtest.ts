@@ -194,9 +194,11 @@ describe('the restore check of a backup', () => {
 })
 
 describe('the WP 7.2 migration', () => {
-  it('is the last migration (number by position) and leaves every existing user as the role says', () => {
-    expect(MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE backup_runs'))).toBe(MIGRATIONS.length - 1)
-    const path = companyFile(MIGRATIONS.slice(0, -1))
+  // Found by its content, never by position: later migrations are appended after it (#148 review).
+  it('upgrading a file from just before it leaves every existing user as the role says', () => {
+    const m = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE backup_runs'))
+    expect(m).toBeGreaterThan(0)
+    const path = companyFile(MIGRATIONS.slice(0, m))
     const db = testFileDb(path)
     db.prepare("INSERT INTO users (name, pin_hash, role, active) VALUES ('Old Owner', 'x', 'owner', 1)").run()
     migrate(db)

@@ -9,6 +9,7 @@ import { receivablesApi } from '../../lib/receivablesClient'
 import { useSession, useToasts } from '../../state/stores'
 import { Button, DateInput, Field, Modal, Money, Spinner } from '../ui'
 import { PaperPreview } from '../print/PaperPreview'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../../lib/capabilities'
 
 export function StatementModal({ ledgerId, name, onClose }: { ledgerId: number; name: string; onClose: () => void }): React.JSX.Element {
   const session = useSession()
@@ -22,6 +23,7 @@ export function StatementModal({ ledgerId, name, onClose }: { ledgerId: number; 
     enabled: from <= to
   })
 
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const save = async (email: boolean): Promise<void> => {
     if (busy) return
     setBusy(true)
@@ -80,10 +82,10 @@ export function StatementModal({ ledgerId, name, onClose }: { ledgerId: number; 
             {d?.party.email ? `Email goes to ${d.party.email}` : 'No email on the ledger — the draft opens without a recipient.'} Subject and body: Settings → Receivables.
           </p>
           <div className="flex shrink-0 gap-2">
-            <Button data-testid="btn-statement-pdf" disabled={busy || !data} onClick={() => void save(false)}>
+            <Button data-testid="btn-statement-pdf" disabled={exportRefused || busy || !data} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} onClick={() => void save(false)}>
               Save PDF
             </Button>
-            <Button variant="primary" data-testid="btn-statement-email" disabled={busy || !data} onClick={() => void save(true)}>
+            <Button variant="primary" data-testid="btn-statement-email" disabled={exportRefused || busy || !data} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} onClick={() => void save(true)}>
               Email…
             </Button>
           </div>

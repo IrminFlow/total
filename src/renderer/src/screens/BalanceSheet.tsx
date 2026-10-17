@@ -3,7 +3,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { Banner, Button, DateInput, Money, Page, PageHeader, Panel } from '../components/ui'
-import { OptionsExport, useScreenOptions } from '../components/ScreenOptions'
+import { HeaderExport, OptionsExport, useScreenOptions } from '../components/ScreenOptions'
 import { ComparativeOptions, ReportSkeleton, StatementOptions } from './ProfitLoss'
 import { ComparativeStatement } from '../components/ComparativeStatement'
 import { StatementTree } from '../components/StatementTree'
@@ -67,14 +67,14 @@ export function BalanceSheetScreen(): React.JSX.Element {
           </div>
         }
         secondary={
-          <>
+          <HeaderExport>
             <Button variant="ghost" onClick={exportPdf}>
               PDF
             </Button>
             <Button variant="ghost" onClick={exportCsv}>
               CSV
             </Button>
-          </>
+          </HeaderExport>
         }
         options={{
           onReset: opts.reset,

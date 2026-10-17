@@ -17,6 +17,7 @@ import { statApi } from '../lib/payrollStatutoryClient'
 import { DeclarationsModal, TdsWorkingsModal } from './payroll/EmployeeTax'
 import { StatutoryTab, useFyChoices } from './payroll/StatutoryTab'
 import { RatesTab } from './payroll/RatesTab'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../lib/capabilities'
 
 type Tab = 'employees' | 'runs' | 'statutory' | 'rates'
 
@@ -1107,13 +1108,14 @@ function RunsTab({ tabs }: { tabs: React.ReactNode }): React.JSX.Element {
 /** A posted run's actions (the trailing cell of the runs table). The payslip menu is a portalled
  *  Popover — the table's single-line cells clip anything absolutely positioned inside them — and
  *  it closes on outside click / Escape. */
-function RunActions({ run, onPt }: { run: PayrollRun; onPt: (run: PayrollRun) => void }): React.JSX.Element {
+export function RunActions({ run, onPt }: { run: PayrollRun; onPt: (run: PayrollRun) => void }): React.JSX.Element {
   const toast = useToasts()
   const nav = useNav()
   const queryClient = useQueryClient()
   const [payslipsOpen, setPayslipsOpen] = useState(false)
   const payslipsRef = useRef<HTMLButtonElement>(null)
 
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportFile = async (kind: 'ecr' | 'esi'): Promise<void> => {
     try {
       const r = kind === 'ecr' ? await api.payroll.ecr(run.id) : await api.payroll.esiCsv(run.id)
@@ -1180,12 +1182,21 @@ function RunActions({ run, onPt }: { run: PayrollRun; onPt: (run: PayrollRun) =>
           </ScrollList>
         </Popover>
       )}
-      <button className="text-muted hover:text-ink" data-testid="btn-payroll-ecr" onClick={() => void exportFile('ecr')} title="EPFO ECR upload file">
-        PF ECR
-      </button>
-      <button className="text-muted hover:text-ink" data-testid="btn-payroll-esi" onClick={() => void exportFile('esi')} title="ESIC upload CSV">
-        ESI CSV
-      </button>
+      {/* #148: the upload files are exports — not for a sign-in the owner refused canExport. */}
+      {exportRefused ? (
+        <span className="text-muted opacity-60" data-testid="payroll-export-refused" title={CAPABILITY_REFUSED_TEXT.canExport}>
+          PF ECR · ESI CSV
+        </span>
+      ) : (
+        <>
+          <button className="text-muted hover:text-ink" data-testid="btn-payroll-ecr" onClick={() => void exportFile('ecr')} title="EPFO ECR upload file">
+            PF ECR
+          </button>
+          <button className="text-muted hover:text-ink" data-testid="btn-payroll-esi" onClick={() => void exportFile('esi')} title="ESIC upload CSV">
+            ESI CSV
+          </button>
+        </>
+      )}
       <button className="text-muted hover:text-ink" data-testid="btn-payroll-pt" onClick={() => onPt(run)} title="Professional tax summary by state">
         PT
       </button>
@@ -1203,13 +1214,14 @@ const PT_COLUMNS = defineColumns<PtSummaryRow>([
   { id: 'pt', header: 'PT payable', kind: 'money', value: (r) => r.pt, aggregate: 'sum', width: 124, className: 'font-medium' }
 ])
 
-function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () => void }): React.JSX.Element {
+export function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () => void }): React.JSX.Element {
   const toast = useToasts()
   const { data: rows, isLoading } = useQuery({
     queryKey: ['ptSummary', run.id],
     queryFn: () => api.payroll.ptSummary(run.id)
   })
 
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportState = async (state: string): Promise<void> => {
     try {
       const r = await statApi.ptReturnCsv(run.id, state)
@@ -1243,7 +1255,7 @@ function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () => void
           maxHeight="50vh"
           trailingWidth={110}
           trailing={(r) =>
-            r.pt > 0 ? (
+            r.pt > 0 && !exportRefused ? (
               <button className="text-small text-blue hover:underline" data-testid={`btn-payroll-pt-state-${r.state}`} onClick={() => void exportState(r.state)}>
                 {r.state} return
               </button>
@@ -1253,7 +1265,7 @@ function PtSummaryModal({ run, onClose }: { run: PayrollRun; onClose: () => void
       </div>
       {rows && rows.length > 0 && (
         <div className="mt-4 flex justify-end border-t border-line pt-3">
-          <Button data-testid="btn-payroll-pt-csv" onClick={() => void exportCsv()} title="State-wise PT return CSV (exports folder)">
+          <Button disabled={exportRefused} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} data-testid="btn-payroll-pt-csv" onClick={() => void exportCsv()} title="State-wise PT return CSV (exports folder)">
             Export PT return CSV
           </Button>
         </div>

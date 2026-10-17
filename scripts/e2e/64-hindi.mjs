@@ -179,7 +179,8 @@ await scenario('64-hindi', async (h) => {
   await attached(h, '[data-testid="simple-home"]')
   await h.click('btn-help')
   await attached(h, '[data-testid="help-panel"]')
-  await attached(h, '[data-testid="help-article"]')
+  // The Hindi articles are a lazy chunk (#148): English shows (data-loading) until it lands.
+  await attached(h, '[data-testid="help-article"]:not([data-loading])')
   assert(DEVANAGARI.test(await page.textContent('[data-testid="help-article-title"]')), 'the help article is in Hindi')
   assertEq(await page.$('[data-testid="help-in-english"]'), null, 'no "shown in English" note on a translated article')
   await h.fill('help-search', 'उधार')

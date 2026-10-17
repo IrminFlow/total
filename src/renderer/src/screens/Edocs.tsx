@@ -10,6 +10,7 @@ import type { EdocListRow } from '@shared/reports'
 import { gstPeriodOf, toDisplayDate } from '@shared/dates'
 import { TransportModal } from './voucher/TransportModal'
 import { LedgerLink } from '../components/links'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../lib/capabilities'
 
 type DocTypeFilter = 'all' | 'INV' | 'CRN' | 'DBN' | 'CHL'
 
@@ -218,6 +219,7 @@ function EdocsDocuments(): React.JSX.Element {
   const [einvTo, setEinvTo] = useState('')
   const einvRange = einvFrom || einvTo ? { from: einvFrom || from, to: einvTo || to } : undefined
   const einvRangeBad = !!einvRange && (einvRange.from > einvRange.to || einvRange.from < from || einvRange.to > to)
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportEinv = async (): Promise<void> => {
     if (einvRangeBad) {
       toast.push('error', `The e-invoice dates must lie within ${toDisplayDate(from)} → ${toDisplayDate(to)}, the first on or before the last`)
@@ -308,12 +310,12 @@ function EdocsDocuments(): React.JSX.Element {
           </Badge>
         }
         secondary={
-          <Button data-testid="btn-edocs-export-ewb" onClick={() => void exportEwb()} disabled={!info?.gstin}>
+          <Button data-testid="btn-edocs-export-ewb" onClick={() => void exportEwb()} disabled={exportRefused || !info?.gstin} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined}>
             Export e-way bill JSON
           </Button>
         }
         actions={
-          <Button variant="primary" data-testid="btn-edocs-export-einvoice" onClick={() => void exportEinv()} disabled={!info?.gstin}>
+          <Button variant="primary" data-testid="btn-edocs-export-einvoice" onClick={() => void exportEinv()} disabled={exportRefused || !info?.gstin} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined}>
             Export e-invoice JSON
           </Button>
         }
@@ -438,7 +440,7 @@ function EdocsDocuments(): React.JSX.Element {
                   Generate EWB
                 </button>
               )}
-              {r.docType !== 'CRN' && !r.ewbReason?.startsWith('Goods moved on challan') && (
+              {!exportRefused && r.docType !== 'CRN' && !r.ewbReason?.startsWith('Goods moved on challan') && (
                 <button
                   className="mr-2 text-small text-blue hover:underline disabled:opacity-40"
                   data-testid="btn-edocs-ewb-json"

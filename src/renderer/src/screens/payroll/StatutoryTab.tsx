@@ -19,6 +19,7 @@ import {
 } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { VoucherLink } from '../../components/links'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../../lib/capabilities'
 
 const KIND_LABEL: Record<StatutoryDueRow['kind'], string> = { pf: 'EPF', esi: 'ESI', pt: 'Professional tax', tds: 'Salary TDS' }
 const KIND_OPTIONS = (Object.keys(KIND_LABEL) as StatutoryDueRow['kind'][]).map((k) => ({ value: k, label: KIND_LABEL[k] }))
@@ -99,6 +100,7 @@ export function StatutoryTab({ fyStartYear }: { fyStartYear: number }): React.JS
   const outstanding = (k: StatutoryDueRow['kind']): number => (dues ?? []).filter((d) => d.kind === k).reduce((s, d) => s + d.outstandingPaise, 0)
   const overdue = (k: StatutoryDueRow['kind']): number => (dues ?? []).filter((d) => d.kind === k && d.status === 'overdue').length
 
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportDue = async (d: StatutoryDueRow): Promise<void> => {
     try {
       if (d.kind === 'tds') return nav.go({ name: 'tds' })
@@ -167,8 +169,9 @@ export function StatutoryTab({ fyStartYear }: { fyStartYear: number }): React.JS
                   Pay…
                 </button>
               )}
-              <button className="text-muted hover:text-ink" data-testid={`btn-due-export-${d.key}`} onClick={() => void exportDue(d)}
-                title={d.kind === 'tds' ? 'Form 24Q is on the TDS screen (Returns)' : 'Export the return / upload file'}>
+              <button className="text-muted hover:text-ink disabled:cursor-not-allowed disabled:opacity-50" data-testid={`btn-due-export-${d.key}`} onClick={() => void exportDue(d)}
+                disabled={exportRefused && d.kind !== 'tds'}
+                title={d.kind === 'tds' ? 'Form 24Q is on the TDS screen (Returns)' : exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : 'Export the return / upload file'}>
                 {d.kind === 'pf' ? 'ECR' : d.kind === 'esi' ? 'ESI CSV' : d.kind === 'pt' ? 'PT CSV' : '24Q →'}
               </button>
             </span>

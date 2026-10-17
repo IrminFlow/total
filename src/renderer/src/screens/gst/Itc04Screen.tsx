@@ -17,6 +17,7 @@ import { LedgerLink, VoucherLink } from '../../components/links'
 import { openVoucher } from '../../lib/drill'
 import { GstReturnTabs } from '../GstReturns'
 import { FySelect, SourcesSection, UnverifiedBanner } from './common'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../../lib/capabilities'
 
 const jwText = (r: { jwGstin: string | null; jwStateCode: string | null }): string => r.jwGstin ?? (r.jwStateCode ? `Unregistered · ${posLabel(r.jwStateCode)}` : '—')
 const jwCols = <T extends { jwGstin: string | null; jwStateCode: string | null; jwName: string; partyLedgerId: number | null }>() =>
@@ -84,6 +85,7 @@ export function Itc04Screen(): React.JSX.Element {
   const shownKind = r?.period.kind ?? kind
   const empty = r && r.sent.length + r.received.length + r.supplied.length === 0
 
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const doExport = async (): Promise<void> => {
     try {
       const x = await api.gst.exportItc04({ fyStartYear: fy, kind: shownKind, periodicity })
@@ -111,7 +113,7 @@ export function Itc04Screen(): React.JSX.Element {
           </div>
         }
         actions={
-          <Button variant="primary" data-testid="btn-itc04-export" onClick={() => void doExport()} disabled={!r || !!empty}>
+          <Button variant="primary" data-testid="btn-itc04-export" onClick={() => void doExport()} disabled={exportRefused || !r || !!empty} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined}>
             Export CSV + JSON
           </Button>
         }

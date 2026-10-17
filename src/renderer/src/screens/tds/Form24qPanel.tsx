@@ -8,6 +8,7 @@ import { useToasts } from '../../state/stores'
 import { Badge, Button, Panel, SectionTitle } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { VoucherLink } from '../../components/links'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../../lib/capabilities'
 
 type Row = Form24qData['deductees'][number]
 
@@ -40,6 +41,7 @@ export const SALARY_24Q_COLUMNS = defineColumns<Form24qSalaryRow>([
 export function Form24qPanel({ fyStartYear, quarter, label }: { fyStartYear: number; quarter: 1 | 2 | 3 | 4; label: string }): React.JSX.Element {
   const toast = useToasts()
   const { data, isLoading } = useQuery({ queryKey: ['tds', 'form24q', fyStartYear, quarter], queryFn: () => statApi.form24q(fyStartYear, quarter) })
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportCsv = async (): Promise<void> => {
     try {
       const r = await statApi.form24qCsv(fyStartYear, quarter)
@@ -58,7 +60,7 @@ export function Form24qPanel({ fyStartYear, quarter, label }: { fyStartYear: num
             <span className="inline-flex items-center gap-2">
               <Badge tone="info" testId="tds-24q-layout">{data?.layout === 'form138' ? 'Form 138 (24Q under the 2026 Rules)' : 'Form 24Q'}</Badge>
               {unchallaned > 0 && <Badge tone="warning">{unchallaned} without a challan</Badge>}
-              <Button size="sm" data-testid="btn-tds-24q-export" disabled={!data?.deductees.length} onClick={() => void exportCsv()}>
+              <Button size="sm" data-testid="btn-tds-24q-export" disabled={exportRefused || !data?.deductees.length} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} onClick={() => void exportCsv()}>
                 Export 24Q CSV
               </Button>
             </span>

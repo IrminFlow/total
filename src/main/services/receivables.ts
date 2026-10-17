@@ -23,7 +23,7 @@ import { pdfOptionsFor } from '@shared/printTemplates'
 import { renderDocument, type ReminderDocument, type StatementDocument } from '@shared/print/render'
 import {
   parseReceivablesConfig, receivablesConfigSchema, RECEIVABLES_META_KEY, REMINDER_BUCKET_LABELS,
-  type ReceivablesConfig, type ReminderBucket, type ReminderChannel, DEFAULT_RECEIVABLES_CONFIG
+  type ReceivablesConfig, type ReminderBucket, type ReminderChannel, type ReminderLogChannel, DEFAULT_RECEIVABLES_CONFIG
 } from '@shared/receivables/config'
 import { ageingBuckets, mailtoLink, mergeTemplate, reminderBucketFor, reminderCadence, reminderFields } from '@shared/receivables/reminders'
 import { addDaysIso, billInterest, gstOfLines, splitInterestGst, type RateShare } from '@shared/receivables/interest'
@@ -303,7 +303,7 @@ export interface ReminderLogInsert {
   oldest_bill: string | null
   max_overdue_days: number
   document_path: string | null
-  channel: ReminderChannel
+  channel: ReminderLogChannel
 }
 
 /** Log one sent reminder (reminder_log + its audit row) — the letter above, and the simple

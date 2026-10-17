@@ -13,6 +13,7 @@ import { confirmDialog, promptDialog } from '../../lib/dialogs'
 import { tableActions } from '../../components/table'
 import { DesignPanel } from './DesignPanel'
 import { ResultView } from './ResultView'
+import { useCapabilityRefused } from '../../lib/capabilities'
 
 /** Debounced copy of a value (the live preview reruns 250 ms after the last edit). */
 function useDebounced<T>(value: T, ms: number): T {
@@ -121,6 +122,7 @@ export function ReportBuilderScreen({
     }
   }
 
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const menuItems = [
     { label: 'New report', testId: 'rb-menu-new', onSelect: () => nav.go({ name: 'report-builder' }) },
     { label: 'Save as new…', testId: 'rb-menu-save-as', onSelect: () => void save(true) },
@@ -147,7 +149,8 @@ export function ReportBuilderScreen({
               }
             })()
           },
-          {
+          // #148: the shared JSON is a file of the books — not for a sign-in refused canExport.
+          ...(exportRefused ? [] : [{
             label: 'Share as JSON', testId: 'rb-menu-share',
             onSelect: () => void (async () => {
               try {
@@ -162,7 +165,7 @@ export function ReportBuilderScreen({
                 fail(err)
               }
             })()
-          }
+          }])
         ]
       : []),
     {

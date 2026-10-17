@@ -15,6 +15,7 @@ import { MenuButton } from '../../components/kit'
 import { DataTable, defineColumns, type TableColumn } from '../../components/table'
 import { ItemLink } from '../../components/links'
 import { confirmDialog, promptDialog } from '../../lib/dialogs'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../../lib/capabilities'
 
 type GridRow = RateGrid['rows'][number]
 
@@ -157,6 +158,7 @@ export function PriceListsTab(): React.JSX.Element {
       toast.push('error', (err as Error).message)
     }
   }
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportCsv = async (l?: PriceLevel): Promise<void> => {
     try {
       const { csv } = await pricingApi.exportCsv(l?.id)
@@ -182,7 +184,7 @@ export function PriceListsTab(): React.JSX.Element {
           const name = await promptDialog({ title: `Copy ${level.name}`, message: 'Name of the new level (same rates and slabs; change them by % afterwards).', initial: `${level.name} copy`, confirmLabel: 'Copy' })
           if (name?.trim()) await run(() => pricingApi.copyLevel({ fromLevelId: level.id, name: name.trim() }), `Copied to ${name.trim()}`)
         } },
-        { label: 'Export this level (CSV)', onSelect: () => void exportCsv(level) },
+        ...(exportRefused ? [] : [{ label: 'Export this level (CSV)', onSelect: () => void exportCsv(level) }]),
         { label: 'Delete level…', danger: true, testId: 'menu-level-delete', onSelect: async () => {
           const ok = await confirmDialog({ title: 'Delete price level', message: `Delete ${level.name} and its ${level.rateCount ?? 0} rates?`, confirmLabel: 'Delete', danger: true })
           if (ok) await run(() => api.priceLevels.remove(level.id), 'Price level deleted')
@@ -234,7 +236,7 @@ export function PriceListsTab(): React.JSX.Element {
               <Button size="sm" variant="ghost" data-testid="btn-price-import" onClick={() => void importCsv()}>
                 Import CSV…
               </Button>
-              <Button size="sm" variant="ghost" data-testid="btn-price-export" onClick={() => void exportCsv()} disabled={levels.length === 0}>
+              <Button size="sm" variant="ghost" data-testid="btn-price-export" onClick={() => void exportCsv()} disabled={exportRefused || levels.length === 0} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined}>
                 Export CSV
               </Button>
             </div>

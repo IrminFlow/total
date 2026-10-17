@@ -12,6 +12,7 @@ import { LedgerLink, VoucherLink } from '../../components/links'
 import { useToasts } from '../../state/stores'
 import { KIND_WORDS, pctText, withholdingApi, type QuarterChoice, type WithholdingKind } from './common'
 import { Form24qPanel } from './Form24qPanel'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../../lib/capabilities'
 
 type Q = 1 | 2 | 3 | 4
 type Party16a = Form16aData['parties'][number]
@@ -92,6 +93,7 @@ export function ReturnsTab({ fyStartYear, initialQuarter, kind = 'tds' }: { fySt
   const due = tcs ? tcsStatementDueDate(fyStartYear, quarter) : null
   const { data, isLoading } = useQuery({ queryKey: [k, 'form26q', fyStartYear, quarter], queryFn: () => wapi.returnData(fyStartYear, quarter) })
   const { data: f16 } = useQuery({ queryKey: [k, 'form16a', fyStartYear, quarter], queryFn: () => wapi.certificateData(fyStartYear, quarter) })
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportCsv = async (): Promise<void> => {
     try {
       const r = await wapi.exportReturn(fyStartYear, quarter)
@@ -130,7 +132,7 @@ export function ReturnsTab({ fyStartYear, initialQuarter, kind = 'tds' }: { fySt
           </span>
         )}
         <span className="flex-1" />
-        <Button data-testid={`btn-${k}-export`} variant="primary" onClick={() => void exportCsv()}>
+        <Button disabled={exportRefused} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} data-testid={`btn-${k}-export`} variant="primary" onClick={() => void exportCsv()}>
           Export {returnName} CSV
         </Button>
       </div>

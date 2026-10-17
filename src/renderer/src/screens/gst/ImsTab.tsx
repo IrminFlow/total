@@ -14,6 +14,7 @@ import { DataTable, defineColumns } from '../../components/table'
 import { LedgerLink, VoucherLink } from '../../components/links'
 import { useCanEditMasters } from '../../lib/drill'
 import { promptDialog } from '../../lib/dialogs'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../../lib/capabilities'
 
 const BUCKET_LABEL: Record<ImsRow['bucket'], string> = {
   matched: 'Matched', amountMismatch: 'Amount mismatch', taxMismatch: 'Tax mismatch', missingInBooks: 'Missing in books', missingInPortal: 'Missing in portal'
@@ -81,6 +82,7 @@ export function ImsTab({ period, periodLabel, pairs }: { period: string; periodL
     }
     await save(list.map((r) => decision(r, action, action == null ? null : note ?? r.note)), action ? `${list.length} marked ${IMS_ACTION_LABELS[action].toLowerCase()}` : `${list.length} cleared`)
   }
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const doExport = async (): Promise<void> => {
     try {
       const r = await api.gst.imsExport(period)
@@ -162,7 +164,7 @@ export function ImsTab({ period, periodLabel, pairs }: { period: string; periodL
           </div>
         }
         toolbarEnd={
-          <Button size="sm" data-testid="btn-ims-export" disabled={decided === 0} onClick={() => void doExport()}>
+          <Button size="sm" data-testid="btn-ims-export" disabled={exportRefused || decided === 0} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} onClick={() => void doExport()}>
             Export actions
           </Button>
         }

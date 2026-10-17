@@ -1311,6 +1311,7 @@ export const en = {
   'simple.taxes.step3.prepare1': 'Prepare the GSTR-1 file',
   'simple.taxes.step3.prepare3b': 'Prepare the GSTR-3B file',
   'simple.taxes.step3.notYet': 'Not prepared yet.',
+  'simple.taxes.step3.exportRefused': 'The owner has turned off saving files of the books for your sign-in — ask the owner to prepare them.',
   'simple.taxes.step3.wait': 'You can prepare the files once the period is over, after {date}.',
   'simple.taxes.step3.quarterly': 'Total prepares the quarter month by month — one file per month, the three of them in one folder. Check with your CA how to upload them for your quarterly return.',
   'simple.taxes.step3.saved': 'File saved — Total opened the folder it is in.',

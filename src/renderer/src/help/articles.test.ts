@@ -5,11 +5,35 @@
 import { describe, expect, it } from 'vitest'
 import { bannedWordsIn } from '@shared/simple/bannedWords'
 import { SCREENS, SECTION_HELP, helpKeyFor } from '../lib/screens'
-import { HELP, HELP_ARTICLE_IDS, HELP_FILES, createHelpIndex } from './articles'
+import { HELP as LAZY_HELP, HELP_ARTICLE_IDS, HELP_FILES as EN_ONLY, createHelpIndex, isHelpLanguageLoaded, loadHelpLanguage, loadHelpLanguages } from './articles'
+import { HI_FILES } from './hiFiles'
+import { HINGLISH_FILES } from './hinglishFiles'
 import { linksIn, parseInline, parseMarkdown } from './markdown'
 import { resolveHelpLink } from './links'
 import { en } from '@shared/i18n/catalogues/en'
 import { STATEMENT_EXTENSIONS } from '@shared/simple/bank'
+
+// #148: Hindi / Hinglish are lazy chunks in the app; the tests read all three sets directly.
+const HELP_FILES = { ...EN_ONLY, hi: HI_FILES, hinglish: HINGLISH_FILES }
+const HELP = createHelpIndex(HELP_FILES.en, HELP_FILES.hi, HELP_FILES.hinglish)
+
+describe('lazy translations (#148)', () => {
+  it('the app index answers in English until a language lands, then in that language', async () => {
+    // (This must run before anything else loads the chunks in this file's module instance.)
+    expect(isHelpLanguageLoaded('en')).toBe(true)
+    expect(isHelpLanguageLoaded('hi')).toBe(false)
+    expect(LAZY_HELP.article('gst', 'hi')).toMatchObject({ id: 'gst', lang: 'en' })
+    expect(LAZY_HELP.ids.hi).toEqual([])
+    await loadHelpLanguage('hi')
+    expect(isHelpLanguageLoaded('hi')).toBe(true)
+    expect(isHelpLanguageLoaded('hinglish')).toBe(false)
+    expect(LAZY_HELP.article('gst', 'hi')).toMatchObject({ id: 'gst', lang: 'hi' })
+    expect(LAZY_HELP.article('gst', 'hinglish')).toMatchObject({ lang: 'en' })
+    await loadHelpLanguages()
+    expect(LAZY_HELP.article('gst', 'hinglish')).toMatchObject({ lang: 'hinglish' })
+    expect(LAZY_HELP.ids).toEqual(HELP.ids)
+  })
+})
 
 describe('help articles (WP 10.3)', () => {
   it('ships at least 12 English articles, one per id, each with a title and a summary', () => {

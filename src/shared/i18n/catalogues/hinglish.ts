@@ -1239,6 +1239,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.taxes.step3.prepare1': 'GSTR-1 file taiyaar karein',
   'simple.taxes.step3.prepare3b': 'GSTR-3B file taiyaar karein',
   'simple.taxes.step3.notYet': 'Abhi taiyaar nahi hui.',
+  'simple.taxes.step3.exportRefused': 'Owner ne aapke sign-in ke liye hisaab ki files save karna band kiya hai — files owner se taiyaar karwaayein.',
   'simple.taxes.step3.wait': 'Period poora hone ke baad, yaani {date} ke baad, aap files taiyaar kar sakte hain.',
   'simple.taxes.step3.quarterly': 'Total quarter ki files mahine-dar-mahine taiyaar karta hai — har mahine ki ek file, teeno ek folder mein. Quarterly return ke liye inhe kaise upload karna hai, yeh apne CA se poochhein.',
   'simple.taxes.step3.saved': 'File save ho gayi — Total ne uska folder khol diya hai.',

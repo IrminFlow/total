@@ -17,6 +17,7 @@ import { Button, DockedDrawer, TextInput } from '../../components/kit'
 import { useAssistantPanel } from '../../components/ai/AssistantPanel'
 import { HELP, type HelpArticle, type HelpArticleId } from '../../help/articles'
 import type { HelpLink } from '../../help/links'
+import { useHelpLanguage } from '../../help/useHelp'
 import { useHelpPanel } from '../../help/store'
 import { useTour } from '../../help/tour'
 import { Markdown } from './Markdown'
@@ -80,8 +81,13 @@ function HelpDrawer({ context }: { context: HelpArticleId }): React.JSX.Element 
     }
   }
   const language = lang as Language
+  // #148: Hindi / Hinglish are lazy chunks — the article shows in English until its language
+  // lands (never blank); a search loads every language, since it covers them all.
+  const searching = !!query.trim()
+  const langReady = useHelpLanguage(language)
+  const allReady = useHelpLanguage(language, searching)
   const article = articleId ? HELP.article(articleId, language) : null
-  const hits = useMemo(() => (query.trim() ? HELP.search(query, language, 10) : []), [query, language])
+  const hits = useMemo(() => (searching ? HELP.search(query, language, 10) : []), [searching, query, language, allReady, langReady])
 
   useEffect(() => {
     bodyTop.current?.scrollIntoView?.({ block: 'start' })
@@ -130,7 +136,7 @@ function HelpDrawer({ context }: { context: HelpArticleId }): React.JSX.Element 
       {query.trim() ? (
         <Hits hits={hits} query={query} onOpen={openArticle} />
       ) : article ? (
-        <ArticleView article={article} wanted={language} isContext={article.id === context} onLink={onLink} />
+        <ArticleView article={article} wanted={language} loading={!langReady} isContext={article.id === context} onLink={onLink} />
       ) : (
         <ArticleList context={context} onOpen={openArticle} lang={language} />
       )}
@@ -138,15 +144,15 @@ function HelpDrawer({ context }: { context: HelpArticleId }): React.JSX.Element 
   )
 }
 
-function ArticleView({ article, wanted, isContext, onLink }: { article: HelpArticle; wanted: Language; isContext: boolean; onLink: (l: Exclude<HelpLink, { kind: 'invalid' }>) => void }): React.JSX.Element {
+function ArticleView({ article, wanted, loading, isContext, onLink }: { article: HelpArticle; wanted: Language; loading: boolean; isContext: boolean; onLink: (l: Exclude<HelpLink, { kind: 'invalid' }>) => void }): React.JSX.Element {
   const t = useT()
   return (
-    <article data-testid="help-article" data-article={article.id} aria-labelledby="help-article-title">
+    <article data-testid="help-article" data-article={article.id} data-loading={loading ? 'true' : undefined} aria-labelledby="help-article-title">
       {isContext && <p className="mb-1 text-caption font-semibold tracking-[0.08em] text-muted uppercase">{t('simple.help.forScreen')}</p>}
       <h2 id="help-article-title" className="mb-3 font-serif text-title font-semibold text-ink" data-testid="help-article-title">
         {article.title}
       </h2>
-      {wanted !== 'en' && article.lang !== wanted && (
+      {wanted !== 'en' && article.lang !== wanted && !loading && (
         <p className="mb-3 text-hint text-muted" data-testid="help-in-english">
           {t('simple.help.inEnglish')}
         </p>

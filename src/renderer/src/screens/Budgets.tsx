@@ -24,6 +24,7 @@ import { confirmDialog, promptDialog } from '../lib/dialogs'
 import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 import { useAiScreenContext } from '../lib/aiContext'
 import { LedgerLink, VoucherLink } from '../components/links'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../lib/capabilities'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -285,6 +286,7 @@ export function BudgetsScreen(): React.JSX.Element {
     }
   }
 
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportCsv = async (): Promise<void> => {
     if (!selected) return
     try {
@@ -322,7 +324,7 @@ export function BudgetsScreen(): React.JSX.Element {
           selected && (
             <>
               <Button variant="ghost" data-testid="btn-budgets-history" onClick={() => setHistoryOpen(true)}>History</Button>
-              <Button variant="ghost" data-testid="btn-budgets-export" onClick={() => void exportCsv()}>Export CSV</Button>
+              <Button disabled={exportRefused} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} variant="ghost" data-testid="btn-budgets-export" onClick={() => void exportCsv()}>Export CSV</Button>
               <Button variant="ghost" data-testid="btn-budgets-import" onClick={() => fileRef.current?.click()}>Import CSV</Button>
               <input
                 ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" data-testid="input-budgets-import"

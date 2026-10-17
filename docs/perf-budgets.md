@@ -320,8 +320,22 @@ the digits. `--lang hi` stores Hindi app-wide before the measured reloads; "cata
 | Catalogue wait before first paint | — | 0 (none) | — | 4.7 ms |
 
 A Hindi user pays ~5 ms for the chunk before the first paint; everyone else stops parsing ~555 kB.
-Not moved: the Hindi / Hinglish HELP articles (`help/hi`, `help/hinglish`, bundled by
-`import.meta.glob(?raw)` in `help/articles.ts`) are still in the entry — the next candidate.
+Not moved by #143: the Hindi / Hinglish HELP articles — done in PR #148 (below).
+
+### Lazy help translations (PR #148)
+
+The Hindi and Hinglish help articles (`help/hi`, `help/hinglish`) were bundled into the entry by
+`help/articles.ts`'s eager `import.meta.glob(?raw)`. Each set is now its own chunk
+(`help/hiFiles.ts`, `help/hinglishFiles.ts`, imported dynamically by `loadHelpLanguage`); English
+stays in the entry. The chunk is loaded when the help panel opens in that language, or when a
+search runs (help search and Ask Total's "can't answer" search cover every language, so they load
+both). Until it lands `HELP.article(id, lang)` returns the English article (never blank; the
+article carries `data-loading` and the "shown in English" note waits), and `useHelpLanguage`
+(`help/useHelp.ts`) re-renders the panel when it does.
+
+`out/renderer/assets`: entry `index-*.js` 1,445,394 B → 1,376,759 B (−68.6 kB, −4.7 %; gzipped
+346.3 kB → 329.9 kB); new chunks `hiFiles-*.js` 56.0 kB and `hinglishFiles-*.js` 15.0 kB.
+Measured 17 Oct 2026, `npm run build` on main at #145 then on the branch.
 
 ## CI
 
@@ -393,8 +407,8 @@ weekly check writes only its meta stamp.
 - Full-text search (FTS5 table + triggers) for voucher text — a schema change beyond CREATE INDEX.
 - Launch ≤ 2 s: the Gateway's four reads are one round trip and the backup restore check waits
   for Home (PR #131), screens are lazy (PR #135), the restore check runs in a worker thread
-  (PR #136) and the hi / hinglish catalogues are lazy (PR #143); left: the hi / hinglish help
-  articles in the entry, and the open backup's verification could be moved after the reply if its
+  (PR #136), the hi / hinglish catalogues are lazy (PR #143) and so are the hi / hinglish help
+  articles (PR #148); left: the open backup's verification could be moved after the reply if its
   audit row may follow the open's housekeeping rows (an ordering change — owner decision).
 - Server-side paging for the Sales / People DataTables — not needed: both are under budget at 100k
   (and the Sales list at 500k).

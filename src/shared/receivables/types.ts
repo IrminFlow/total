@@ -1,7 +1,7 @@
 /** WP 4.2 — result shapes of the receivables channels (src/main/ipcReceivables.ts). */
 import type { OutstandingBill } from '../reports'
 import type { CollectionMonth } from './collections'
-import type { ReminderBucket, ReminderChannel } from './config'
+import type { ReminderBucket, ReminderLogChannel } from './config'
 import type { InterestGstLine } from './interest'
 
 /** A bill's identity across the computed outstandings: its voucher (null = the opening balance)
@@ -120,7 +120,7 @@ export interface ReminderLogRow {
   oldestBill: string | null
   days: number
   documentPath: string | null
-  channel: ReminderChannel
+  channel: ReminderLogChannel
   userName: string | null
   createdAt: string
 }

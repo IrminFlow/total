@@ -12,6 +12,7 @@ import { Badge, Banner, Button, Checkbox, DateInput, Field, Modal, Panel, Segmen
 import { useSession, useToasts } from '../../state/stores'
 import { confirmDialog } from '../../lib/dialogs'
 import { MODAL_TABLE_FEATURES, rupees } from './shared'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../../lib/capabilities'
 
 type Section = 'payments' | 'beneficiaries' | 'templates'
 
@@ -115,6 +116,7 @@ export function BulkTab({ bankLedgerId, bankName }: { bankLedgerId: number; bank
   const invalidate = (): Promise<unknown> =>
     Promise.all(['bulkTemplates', 'bulkCandidates', 'bulkBeneficiaries', 'bulkBatches'].map((k) => queryClient.invalidateQueries({ queryKey: [k] })))
 
+  const exportRefused = useCapabilityRefused('canExport') // #148: hide / disable export buttons the owner refused
   const exportFile = async (): Promise<void> => {
     if (!template) return
     const repeat = selected.some((c) => c.exportedIn.length > 0 || c.chequeNo)
@@ -184,7 +186,7 @@ export function BulkTab({ bankLedgerId, bankName }: { bankLedgerId: number; bank
             <Field label="File remarks">
               <TextInput value={remarks} onChange={(e) => setRemarks(e.target.value)} />
             </Field>
-            <Button variant="primary" disabled={selected.length === 0 || !template} data-testid="btn-bulk-export" onClick={() => void exportFile()}>
+            <Button variant="primary" disabled={exportRefused || selected.length === 0 || !template} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} data-testid="btn-bulk-export" onClick={() => void exportFile()}>
               Export {selected.length || ''} · {rupees(selected.reduce((s, c) => s + c.amount, 0))}
             </Button>
           </div>
