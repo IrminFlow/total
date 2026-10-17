@@ -35,7 +35,7 @@ to #159 (see the last line of this note). Three PRs
 
 - Someone who can only look can now save a customer's statement too. A reminder sent inside your "don't remind within N days" window asks first. Cash flow lines can be clicked to see the entries they are made of (#140).
 - Ask Total understands bills by number and TDS or payroll amounts, and its drafts no longer pile up (#125).
-- Cheque register: entries saved before you set up a cheque book can be filled in later (#146, not in the test DMG).
+- Cheque register: entries saved before you set up a cheque book can be filled in later (#146).
 
 ### Taxes and reports
 
