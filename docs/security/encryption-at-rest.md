@@ -89,7 +89,45 @@ C was rejected because of its asynchronous API.
   the swap is refused while the original still has WAL frames (they would be read as pages of the
   new file); a failed swap reopens the original; a leftover `company.db.converting` (plaintext when
   the lock was being taken off) is removed before the next open.
-- **Changing the passphrase** re-wraps the same data key: books and backups are not rewritten.
+- **Changing the passphrase** re-wraps the same data key: books, backups and files are not rewritten.
+- **Files** (attachments in `attachments/`, their backup copies in `backups/attachments/`, captured
+  bills in `capture/files/`; `db/fileCrypto.ts`). While the business is locked every stored file is
+  `TLF1` | 12-byte random nonce | 16-byte GCM tag | AES-256-GCM ciphertext, under a per-file subkey
+  HKDF-SHA256(data key, info = `total-file-v1` + the file's SHA-256) — the additional data is the
+  magic + nonce. Files keep their content-addressed name (the PLAINTEXT's hash), so dedupe works as
+  before; every read checks the tag and the plaintext hash, and takes either form (a plaintext file
+  that happens to begin with `TLF1` is told apart by its own hash). Writes encrypt when the
+  business's key is remembered for its folder (`db/folderKeys.ts`), plaintext otherwise. The key
+  never leaves main: opening an attachment decrypts it into the session's private temp copy
+  (as before, removed on quit / swept after a day); capture processing and the PDF worker get the
+  decrypted bytes in memory; attaching a captured bill reads it decrypted and stores it under the
+  attachment store's own subkey.
+  - **Lock on** encrypts every file after the books are swapped; **lock off** decrypts them just
+    before the swap (while the key is still in hand). Each file: a converted copy beside it
+    (`<sha>.tlf-converting`, hash-checked), fsynced, renamed over it, the folder fsynced. A
+    `.files-converting` marker is written before the swap and removed when every file is in the
+    target form; every open of the business resumes a marked conversion toward the BOOKS' form
+    (`resumeFileConversion`), and a file already in that form is skipped — so a crash between the
+    swap and the files, or in the middle, is finished on the next open; a crash during lock off
+    before the swap re-encrypts what was decrypted. Leftover `*.tlf-converting` / scratch files are
+    swept with the other leftovers before the open. A file that cannot be converted (damaged) is
+    left as it was and reported (`filesFailed`); taking the lock off keeps the key file while any
+    file is still encrypted. Locking the business again (`security:passphrase:on`) uses that key
+    file's key again when the passphrase opens it — so the leftover files (and backups) open as
+    before — and refuses (`security_files_pending`) while a file still waits on a key the given
+    passphrase does not open: a new key would lose it for good.
+  - A backup copy of a stored file (`backups/attachments/`, same key) is the ciphertext copied as
+    it is once it is known to open — never a plaintext scratch beside it; only a copy to ANOTHER
+    key goes through one (removed at once, swept on the next open after a crash).
+  - **Backups**: local backups copy files as stored (encrypted); the `.totalbak` export's plaintext
+    snapshot carries the DECRYPTED files (it is protected by its own passphrase and imports
+    anywhere); a restore writes each file in the live store's form — so a plaintext backup's files
+    restored into a locked business come back encrypted. The data-folder move (PR #133) copies the
+    files as they are.
+  - **The capture inbox** (`capture-inbox/`, with its `processed/` and `failed/`) is the user's own
+    drop folder and is NOT encrypted: a bill dropped there is plaintext until intake moves it, and
+    the moved original stays in `processed/` as the user's file. Only the queued copy in
+    `capture/files/` is encrypted.
 - **Remember on this computer** — see the section below.
 - **Backups** of a locked business are encrypted with its key (`VACUUM INTO`). The encrypted export
   (`.totalbak`) contains a *plaintext* copy wrapped in its own passphrase file, so a recovery copy
@@ -114,12 +152,14 @@ C was rejected because of its asynchronous API.
 - **A backup file alone cannot be opened.** Its key is in `company.key.json` beside the books (and in
   this Mac's keychain-protected `secrets.json`); there is no in-app way to open an encrypted backup
   `.db` copied away on its own — copy the whole business folder, or use the `.totalbak`.
-- **Not encrypted at all:** attachments (`attachments/`, `backups/attachments/`), capture files,
-  exports (CSV / XLSX / PDF / JSON), logs, and the temporary plaintext snapshot an encrypted export
+- **Not encrypted at all:** the capture inbox (`capture-inbox/` and its `processed/` / `failed/`,
+  the user's own drop folder), an attachment's opened copy while the viewer has it (the session's
+  temp folder), exports (CSV / XLSX / PDF / JSON), logs, and the temporary plaintext snapshot an encrypted export
   writes (`exports/.export-tmp-*.db`, removed when the export finishes, or on the next open after a
   crash). SQLite's own temporary files are not verified to be encrypted (`temp_store` default).
-- **Turning the lock off** decrypts the books and every backup; the key file stays only while some
-  backup could not be converted (it would be unreadable without it) — `backupsFailed` says which.
+- **Turning the lock off** decrypts the books, every backup and every stored file; the key file
+  stays only while some backup or file could not be converted (it would be unreadable without it)
+  — `backupsFailed` / `filesFailed` say which.
 - **While the business is open** the key is in the app's memory; anyone at the unlocked Mac can read
   the books (that is what the screen lock / auto-lock is for).
 - **The screen lock without people** (PR #127): a business without users can lock its screen too
@@ -246,7 +286,7 @@ Opt-in per business, off by default, never pre-ticked (`services/companyKeys.ts`
 
 ## Not covered (deferred)
 
-- Attachments (`attachments/`, `backups/attachments/`), capture files, exports, logs and the
-  temporary plaintext snapshot inside an encrypted export are not encrypted.
+- Exports, logs, the capture inbox and the temporary plaintext snapshot inside an encrypted export
+  are not encrypted (attachments and captured bills are, since the files follow-up — see Design).
 - The consolidation screen does not ask for member passphrases yet (the run payload takes them,
   PR #132); member charts / pair suggestions skip a locked member that is not open.

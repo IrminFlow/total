@@ -2848,6 +2848,7 @@ export const en = {
   'errors.security.passphrasesDiffer': 'The two passphrases are not the same.',
   'errors.security.alreadyLocked': 'This business is already locked with a passphrase.',
   'errors.security.notLocked': 'This business is not locked with a passphrase.',
+  'errors.security.filesPending': 'Some files are still locked with the passphrase this business had before. Lock it with that passphrase, so they open again.',
   'errors.security.verifyFailed': 'Total could not check the locked copy, so nothing was changed. Your books are as they were.',
   'errors.upgrade.newer': 'This business was last opened with a newer Total. Update Total to open it.',
   'errors.upgrade.copyFailed': 'Total could not make a safe copy before upgrading the books; free some disk space and try again.',

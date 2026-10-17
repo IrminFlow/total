@@ -2735,6 +2735,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'errors.security.passphrasesDiffer': 'Dono passphrase ek jaise nahi hain.',
   'errors.security.alreadyLocked': 'Yeh business pehle se passphrase se lock hai.',
   'errors.security.notLocked': 'Yeh business passphrase se lock nahi hai.',
+  'errors.security.filesPending': 'Kuch files abhi bhi us passphrase se lock hain jo is business ka pehle tha. Usi passphrase se lock karein, taaki woh phir khulein.',
   'errors.security.verifyFailed': 'Total lock ki hui copy ko check nahi kar paya, isliye kuch nahi badla. Aapka hisaab pehle jaisa hai.',
   'errors.upgrade.newer': 'Yeh business pichhli baar Total ke naye version se khola gaya tha. Ise kholne ke liye Total update karein.',
   'errors.upgrade.copyFailed': 'Hisaab upgrade karne se pehle Total safe copy nahi bana paya; disk mein thodi jagah khaali karein aur phir se try karein.',

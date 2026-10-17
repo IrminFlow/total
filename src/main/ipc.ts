@@ -8,10 +8,10 @@ import { decodeTextFile } from '@shared/textFiles'
 import { z } from 'zod'
 import { LANGUAGES } from '@shared/i18n'
 import { forgetFolderKey, isEncryptedFile, keyForPath, keyOfHandle, openDb, plainCopy, rekeyFile, removeDbFiles, rememberFolderKey } from './db/encryption'
-import { DEFAULT_SCRYPT, newDataKey, unwrapKeyAsync, wrapKeyAsync, type ScryptParams } from './db/keyEnvelope'
+import { DEFAULT_SCRYPT, WrongPassphraseError, newDataKey, unwrapKeyAsync, wrapKeyAsync, type ScryptParams } from './db/keyEnvelope'
 import { insecureTestCipherAllowed } from './services/secrets'
 import { assertNotThrottled, dropRememberedKey, hasRememberedKey, noteRightPassphrase, noteWrongPassphrase, readEnvelope, readEnvelopes, removeEnvelope, storeRememberedKey, unlockCompanyKey, unlockWithRememberedKey, writeEnvelope } from './services/companyKeys'
-import { commitConvertedCopy, convertBackups, prepareConvertedCopy, removeLeftoverCopies } from './services/dbEncryption'
+import { commitConvertedCopy, convertBackups, convertCompanyFiles, fileConversionPending, markFileConversion, prepareConvertedCopy, removeLeftoverCopies, resumeFileConversion } from './services/dbEncryption'
 import { checkBackupIfDue, latestBackupCheck, listBackupChecks, recordBackupCheck, verifyBackupFileAsync } from './services/backupVerify'
 import { AUTO_LOCK_CHOICES, IdleClock, getAutoLockMinutes, setAutoLockMinutes } from './services/sessionLock'
 import { capabilityAllows, channelCapabilities } from './capabilities'
@@ -1082,6 +1082,8 @@ export function registerIpc(): void {
 
   /** Open `slug` as the current company (the key, if any, already remembered) and run the
    *  on-open housekeeping — company:open, and the passphrase on / off flows that reopen the file. */
+  /** What the last open's file-conversion resume did (convertOpenCompany reports it). */
+  let lastFileResume: { converted: number; failed: string[] } | null = null
   async function openCompanyNow(slug: string, opts: { keepKey?: boolean } = {}): Promise<{ slug: string; info: CompanyInfo; integrity: ReturnType<typeof checkIntegrity>; locked: boolean; ui: ReturnType<typeof configSvc.getUi>; encrypted: boolean }> {
     closeCurrentCompany({ keepKey: opts.keepKey ?? true })
     // WP 7.2 review: what an interrupted lock change / restore / export left beside the books
@@ -1100,6 +1102,16 @@ export function registerIpc(): void {
     const info = readCompanyInfo(db)
     current = { slug, db, info, usersExist: users.usersExist(db), encrypted: keyOfHandle(db) !== null }
     idleClock.setMinutes(getAutoLockMinutes(db))
+    // A lock change interrupted while its files were being converted: finish it toward the books'
+    // own form (the key is known now — the books just opened with it).
+    lastFileResume = null
+    try {
+      const resumed = resumeFileConversion(companyDir(slug), keyOfHandle(db))
+      lastFileResume = resumed
+      if (resumed) log(resumed.failed.length ? 'warn' : 'info', 'security-files-resumed', { slug, converted: resumed.converted, failed: resumed.failed.length })
+    } catch (err) {
+      log('warn', 'security-files-resume-failed', { slug, error: err instanceof Error ? err.message : String(err) })
+    }
     // Online backup needs an open handle, so this runs after open (not before, as it used to).
     // A backup failure here must never fail — or desync — the open itself.
     // WP 7.1: the backup and the integrity check run together — their whole-file quick_checks in
@@ -3208,7 +3220,7 @@ export function registerIpc(): void {
   /** Turn the passphrase lock on (`to` = a new key) or off (`to` = null) for the open company:
    *  a normal backup first, then the verified copy (services/dbEncryption.ts) swapped in and the
    *  company reopened, then every backup converted. The signed-in user stays signed in. */
-  const convertOpenCompany = async (to: Buffer | null, auditAfter: Record<string, unknown>): Promise<{ backupsConverted: number; backupsFailed: string[] }> => {
+  const convertOpenCompany = async (to: Buffer | null, auditAfter: Record<string, unknown>): Promise<{ backupsConverted: number; backupsFailed: string[]; filesConverted: number; filesFailed: string[] }> => {
     const c = requireCompany()
     const { slug } = c
     const by = sessionUser?.name ?? osAuditUser()
@@ -3225,11 +3237,24 @@ export function registerIpc(): void {
       asOn: todayISO(),
       audit: { before: { encrypted: !!from }, after: { encrypted: !!to, ...auditAfter }, user: by }
     })
+    // The files (attachments, capture): taking the lock off decrypts them now, while the key is in
+    // hand. Either way the conversion is marked before the swap, so the reopen (and, after a
+    // crash, the next open) finishes it toward the books' form (dbEncryption.resumeFileConversion)
+    // — putting the lock on encrypts them there, right after the swap.
+    let files = { converted: 0, failed: [] as string[] }
+    try {
+      if (!to) files = convertCompanyFiles(companyDir(slug), from, null)
+      markFileConversion(companyDir(slug), to ? 'encrypted' : 'plain')
+    } catch (err) {
+      removeDbFiles(tmp)
+      throw err
+    }
     closeCurrentCompany({ keepKey: true })
     try {
       commitConvertedCopy(tmp, companyDbPath(slug))
     } catch (err) {
-      // The original is untouched (the rename is the commit): open it again as it was.
+      // The original is untouched (the rename is the commit): open it again as it was — the
+      // reopen's resume puts the files back in the books' form.
       removeDbFiles(tmp)
       await openCompanyNow(slug, { keepKey: true })
       sessionUser = keepUser
@@ -3240,13 +3265,15 @@ export function registerIpc(): void {
     await openCompanyNow(slug, { keepKey: true })
     sessionUser = keepUser
     idleClock.touch()
+    if (to) files = lastFileResume ?? convertCompanyFiles(companyDir(slug), null, to)
+    if (files.failed.length) log('warn', 'security-files-not-converted', { slug, failed: files.failed.length })
     // The older backups follow the books: none is left plaintext behind a locked business (or
     // encrypted behind an unlocked one, where no key would open it any more).
     // A backup's restore check still copying one of them would hold it open (Windows: the rename fails).
     await stopChecksUnder(companyBackupsDir(slug))
     const conv = convertBackups(companyBackupsDir(slug), from, to)
     if (conv.failed.length) log('warn', 'security-backups-not-converted', { slug, failed: conv.failed.length })
-    return { backupsConverted: conv.converted, backupsFailed: conv.failed }
+    return { backupsConverted: conv.converted, backupsFailed: conv.failed, filesConverted: files.converted, filesFailed: files.failed }
   }
 
   /** The passphrase opens the open company's key (passphrase off / change), else wrong_passphrase. */
@@ -3271,7 +3298,25 @@ export function registerIpc(): void {
     if (confirm !== passphrase) throw new AppError('passphrase_mismatch', 'The two passphrases are not the same', { field: 'confirm' })
     const c = requireCompany()
     if (c.encrypted) throw new AppError('security_already_locked', 'This business is already locked with a passphrase')
-    const key = newDataKey()
+    // Files review: a key file an earlier lock-off left behind (some backup or file could not be
+    // converted and is still encrypted under ITS key) is used again when this passphrase opens it
+    // — those leftovers then open as before once the lock is on. While a FILE is still waiting on
+    // that key (the `.files-converting` marker), a passphrase that does not open it is refused:
+    // a new key would lose the file for good (the user's own attachment, not a backup).
+    let key: Buffer | null = null
+    const leftover = readEnvelopes(companyDir(c.slug), c.slug, appSecretStore())
+    for (const env of leftover) {
+      try {
+        key = await unwrapKeyAsync(env, passphrase)
+        break
+      } catch (err) {
+        if (!(err instanceof WrongPassphraseError)) throw err
+      }
+    }
+    if (!key && leftover.length && fileConversionPending(companyDir(c.slug))) {
+      throw new AppError('security_files_pending', 'Some files are still locked with the passphrase this business had before (taking the lock off could not convert them). Lock it with that passphrase, so they open again', { field: 'passphrase' })
+    }
+    key ??= newDataKey()
     // A key remembered for an earlier lock of this business can never open the new file.
     dropRememberedKey(c.slug, appSecretStore())
     const env = await wrapKeyAsync(key, passphrase, scryptParams())
@@ -3300,8 +3345,9 @@ export function registerIpc(): void {
     if (hadRemembered && !isEncryptedFile(companyDbPath(c.slug))) dropRememberedKey(c.slug, appSecretStore())
     // The key goes only once nothing needs it: the books are plaintext AND every backup was
     // converted — a backup left encrypted (it failed to convert) still opens with this passphrase.
-    if (!isEncryptedFile(companyDbPath(c.slug)) && out.backupsFailed.length === 0) removeEnvelope(companyDir(c.slug), c.slug, appSecretStore())
-    else log('warn', 'security-key-kept', { slug: c.slug, backupsFailed: out.backupsFailed.length })
+    // Files that could not be decrypted keep it too.
+    if (!isEncryptedFile(companyDbPath(c.slug)) && out.backupsFailed.length === 0 && out.filesFailed.length === 0) removeEnvelope(companyDir(c.slug), c.slug, appSecretStore())
+    else log('warn', 'security-key-kept', { slug: c.slug, backupsFailed: out.backupsFailed.length, filesFailed: out.filesFailed.length })
     return { ...securityView(), ...out }
   }, 'owner')
 

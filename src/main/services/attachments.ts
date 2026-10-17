@@ -25,10 +25,16 @@
  * change (the edit log shows who attached or removed what, and when).
  *
  * Every add / remove / sweep writes an audit row ('attachment', before/after = the row).
+ *
+ * Passphrase lock (WP 7.2 follow-up, db/fileCrypto.ts): while the business is locked (its key
+ * remembered for the company folder — `keyForPath(dir)`), files are written encrypted (`TLF1`
+ * header, AES-256-GCM under a subkey bound to the content hash) under the same content-addressed
+ * name, so dedupe still works on the plaintext hash; reads accept either form and always check the
+ * plaintext hash. Opening decrypts into the session's private temp copy — the key never leaves main.
  */
 import { createHash, randomBytes } from 'crypto'
 import {
-  constants as fsConstants, closeSync, copyFileSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync,
+  constants as fsConstants, closeSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync,
   readdirSync, readSync, realpathSync, rmSync, unlinkSync, writeFileSync
 } from 'fs'
 import { tmpdir } from 'os'
@@ -36,6 +42,8 @@ import { join, relative, isAbsolute, sep } from 'path'
 import type { DB } from '../db/connection'
 import { fitFileName, portableFileName } from '@shared/fileNames'
 import { renameReplacing } from '../fsRetry'
+import { keyForPath } from '../db/folderKeys'
+import { copyStoredAs, copyStoredPlain, encryptBytes, storedFileMatches } from '../db/fileCrypto'
 import {
   ATTACHMENT_TYPES, DEFAULT_ATTACHMENT_CONFIG, SHA256_RE, attachmentConfigSchema, attachmentRefusal, cleanFileName, contentRefusal, extensionOf, openRefusal,
   isSafeStoredPath, storedPathFor, type Attachment, type AttachmentConfig, type AttachmentEntity, type AttachmentTarget
@@ -138,9 +146,17 @@ export function storedFile(dir: string, sha: string): string | null {
   return abs
 }
 
+/** Whether the stored file at `abs` opens and its plaintext hashes to `sha` (either form; the
+ *  store's folder key reads an encrypted one). */
+export function storedFileOk(abs: string, sha: string, key: Buffer | null = keyForPath(abs)): boolean {
+  return storedFileMatches(abs, sha, key)
+}
+
 /** Write `data` into the store under its hash (atomically: temp file + rename in the same
- *  folder). An existing file with the right hash is kept (dedupe); a damaged one is replaced. */
-export function putStoredFile(dir: string, sha: string, data: Buffer | { copyFrom: string }): void {
+ *  folder) — encrypted when the business is locked (`key`, default the folder's remembered key).
+ *  A `copyFrom` source is another store's file in either form (read with ITS folder's key). An
+ *  existing file with the right hash is kept (dedupe); a damaged one is replaced. */
+export function putStoredFile(dir: string, sha: string, data: Buffer | { copyFrom: string }, key: Buffer | null = keyForPath(dir)): void {
   const rel = storedPathFor(sha)
   const abs = join(dir, rel)
   mkdirSync(join(dir, sha.slice(0, 2)), { recursive: true })
@@ -148,12 +164,20 @@ export function putStoredFile(dir: string, sha: string, data: Buffer | { copyFro
   const realSub = realpathSync(join(dir, sha.slice(0, 2)))
   if (!inside(realRoot, realSub)) throw new Error('Attachment path escapes the attachment folder')
   const existing = storedFile(dir, sha)
-  if (existing && sha256OfFile(existing) === sha) return
+  if (existing && storedFileOk(existing, sha, key)) return
   const tmp = `${abs}.tmp-${process.pid}-${randomBytes(4).toString('hex')}`
   try {
-    if (Buffer.isBuffer(data)) writeFileSync(tmp, data, { mode: 0o600, flag: 'wx' })
-    else copyFileSync(data.copyFrom, tmp)
-    if (sha256OfFile(tmp) !== sha) throw new Error('The file changed while it was being stored')
+    if (Buffer.isBuffer(data)) {
+      if (sha256OfBuffer(data) !== sha) throw new Error('The file changed while it was being stored')
+      writeFileSync(tmp, key ? encryptBytes(data, key, sha) : data, { mode: 0o600, flag: 'wx' })
+    } else {
+      try {
+        copyStoredAs(data.copyFrom, tmp, sha, keyForPath(data.copyFrom), key)
+      } catch {
+        throw new Error('The file changed while it was being stored')
+      }
+    }
+    if (!storedFileOk(tmp, sha, key)) throw new Error('The file changed while it was being stored')
     renameReplacing(tmp, abs)
   } finally {
     rmSync(tmp, { force: true })
@@ -208,6 +232,19 @@ export function addAttachment(db: DB, dir: string, t: AttachmentTarget, sourcePa
   } finally {
     closeSync(fd)
   }
+  return addAttachmentBytes(db, dir, t, data, fileName)
+}
+
+/**
+ * Attach bytes already read in main (a captured bill's file, decrypted — ai/capture/consume.ts)
+ * under `fileName`. The same checks as addAttachment: parent, type policy, size cap, content
+ * sniffing, one copy per record.
+ */
+export function addAttachmentBytes(db: DB, dir: string, t: AttachmentTarget, data: Buffer, displayName: string): Attachment {
+  assertParent(db, t)
+  const fileName = cleanFileName(displayName)
+  const refusal = attachmentRefusal(fileName, data.length, getAttachmentConfig(db))
+  if (refusal) throw new Error(refusal)
   const sniff = contentRefusal(fileName, data)
   if (sniff) throw new Error(sniff)
   const sha = sha256OfBuffer(data)
@@ -266,10 +303,11 @@ export function prepareOpen(db: DB, dir: string, id: number, tempRoot: string = 
   if (!isSafeStoredPath(r.stored_path, r.sha256)) throw new Error('This attachment’s stored path is not valid — refusing to open it')
   const abs = storedFile(dir, r.sha256)
   if (!abs) throw new Error(`${r.file_name} is missing from the attachments folder — restore a backup that has it`)
-  if (sha256OfFile(abs) !== r.sha256) throw new Error(`${r.file_name} has changed on disk since it was attached (hash mismatch) — refusing to open it`)
+  const key = keyForPath(dir)
+  if (!storedFileOk(abs, r.sha256, key)) throw new Error(`${r.file_name} has changed on disk since it was attached (hash mismatch) — refusing to open it`)
   // The type policy again: a row restored from an old backup, or a file type turned off since.
-  const policy = openRefusal(r.file_name, getAttachmentConfig(db)) ?? contentRefusal(r.file_name, readHead(abs))
-  if (policy) throw new Error(`Not opened: ${policy}`)
+  const typeRefusal = openRefusal(r.file_name, getAttachmentConfig(db))
+  if (typeRefusal) throw new Error(`Not opened: ${typeRefusal}`)
   const outDir = mkdtempSync(join(sessionOpenDir(tempRoot), 'f-'))
   // WP 7.3: the copy is named for the OS it opens on — a name attached elsewhere may hold
   // characters Windows refuses (`a:b.pdf`), a device name (`CON.pdf`) or run past MAX_PATH once
@@ -277,8 +315,18 @@ export function prepareOpen(db: DB, dir: string, id: number, tempRoot: string = 
   const name = fitFileName(outDir, portableFileName(cleanFileName(r.file_name), { fallback: `attachment.${extensionOf(r.file_name) || 'bin'}` }))
   const out = join(outDir, name)
   if (!inside(outDir, out)) throw new Error('Bad attachment name')
-  copyFileSync(abs, out)
-  if (sha256OfFile(out) !== r.sha256) throw new Error('The copy did not match the attachment — refusing to open it')
+  // A locked business's file is decrypted into this private copy (hash-checked on the way).
+  try {
+    copyStoredPlain(abs, out, r.sha256, key)
+  } catch {
+    rmSync(outDir, { recursive: true, force: true })
+    throw new Error('The copy did not match the attachment — refusing to open it')
+  }
+  const sniff = contentRefusal(r.file_name, readHead(out))
+  if (sniff || sha256OfFile(out) !== r.sha256) {
+    rmSync(outDir, { recursive: true, force: true })
+    throw new Error(sniff ? `Not opened: ${sniff}` : 'The copy did not match the attachment — refusing to open it')
+  }
   return out
 }
 

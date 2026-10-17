@@ -12,7 +12,7 @@
 // Electron-free (dbtest-able); the key map lives only in this process's memory.
 import Database from 'better-sqlite3-multiple-ciphers'
 import { closeSync, existsSync, openSync, readSync, rmSync, statSync } from 'fs'
-import { resolve, sep } from 'path'
+import { keyForPath } from './folderKeys'
 import { AppError } from '@shared/errors'
 import { e2eClockOffsetMs } from '@shared/e2eClock'
 
@@ -41,7 +41,6 @@ export function isEncryptedFile(path: string): boolean {
 }
 
 const handleKeys = new WeakMap<DB, Buffer>()
-const folderKeys = new Map<string, Buffer>()
 
 const keyPragma = (key: Buffer): string => `"x'${key.toString('hex')}'"`
 
@@ -68,29 +67,7 @@ export function keyOfHandle(db: DB): Buffer | null {
   return handleKeys.get(db) ?? null
 }
 
-/** Remember the unlocked key of a company folder for this session (company file, its backups,
- *  temporary copies the app makes inside it). */
-export function rememberFolderKey(dir: string, key: Buffer): void {
-  folderKeys.set(resolve(dir), Buffer.from(key))
-}
-
-export function forgetFolderKey(dir: string): void {
-  folderKeys.delete(resolve(dir))
-}
-
-export function forgetAllKeys(): void {
-  folderKeys.clear()
-}
-
-/** The remembered key of the folder that contains `path`, or null. */
-export function keyForPath(path: string): Buffer | null {
-  const abs = resolve(path)
-  let best: { len: number; key: Buffer } | null = null
-  for (const [dir, key] of folderKeys) {
-    if ((abs === dir || abs.startsWith(dir + sep)) && (!best || dir.length > best.len)) best = { len: dir.length, key }
-  }
-  return best?.key ?? null
-}
+export { forgetAllKeys, forgetFolderKey, keyForPath, rememberFolderKey } from './folderKeys'
 
 export interface OpenDbOptions {
   readonly?: boolean

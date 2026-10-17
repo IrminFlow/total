@@ -5,7 +5,9 @@
 //  - deleting a business locked with a passphrase asks for the passphrase AND keeps asking for the
 //    owner's PIN (locking the books must not take the delete protection away);
 //  - taking the lock off keeps the key file while a backup could not be decrypted;
-//  - a plaintext copy an interrupted "take the lock off" left beside the books goes on the next open.
+//  - a plaintext copy an interrupted "take the lock off" left beside the books goes on the next open;
+//  - a locked business's attachments are stored encrypted and a viewer opens one only by id — no
+//    reply hands the renderer a stored path (the decrypted copy goes straight to the OS viewer).
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -14,12 +16,27 @@ import { PROFIT_HIDDEN_MESSAGE } from '@shared/profitRedaction'
 
 type Result = { ok: boolean; data?: unknown; error?: string; code?: string; field?: string }
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<Result>>()
+const io = vi.hoisted(() => ({ pick: [] as string[], opened: [] as string[] }))
 
 vi.mock('electron', () => ({
   app: { getVersion: () => '0.12.0-test', getPath: () => tmpdir(), isPackaged: false, on: () => {} },
   ipcMain: { handle: (ch: string, fn: (e: unknown, p: unknown) => Promise<Result>) => handlers.set(ch.replace(/^total:/, ''), fn) },
-  dialog: { showOpenDialog: async () => ({ canceled: true, filePaths: [] }), showSaveDialog: async () => ({ canceled: true }) },
-  shell: { openPath: async () => '', showItemInFolder: () => {}, openExternal: async () => {} },
+  dialog: {
+    showOpenDialog: async () => {
+      const filePaths = io.pick
+      io.pick = []
+      return { canceled: filePaths.length === 0, filePaths }
+    },
+    showSaveDialog: async () => ({ canceled: true })
+  },
+  shell: {
+    openPath: async (p: string) => {
+      io.opened.push(p)
+      return ''
+    },
+    showItemInFolder: () => {},
+    openExternal: async () => {}
+  },
   Notification: class {},
   BrowserWindow: { getAllWindows: () => [] },
   safeStorage: { isEncryptionAvailable: () => false }
@@ -571,5 +588,50 @@ describe('consolidation member passphrases (PR #132) leave no trace', () => {
 
     ipc.closeCurrentCompany() // flush the WAL into the file before reading the disk
     expect(filesHolding(PASS)).toEqual([])
+  })
+})
+
+describe('attachments of a locked business', () => {
+  it('a viewer opens one by id; no attachment reply carries a stored path or the decrypted copy’s location', async () => {
+    const PASS = 'review files passphrase'
+    const { slug } = await ok<{ slug: string }>('company:create', company('Files Review Co'))
+    await ok('company:open', { slug })
+    await ok('security:passphrase:on', { passphrase: PASS, confirm: PASS })
+    await ok('users:save', { data: { name: 'Owner', role: 'owner', pin: '1212' } })
+    const viewer = await ok<{ id: number }>('users:save', { data: { name: 'Vik', role: 'viewer', pin: '3434' } })
+    const cash = (await ok<{ id: number; name: string }[]>('master:ledgers:list')).find((l) => l.name === 'Cash')!
+    const src = mkdtempSync(join(tmpdir(), 'total-review-att-'))
+    const bytes = Buffer.from('%PDF-1.4 the KYC copy')
+    writeFileSync(join(src, 'kyc.pdf'), bytes)
+    io.pick = [join(src, 'kyc.pdf')]
+    const added = await ok<{ added: { id: number; sha256: string }[] }>('attachments:add', { entity: 'ledger', entityId: cash.id })
+    const att = added.added[0]!
+    const stored = readFileSync(join(dir(slug), 'attachments', att.sha256.slice(0, 2), att.sha256))
+    expect(stored.subarray(0, 4).toString('latin1')).toBe('TLF1')
+    expect(stored.includes(Buffer.from('KYC'))).toBe(false)
+
+    await ok('auth:logout')
+    await ok('auth:login', { userId: viewer.id, pin: '3434' })
+    io.opened = []
+    const opened = await call('attachments:open', { id: att.id })
+    expect(opened).toMatchObject({ ok: true })
+    expect(opened.data).toBeNull()
+    expect(readFileSync(io.opened[0]!).equals(bytes)).toBe(true)
+    const replies = [
+      await call('attachments:list', { entity: 'ledger', entityId: cash.id }),
+      await call('attachments:counts', { entity: 'ledger' }),
+      await call('attachments:config'),
+      opened
+    ]
+    for (const r of replies) {
+      const text = JSON.stringify(r)
+      expect(text).not.toContain(DATA_DIR)
+      expect(text).not.toContain(io.opened[0]!)
+      expect(text).not.toMatch(/attachments[\\/]+[0-9a-f]{2}[\\/]/)
+    }
+    // A viewer cannot add or remove one.
+    expect((await call('attachments:add', { entity: 'ledger', entityId: cash.id })).ok).toBe(false)
+    expect((await call('attachments:remove', { id: att.id })).ok).toBe(false)
+    rmSync(src, { recursive: true, force: true })
   })
 })

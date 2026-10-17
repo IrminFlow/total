@@ -5,14 +5,13 @@
 //   - a statement-line draft: the line is reconciled (services/bankImport.reconcileSavedDraft);
 //   - a discarded bill draft: the item goes back to 'needs_review' (answer or send again).
 // None of this may fail the user's save: a problem is recorded on the draft's audit trail.
-import { existsSync } from 'fs'
 import { join } from 'path'
 import type { DB } from '../../db/connection'
 import type { AiDraftDto } from '@shared/ai'
 import { writeAudit } from '../../services/audit'
-import { addAttachment } from '../../services/attachments'
+import { addAttachmentBytes } from '../../services/attachments'
 import { reconcileSavedDraft } from '../../services/bankImport'
-import { captureFilePath, captureFilesDir } from './files'
+import { captureFilesDir, readCaptureFile } from './files'
 import { getItem, patchItem } from './store'
 
 export interface DraftSaveContext {
@@ -66,9 +65,15 @@ export function flushCaptureAttachments(): void {
     try {
       const item = getItem(w.db, w.itemId)
       if (!item) continue
-      const src = captureFilePath(captureFilesDir(w.companyDir), item.storedPath)
-      if (!existsSync(src)) throw new Error('the captured file is missing, so it is not attached')
-      w.db.transaction(() => addAttachment(w.db, join(w.companyDir, 'attachments'), { entity: 'voucher', entityId: w.voucherId }, src, item.fileName))()
+      // Read (decrypted, hash-checked) in main and attached as bytes: a locked business's captured
+      // copy is encrypted, and the attachment store re-encrypts it under its own name.
+      let bytes: Buffer
+      try {
+        bytes = readCaptureFile(captureFilesDir(w.companyDir), item.storedPath, item.sha256)
+      } catch (err) {
+        throw new Error(/missing/.test((err as Error).message) ? 'the captured file is missing, so it is not attached' : (err as Error).message)
+      }
+      w.db.transaction(() => addAttachmentBytes(w.db, join(w.companyDir, 'attachments'), { entity: 'voucher', entityId: w.voucherId }, bytes, item.fileName))()
     } catch (err) {
       const note = `the file could not be attached: ${(err as Error).message}`
       try {

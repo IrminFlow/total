@@ -17,14 +17,22 @@
  *
  * Every copy in either direction is verified against its SHA-256; a file that doesn't match is
  * never written, and is reported as missing instead.
+ *
+ * Passphrase lock (db/fileCrypto.ts): a locked business's stores hold encrypted files; the backups'
+ * store gets them as stored (encrypted), the .totalbak's blob table gets the DECRYPTED bytes (the
+ * export is protected by its own passphrase and imports anywhere), and a restore writes each file
+ * in the live store's form — so a plaintext backup restored into a locked business comes back
+ * encrypted.
  */
 import type Database from 'better-sqlite3-multiple-ciphers'
 import { openDb } from './encryption'
-import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from 'fs'
+import { existsSync, lstatSync, mkdirSync, readdirSync, unlinkSync } from 'fs'
+import { keyForPath } from './folderKeys'
+import { readStoredBytes } from './fileCrypto'
 import { join } from 'path'
 import type { DB } from './connection'
 import { SHA256_RE } from '@shared/attachments'
-import { getAttachmentConfig, putStoredFile, referencedHashes, sha256OfBuffer, sha256OfFile, storedFile } from '../services/attachments'
+import { getAttachmentConfig, putStoredFile, referencedHashes, sha256OfBuffer, storedFile, storedFileOk } from '../services/attachments'
 import { contentRefusal, openRefusal } from '@shared/attachments'
 
 export const BLOB_TABLE = 'backup_attachment_blobs'
@@ -41,7 +49,7 @@ function hashesInDbFile(path: string): string[] {
 function goodFile(dir: string, sha: string): string | null {
   try {
     const abs = storedFile(dir, sha)
-    return abs && sha256OfFile(abs) === sha ? abs : null
+    return abs && storedFileOk(abs, sha, keyForPath(dir)) ? abs : null
   } catch {
     return null
   }
@@ -122,8 +130,10 @@ export function embedAttachments(snapshotPath: string, liveDir: string): StashRe
           out.missing.push(sha)
           continue
         }
-        const data = readFileSync(src)
-        if (sha256OfBuffer(data) !== sha) {
+        let data: Buffer
+        try {
+          data = readStoredBytes(src, sha, keyForPath(liveDir)) // decrypted: the export carries plain bytes
+        } catch {
           out.missing.push(sha)
           continue
         }
@@ -156,8 +166,11 @@ function sourceBytes(sha: string, blob: Database.Statement | null, storeDir: str
   if (b && sha256OfBuffer(b.data) === sha) return b.data
   const src = storeDir ? goodFile(storeDir, sha) : null
   if (!src) return null
-  const data = readFileSync(src)
-  return sha256OfBuffer(data) === sha ? data : null
+  try {
+    return readStoredBytes(src, sha, keyForPath(storeDir!))
+  } catch {
+    return null
+  }
 }
 
 /**
