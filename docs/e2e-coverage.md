@@ -56,7 +56,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | WP | Feature | Scenario(s) | Notes |
 | --- | --- | --- | --- |
 | 4.1 | CSV import + BRS | 05 | |
-| 4.1 | Column mapping, learned rules, cheque books / printing, bulk NEFT file | 31 | |
+| 4.1 | Column mapping, learned rules, cheque books / printing, register backfill, bulk NEFT file | 31 | |
 | 4.1 | MT940 / Excel / CAMT.053 statements, re-import dedupe, post-dated cheques (mature / bounce) | 72 (gap filled) | parsers: `bankFormats.test.ts` |
 | 4.2 | Statements, reminders, interest notes, credit hold, follow-ups | 32 | |
 | 4.3 | Payment plan, MSME s.15 / s.16, payment runs, Form 1 | 33 | |

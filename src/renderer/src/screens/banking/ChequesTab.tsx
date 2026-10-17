@@ -8,12 +8,12 @@ import { chequeFields } from '@shared/cheque'
 import { DEFAULT_CHEQUE_CONFIG, type ChequeConfig } from '@shared/schemas'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { api } from '../../lib/client'
-import { bankingApi, type ChequeBook, type ChequeRegisterRow } from '../../lib/bankingClient'
+import { bankingApi, type ChequeBackfillRow, type ChequeBook, type ChequeRegisterRow } from '../../lib/bankingClient'
 import { DataTable, defineColumns } from '../../components/table'
 import { Badge, Button, Checkbox, DateInput, Field, Modal, Panel, Spinner, StatGrid, StatTile, TextInput } from '../../components/ui'
 import { MenuButton } from '../../components/kit'
 import { VoucherLink } from '../../components/links'
-import { useToasts } from '../../state/stores'
+import { useSession, useToasts } from '../../state/stores'
 import { confirmDialog, promptDialog } from '../../lib/dialogs'
 import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 
@@ -60,6 +60,8 @@ export function ChequesTab({ bankLedgerId, bankName }: { bankLedgerId: number; b
   })
   const [bookEdit, setBookEdit] = useState<ChequeBook | 'new' | null>(null)
   const [layoutOpen, setLayoutOpen] = useState(false)
+  const [backfillOpen, setBackfillOpen] = useState(false)
+  const canView = useSession((st) => st.user == null || st.user.role !== 'viewer')
 
   const invalidate = (): Promise<unknown> =>
     Promise.all([queryClient.invalidateQueries({ queryKey: ['chequeBooks'] }), queryClient.invalidateQueries({ queryKey: ['chequeRegister'] })])
@@ -107,6 +109,11 @@ export function ChequesTab({ bankLedgerId, bankName }: { bankLedgerId: number; b
         <Button data-testid="btn-banking-cheque-setup" onClick={() => setLayoutOpen(true)}>
           Cheque layout &amp; calibration…
         </Button>
+        {canView && (books ?? []).length > 0 && (
+          <Button data-testid="btn-banking-cheque-backfill" onClick={() => setBackfillOpen(true)}>
+            Fill the register from earlier entries…
+          </Button>
+        )}
         <span className="text-hint text-muted">Print a cheque from a saved payment voucher (Print cheque) — the next leaf is used and recorded here.</span>
       </div>
       <StatGrid className="mb-3">
@@ -193,8 +200,160 @@ export function ChequesTab({ bankLedgerId, bankName }: { bankLedgerId: number; b
           }}
         />
       )}
+      {backfillOpen && (
+        <ChequeBackfillModal
+          bankLedgerId={bankLedgerId}
+          bankName={bankName}
+          onClose={() => setBackfillOpen(false)}
+          onFilled={() => {
+            setBackfillOpen(false)
+            void invalidate()
+          }}
+        />
+      )}
       {layoutOpen && <ChequeLayoutModal bankLedgerId={bankLedgerId} bankLedgerName={bankName} onClose={() => setLayoutOpen(false)} />}
     </>
+  )
+}
+
+const BACKFILL_SOURCE: Record<ChequeBackfillRow['source'], string> = { instrument: 'Cheque no. field', reference: 'Reference', narration: 'Narration' }
+
+const backfillColumns = (picked: Set<number>, toggle: (id: number) => void, conflicts: boolean) =>
+  defineColumns<ChequeBackfillRow>([
+    ...(conflicts
+      ? []
+      : [
+          {
+            id: 'pick', header: 'Record', kind: 'text' as const, value: (r: ChequeBackfillRow) => (picked.has(r.voucherId) ? 'yes' : 'no'), width: 80, hideable: false,
+            cell: (r: ChequeBackfillRow) => (
+              <input
+                type="checkbox"
+                aria-label={`Record cheque ${r.number}`}
+                checked={picked.has(r.voucherId)}
+                onChange={() => toggle(r.voucherId)}
+                data-testid={`input-cheque-backfill-${r.key}`}
+              />
+            )
+          }
+        ]),
+    { id: 'number', header: 'Cheque no.', kind: 'text', value: (r) => r.number, width: 110, className: 'num', hideable: false },
+    { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, width: 110 },
+    {
+      id: 'voucher', header: 'Voucher', kind: 'text', value: (r) => r.voucherNumber, width: 100,
+      cell: (r) => <VoucherLink voucherId={r.voucherId} label={r.voucherNumber} />
+    },
+    { id: 'payee', header: 'Payee', kind: 'text', value: (r) => r.payee, minWidth: 140 },
+    { id: 'amount', header: 'Amount', kind: 'money', value: (r) => r.amount, aggregate: 'sum', width: 120 },
+    { id: 'source', header: 'Read from', kind: 'text', value: (r) => `${BACKFILL_SOURCE[r.source]}${r.found !== r.number ? ` (${r.found})` : ''}`, width: 190 },
+    { id: 'book', header: 'Book', kind: 'text', value: (r) => r.bookName ?? (r.bookId == null ? 'Outside any book' : ''), width: 120 },
+    ...(conflicts
+      ? [{
+          id: 'conflict', header: 'Why skipped', kind: 'text' as const, minWidth: 200,
+          value: (r: ChequeBackfillRow) =>
+            r.conflict?.reason === 'same_number'
+              ? `Same number as voucher ${r.conflict.otherVoucherNumber ?? ''}`
+              : r.conflict?.otherVoucherNumber
+                ? `Already in the register for voucher ${r.conflict.otherVoucherNumber} (${r.conflict.status ?? 'used'})`
+                : `Already in the register as a blank leaf (${r.conflict?.status ?? 'used'})`
+        }]
+      : [])
+  ])
+
+/** Upgrade check: payments saved before a cheque book existed carry their cheque number but never
+ *  reached the register. Preview (accountant+), then the owner records them — nothing on the
+ *  vouchers changes; leaves held by another entry are listed and skipped, never overwritten. */
+export function ChequeBackfillModal({ bankLedgerId, bankName, onClose, onFilled }: { bankLedgerId: number; bankName: string; onClose: () => void; onFilled: () => void }): React.JSX.Element {
+  const toast = useToasts()
+  const canApply = useSession((st) => st.user == null || st.user.role === 'owner')
+  const [includeOutside, setIncludeOutside] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const { data, isLoading, error } = useQuery({
+    queryKey: ['chequeBackfill', bankLedgerId, includeOutside],
+    queryFn: () => bankingApi.cheques.backfillPreview(bankLedgerId, includeOutside)
+  })
+  const [unpicked, setUnpicked] = useState<Set<number>>(new Set())
+  const rows = data?.rows ?? []
+  const picked = useMemo(() => new Set(rows.map((r) => r.voucherId).filter((id) => !unpicked.has(id))), [rows, unpicked])
+  const toggle = (id: number): void =>
+    setUnpicked((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  const apply = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const res = await bankingApi.cheques.backfill(bankLedgerId, includeOutside, [...picked])
+      toast.push('success', `${res.filled} ${res.filled === 1 ? 'cheque' : 'cheques'} recorded in the register${res.conflicts ? ` · ${res.conflicts} skipped (leaf already used)` : ''}`)
+      onFilled()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const conflicts = data?.conflicts ?? []
+  const outsideSkipped = data?.outsideBooks ?? 0
+  return (
+    <Modal title={`Fill the cheque register — ${bankName}`} onClose={onClose} extraWide>
+      <div className="flex flex-col gap-3" data-testid="cheque-backfill">
+        <p className="text-small text-muted">
+          Payments saved before this bank had a cheque book carry their cheque number but are not in the register. These are recorded as issued
+          cheques against their vouchers, exactly as Print cheque would have — the vouchers themselves are not changed.
+        </p>
+        <Checkbox
+          label="Include numbers outside any cheque book (a 6-digit number in the cheque no. field or after “cheque” in the narration)"
+          checked={includeOutside}
+          onChange={setIncludeOutside}
+          testId="input-cheque-backfill-outside"
+        />
+        {isLoading ? (
+          <Spinner />
+        ) : error ? (
+          <p className="text-small text-danger" role="alert">{(error as Error).message}</p>
+        ) : (
+          <>
+            <DataTable
+              viewId="banking-cheque-backfill"
+              testId="cheque-backfill-rows"
+              ariaLabel="Cheques to record"
+              columns={backfillColumns(picked, toggle, false)}
+              rows={rows}
+              rowKey={(r) => r.key}
+              maxHeight="40vh"
+              empty={{ title: 'Nothing to fill', hint: 'Every payment with a cheque number in a book of this bank is already in the register' }}
+            />
+            {outsideSkipped > 0 && (
+              <p className="text-small text-muted" data-testid="cheque-backfill-outside-count">
+                {outsideSkipped} {outsideSkipped === 1 ? 'payment carries a number' : 'payments carry numbers'} outside every cheque book of {bankName} — not recorded.
+              </p>
+            )}
+            {conflicts.length > 0 && (
+              <>
+                <h3 className="text-detail font-medium text-ink">Skipped — the leaf is already used ({conflicts.length})</h3>
+                <DataTable
+                  viewId="banking-cheque-backfill-conflicts"
+                  testId="cheque-backfill-conflicts"
+                  ariaLabel="Cheques skipped because the leaf is already used"
+                  columns={backfillColumns(picked, toggle, true)}
+                  rows={conflicts}
+                  rowKey={(r) => r.key}
+                  maxHeight="24vh"
+                />
+              </>
+            )}
+          </>
+        )}
+        <div className="flex items-center justify-end gap-2">
+          {!canApply && <span className="text-hint text-muted" data-testid="cheque-backfill-owner-only">Only the owner can fill the register.</span>}
+          <Button onClick={onClose}>Close</Button>
+          <Button variant="primary" data-testid="btn-cheque-backfill-apply" disabled={!canApply || busy || picked.size === 0} onClick={() => void apply()}>
+            Record {picked.size} {picked.size === 1 ? 'cheque' : 'cheques'}
+          </Button>
+        </div>
+      </div>
+    </Modal>
   )
 }
 

@@ -1,14 +1,14 @@
 // Cheque register (WP 4.1): cheque books (leaf ranges per bank account) and the cheques issued,
 // cancelled or stopped from them. "Cleared" is derived from the payment voucher's bank date.
 import type { DB } from '../db/connection'
-import type { ChequeBook, ChequeBookInput, ChequeRegisterRow, ChequeStatusInput } from '@shared/bankTypes'
+import type { ChequeBackfillPreview, ChequeBackfillResult, ChequeBackfillRow, ChequeBook, ChequeBookInput, ChequeRegisterRow, ChequeStatusInput } from '@shared/bankTypes'
 import {
-  bookFor, displayStatus, formatLeaf, leafValue, nextAvailableLeaf, overlappingBook, type ChequeBookRange, type ChequeStatus, type StoredChequeStatus
+  OUTSIDE_BOOK_DIGITS, bookFor, chequeNumberOf, displayStatus, formatLeaf, leafValue, nextAvailableLeaf, overlappingBook, type ChequeBookRange, type ChequeStatus, type StoredChequeStatus
 } from '@shared/chequeRegister'
 import { writeAudit } from './audit'
 import { bankLedgers } from './banking'
 import { chequeData } from './cheque'
-import { NOT_DELETED, getLockDate, getVoucher } from './vouchers'
+import { NOT_DELETED, NOT_OPTIONAL, getLockDate, getVoucher } from './vouchers'
 
 
 
@@ -273,4 +273,146 @@ export function setChequeStatus(db: DB, input: ChequeStatusInput): ChequeRegiste
   })
   const label = run()
   return chequeRegister(db, input.bankLedgerId, false).find((r) => r.number === label)!
+}
+
+
+// ---------- register backfill (upgrade check, to-do §4) ----------
+//
+// Entries saved before a cheque book was configured carry their cheque number on the voucher but
+// never reached the register, so "Leaves left" and the next leaf are wrong after an upgrade. The
+// backfill records them the way Print cheque would have (status issued, the voucher linked, payee
+// / amount / date from `chequeData`) — owner-run, audited, idempotent; it never changes a
+// voucher or a figure (a voucher's '457' stays '457' while the register says 000457).
+
+const OUTSIDE_RE = new RegExp(`^\\d{${OUTSIDE_BOOK_DIGITS}}$`)
+
+export interface ChequeBackfillOptions {
+  /** Limit to one bank account (the Cheques tab passes its bank). */
+  bankLedgerId?: number
+  /** Also record 6-digit numbers outside every cheque book (off by default) — from the cheque-number
+   *  field or a cheque word in the narration only, never a bare reference. */
+  includeOutside?: boolean
+}
+
+/**
+ * What the backfill would record, oldest entry first. Candidates are payment vouchers (the only
+ * kind Print cheque accepts) with a credit to a bank account, not binned and not optional —
+ * post-dated payments are included: their leaf has left the book too, and leaving it out would
+ * let the next leaf be handed out twice. The number is read by `chequeNumberOf` (leafValue, the
+ * print rule) and must fall inside one of the bank's cheque books (an inactive, used-up book
+ * counts — it is history), or, with `includeOutside`, be a 6-digit number from the cheque-number
+ * field or the narration's cheque word (never a bare reference). `outsideBooks` counts the
+ * entries left out for being outside every book. A reference that is a voucher
+ * number is not read as a cheque number (a bounced cheque's charges entry carries one). A voucher that already
+ * has a register entry on that bank is skipped silently; a leaf held by another entry (or by a
+ * blank cancelled / stopped leaf), or claimed by an earlier entry of the same run, is a conflict.
+ */
+export function chequeBackfillPreview(db: DB, opts: ChequeBackfillOptions = {}): ChequeBackfillPreview {
+  const banks = bankLedgers(db).filter((b) => opts.bankLedgerId == null || b.id === opts.bankLedgerId)
+  if (opts.bankLedgerId != null && banks.length === 0) throw new Error('That ledger is not a bank account')
+  const rows: ChequeBackfillRow[] = []
+  const conflicts: ChequeBackfillRow[] = []
+  let outsideBooks = 0
+  const candidatesStmt = db.prepare(
+    `SELECT DISTINCT v.id, v.number, v.date, v.instrument_no AS instrumentNo, v.reference, v.narration
+     FROM vouchers v
+     JOIN voucher_types vt ON vt.id = v.voucher_type_id
+     JOIN voucher_lines vl ON vl.voucher_id = v.id
+     WHERE vt.kind = 'payment' AND vl.ledger_id = ? AND vl.dr_cr = 'cr' AND ${NOT_DELETED} AND ${NOT_OPTIONAL}
+       AND (v.instrument_no IS NOT NULL OR v.reference IS NOT NULL OR v.narration IS NOT NULL)
+     ORDER BY v.date, v.id`
+  )
+  // Every voucher number (one read; vouchers.number is indexed only behind voucher_type_id).
+  const voucherNumberSet = new Set((db.prepare('SELECT DISTINCT number FROM vouchers').all() as { number: string }[]).map((r) => r.number.trim()))
+  for (const bank of banks) {
+    const books = db.prepare('SELECT * FROM cheque_books WHERE bank_ledger_id = ? ORDER BY from_no').all(bank.id) as BookRow[]
+    const ranges = books.map(toRange)
+    const register = db.prepare('SELECT * FROM cheques WHERE bank_ledger_id = ?').all(bank.id) as ChequeRow[]
+    const byLeaf = new Map<number, ChequeRow>()
+    const byNumber = new Map<string, ChequeRow>()
+    const vouchersInRegister = new Set<number>()
+    for (const c of register) {
+      if (c.leaf != null) byLeaf.set(c.leaf, c)
+      byNumber.set(c.number, c)
+      if (c.voucher_id != null) vouchersInRegister.add(c.voucher_id)
+    }
+    const voucherNumbers = new Map<number, string>()
+    const claimed = new Map<number, ChequeBackfillRow>()
+    const candidates = candidatesStmt.all(bank.id) as { id: number; number: string; date: string; instrumentNo: string | null; reference: string | null; narration: string | null }[]
+    for (const v of candidates) {
+      if (vouchersInRegister.has(v.id)) continue
+      const found = chequeNumberOf(v)
+      if (!found) continue
+      // A digits-only reference that is a voucher number (another entry's, or its own) points at
+      // that entry, not at a cheque leaf — a bounced cheque's charges payment carries the
+      // original's number there.
+      if (found.source === 'reference' && voucherNumberSet.has(found.text)) continue
+      const book = bookFor(ranges, found.leaf)
+      // Outside every book only with the box on, and then only a 6-digit number read from the
+      // cheque-number field or after a cheque word in the narration — never a bare digits-only
+      // reference, which is as often a UTR, a bill or a voucher number (a bounced PDC's charges
+      // entry carries the original's voucher number there).
+      if (!book && (!opts.includeOutside || found.source === 'reference' || !OUTSIDE_RE.test(found.text))) {
+        outsideBooks++
+        continue
+      }
+      const number = book ? formatLeaf(found.leaf, book.width) : found.text
+      const data = chequeData(db, v.id, bank.id)
+      const row: ChequeBackfillRow = {
+        key: `${v.id}-${bank.id}`, voucherId: v.id, voucherNumber: v.number, date: v.date, bankLedgerId: bank.id, bankLedgerName: bank.name,
+        number, leaf: found.leaf, bookId: book?.id ?? null, bookName: book ? (books.find((b) => b.id === book.id)?.name ?? null) : null,
+        source: found.source, found: found.text, payee: data.payee, amount: data.amount, conflict: null
+      }
+      const held = byLeaf.get(found.leaf) ?? byNumber.get(number)
+      const earlier = claimed.get(found.leaf)
+      if (held) {
+        let other: string | null = null
+        if (held.voucher_id != null) {
+          other = voucherNumbers.get(held.voucher_id) ?? ((db.prepare('SELECT number FROM vouchers WHERE id = ?').get(held.voucher_id) as { number: string } | undefined)?.number ?? null)
+          if (other != null) voucherNumbers.set(held.voucher_id, other)
+        }
+        conflicts.push({ ...row, conflict: { reason: 'in_register', status: held.status, otherVoucherId: held.voucher_id, otherVoucherNumber: other } })
+      } else if (earlier) {
+        conflicts.push({ ...row, conflict: { reason: 'same_number', status: null, otherVoucherId: earlier.voucherId, otherVoucherNumber: earlier.voucherNumber } })
+      } else {
+        claimed.set(found.leaf, row)
+        rows.push(row)
+      }
+    }
+  }
+  const order = (a: ChequeBackfillRow, z: ChequeBackfillRow): number => a.date.localeCompare(z.date) || a.voucherId - z.voucherId || a.bankLedgerId - z.bankLedgerId
+  return { rows: rows.sort(order), conflicts: conflicts.sort(order), outsideBooks }
+}
+
+/**
+ * Record the preview's rows (re-computed here, inside ONE transaction — never the renderer's
+ * list; `voucherIds` only narrows it to the entries the owner kept ticked). Each leaf is inserted
+ * exactly as `issueCheque` inserts it and audited as a `cheque` create (with `backfill` saying
+ * where the number was read); one summary row (`cheque` id 0, action import) closes the run.
+ * Vouchers are never touched. A run that finds nothing writes nothing — a second run is a no-op.
+ */
+export function backfillChequeRegister(db: DB, opts: ChequeBackfillOptions & { voucherIds?: number[] } = {}): ChequeBackfillResult {
+  return db.transaction((): ChequeBackfillResult => {
+    const preview = chequeBackfillPreview(db, opts)
+    const keep = opts.voucherIds ? new Set(opts.voucherIds) : null
+    const todo = preview.rows.filter((r) => keep == null || keep.has(r.voucherId))
+    if (todo.length === 0) return { filled: 0, conflicts: preview.conflicts.length, rows: [] }
+    const insert = db.prepare(
+      `INSERT INTO cheques (bank_ledger_id, cheque_book_id, number, leaf, status, voucher_id, payee, amount, cheque_date)
+       VALUES (?, ?, ?, ?, 'issued', ?, ?, ?, ?)`
+    )
+    for (const r of todo) {
+      const res = insert.run(r.bankLedgerId, r.bookId, r.number, r.leaf, r.voucherId, r.payee, r.amount, r.date)
+      writeAudit(db, 'cheque', Number(res.lastInsertRowid), 'create', null, {
+        bankLedgerId: r.bankLedgerId, number: r.number, voucherId: r.voucherId, payee: r.payee, amount: r.amount, chequeDate: r.date,
+        backfill: { source: r.source, found: r.found }
+      })
+    }
+    writeAudit(db, 'cheque', 0, 'import', null, {
+      kind: 'register_backfill', bankLedgerId: opts.bankLedgerId ?? null, includeOutside: !!opts.includeOutside,
+      filled: todo.length, numbers: todo.map((r) => ({ bankLedgerId: r.bankLedgerId, number: r.number, voucherId: r.voucherId })),
+      conflicts: preview.conflicts.map((c) => ({ bankLedgerId: c.bankLedgerId, number: c.number, voucherId: c.voucherId, reason: c.conflict!.reason }))
+    })
+    return { filled: todo.length, conflicts: preview.conflicts.length, rows: todo }
+  })()
 }

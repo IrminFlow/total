@@ -57,3 +57,38 @@ export function displayStatus(stored: StoredChequeStatus | null, bankDate: strin
 export function overlappingBook(books: ChequeBookRange[], fromNo: number, toNo: number, exceptId?: number): ChequeBookRange | null {
   return books.find((b) => b.id !== exceptId && fromNo <= b.toNo && toNo >= b.fromNo) ?? null
 }
+
+// ---------- register backfill (the upgrade check: entries saved before a book existed) ----------
+
+export type ChequeNumberSource = 'instrument' | 'reference' | 'narration'
+
+/** "Chq 000457", "cheque no. 457", "CHQ#457", "chk-457" — the digits after a cheque word. */
+const NARRATION_CHEQUE = /\b(?:cheque|cheq|chq|chk)\.?\s*(?:no\.?|number|#)?\s*[:#.-]?\s*(\d{1,12})\b/i
+
+/**
+ * The cheque number an entry carries, read in the order the voucher editor fills them: the
+ * instrument number (what Print cheque reads), then a reference that is only digits, then a
+ * cheque word in the narration. Each candidate goes through `leafValue` — the same reading
+ * Print cheque applies — so a number that would not issue on print is never picked here. Only the
+ * FIRST field holding a number counts (a later field is never preferred to make a match).
+ */
+export function chequeNumberOf(fields: { instrumentNo: string | null; reference: string | null; narration: string | null }): {
+  source: ChequeNumberSource
+  text: string
+  leaf: number
+} | null {
+  const instrument = (fields.instrumentNo ?? '').trim()
+  if (instrument) {
+    const leaf = leafValue(instrument)
+    return leaf == null ? null : { source: 'instrument', text: instrument, leaf }
+  }
+  const reference = (fields.reference ?? '').trim()
+  const refLeaf = leafValue(reference)
+  if (refLeaf != null) return { source: 'reference', text: reference, leaf: refLeaf }
+  const m = NARRATION_CHEQUE.exec(fields.narration ?? '')
+  const narrLeaf = m ? leafValue(m[1]) : null
+  return m && narrLeaf != null ? { source: 'narration', text: m[1]!, leaf: narrLeaf } : null
+}
+
+/** Width of a number outside every book that the backfill may still record (CTS leaves). */
+export const OUTSIDE_BOOK_DIGITS = 6

@@ -126,6 +126,11 @@ export function registerBankingIpc(handle: Handle, company: () => Company): void
   }, 'viewer')
   handle('cheques:next', (p) => cheques.nextChequeNumber(db(), bankSchema.parse(p).bankLedgerId), 'viewer')
   handle('cheques:setStatus', (p) => cheques.setChequeStatus(db(), chequeStatusSchema.parse(p)))
+  // Upgrade check: fill the register from payments saved before a cheque book existed. The preview
+  // is a read (accountant+); the apply is owner-only, one transaction, audited, idempotent.
+  const backfillSchema = z.object({ bankLedgerId: id.optional(), includeOutside: z.boolean().default(false) }).strict()
+  handle('cheques:backfillPreview', (p) => cheques.chequeBackfillPreview(db(), backfillSchema.parse(p ?? {})))
+  handle('cheques:backfill', (p) => cheques.backfillChequeRegister(db(), backfillSchema.extend({ voucherIds: z.array(id).max(50000).optional() }).strict().parse(p ?? {})), 'owner')
   // Issue the register entry (next leaf unless one is given) and print it — "Print cheque" from a
   // payment voucher. A re-print of the same voucher re-uses its leaf.
   handle('cheques:print', async (p) => {

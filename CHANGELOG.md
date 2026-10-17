@@ -394,9 +394,30 @@ Read these before filing from the next release.
   export documents only — B2C bills get no IRN) and under the number in the sales / credit note
   editor — never refused. Source: NIC e-invoice schema, Generate IRN v1.03, `DocDtls.No`
   (read 2026-10-17). [#140](https://github.com/IrminFlow/total/pull/140)
+- **Cheque register: fill it from earlier entries** (Banking → Cheques). Payments saved before
+  the bank had a cheque book carry their cheque number on the voucher but were never in the
+  register, so after an upgrade the register was empty and "Leaves left" / the next leaf were
+  wrong. The new panel lists every payment (post-dated ones included — their leaf has left the
+  book too) whose cheque number field, a digits-only reference (not one that is a voucher number —
+  a bounced cheque's charges entry carries the original's there), or a "chq no. …" in the narration
+  falls inside one of the bank's cheque books and is not yet in the register — read with the same
+  rule Print cheque uses. Optionally, a 6-digit number outside a book (off by default) — from the
+  cheque number field or the narration only, never a bare reference (UTRs, bill numbers). The
+  owner records the ticked ones in one step: each becomes an issued cheque against its voucher,
+  exactly as Print cheque would have recorded it, audited per leaf plus one summary row. Vouchers
+  and figures are not changed (a voucher typed "458" keeps "458"; the register shows 000458). A
+  leaf already used by another entry, or cancelled / stopped as a blank leaf, is listed as skipped
+  and never overwritten; running it again finds nothing. Receipts are not read (their cheque is the
+  payer's leaf). **Upgrading:** if you used cheque numbers before adding a cheque book, open
+  Banking → Cheques on each bank and run "Fill the register from earlier entries" once.
+  [#146](https://github.com/IrminFlow/total/pull/146)
 
 ### For developers
 
+- New banking channels `cheques:backfillPreview` (accountant+, read) and `cheques:backfill`
+  (owner, Zod-strict `{ bankLedgerId?, includeOutside?, voucherIds? }`, audited `cheque`) in
+  `services/cheques.ts`; the number reader is `chequeNumberOf` in `shared/chequeRegister.ts`
+  (over `leafValue`). No migration. [#146](https://github.com/IrminFlow/total/pull/146)
 - `receivables:statementPdf` is a viewer read, governed by `canExport` (in `EXPORT_CHANNELS`, like
   `report:pdf`). New viewer read `gst:einvoicing`
   (`services/gst.ts einvoicingOn`). `CashFlowRow` gained optional `parts` (ledger id, name, cash
