@@ -1,13 +1,14 @@
 // Depreciation run (WP 3.6): pick a period inside one financial year → preview per asset and the
-// one journal it will post → post. Below: every run so far, with its voucher.
+// one journal it will post → post. Optional extra-shift days per asset (Schedule II Notes para 6).
+// Below: every run so far, with its voucher.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { fyOf, toDisplayDate } from '@shared/dates'
 import { addDays } from '@shared/depreciation'
-import type { DepreciationPreviewRow, DepreciationRunRow } from '@shared/fixedAssets'
+import type { DepreciationPreviewRow, DepreciationRunRow, ExtraShiftInput } from '@shared/fixedAssets'
 import { faApi } from '../../lib/fixedAssetsClient'
 import { useSession, useToasts } from '../../state/stores'
-import { Badge, Banner, Button, DateInput, Field, Panel, SectionTitle, Toolbar, ToolbarSpacer } from '../../components/ui'
+import { Badge, Banner, Button, DateInput, Field, Money, Panel, SectionTitle, Select, TextInput, Toolbar, ToolbarSpacer } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { VoucherLink } from '../../components/links'
 import { JOURNAL_COLUMNS } from './DisposalWizard'
@@ -27,6 +28,10 @@ export const PREVIEW_COLUMNS = defineColumns<DepreciationPreviewRow>([
   { id: 'days', header: 'Days', kind: 'number', value: (r) => r.daysUsed, width: 72 },
   { id: 'depreciation', header: 'Depreciation', kind: 'money', value: (r) => r.depreciation, aggregate: 'sum', width: 140 },
   { id: 'closing', header: 'Closing WDV', kind: 'money', value: (r) => r.closingWdv, aggregate: 'sum', width: 140 },
+  {
+    id: 'shift', header: 'Extra shift', kind: 'money', value: (r) => r.extraShift?.extra ?? null, width: 130, defaultHidden: true, aggregate: 'sum',
+    explainable: false
+  },
   {
     id: 'state', header: 'Note', kind: 'text', value: (r) => (r.fullyDepreciated ? 'Fully depreciated' : ''), width: 140, groupable: false,
     cell: (r) => (r.fullyDepreciated ? <Badge tone="neutral">Fully depreciated</Badge> : null)
@@ -72,9 +77,10 @@ export function DepreciationTab(): React.JSX.Element {
     setter(v)
   }
   const sameFy = fyOf(from).startYear === fyOf(to).startYear && to >= from
+  const [shifts, setShifts] = useState<ExtraShiftInput[]>([])
   const { data: preview, isLoading } = useQuery({
-    queryKey: ['faRunPreview', from, to],
-    queryFn: () => faApi.runPreview(from, to),
+    queryKey: ['faRunPreview', from, to, shifts],
+    queryFn: () => faApi.runPreview(from, to, shifts),
     enabled: sameFy
   })
   // A period that is already posted shows what that run charged.
@@ -93,7 +99,8 @@ export function DepreciationTab(): React.JSX.Element {
   const post = async (): Promise<void> => {
     setPosting(true)
     try {
-      const run = await faApi.runPost(from, to)
+      const run = await faApi.runPost(from, to, shifts)
+      setShifts([])
       await refresh()
       toast.push('success', `Depreciation posted — Journal ${run.voucherNumber ?? ''}`.trim())
     } catch (e) {
@@ -121,6 +128,14 @@ export function DepreciationTab(): React.JSX.Element {
           <Banner tone={preview.existingRun ? 'info' : 'warning'} className="m-3" testId="fixed-assets-run-blocked"
             action={preview.existingRun ? <VoucherLink voucherId={preview.existingRun.voucherId} label="Open the journal" /> : undefined}>
             {preview.blocked}
+          </Banner>
+        )}
+        {existingRunId == null && (
+          <ExtraShiftForm rows={preview?.rows ?? []} shifts={shifts} onChange={setShifts} />
+        )}
+        {preview?.rows.some((r) => r.extraShiftNote) && (
+          <Banner tone="info" className="m-3" testId="fixed-assets-shift-note">
+            Extra shift not checked against Schedule II: {preview.rows.filter((r) => r.extraShiftNote).map((r) => `${r.assetName} — ${r.extraShiftNote}`).join('; ')}
           </Banner>
         )}
         <DataTable
@@ -171,6 +186,52 @@ export function DepreciationTab(): React.JSX.Element {
           />
         </Panel>
       </div>
+    </div>
+  )
+}
+
+const dayCount = (text: string): number | null => (/^\s*\d{1,3}\s*$/.test(text) ? Number(text) : text.trim() === '' ? 0 : null)
+
+/** Extra-shift days for the run (Schedule II Notes para 6: +50% for double-shift days, +100% for
+ *  triple-shift days; not for classes marked NESD in Part C). */
+export function ExtraShiftForm({ rows, shifts, onChange }: {
+  rows: DepreciationPreviewRow[]; shifts: ExtraShiftInput[]; onChange: (s: ExtraShiftInput[]) => void
+}): React.JSX.Element | null {
+  const eligible = rows.filter((r) => r.extraShiftAllowed && r.daysUsed > 0)
+  const [assetId, setAssetId] = useState<number | null>(null)
+  const [d2, setD2] = useState('')
+  const [d3, setD3] = useState('')
+  if (eligible.length === 0 && shifts.length === 0) return null
+  const picked = assetId ?? eligible[0]?.assetId ?? null
+  const double = dayCount(d2)
+  const triple = dayCount(d3)
+  const valid = picked != null && double != null && triple != null && double + triple > 0
+  const add = (): void => {
+    if (!valid) return
+    onChange([...shifts.filter((x) => x.assetId !== picked), { assetId: picked!, doubleShiftDays: double!, tripleShiftDays: triple! }])
+    setD2('')
+    setD3('')
+  }
+  const name = (id: number): string => rows.find((r) => r.assetId === id)?.assetName ?? `#${id}`
+  return (
+    <div className="flex flex-wrap items-end gap-3 border-b border-line px-3 py-2" data-testid="fixed-assets-extra-shift">
+      <Field label="Extra shift (Sch II Notes para 6)" className="w-60" hint="+50% for double-shift days, +100% for triple">
+        <Select value={picked ?? ''} onChange={(e) => setAssetId(Number(e.target.value))} aria-label="Asset worked in shifts" data-testid="input-fixed-assets-shift-asset">
+          {eligible.map((r) => <option key={r.assetId} value={r.assetId}>{r.assetName}</option>)}
+        </Select>
+      </Field>
+      <Field label="Double-shift days" className="w-32"><TextInput data-testid="input-fixed-assets-shift-double" className="num" value={d2} onChange={(e) => setD2(e.target.value)} /></Field>
+      <Field label="Triple-shift days" className="w-32"><TextInput data-testid="input-fixed-assets-shift-triple" className="num" value={d3} onChange={(e) => setD3(e.target.value)} /></Field>
+      <Button data-testid="btn-fixed-assets-shift-add" disabled={!valid} onClick={add}>Set</Button>
+      {shifts.map((x) => {
+        const extra = rows.find((r) => r.assetId === x.assetId)?.extraShift?.extra
+        return (
+          <span key={x.assetId} className="inline-flex items-center gap-1 rounded-md border border-line px-2 py-1 text-hint" data-testid={`fixed-assets-shift-${x.assetId}`}>
+            {name(x.assetId)}: {x.doubleShiftDays ?? 0} double / {x.tripleShiftDays ?? 0} triple{extra != null && <> · +<Money paise={extra} /></>}
+            <Button size="sm" variant="ghost" aria-label={`Remove extra shift for ${name(x.assetId)}`} onClick={() => onChange(shifts.filter((y) => y.assetId !== x.assetId))}>×</Button>
+          </span>
+        )
+      })}
     </div>
   )
 }

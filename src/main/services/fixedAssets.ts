@@ -16,21 +16,30 @@
 import type { DB } from '../db/connection'
 import { fyFromStartYear, fyOf } from '@shared/dates'
 import {
-  addDays, companiesActPeriod, disposalLines, itBlockYear, lifeEndDate, scheduleTotals,
+  addDays, companiesActPeriod, disposalLines, mulDivRound, splitShare, itBlockYear, lifeEndDate, scheduleTotals,
   type CaAssetInput, type CostLayer, type DepMethod
 } from '@shared/depreciation'
 import {
-  assetAdditionInputSchema, assetGroupInputSchema, caClassInputSchema, disposalInputSchema, fixedAssetInputSchema,
+  assetAdditionInputSchema, assetGroupInputSchema, caClassInputSchema, componentSplitSchema, disposalInputSchema, fixedAssetInputSchema,
   itBlockInputSchema, itBlockOpeningInputSchema, itBlockRateInputSchema,
   type AssetAdditionInput, type AssetAdditionRow, type AssetGroupInput, type AssetGroupRow, type AssetSchedule,
-  type CaClassInput, type CaClassRow, type DepreciationPreview, type DepreciationPreviewRow, type DepreciationRunRow,
+  EXTRA_SHIFT_SEEDED_CLASS_CODES,
+  type CaClassInput, type CaClassRow, type ComponentSplitInput, type DepreciationPreview, type DisposalGstPreview, type DisposalPart, type ExtraShiftInput, type DepreciationPreviewRow, type DepreciationRunRow,
   type DepreciationYearStatus, type DisposalInput, type DisposalKind, type DisposalPreview, type FixedAssetInput,
   type FixedAssetRow, type ItBlockInput, type ItBlockOpeningInput, type ItBlockRateInput, type ItBlockRateRow,
   type ItBlockRow, type ItStatement, type ItStatementBlockRow, type JournalPreviewLine, type PurchaseCandidate,
   type ScheduleAssetRow, type ScheduleGroupRow, type ScheduleReconRow
 } from '@shared/fixedAssets'
-import { descendantIdsByName, findOrCreateLedger } from './masters'
-import { getLockDate, saveVoucher, NOT_DELETED } from './vouchers'
+import { createLedger, descendantIdsByName, findOrCreateLedger } from './masters'
+import { readCompanyInfo } from '../db/seed'
+import { chargesGstOn, gstRegistrationOf } from '@shared/gst/registration'
+import { computeGst, supplyTypeFor } from '@shared/gst/calc'
+import { pickTaxLedger } from '@shared/voucherEdit'
+import type { GstDoc } from '@shared/gst/returns'
+import {
+  capitalGoodsSale, capitalGoodsWorkingText, headsTotal, ZERO_TAX_HEADS, type TaxHeads
+} from '@shared/capitalGoodsGst'
+import { getLockDate, getVoucher, saveVoucher, NOT_DELETED } from './vouchers'
 import { closingBalances } from './reports'
 import { writeAudit } from './audit'
 
@@ -81,6 +90,12 @@ function assertExpenseLedger(db: DB, ledgerId: number): void {
 function journalTypeId(db: DB): number {
   const row = db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal' AND is_system = 1").get() as { id: number } | undefined
   if (!row) throw new Error('Journal voucher type not found')
+  return row.id
+}
+
+function salesTypeId(db: DB): number {
+  const row = db.prepare("SELECT id FROM voucher_types WHERE kind = 'sales' ORDER BY is_system DESC, id LIMIT 1").get() as { id: number } | undefined
+  if (!row) throw new Error('Sales voucher type not found')
   return row.id
 }
 
@@ -734,7 +749,18 @@ interface ComputedRun {
   perAsset: { a: AssetRec; row: DepreciationPreviewRow }[]
 }
 
-function computeRun(db: DB, from: string, to: string): ComputedRun {
+/** Schedule II Notes para 6: extra-shift depreciation is not permitted for a class marked NESD in
+ *  Part C. Seeded classes are checked against EXTRA_SHIFT_SEEDED_CLASS_CODES; a class the user added
+ *  (or a group without a class) is not checked (FIXED_ASSET_UNVERIFIED 'shift-user-class'). */
+function extraShiftAllowed(db: DB, a: AssetRec): { allowed: boolean; note: string | null } {
+  if (a.group.ca_class_id == null) return { allowed: true, note: `${a.group.name} has no Schedule II class — check Part C for an NESD mark before charging extra shift` }
+  const c = db.prepare('SELECT code, name, is_seeded FROM ca_asset_classes WHERE id = ?').get(a.group.ca_class_id) as { code: string; name: string; is_seeded: number } | undefined
+  if (!c) return { allowed: true, note: null }
+  if (!c.is_seeded) return { allowed: true, note: `${c.code} ${c.name} is a class you added — NESD is not checked for it; Part C's mark decides` }
+  return { allowed: EXTRA_SHIFT_SEEDED_CLASS_CODES.includes(c.code), note: null }
+}
+
+function computeRun(db: DB, from: string, to: string, shifts: ExtraShiftInput[] = []): ComputedRun {
   const fy = fyOf(from)
   if (to > fy.to) throw new Error('A depreciation run must lie inside one financial year')
   const assets = loadAssets(db).filter((a) => {
@@ -742,15 +768,38 @@ function computeRun(db: DB, from: string, to: string): ComputedRun {
     const d = disposalDateOf(a)
     return !d || d > from
   })
+  const shiftBy = new Map(shifts.map((x) => [x.assetId, { doubleDays: x.doubleShiftDays ?? 0, tripleDays: x.tripleShiftDays ?? 0 }]))
+  let shiftBlocked: string | null = null
+  for (const id of shiftBy.keys()) {
+    if (!assets.some((a) => a.row.id === id)) shiftBlocked ??= 'Extra shifts are given for an asset that is not in use in this period'
+  }
   const perAsset: ComputedRun['perAsset'] = []
   for (const a of assets) {
-    const r = companiesActPeriod(engineInput(a, { from, to }), { from, to })
+    const input = engineInput(a, { from, to })
+    const r = companiesActPeriod(input, { from, to })
+    const { allowed, note } = extraShiftAllowed(db, a)
+    const shift = shiftBy.get(a.row.id)
+    let charged = r
+    let extraShift: DepreciationPreviewRow['extraShift'] = null
+    let extraShiftNote: string | null = null
+    if (shift && (shift.doubleDays > 0 || shift.tripleDays > 0)) {
+      extraShiftNote = note
+      if (!allowed) {
+        shiftBlocked ??= `${a.row.name}: its Schedule II class is marked NESD — no extra-shift depreciation (Sch II Notes para 6)`
+      } else if (shift.doubleDays + shift.tripleDays > r.daysUsed) {
+        shiftBlocked ??= `${a.row.name}: ${shift.doubleDays + shift.tripleDays} extra-shift days, but it is depreciated for ${r.daysUsed} days in this period`
+      } else {
+        charged = companiesActPeriod({ ...input, extraShift: shift }, { from, to })
+        extraShift = { ...shift, extra: charged.depreciation - r.depreciation }
+      }
+    }
     perAsset.push({
       a,
       row: {
         assetId: a.row.id, assetName: a.row.name, groupId: a.group.id, groupName: a.group.name, method: a.row.method,
-        openingWdv: r.openingWdv, additions: r.additions, depreciation: r.depreciation, closingWdv: r.closingWdv,
-        daysUsed: r.daysUsed, fullyDepreciated: r.fullyDepreciated, ratePpb: r.ratePpb
+        openingWdv: charged.openingWdv, additions: charged.additions, depreciation: charged.depreciation, closingWdv: charged.closingWdv,
+        daysUsed: charged.daysUsed, fullyDepreciated: charged.fullyDepreciated, ratePpb: charged.ratePpb,
+        extraShiftAllowed: allowed, extraShift, extraShiftNote
       }
     })
   }
@@ -758,7 +807,9 @@ function computeRun(db: DB, from: string, to: string): ComputedRun {
   const total = perAsset.reduce((s, p) => s + p.row.depreciation, 0)
   const existing = overlappingRun(db, from, to)
   let blocked: string | null = null
-  if (existing) {
+  if (shiftBlocked && !existing) {
+    blocked = shiftBlocked
+  } else if (existing) {
     const num = (db.prepare('SELECT number FROM vouchers WHERE id = ?').get(existing.voucherId) as { number: string }).number
     blocked = `Depreciation for ${fmtDate(existing.from)} to ${fmtDate(existing.to)} is already posted (Journal ${num}) — move that voucher to the bin to run this period again`
   } else {
@@ -793,16 +844,16 @@ function runJournalPreview(db: DB, perAsset: ComputedRun['perAsset']): JournalPr
   return [...dr.values(), ...cr.values()]
 }
 
-export function previewRun(db: DB, from: string, to: string): DepreciationPreview {
-  return computeRun(db, from, to).preview
+export function previewRun(db: DB, from: string, to: string, shifts: ExtraShiftInput[] = []): DepreciationPreview {
+  return computeRun(db, from, to, shifts).preview
 }
 
 /** Post a depreciation run: ONE journal (dated the period end) + the run and its lines, in one
  *  transaction (saveVoucher nests as a savepoint). Refused while a live run overlaps the period,
  *  inside a locked period or closed year, or when there is nothing to charge. */
-export function postRun(db: DB, from: string, to: string): DepreciationRunRow {
-  const tx = db.transaction((): number => {
-    const { preview, perAsset } = computeRun(db, from, to)
+export function postRun(db: DB, from: string, to: string, shifts: ExtraShiftInput[] = []): DepreciationRunRow {
+  const tx = db.transaction((): { runId: number; shifts: { assetId: number; doubleDays: number; tripleDays: number; extra: number }[] } => {
+    const { preview, perAsset } = computeRun(db, from, to, shifts)
     if (preview.blocked) throw new Error(preview.blocked)
     const lines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number; costAllocations: [] }[] = []
     const dr = new Map<number, number>()
@@ -819,11 +870,15 @@ export function postRun(db: DB, from: string, to: string): DepreciationRunRow {
     for (const [ledgerId, amount] of dr) lines.push({ ledgerId, drCr: 'dr', amount, costAllocations: [] })
     for (const c of crLines) lines.push({ ledgerId: c.ledgerId, drCr: 'cr', amount: c.amount, costAllocations: [] })
     const count = perAsset.filter((p) => p.row.depreciation > 0).length
+    const shifted = perAsset.filter((p) => p.row.extraShift && p.row.extraShift.extra > 0)
+    const shiftNote = shifted.length
+      ? `; extra shift (Sch II Notes para 6): ${shifted.map((p) => `${p.row.assetName} ${p.row.extraShift!.doubleDays} double / ${p.row.extraShift!.tripleDays} triple-shift days`).join(', ')}`
+      : ''
     const voucher = saveVoucher(db, {
       voucherTypeId: journalTypeId(db),
       date: to,
       partyLedgerId: null,
-      narration: `Depreciation ${fmtDate(from)} to ${fmtDate(to)} — Companies Act 2013, Schedule II (${count} asset${count === 1 ? '' : 's'})`,
+      narration: `Depreciation ${fmtDate(from)} to ${fmtDate(to)} — Companies Act 2013, Schedule II (${count} asset${count === 1 ? '' : 's'})${shiftNote}`.slice(0, 1000),
       reference: null,
       lines,
       inventory: [],
@@ -838,11 +893,12 @@ export function postRun(db: DB, from: string, to: string): DepreciationRunRow {
       if (row.depreciation <= 0) continue
       ins.run(runId, row.assetId, row.openingWdv + row.additions, row.depreciation, row.closingWdv, row.daysUsed)
     }
-    return runId
+    return { runId, shifts: shifted.map((p) => ({ assetId: p.row.assetId, ...p.row.extraShift! })) }
   })
-  const runId = tx()
+  const { runId, shifts: shiftsPosted } = tx()
   const run = listRuns(db).find((r) => r.id === runId)!
-  writeAudit(db, 'depreciation_run', runId, 'create', null, run)
+  // The shift days have no column: they are kept in the run's audit row (and the narration).
+  writeAudit(db, 'depreciation_run', runId, 'create', null, shiftsPosted.length ? { ...run, extraShift: shiftsPosted } : run)
   return run
 }
 
@@ -874,8 +930,8 @@ export function runLines(db: DB, runId: number): DepreciationPreviewRow[] {
             dl.opening_wdv AS openingWdv, dl.depreciation, dl.closing_wdv AS closingWdv, dl.days_used AS daysUsed
        FROM depreciation_lines dl JOIN fixed_assets a ON a.id = dl.asset_id JOIN fixed_asset_groups g ON g.id = a.asset_group_id
       WHERE dl.run_id = ? ORDER BY a.name`
-  ).all(runId) as Omit<DepreciationPreviewRow, 'additions' | 'fullyDepreciated' | 'ratePpb'>[]).map((r) => ({
-    ...r, additions: 0, fullyDepreciated: false, ratePpb: null
+  ).all(runId) as Omit<DepreciationPreviewRow, 'additions' | 'fullyDepreciated' | 'ratePpb' | 'extraShiftAllowed' | 'extraShift' | 'extraShiftNote'>[]).map((r) => ({
+    ...r, additions: 0, fullyDepreciated: false, ratePpb: null, extraShiftAllowed: false, extraShift: null, extraShiftNote: null
   }))
 }
 
@@ -931,54 +987,469 @@ function computeDisposal(db: DB, input: ReturnType<typeof disposalInputSchema.pa
   const profitId = ledgerIdByName(db, PROFIT_ON_SALE_LEDGER)
   const lossId = ledgerIdByName(db, LOSS_ON_SALE_LEDGER)
   // Placeholder ids (negative) for ledgers that will be created at posting; names map them back.
-  const ids = { asset: a.row.ledger_id, acc: L.accId ?? -1, dep: L.depId ?? -2, cons: input.considerationLedgerId ?? -3, profit: profitId ?? -4, loss: lossId ?? -5 }
+  // GST on the sale (s.18(6)): the proceeds are the transaction value; the tax invoice credits the
+  // "Sale of Fixed Assets" clearing account, which this journal debits instead of the buyer.
+  const gst = input.gst ? gstOnSale(db, a, input, blocked) : null
+  if (!blocked && gst?.blocked) blocked = gst.blocked
+  const saleId = ledgerIdByName(db, SALE_OF_ASSETS_LEDGER)
+  const s186Id = ledgerIdByName(db, S186_LEDGER)
+  // Placeholder ids (negative) for ledgers that will be created at posting; names map them back.
+  const ids = {
+    asset: a.row.ledger_id, acc: L.accId ?? -1, dep: L.depId ?? -2, cons: gst ? saleId ?? -6 : input.considerationLedgerId ?? -3,
+    profit: profitId ?? -4, loss: lossId ?? -5, s186: s186Id ?? -7
+  }
   const names = new Map<number, string>([
     [ids.asset, ledgerName(db, a.row.ledger_id) ?? ''], [ids.acc, L.accName], [ids.dep, L.depName],
-    [ids.cons, ledgerName(db, input.considerationLedgerId) ?? ''], [ids.profit, PROFIT_ON_SALE_LEDGER], [ids.loss, LOSS_ON_SALE_LEDGER]
+    [ids.cons, gst ? SALE_OF_ASSETS_LEDGER : ledgerName(db, input.considerationLedgerId) ?? ''], [ids.profit, PROFIT_ON_SALE_LEDGER],
+    [ids.loss, LOSS_ON_SALE_LEDGER], [ids.s186, S186_LEDGER]
   ])
   const { lines, figures } = disposalLines({
     gross, accumulatedBooked, catchUp, proceeds: input.proceedsPaise,
     assetLedgerId: ids.asset, accDepLedgerId: ids.acc, depExpenseLedgerId: ids.dep,
     considerationLedgerId: input.proceedsPaise > 0 ? ids.cons : null, profitLedgerId: ids.profit, lossLedgerId: ids.loss
   })
+  const journal: JournalPreviewLine[] = lines.map((l) => ({ ledgerId: l.ledgerId > 0 ? l.ledgerId : null, ledgerName: names.get(l.ledgerId) ?? '', drCr: l.drCr, amount: l.amount, assetId: null }))
+  // The extra output tax (rule 44(6) proviso): its own expense, paid as output GST.
+  if (gst) {
+    const extra = headsTotal(gst.preview.extraOutputTax)
+    if (extra > 0) {
+      journal.push({ ledgerId: s186Id, ledgerName: S186_LEDGER, drCr: 'dr', amount: extra, assetId: null })
+      journal.push(...outputTaxLines(db, gst.preview.extraOutputTax))
+    }
+  }
   return {
     a,
     catchUpPeriod,
     catchUpRow,
     preview: {
       assetId: a.row.id, date, gross, accumulatedBooked, catchUp, catchUpFrom, carrying: figures.carrying,
-      proceeds: input.proceedsPaise, profit: figures.profit, blocked,
-      journal: lines.map((l) => ({ ledgerId: l.ledgerId > 0 ? l.ledgerId : null, ledgerName: names.get(l.ledgerId) ?? '', drCr: l.drCr, amount: l.amount, assetId: null }))
+      proceeds: input.proceedsPaise, profit: figures.profit, blocked, part: null, remainingCost: null,
+      journal, gst: gst?.preview ?? null, gstApplies: chargesGstOn(gstRegistrationOf(readCompanyInfo(db)), date),
+      suggestedGstRate: purchaseItc(db, a).ratePercent
     }
   }
 }
 
-export function previewDisposal(db: DB, raw: DisposalInput): DisposalPreview {
-  const input = disposalInputSchema.parse(raw)
-  return computeDisposal(db, input).preview
+// ---------------------------------------------------------------------------------------------
+// GST on the sale of a capital good — CGST Act s.18(6), rules 40(2) / 44(6)
+// (src/shared/capitalGoodsGst.ts; texts FIXED_ASSET_EVENT_SOURCES CGST-*)
+// ---------------------------------------------------------------------------------------------
+
+export const SALE_OF_ASSETS_LEDGER = 'Sale of Fixed Assets'
+export const S186_LEDGER = 'GST on Sale of Capital Goods (s.18(6))'
+/** meta key: { [disposal journal id]: tax invoice id } — the invoice a GST disposal posted. */
+const SALE_INVOICES_META = 'fixedAssets.saleInvoices'
+const TAX_KEYS = ['cgst', 'sgst', 'igst', 'cess'] as const
+
+function taxLedgers(db: DB): { id: number; name: string; taxType: string }[] {
+  return db.prepare('SELECT id, name, tax_type AS taxType FROM ledgers WHERE tax_type IS NOT NULL ORDER BY id').all() as { id: number; name: string; taxType: string }[]
 }
 
-export function disposeAsset(db: DB, raw: DisposalInput): { asset: FixedAssetRow; voucherId: number; preview: DisposalPreview } {
+/** Cr output-tax lines for `heads` (the ledger the sales editor would pick; a missing one is named
+ *  as the editor creates it — CGST / SGST / IGST / CESS under Duties & Taxes). */
+function outputTaxLines(db: DB, heads: TaxHeads): JournalPreviewLine[] {
+  const all = taxLedgers(db)
+  return TAX_KEYS.filter((k) => heads[k] > 0).map((k) => {
+    const id = pickTaxLedger(all, k, 'output')
+    return { ledgerId: id, ledgerName: id != null ? ledgerName(db, id) ?? k.toUpperCase() : k.toUpperCase(), drCr: 'cr' as const, amount: heads[k], assetId: null }
+  })
+}
+
+function ensureOutputTaxLedgers(db: DB, heads: TaxHeads): void {
+  const groupId = (db.prepare("SELECT id FROM groups WHERE name = 'Duties & Taxes'").get() as { id: number } | undefined)?.id
+  if (groupId == null) throw new Error('Duties & Taxes group missing')
+  for (const k of TAX_KEYS) {
+    if (heads[k] <= 0 || pickTaxLedger(taxLedgers(db), k, 'output') != null) continue
+    createLedger(db, {
+      name: k.toUpperCase(), groupId, taxType: k, openingBalance: 0, gstin: null, stateCode: null, address: null, gstRate: null,
+      hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null
+    })
+  }
+}
+
+/** Credit taken on the asset, from its purchase voucher's input-tax lines in the share the asset's
+ *  cost bears to the voucher's fixed-asset lines (FIXED_ASSET_UNVERIFIED 'cg-itc'), the invoice
+ *  date, and the rate that tax implies (a hint). */
+function purchaseItc(db: DB, a: AssetRec): { heads: TaxHeads; invoiceDate: string; ratePercent: number | null } {
+  const none = { heads: { ...ZERO_TAX_HEADS }, invoiceDate: a.row.purchase_date, ratePercent: null }
+  const pv = a.row.purchase_voucher_id
+  if (pv == null || a.purchaseVoucherBinned) return none
+  const v = db.prepare('SELECT date FROM vouchers WHERE id = ?').get(pv) as { date: string } | undefined
+  if (!v) return none
+  const rows = db.prepare(
+    `SELECT vl.amount, vl.dr_cr AS drCr, l.tax_type AS taxType, l.group_id AS groupId
+       FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id WHERE vl.voucher_id = ?`
+  ).all(pv) as { amount: number; drCr: 'dr' | 'cr'; taxType: string | null; groupId: number }[]
+  const faGroups = fixedAssetGroupIds(db)
+  const value = rows.filter((r) => r.drCr === 'dr' && r.taxType == null && faGroups.has(r.groupId)).reduce((s, r) => s + r.amount, 0)
+  const tax = { ...ZERO_TAX_HEADS }
+  for (const r of rows) {
+    if (!r.taxType) continue
+    const k = r.taxType as keyof TaxHeads
+    tax[k] += r.drCr === 'dr' ? r.amount : -r.amount
+  }
+  if (value <= 0) return { ...none, invoiceDate: v.date }
+  const share = (n: number): number => Math.max(0, mulDivRound(n, a.row.cost_paise, value))
+  const heads: TaxHeads = { igst: share(tax.igst), cgst: share(tax.cgst), sgst: share(tax.sgst), cess: share(tax.cess) }
+  const gstTax = tax.igst + tax.cgst + tax.sgst
+  const ratePercent = gstTax > 0 ? mulDivRound(gstTax, 10_000, value) / 100 : null
+  return { heads, invoiceDate: v.date, ratePercent }
+}
+
+function gstOnSale(
+  db: DB, a: AssetRec, input: ReturnType<typeof disposalInputSchema.parse>, earlier: string | null
+): { preview: DisposalGstPreview; blocked: string | null } {
+  const g = input.gst!
+  const company = readCompanyInfo(db)
+  let blocked: string | null = null
+  if (!chargesGstOn(gstRegistrationOf(company), input.date)) blocked = 'GST is not charged on this date (the registration is not regular) — sell without GST'
+  if (!blocked && input.considerationLedgerId == null) blocked = 'Pick the buyer (or cash / bank) the tax invoice is made out to'
+  const buyerState = input.considerationLedgerId != null
+    ? (db.prepare('SELECT state_code AS s FROM ledgers WHERE id = ?').get(input.considerationLedgerId) as { s: string | null } | undefined)?.s ?? null
+    : null
+  const supply = supplyTypeFor(company.stateCode, buyerState ?? company.stateCode)
+  const t = computeGst(input.proceedsPaise, g.ratePercent, supply, g.cessPercent)
+  const taxOnValue: TaxHeads = { igst: t.igst, cgst: t.cgst, sgst: t.sgst, cess: t.cess }
+  const fromPurchase = purchaseItc(db, a)
+  const itc: TaxHeads = g.itc ? { igst: g.itc.igst, cgst: g.itc.cgst, sgst: g.itc.sgst, cess: g.itc.cess } : fromPurchase.heads
+  const itcSource: DisposalGstPreview['itcSource'] = g.itc ? 'entered' : headsTotal(fromPurchase.heads) > 0 ? 'purchase' : 'none'
+  const invoiceDate = g.itcInvoiceDate ?? fromPurchase.invoiceDate
+  const supplyDate = input.date < invoiceDate ? invoiceDate : input.date
+  if (!blocked && !earlier && input.date < invoiceDate) blocked = 'The sale is dated before the purchase invoice the credit was taken on'
+  const working = capitalGoodsSale({ itc, invoiceDate, supplyDate, taxOnValue, supply, scrapProviso: g.scrapProviso })
+  const buyerName = ledgerName(db, input.considerationLedgerId) ?? ''
+  const saleId = ledgerIdByName(db, SALE_OF_ASSETS_LEDGER)
+  const invoiceTotal = input.proceedsPaise + headsTotal(taxOnValue)
+  const invoice: JournalPreviewLine[] = [
+    { ledgerId: input.considerationLedgerId, ledgerName: buyerName, drCr: 'dr' as const, amount: invoiceTotal, assetId: null },
+    ...(input.proceedsPaise > 0 ? [{ ledgerId: saleId, ledgerName: SALE_OF_ASSETS_LEDGER, drCr: 'cr' as const, amount: input.proceedsPaise, assetId: null }] : []),
+    ...outputTaxLines(db, taxOnValue)
+  ].filter((l) => l.amount > 0)
+  return {
+    blocked,
+    preview: {
+      ratePercent: g.ratePercent, supply, taxableValue: input.proceedsPaise, working, workingText: capitalGoodsWorkingText(working),
+      itcSource, invoice, invoiceTotal, extraOutputTax: working.excess
+    }
+  }
+}
+
+function saleInvoices(db: DB): Record<string, number> {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(SALE_INVOICES_META) as { value: string } | undefined
+  if (!row) return {}
+  try {
+    const v = JSON.parse(row.value) as Record<string, number>
+    return v && typeof v === 'object' ? v : {}
+  } catch {
+    return {}
+  }
+}
+
+function linkSaleInvoice(db: DB, journalId: number, invoiceId: number): void {
+  const map = { ...saleInvoices(db), [String(journalId)]: invoiceId }
+  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(SALE_INVOICES_META, JSON.stringify(map))
+}
+
+/** The tax invoice a GST disposal journal posted (null for a disposal without GST). */
+export function saleInvoiceOf(db: DB, journalId: number): number | null {
+  return saleInvoices(db)[String(journalId)] ?? null
+}
+
+/**
+ * Rule 44(6) proviso: the s.18(6) amount beyond the tax on the transaction value "shall form part of
+ * the output tax liability and the same shall be furnished in FORM GSTR-1". The disposal journal
+ * posts that excess as output tax; here it is added to the TAX INVOICE's outward document (taxable
+ * value and rate unchanged, the tax raised), so GSTR-1, GSTR-3B 3.1(a), GSTR-9 and the HSN summary
+ * all carry what the books post for that invoice (FIXED_ASSET_UNVERIFIED 'cg-where'). Read from the
+ * live disposal journals' Cr output-tax lines; returns `docs` untouched for a company without such
+ * sales. Called by extractOutwardDocs.
+ */
+export function applyCapitalGoodsExtraTax(db: DB, docs: readonly GstDoc[], from: string, to: string): GstDoc[] {
+  const links = saleInvoices(db)
+  const journalIds = Object.keys(links).map(Number)
+  if (journalIds.length === 0) return [...docs]
+  const lineStmt = db.prepare(
+    `SELECT l.tax_type AS taxType, SUM(vl.amount) AS amount FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+      WHERE vl.voucher_id = ? AND vl.dr_cr = 'cr' AND l.tax_type IS NOT NULL GROUP BY l.tax_type`
+  )
+  const extraByInvoice = new Map<number, TaxHeads>()
+  for (const jid of journalIds) {
+    const v = db.prepare(`SELECT v.id FROM vouchers v WHERE v.id = ? AND ${NOT_DELETED} AND v.date BETWEEN ? AND ?`).get(jid, from, to)
+    if (!v) continue
+    const heads = { ...ZERO_TAX_HEADS }
+    for (const r of lineStmt.all(jid) as { taxType: keyof TaxHeads; amount: number }[]) heads[r.taxType] += r.amount
+    if (headsTotal(heads) > 0) extraByInvoice.set(links[String(jid)]!, heads)
+  }
+  if (extraByInvoice.size === 0) return [...docs]
+  return docs.map((d) => {
+    const extra = extraByInvoice.get(d.voucherId)
+    if (!extra) return d
+    const add = <T extends { cgst: number; sgst: number; igst: number; cess: number }>(x: T): T =>
+      ({ ...x, cgst: x.cgst + extra.cgst, sgst: x.sgst + extra.sgst, igst: x.igst + extra.igst, cess: x.cess + extra.cess })
+    // Onto the invoice's (one) rated line; a rate-less invoice (a free disposal) gets a 0-value line.
+    const items = d.items.length > 0 ? d.items.map((it, i) => (i === 0 ? add(it) : it)) : [add({ rate: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0 })]
+    const hsnLines = d.hsnLines.map((h, i) => (i === 0 ? add(h) : h))
+    return { ...d, items, hsnLines }
+  })
+}
+
+/** Inside deleteVoucher's transaction: a GST disposal's tax invoice and journal go to the bin
+ *  together (the journal clears the invoice's value; the invoice carries the sale the journal
+ *  describes). Binning either bins the other. */
+export function binFixedAssetPartner(db: DB, voucherId: number): void {
+  const partner = fixedAssetPartnerOf(db, voucherId)
+  if (partner == null || !db.prepare(`SELECT 1 FROM vouchers v WHERE v.id = ? AND ${NOT_DELETED}`).get(partner)) return
+  const lock = getLockDate(db)
+  const pv = db.prepare('SELECT date FROM vouchers WHERE id = ?').get(partner) as { date: string }
+  if (lock && pv.date <= lock) throw new Error(`Books are locked up to ${lock} (the paired voucher is dated ${pv.date})`)
+  const before = getVoucher(db, partner)
+  db.prepare("UPDATE vouchers SET deleted_at = datetime('now') WHERE id = ?").run(partner)
+  writeAudit(db, 'voucher', partner, 'delete', before, { pairedWith: voucherId })
+}
+
+/** Inside restoreVoucher's transaction: a restored GST disposal journal brings its tax invoice
+ *  back with it (the invoice alone may be restored on its own — it is an ordinary sale). */
+export function restoreFixedAssetPartners(db: DB, voucherId: number): void {
+  const invoiceId = saleInvoiceOf(db, voucherId)
+  if (invoiceId == null || db.prepare(`SELECT 1 FROM vouchers v WHERE v.id = ? AND ${NOT_DELETED}`).get(invoiceId)) return
+  const lock = getLockDate(db)
+  const before = getVoucher(db, invoiceId)
+  if (!before) return
+  if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock} (the tax invoice is dated ${before.date})`)
+  db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(invoiceId)
+  writeAudit(db, 'voucher', invoiceId, 'restore', before, { restored: true, pairedWith: voucherId })
+}
+
+/** The other half of a GST disposal pair: the journal's invoice, or the invoice's journal. */
+function fixedAssetPartnerOf(db: DB, voucherId: number): number | null {
+  const links = saleInvoices(db)
+  const asJournal = links[String(voucherId)]
+  if (asJournal != null) return asJournal
+  const asInvoice = Object.entries(links).find(([, inv]) => inv === voucherId)
+  return asInvoice ? Number(asInvoice[0]) : null
+}
+
+// ---------------------------------------------------------------------------------------------
+// Partial disposal: split the part off as its own record (Sch II Note 2 — FIXED_ASSET_EVENT_SOURCES
+// 'SCH2-N2'; block side IT61-S50 / IT25-S41: the part's moneys payable reduce the block)
+// ---------------------------------------------------------------------------------------------
+
+const partLabel = (p: DisposalPart): string => `${p.quantity} of ${p.of}`
+
+class Rehearsed extends Error {}
+
+/** Run `fn` in a transaction that is always rolled back (the WP 5.3 rehearsal pattern, kept local:
+ *  this module is bundled into the check worker, which may not reach src/main/ai). */
+function rolledBack<T>(db: DB, fn: () => T): T {
+  let out: { v: T } | null = null
+  try {
+    db.transaction(() => {
+      out = { v: fn() }
+      throw new Rehearsed()
+    })()
+  } catch (e) {
+    if (!(e instanceof Rehearsed)) throw e
+  }
+  return (out as { v: T } | null)!.v
+}
+
+/**
+ * Splits `part` of an asset off into a new register record: the same share of the cost, of every
+ * addition, of the opening accumulated depreciation and of EVERY depreciation line booked so far
+ * (live or binned runs — so a restored run stays consistent), each rounded once, the remainder left
+ * on the asset. Totals per run, per voucher and per ledger are unchanged; nothing is posted. The
+ * new record copies the asset's group, ledgers, dates, life, method, residual %, IT block and
+ * purchase voucher. Returns the new record's id. Audited: the asset's update (whole before /
+ * after) and the part's create.
+ */
+function splitAsset(db: DB, a: AssetRec, part: DisposalPart, name: string): number {
+  const cost = splitShare(a.row.cost_paise, part.quantity, part.of)
+  if (cost.part <= 0 || cost.rest <= 0) throw new Error('This share of the cost rounds to nothing — give a larger part (or dispose of the whole asset)')
+  const opening = splitShare(a.row.opening_acc_dep_paise, part.quantity, part.of)
+  const before = getAsset(db, a.row.id, '9999-12-31')
+  const r = a.row
+  const partId = Number(db.prepare(
+    `INSERT INTO fixed_assets (name, asset_group_id, ledger_id, purchase_voucher_id, purchase_date, put_to_use_date,
+       cost_paise, residual_pct_bp, useful_life_months, method, basis_date, it_block_id, it_additional_eligible,
+       location, identifier, acc_dep_ledger_id, opening_acc_dep_paise, opening_acc_dep_as_of, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    name, r.asset_group_id, r.ledger_id, r.purchase_voucher_id, r.purchase_date, r.put_to_use_date, cost.part,
+    r.residual_pct_bp, r.useful_life_months, r.method, r.basis_date, r.it_block_id, r.it_additional_eligible,
+    r.location, r.identifier, r.acc_dep_ledger_id, opening.part, r.opening_acc_dep_as_of,
+    `Part (${partLabel(part)}) split off ${r.name} (asset #${r.id})`
+  ).lastInsertRowid)
+  db.prepare('UPDATE fixed_assets SET cost_paise = ?, opening_acc_dep_paise = ? WHERE id = ?').run(cost.rest, opening.rest, r.id)
+
+  for (const x of a.additions) {
+    const s = splitShare(x.amountPaise, part.quantity, part.of)
+    if (s.rest === 0) {
+      db.prepare('UPDATE fixed_asset_additions SET asset_id = ? WHERE id = ?').run(partId, x.id)
+      continue
+    }
+    if (s.part === 0) continue
+    db.prepare('INSERT INTO fixed_asset_additions (asset_id, date, voucher_id, amount_paise, kind, note) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(partId, x.date, x.voucherId, s.part, x.kind, x.note)
+    db.prepare('UPDATE fixed_asset_additions SET amount_paise = ? WHERE id = ?').run(s.rest, x.id)
+  }
+
+  // Every line of the asset, the part's line inserted even when its share is 0 so the part's
+  // "depreciated through" date is the asset's (no period is ever charged twice).
+  const lines = db.prepare('SELECT id, run_id, opening_wdv, depreciation, closing_wdv, days_used FROM depreciation_lines WHERE asset_id = ? ORDER BY id').all(r.id) as {
+    id: number; run_id: number; opening_wdv: number; depreciation: number; closing_wdv: number; days_used: number
+  }[]
+  const ins = db.prepare('INSERT INTO depreciation_lines (run_id, asset_id, opening_wdv, depreciation, closing_wdv, days_used) VALUES (?, ?, ?, ?, ?, ?)')
+  const upd = db.prepare('UPDATE depreciation_lines SET opening_wdv = ?, depreciation = ?, closing_wdv = ? WHERE id = ?')
+  for (const l of lines) {
+    const ow = splitShare(l.opening_wdv, part.quantity, part.of)
+    const dep = splitShare(l.depreciation, part.quantity, part.of)
+    const cw = splitShare(l.closing_wdv, part.quantity, part.of)
+    ins.run(l.run_id, partId, ow.part, dep.part, cw.part, l.days_used)
+    upd.run(ow.rest, dep.rest, cw.rest, l.id)
+  }
+  const after = getAsset(db, r.id, '9999-12-31')
+  writeAudit(db, 'fixed_asset', r.id, 'update', before, { ...after, split: { part, partAssetId: partId } })
+  writeAudit(db, 'fixed_asset', partId, 'create', null, { ...getAsset(db, partId, '9999-12-31'), splitFrom: { assetId: r.id, part } })
+  return partId
+}
+
+/**
+ * Component accounting (Schedule II Notes para 4 — FIXED_ASSET_EVENT_SOURCES 'SCH2-N4'): a part
+ * whose cost is significant and whose useful life differs is split off as its own record with its
+ * own life (and, optionally, residual % and method); the asset keeps the rest of the cost. Allowed
+ * only while nothing is depreciated on the asset (no run, no opening accumulated depreciation) —
+ * after that a change of life is the prospective change of estimate on the asset form. The new
+ * record copies the asset's group, ledgers, dates, IT block and purchase voucher; additions stay on
+ * the asset. Nothing is posted (both records sit on the same ledger). Audited: the asset's update
+ * and the component's create.
+ */
+export function splitComponent(db: DB, raw: ComponentSplitInput): { asset: FixedAssetRow; component: FixedAssetRow } {
+  const input = componentSplitSchema.parse(raw)
+  const tx = db.transaction((): number => {
+    const a = getAssetRec(db, input.assetId)
+    const r = a.row
+    if (a.disposed) throw new Error('This asset is disposed')
+    if (a.lines.length > 0 || r.opening_acc_dep_paise > 0) {
+      throw new Error('Depreciation is booked for this asset — split components before the first run (or bin the runs first)')
+    }
+    if (input.costPaise >= r.cost_paise) throw new Error('A component must cost less than the asset')
+    const method = input.method ?? r.method
+    const residualBp = input.residualBp ?? r.residual_pct_bp
+    if (method === 'wdv' && residualBp <= 0) throw new Error('WDV needs a residual value above zero')
+    const before = getAsset(db, r.id, '9999-12-31')
+    const id = Number(db.prepare(
+      `INSERT INTO fixed_assets (name, asset_group_id, ledger_id, purchase_voucher_id, purchase_date, put_to_use_date,
+         cost_paise, residual_pct_bp, useful_life_months, method, basis_date, it_block_id, it_additional_eligible,
+         location, identifier, acc_dep_ledger_id, opening_acc_dep_paise, opening_acc_dep_as_of, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)`
+    ).run(
+      input.name, r.asset_group_id, r.ledger_id, r.purchase_voucher_id, r.purchase_date, r.put_to_use_date, input.costPaise,
+      residualBp, input.lifeMonths, method, r.put_to_use_date, r.it_block_id, r.it_additional_eligible, r.location, r.identifier,
+      r.acc_dep_ledger_id, `Component of ${r.name} (asset #${r.id}) with its own useful life — Schedule II Notes para 4`
+    ).lastInsertRowid)
+    db.prepare('UPDATE fixed_assets SET cost_paise = ? WHERE id = ?').run(r.cost_paise - input.costPaise, r.id)
+    writeAudit(db, 'fixed_asset', r.id, 'update', before, { ...getAsset(db, r.id, '9999-12-31'), component: { assetId: id, costPaise: input.costPaise } })
+    writeAudit(db, 'fixed_asset', id, 'create', null, { ...getAsset(db, id, '9999-12-31'), componentOf: r.id })
+    return id
+  })
+  const componentId = tx()
+  return { asset: getAsset(db, input.assetId, '9999-12-31'), component: getAsset(db, componentId, '9999-12-31') }
+}
+
+function partName(a: AssetRec, part: DisposalPart): string {
+  return `${a.row.name} (part ${partLabel(part)})`
+}
+
+/** The cost (incl. additions before the date) the asset keeps after the part is split off. */
+function remainingCostAfter(a: AssetRec, part: DisposalPart, date: string): number {
+  return grossAtDisposal(a, date) - (splitShare(a.row.cost_paise, part.quantity, part.of).part +
+    a.additions.filter((x) => x.date < date).reduce((s, x) => s + splitShare(x.amountPaise, part.quantity, part.of).part, 0))
+}
+
+export function previewDisposal(db: DB, raw: DisposalInput): DisposalPreview {
   const input = disposalInputSchema.parse(raw)
-  const tx = db.transaction((): { voucherId: number; preview: DisposalPreview } => {
+  if (!input.part) return computeDisposal(db, input).preview
+  const part = input.part
+  const a = getAssetRec(db, input.assetId)
+  if (a.disposed) return { ...computeDisposal(db, input).preview, part, remainingCost: null }
+  // Rehearse the split (always rolled back) and preview the part's disposal on it.
+  try {
+    return rolledBack(db, () => {
+      const partId = splitAsset(db, a, part, partName(a, part))
+      const p = computeDisposal(db, { ...input, assetId: partId }).preview
+      return { ...p, assetId: input.assetId, part, remainingCost: remainingCostAfter(a, part, input.date) }
+    })
+  } catch (e) {
+    return { ...computeDisposal(db, { ...input, part: null }).preview, blocked: (e as Error).message, part, remainingCost: null }
+  }
+}
+
+export function disposeAsset(db: DB, raw: DisposalInput): {
+  asset: FixedAssetRow; voucherId: number; preview: DisposalPreview; remaining: FixedAssetRow | null
+  /** The tax invoice of a GST sale (null without GST). */
+  invoiceVoucherId: number | null
+} {
+  const parsed = disposalInputSchema.parse(raw)
+  let input = parsed
+  const tx = db.transaction((): { voucherId: number; preview: DisposalPreview; invoiceVoucherId: number | null } => {
+    if (parsed.part) {
+      const whole = getAssetRec(db, parsed.assetId)
+      const check = computeDisposal(db, { ...parsed, part: null })
+      if (check.preview.blocked) throw new Error(check.preview.blocked)
+      const partId = splitAsset(db, whole, parsed.part, partName(whole, parsed.part))
+      input = { ...parsed, assetId: partId }
+    }
     const first = computeDisposal(db, input)
     if (first.preview.blocked) throw new Error(first.preview.blocked)
     // Create whatever ledgers the journal needs, then recompute so every line has a real id.
     if (first.preview.accumulatedBooked > 0 || first.preview.catchUp > 0) ensureLedgers(db, first.a)
     if (first.preview.profit > 0) findOrCreateLedger(db, PROFIT_ON_SALE_LEDGER, 'Indirect Incomes')
     if (first.preview.profit < 0) findOrCreateLedger(db, LOSS_ON_SALE_LEDGER, 'Indirect Expenses')
+    if (first.preview.gst) {
+      const g = first.preview.gst
+      if (g.taxableValue > 0) findOrCreateLedger(db, SALE_OF_ASSETS_LEDGER, 'Indirect Incomes')
+      if (headsTotal(g.extraOutputTax) > 0) findOrCreateLedger(db, S186_LEDGER, 'Indirect Expenses')
+      const need = { ...ZERO_TAX_HEADS }
+      for (const k of TAX_KEYS) need[k] = g.working.taxOnValue[k] + g.extraOutputTax[k]
+      ensureOutputTaxLedgers(db, need)
+    }
     const { preview, a, catchUpPeriod, catchUpRow } = computeDisposal(db, input)
     const lines = preview.journal.map((l) => {
       if (l.ledgerId == null) throw new Error(`Ledger ${l.ledgerName} could not be resolved`)
       return { ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount, costAllocations: [] as [] }
     })
     const verb = input.kind === 'sale' ? 'Sale' : 'Scrap'
+    const what = parsed.part ? `part (${partLabel(parsed.part)}) of fixed asset` : 'fixed asset'
+    const assetName = parsed.part ? getAssetRec(db, parsed.assetId).row.name : a.row.name
+    const describe = `${verb} of ${what} ${assetName}${a.row.identifier ? ` (${a.row.identifier})` : ''}`
+    // GST: the tax invoice first (the sales series, the buyer as party) — GSTR-1 / 3B / e-invoice
+    // read it like any ledger-line sale; the working goes in both narrations.
+    let invoice: { id: number; number: string } | null = null
+    if (preview.gst) {
+      const g = preview.gst
+      const invLines = g.invoice.map((l) => {
+        if (l.ledgerId == null) throw new Error(`Ledger ${l.ledgerName} could not be resolved`)
+        return { ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount, costAllocations: [] as [] }
+      })
+      const saved = saveVoucher(db, {
+        voucherTypeId: salesTypeId(db),
+        date: input.date,
+        partyLedgerId: input.considerationLedgerId,
+        narration: `${describe} — GST ${g.ratePercent}% on ₹${(g.taxableValue / 100).toFixed(2)}. ${g.workingText}`.slice(0, 1000),
+        reference: null,
+        lines: invLines,
+        inventory: [],
+        billRefs: [],
+        tds: null
+      })
+      invoice = { id: saved.id, number: saved.number }
+    }
     const voucher = saveVoucher(db, {
       voucherTypeId: journalTypeId(db),
       date: input.date,
       partyLedgerId: null,
-      narration: input.narration ?? `${verb} of fixed asset ${a.row.name}${a.row.identifier ? ` (${a.row.identifier})` : ''}`,
-      reference: null,
+      narration: (input.narration ?? (preview.gst ? `${describe} — tax invoice ${invoice!.number}. ${preview.gst.workingText}` : describe)).slice(0, 1000),
+      reference: invoice ? `Invoice ${invoice.number}`.slice(0, 120) : null,
       lines,
       inventory: [],
       billRefs: [],
@@ -994,12 +1465,21 @@ export function disposeAsset(db: DB, raw: DisposalInput): { asset: FixedAssetRow
     db.prepare(
       "UPDATE fixed_assets SET disposal_date = ?, disposal_voucher_id = ?, disposal_kind = ?, disposal_proceeds_paise = ?, status = 'disposed' WHERE id = ?"
     ).run(input.date, voucher.id, input.kind, input.proceedsPaise, a.row.id)
-    return { voucherId: voucher.id, preview }
+    if (invoice) linkSaleInvoice(db, voucher.id, invoice.id)
+    const out = { voucherId: voucher.id, preview, invoiceVoucherId: invoice?.id ?? null }
+    // Audited inside the transaction: the disposal is recorded with the books it changed.
+    writeAudit(db, 'fixed_asset', input.assetId, 'update', null, {
+      disposal: { ...input, part: parsed.part, voucherId: voucher.id, invoiceVoucherId: invoice?.id ?? null, gstWorking: preview.gst?.working ?? null }
+    })
+    return out
   })
-  const { voucherId, preview } = tx()
+  const { voucherId, preview, invoiceVoucherId } = tx()
   const asset = getAsset(db, input.assetId, '9999-12-31')
-  writeAudit(db, 'fixed_asset', input.assetId, 'update', null, { disposal: { ...input, voucherId } })
-  return { asset, voucherId, preview }
+  const remaining = parsed.part ? getAsset(db, parsed.assetId, '9999-12-31') : null
+  const shaped: DisposalPreview = parsed.part
+    ? { ...preview, assetId: parsed.assetId, part: parsed.part, remainingCost: remaining ? remaining.costPaise + remaining.additions.filter((x) => x.date < parsed.date).reduce((s, x) => s + x.amountPaise, 0) : null }
+    : preview
+  return { asset, voucherId, preview: shaped, remaining, invoiceVoucherId }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1016,6 +1496,10 @@ export function assertNotFixedAssetVoucher(db: DB, voucherId: number): void {
     'SELECT 1 FROM depreciation_runs WHERE voucher_id = ? UNION SELECT 1 FROM fixed_assets WHERE disposal_voucher_id = ? LIMIT 1'
   ).get(voucherId, voucherId)
   if (owned) throw new Error(FIXED_ASSET_VOUCHER_EDIT)
+  // The tax invoice of a GST disposal: its value is cleared by the disposal journal.
+  if (Object.values(saleInvoices(db)).includes(voucherId)) {
+    throw new Error('This tax invoice was posted by a fixed-asset disposal — bin it (the disposal journal goes with it) and dispose of the asset again')
+  }
 }
 
 /** Restoring a binned depreciation journal must not double-charge a period that has since been
@@ -1029,6 +1513,12 @@ export function assertFixedAssetVoucherRestorable(db: DB, voucherId: number): vo
         WHERE ${NOT_DELETED} AND r.asset_id IS NULL AND r.voucher_id <> ? AND r.period_from <= ? AND r.period_to >= ? LIMIT 1`
     ).get(voucherId, run.to, run.from) as { from: string; to: string } | undefined
     if (clash) throw new Error(`Depreciation for ${fmtDate(clash.from)} to ${fmtDate(clash.to)} has been posted again since — bin that run to restore this one`)
+  }
+  // A GST disposal's journal comes back with its tax invoice (restoreFixedAssetPartners) — the
+  // invoice must still exist (not purged).
+  const invoiceId = saleInvoiceOf(db, voucherId)
+  if (invoiceId != null && !db.prepare('SELECT 1 FROM vouchers WHERE id = ?').get(invoiceId)) {
+    throw new Error('The sale\'s tax invoice was purged — dispose of the asset again instead')
   }
   const disposalOf = db.prepare('SELECT id FROM depreciation_runs WHERE voucher_id = ? AND asset_id IS NOT NULL').get(voucherId)
   const asset = db.prepare('SELECT id, disposal_voucher_id FROM fixed_assets WHERE disposal_voucher_id = ?').get(voucherId)
@@ -1109,7 +1599,27 @@ function rateFor(rates: ItBlockRateRow[], fyFrom: string): ItBlockRateRow | null
     .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0] ?? null
 }
 
-export function itStatement(db: DB, fyStartYear: number): ItStatement {
+/** Income-tax Rules, 2026 rule 25(2): normal depreciation of a block "shall not exceed 40% of the
+ *  written down value" for the persons and regimes in its Table (FIXED_ASSET_EVENT_SOURCES R2026-R25-2). */
+export const RULE_25_2_CAP_BP = 4000
+
+/** The rate and additional rate a year computes with: the block's own, or — for a rule 25(2)
+ *  regime in a 2025-Act year — capped at 40% with no additional depreciation (s.202(2)(a)(vi) /
+ *  s.205(1)(a): total income without the deduction under s.33(8)). */
+export function itRateFor(rate: ItBlockRateRow | null, concessional: boolean): { rateBp: number; additionalRateBp: number; cappedFromBp: number | null; additionalDisallowed: boolean } {
+  const rateBp = rate?.rateBp ?? 0
+  const additionalRateBp = rate?.additionalRateBp ?? 0
+  if (!concessional || rate?.act !== '2025') return { rateBp, additionalRateBp, cappedFromBp: null, additionalDisallowed: false }
+  return {
+    rateBp: Math.min(rateBp, RULE_25_2_CAP_BP),
+    additionalRateBp: 0,
+    cappedFromBp: rateBp > RULE_25_2_CAP_BP ? rateBp : null,
+    additionalDisallowed: true
+  }
+}
+
+export function itStatement(db: DB, fyStartYear: number, opts: { concessionalRegime?: boolean } = {}): ItStatement {
+  const concessional = !!opts.concessionalRegime
   const blocks = listBlocks(db)
   const assets = loadAssets(db)
   const rows: ItStatementBlockRow[] = []
@@ -1129,6 +1639,7 @@ export function itStatement(db: DB, fyStartYear: number): ItStatement {
       const openingWdv = entered ? entered.openingWdv : carried?.wdv ?? 0
       const addlBf = entered ? entered.additionalBroughtForward : carried?.addl ?? 0
       const rate = rateFor(b.rates, fy.from)
+      const eff = itRateFor(rate, concessional)
       const additions = [
         ...inBlock
           .filter((a) => a.row.put_to_use_date >= fy.from && a.row.put_to_use_date <= fy.to)
@@ -1138,23 +1649,25 @@ export function itStatement(db: DB, fyStartYear: number): ItStatement {
       const sold = inBlock.filter((a) => a.disposed && a.row.disposal_date! >= fy.from && a.row.disposal_date! <= fy.to)
       const remaining = inBlock.filter((a) => a.row.put_to_use_date <= fy.to && !(a.disposed && a.row.disposal_date! <= fy.to))
       const r = itBlockYear({
-        fy, rateBp: rate?.rateBp ?? 0, openingWdv, additions,
+        fy, rateBp: eff.rateBp, openingWdv, additions,
         saleProceeds: sold.reduce((s, a) => s + (a.row.disposal_proceeds_paise ?? 0), 0),
         blockCeases: sold.length > 0 && remaining.length === 0,
-        additionalRateBp: rate?.additionalRateBp ?? 0,
-        additionalBroughtForward: addlBf
+        additionalRateBp: eff.additionalRateBp,
+        additionalBroughtForward: eff.additionalDisallowed ? 0 : addlBf
       })
       carried = { wdv: r.closingWdv, addl: r.additionalCarriedForward }
       result = {
-        ...r, blockId: b.id, blockCode: b.code, blockName: b.name, rateBp: rate?.rateBp ?? 0,
-        additionalRateBp: rate?.additionalRateBp ?? 0, act: rate?.act ?? null, sectionRef: rate?.sectionRef ?? '',
-        rateSource: rate?.source ?? '', openingSource, assetCount: remaining.length
+        ...r, blockId: b.id, blockCode: b.code, blockName: b.name, rateBp: eff.rateBp,
+        additionalRateBp: eff.additionalRateBp, act: rate?.act ?? null, sectionRef: rate?.sectionRef ?? '',
+        rateSource: rate?.source ?? '', openingSource, assetCount: remaining.length,
+        cappedFromBp: eff.cappedFromBp, additionalDisallowed: eff.additionalDisallowed
       }
     }
     if (result && (result.openingWdv !== 0 || result.wdvBeforeDepreciation !== 0 || result.saleProceeds !== 0 || result.assetCount > 0)) rows.push(result)
   }
   return {
     fyStartYear,
+    concessionalRegime: concessional,
     blocks: rows,
     unassignedAssets: assets.filter((a) => a.row.it_block_id == null).map((a) => ({ assetId: a.row.id, name: a.row.name }))
   }

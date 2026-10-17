@@ -2,8 +2,8 @@
 // src/main/ipcFixedAssets.ts. Kept beside client.ts so the register's surface stays in one place.
 import { call } from './client'
 import type {
-  AssetAdditionInput, AssetAdditionRow, AssetGroupInput, AssetGroupRow, AssetSchedule, CaClassInput, CaClassRow,
-  DepreciationPreview, DepreciationPreviewRow, DepreciationRunRow, DepreciationYearStatus, DisposalInput, DisposalPreview,
+  AssetAdditionInput, AssetAdditionRow, AssetGroupInput, AssetGroupRow, AssetSchedule, CaClassInput, CaClassRow, ComponentSplitInput,
+  DepreciationPreview, DepreciationPreviewRow, DepreciationRunRow, DepreciationYearStatus, DisposalInput, DisposalPreview, ExtraShiftInput,
   FixedAssetInput, FixedAssetRow, ItBlockInput, ItBlockOpeningInput, ItBlockRateInput, ItBlockRateRow, ItBlockRow,
   ItStatement, PurchaseCandidate
 } from '@shared/fixedAssets'
@@ -29,18 +29,19 @@ export const faApi = {
   remove: (id: number) => call<null>('fa:delete', { id }),
   additionSave: (data: AssetAdditionInput, id?: number) => call<AssetAdditionRow>('fa:additionSave', { data, id }),
   additionDelete: (id: number) => call<null>('fa:additionDelete', { id }),
+  componentSplit: (data: ComponentSplitInput) => call<{ asset: FixedAssetRow; component: FixedAssetRow }>('fa:componentSplit', data),
   purchaseCandidates: (from: string, to: string) => call<PurchaseCandidate[]>('fa:purchaseCandidates', { from, to }),
   fromVoucher: (id: number) => call<PurchaseCandidate | null>('fa:fromVoucher', { id }),
 
-  runPreview: (from: string, to: string) => call<DepreciationPreview>('fa:runPreview', { from, to }),
-  runPost: (from: string, to: string) => call<DepreciationRunRow>('fa:runPost', { from, to }),
+  runPreview: (from: string, to: string, shifts: ExtraShiftInput[] = []) => call<DepreciationPreview>('fa:runPreview', shifts.length ? { from, to, shifts } : { from, to }),
+  runPost: (from: string, to: string, shifts: ExtraShiftInput[] = []) => call<DepreciationRunRow>('fa:runPost', shifts.length ? { from, to, shifts } : { from, to }),
   runs: () => call<DepreciationRunRow[]>('fa:runs'),
   runLines: (id: number) => call<DepreciationPreviewRow[]>('fa:runLines', { id }),
   yearStatus: (fyStartYear: number) => call<DepreciationYearStatus>('fa:yearStatus', { fyStartYear }),
 
   disposalPreview: (data: DisposalInput) => call<DisposalPreview>('fa:disposalPreview', data),
-  dispose: (data: DisposalInput) => call<{ asset: FixedAssetRow; voucherId: number; preview: DisposalPreview }>('fa:dispose', data),
+  dispose: (data: DisposalInput) => call<{ asset: FixedAssetRow; voucherId: number; preview: DisposalPreview; remaining: FixedAssetRow | null }>('fa:dispose', data),
 
   schedule: (from: string, to: string) => call<AssetSchedule>('fa:schedule', { from, to }),
-  itStatement: (fyStartYear: number) => call<ItStatement>('fa:itStatement', { fyStartYear })
+  itStatement: (fyStartYear: number, concessionalRegime = false) => call<ItStatement>('fa:itStatement', { fyStartYear, concessionalRegime })
 }

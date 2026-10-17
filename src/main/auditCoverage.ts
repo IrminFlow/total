@@ -430,8 +430,9 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'fa:delete': a('fixed_asset'),
   'fa:additionSave': a('fixed_asset'),
   'fa:additionDelete': a('fixed_asset'),
+  'fa:componentSplit': a('fixed_asset'),
   'fa:runPost': a('depreciation_run', 'voucher'),
-  'fa:dispose': a('fixed_asset', 'voucher'),
+  'fa:dispose': a('fixed_asset', 'voucher', 'ledger'),
 
   // ---------- report builder, scheduled packs (WP 6.1 / 6.2) ----------
   'rb:save': a('saved_report'),

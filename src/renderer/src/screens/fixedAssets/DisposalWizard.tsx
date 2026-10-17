@@ -1,12 +1,13 @@
-// Disposal wizard (WP 3.6): sale or scrap of one asset → preview the journal (proceeds,
-// accumulated depreciation written back, cost out, catch-up depreciation, profit / loss) → post.
+// Disposal wizard (WP 3.6): sale or scrap of one asset — or a part of it (a quantity of units, or
+// a share of the cost) — → preview the journal (proceeds, accumulated depreciation written back,
+// cost out, catch-up depreciation, profit / loss) → post.
 import { useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { toDisplayDate } from '@shared/dates'
 import type { DisposalKind, FixedAssetRow, JournalPreviewLine } from '@shared/fixedAssets'
 import { faApi } from '../../lib/fixedAssetsClient'
 import { useSession, useToasts } from '../../state/stores'
-import { AmountInput, Banner, Button, Checkbox, DateInput, Field, Modal, Money, Segmented } from '../../components/ui'
+import { AmountInput, Banner, Button, Checkbox, DateInput, Field, Modal, Money, Segmented, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { LedgerPicker } from '../../components/pickers'
 import { LedgerLink } from '../../components/links'
@@ -37,22 +38,43 @@ export function DisposalWizard({ asset, onClose }: { asset: FixedAssetRow; onClo
   const [consideration, setConsideration] = useState<number | null>(null)
   const [catchUp, setCatchUp] = useState(true)
   const [posting, setPosting] = useState(false)
+  const [scope, setScope] = useState<'whole' | 'part'>('whole')
+  const [qtyText, setQtyText] = useState('')
+  const [ofText, setOfText] = useState('')
+  const part = scope === 'part' ? partOf(qtyText, ofText) : null
+  const [chargeGst, setChargeGst] = useState(false)
+  const [rateText, setRateText] = useState<string | null>(null)
+  const [scrapProviso, setScrapProviso] = useState(false)
+  const [itcByHand, setItcByHand] = useState(false)
+  const [itc, setItc] = useState<{ igst: number | null; cgst: number | null; sgst: number | null }>({ igst: null, cgst: null, sgst: null })
+  const rate = gstRateOf(rateText ?? '')
+  const gst = chargeGst && rate != null
+    ? {
+        ratePercent: rate, scrapProviso: kind === 'scrap' && scrapProviso,
+        itc: itcByHand ? { igst: itc.igst ?? 0, cgst: itc.cgst ?? 0, sgst: itc.sgst ?? 0, cess: 0 } : null
+      }
+    : null
   const input = {
     assetId: asset.id, date, kind, proceedsPaise: kind === 'scrap' && !proceeds ? 0 : proceeds ?? 0,
-    considerationLedgerId: consideration, chargeCatchUp: catchUp
+    considerationLedgerId: consideration, chargeCatchUp: catchUp, part, gst
   }
   const { data: preview } = useQuery({
     queryKey: ['faDisposal', input],
     queryFn: () => faApi.disposalPreview(input),
-    placeholderData: keepPreviousData
+    placeholderData: keepPreviousData,
+    enabled: scope === 'whole' || part != null
   })
+  const gstRateMissing = chargeGst && rate == null
+  const partInvalid = (scope === 'part' && part == null) || gstRateMissing
+  // The rate field starts from what the purchase's posted tax implies.
+  const shownRate = rateText ?? (preview?.suggestedGstRate != null ? String(preview.suggestedGstRate) : '')
 
   const post = async (): Promise<void> => {
     setPosting(true)
     try {
       await faApi.dispose(input)
       await refresh()
-      toast.push('success', `${asset.name} disposed — the journal is in the Day book`)
+      toast.push('success', part ? `Part (${part.quantity} of ${part.of}) of ${asset.name} disposed — the rest stays on the register` : `${asset.name} disposed — the journal is in the Day book`)
       onClose()
     } catch (e) {
       toast.push('error', (e as Error).message)
@@ -72,6 +94,18 @@ export function DisposalWizard({ asset, onClose }: { asset: FixedAssetRow; onClo
         </ol>
         {step === 1 && (
           <div className="grid grid-cols-2 gap-3">
+            <Field label="What goes">
+              <Segmented label="What goes" testId="btn-fixed-assets-disposal-scope" value={scope} onChange={(v) => setScope(v as 'whole' | 'part')} options={[{ value: 'whole', label: 'The whole asset' }, { value: 'part', label: 'A part of it' }]} />
+            </Field>
+            {scope === 'part' ? (
+              <Field label="Part disposed of" hint="Units sold of units held (or the part's cost of the whole cost) — that share of cost and depreciation leaves the register">
+                <div className="flex items-center gap-2">
+                  <TextInput data-testid="input-fixed-assets-part-qty" aria-label="Part" className="num w-24" value={qtyText} onChange={(e) => setQtyText(e.target.value)} />
+                  <span className="text-muted">of</span>
+                  <TextInput data-testid="input-fixed-assets-part-of" aria-label="Whole" className="num w-24" value={ofText} onChange={(e) => setOfText(e.target.value)} />
+                </div>
+              </Field>
+            ) : <div />}
             <Field label="Disposal">
               <Segmented label="Disposal" testId="btn-fixed-assets-disposal-kind" value={kind} onChange={(v) => setKind(v as DisposalKind)} options={[{ value: 'sale', label: 'Sale' }, { value: 'scrap', label: 'Scrap / discard' }]} />
             </Field>
@@ -84,6 +118,35 @@ export function DisposalWizard({ asset, onClose }: { asset: FixedAssetRow; onClo
             <Field label="Proceeds received in" hint="Cash, bank or the buyer's ledger">
               <LedgerPicker testId="picker-fixed-assets-consideration" value={consideration} onPick={setConsideration} placeholder="Cash / bank / party" />
             </Field>
+            {preview?.gstApplies && (
+              <div className="col-span-2 flex flex-col gap-2 rounded-md border border-line p-3" data-testid="fixed-assets-disposal-gst">
+                <Checkbox
+                  testId="input-fixed-assets-charge-gst"
+                  label="Charge GST — post a tax invoice to the buyer"
+                  hint="The proceeds are the value before GST. Where input tax credit was taken, CGST Act s.18(6) pays the higher of the credit (reduced per rules 40(2) / 44(6)) and the tax on the value"
+                  checked={chargeGst}
+                  onChange={(v) => { setChargeGst(v); if (v && rateText == null) setRateText(shownRate) }}
+                />
+                {chargeGst && (
+                  <div className="grid grid-cols-3 gap-3">
+                    <Field label="GST rate %" hint={preview.suggestedGstRate != null ? `The purchase was taxed at ${preview.suggestedGstRate}%` : undefined}>
+                      <TextInput data-testid="input-fixed-assets-gst-rate" className="num" value={shownRate} onChange={(e) => setRateText(e.target.value)} />
+                    </Field>
+                    <div className="col-span-2 flex flex-col gap-2">
+                      <Checkbox testId="input-fixed-assets-itc-by-hand" label="Enter the credit taken by hand" hint="Otherwise it is read from the purchase voucher's input tax" checked={itcByHand} onChange={setItcByHand} />
+                      {kind === 'scrap' && (
+                        <Checkbox testId="input-fixed-assets-scrap-proviso" label="Refractory bricks, moulds and dies, jigs and fixtures supplied as scrap" hint="s.18(6) proviso: tax on the value only" checked={scrapProviso} onChange={setScrapProviso} />
+                      )}
+                    </div>
+                    {itcByHand && (['cgst', 'sgst', 'igst'] as const).map((k) => (
+                      <Field key={k} label={`Credit taken — ${k.toUpperCase()}`}>
+                        <AmountInput testId={`input-fixed-assets-itc-${k}`} paise={itc[k]} onPaise={(v) => setItc((x) => ({ ...x, [k]: v }))} />
+                      </Field>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             <div className="col-span-2">
               <Checkbox
                 testId="input-fixed-assets-catch-up"
@@ -98,7 +161,7 @@ export function DisposalWizard({ asset, onClose }: { asset: FixedAssetRow; onClo
 
         {preview && (
           <div className="grid grid-cols-5 gap-2 rounded-lg border border-line bg-panel2 p-3 text-body-sm" data-testid="fixed-assets-disposal-figures">
-            <Figure label="Cost" paise={preview.gross} />
+            <Figure label={preview.part ? "Cost of the part" : "Cost"} paise={preview.gross} />
             <Figure label="Depreciation booked" paise={preview.accumulatedBooked} />
             <Figure label={preview.catchUpFrom ? `Catch-up from ${toDisplayDate(preview.catchUpFrom)}` : 'Catch-up'} paise={preview.catchUp} />
             <Figure label="Carrying amount" paise={preview.carrying} />
@@ -108,8 +171,34 @@ export function DisposalWizard({ asset, onClose }: { asset: FixedAssetRow; onClo
             </div>
           </div>
         )}
+        {preview?.part && preview.remainingCost != null && (
+          <p className="text-body-sm text-muted" data-testid="fixed-assets-disposal-remaining">
+            The part is split off as its own record and disposed of; <Money paise={preview.remainingCost} /> of cost stays on {asset.name}.
+          </p>
+        )}
+        {preview?.gst && (
+          <p className="text-body-sm" data-testid="fixed-assets-disposal-gst-working">{preview.gst.workingText}</p>
+        )}
+        {gstRateMissing && <Banner tone="info" testId="fixed-assets-disposal-gst-hint">Give the GST rate as a percentage (e.g. 18).</Banner>}
+        {scope === 'part' && part == null && <Banner tone="info" testId="fixed-assets-disposal-part-hint">Give the part as two whole numbers, the part less than the whole (e.g. 3 of 10).</Banner>}
         {preview?.blocked && <Banner tone="warning" testId="fixed-assets-disposal-blocked">{preview.blocked}</Banner>}
 
+        {step === 2 && preview?.gst && (
+          <div className="overflow-hidden rounded-md border border-line">
+            <p className="px-3 pt-2 text-hint font-medium text-muted">Tax invoice to the buyer</p>
+            <DataTable
+              viewId="fixed-assets-disposal-invoice"
+              testId="fixed-assets-disposal-invoice"
+              ariaLabel="Tax invoice"
+              columns={JOURNAL_COLUMNS}
+              rows={preview.gst.invoice.map((l, i) => ({ ...l, key: i }))}
+              rowKey={(r) => r.key}
+              maxHeight="none"
+              toolbar={false}
+              totalsLabel="Total"
+            />
+          </div>
+        )}
         {step === 2 && (
           <div className="overflow-hidden rounded-md border border-line">
             <DataTable
@@ -128,11 +217,11 @@ export function DisposalWizard({ asset, onClose }: { asset: FixedAssetRow; onClo
         <div className="flex justify-end gap-2">
           {step === 2 && <Button onClick={() => setStep(1)}>Back</Button>}
           {step === 1 ? (
-            <Button variant="primary" data-testid="btn-fixed-assets-disposal-next" disabled={!preview || !!preview.blocked} onClick={() => setStep(2)}>
+            <Button variant="primary" data-testid="btn-fixed-assets-disposal-next" disabled={!preview || !!preview.blocked || partInvalid} onClick={() => setStep(2)}>
               Next: review journal
             </Button>
           ) : (
-            <Button variant="primary" data-testid="btn-fixed-assets-dispose" loading={posting} disabled={!!preview?.blocked} onClick={() => void post()}>
+            <Button variant="primary" data-testid="btn-fixed-assets-dispose" loading={posting} disabled={!!preview?.blocked || partInvalid} onClick={() => void post()}>
               Post disposal
             </Button>
           )}
@@ -140,6 +229,21 @@ export function DisposalWizard({ asset, onClose }: { asset: FixedAssetRow; onClo
       </div>
     </Modal>
   )
+}
+
+/** "18" / "0.25" → 18 / 0.25; null unless a percentage from 0 to 100 with up to 2 decimals. */
+export function gstRateOf(text: string): number | null {
+  if (!/^\s*\d{1,3}(\.\d{1,2})?\s*$/.test(text)) return null
+  const n = Number(text)
+  return n >= 0 && n <= 100 ? n : null
+}
+
+/** "3" of "10" → { quantity: 3, of: 10 }; null unless both are whole numbers with 0 < part < whole. */
+export function partOf(qtyText: string, ofText: string): { quantity: number; of: number } | null {
+  const q = /^\s*\d+\s*$/.test(qtyText) ? Number(qtyText) : NaN
+  const o = /^\s*\d+\s*$/.test(ofText) ? Number(ofText) : NaN
+  if (!Number.isSafeInteger(q) || !Number.isSafeInteger(o) || q < 1 || o < 2 || q >= o) return null
+  return { quantity: q, of: o }
 }
 
 function Figure({ label, paise }: { label: string; paise: number }): React.JSX.Element {

@@ -23,7 +23,7 @@ import {
   assertBinnable, assertRestorable, hasTradeSchema, lineSourcesOf, resolveVoucherLines, syncVoucherLinks, type ResolvedLine
 } from './tradeLinks'
 import { isGodownTransferShape } from '@shared/voucherEdit/stockJournal'
-import { assertFixedAssetVoucherRestorable, assertNotFixedAssetVoucher } from './fixedAssets'
+import { assertFixedAssetVoucherRestorable, assertNotFixedAssetVoucher, binFixedAssetPartner, restoreFixedAssetPartners } from './fixedAssets'
 import { chargesGstOn, gstNotChargedMessage, gstRegistrationOf, registrationOn, type GstRegistrationFacts } from '@shared/gst/registration'
 
 interface VoucherRow {
@@ -936,6 +936,8 @@ export function deleteVoucher(db: DB, id: number): void {
     rebuildItemSerials(db, before.inventory.map((l) => l.stockItemId))
     // WP 4.4: a forex revaluation and its reversal go to the bin together.
     binCashFinancePartners(db, id)
+    // A GST disposal's tax invoice and journal go to the bin together.
+    binFixedAssetPartner(db, id)
     // Inside the same transaction: a binned voucher never lacks its audit row (and a failed
     // audit write leaves the voucher where it was).
     writeAudit(db, 'voucher', id, 'delete', before, null)
@@ -987,6 +989,8 @@ export function restoreVoucher(db: DB, id: number, opts: { creditHoldOverride?: 
   db.transaction(() => {
     db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(id)
     restoreCashFinancePartners(db, cashFinancePartners, id)
+    // A restored GST disposal journal brings its tax invoice back.
+    restoreFixedAssetPartners(db, id)
     // WP 2.5: its links come back to life — re-check their sources and capacity.
     assertRestorable(db, id)
     // WP 2.3: re-apply its serials — refused (rolled back) if one has moved on meanwhile.

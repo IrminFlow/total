@@ -447,6 +447,62 @@ Read these before filing from the next release.
 - **Applying the ITC reversal again with nothing changed, or saving the GSTR-3B adjustments
   unchanged, no longer adds an audit row** (the same rule as other settings). No figure changed.
   [#150](https://github.com/IrminFlow/total/pull/150)
+- **Fixed assets: partial disposals.** Dispose of a part of an asset — a quantity of identical
+  units ("1 of 4") or a share of the cost (₹20,000 of ₹60,000). The part is split off as its own
+  register record with that share of the cost, of every addition, of the opening accumulated
+  depreciation and of every depreciation line booked so far (each rounded once to the paisa, the
+  rest left on the asset; run and ledger totals unchanged), then disposed of in one journal:
+  proceeds, the part's accumulated depreciation written back, its cost out, catch-up depreciation
+  to the day before the sale (Schedule II Note 2) and profit / loss on sale. The rest keeps
+  depreciating on its own cost. In the income-tax block the part's sale price reduces the block
+  (2025 Act s.41(1)(c); the 1961 Act's s.43(6)(c) was not re-read); the block goes on while assets remain. Binning the journal puts
+  the part back as its own record. Assets without a partial disposal are unchanged. Readings and
+  UNVERIFIED points: `src/shared/fixedAssetSources.ts`. [#158](https://github.com/IrminFlow/total/pull/158)
+- **Fixed assets: GST on the sale of a capital good** (CGST Act s.18(6)). Tick "Charge GST" on a
+  disposal (regular registration on the sale date only): the proceeds are the value before GST, a
+  tax invoice goes to the buyer in the sales series (Dr buyer, Cr "Sale of Fixed Assets", Cr output
+  GST — it is in GSTR-1, GSTR-3B 3.1(a), prints and e-invoices like any ledger-line sale) and the
+  disposal journal clears "Sale of Fixed Assets" instead of the buyer. Where input tax credit was
+  taken (read from the purchase voucher's input tax in the asset's share, or entered by hand), the
+  credit is reduced both ways the rules prescribe — rule 40(2), five points per quarter or part from
+  the invoice date, and rule 44(6), the whole months left of a five-year life (a part month counts
+  as used, as the rule's own illustration does) — and the higher of the two is compared with the
+  tax on the value. When the credit-based amount is higher, the difference is extra output tax
+  (rule 44(6) proviso, "furnished in FORM GSTR-1"): Dr "GST on Sale of Capital Goods (s.18(6))",
+  Cr output GST in the disposal journal, and reported on the tax invoice's own GSTR-1 entry (taxable
+  value and rate unchanged, tax raised) so GSTR-1, GSTR-3B 3.1(a), GSTR-9 and the HSN summary agree
+  with the books. The working (credit, both reductions, tax on the value, the amount paid) is in
+  both narrations and on the review step. The s.18(6) scrap proviso (refractory bricks, moulds and
+  dies, jigs and fixtures) pays the tax on the value only. The invoice can't be edited on its own;
+  invoice and journal bin as a pair and the journal restores with its invoice. Returns without such
+  a sale are unchanged. UNVERIFIED: which rule governs (both computed, the higher used), quarter
+  counting, the comparison on the GST total, whether the portal takes a B2B tax amount above rate ×
+  value, the credit share — `src/shared/fixedAssetSources.ts`.
+  [#158](https://github.com/IrminFlow/total/pull/158)
+- **Fixed assets: the rule 25(2) 40 % cap on income-tax depreciation.** The Income-tax tab has a
+  "Concessional tax regime" switch for the persons in the Income-tax Rules, 2026 rule 25(2) Table (a
+  domestic company under s.199(3) / 200(5) / 201(2), an individual / HUF / AOP / BOI / AJP taxed
+  under s.202(1), a co-operative society under s.203(5) / 204(2)). With it on, each block's rate is
+  capped at 40 % of WDV (the Rate column marks a capped rate) and no additional depreciation is
+  shown (s.202(2)(a)(vi), s.205(1)(a): no deduction under s.33(8)). FY 2026-27 onwards only — the
+  1961 Act's equivalent was not re-read (UNVERIFIED, `src/shared/fixedAssetSources.ts`). Off = the
+  statement as before. [#158](https://github.com/IrminFlow/total/pull/158)
+- **Fixed assets: extra-shift depreciation** (Schedule II Notes para 6). A depreciation run can take
+  double- and triple-shift days per asset: the charge for those days rises by 50 % / 100 % (the
+  period's single-shift charge × (½ × double + 1 × triple days) ÷ days depreciated). Refused for
+  the seeded classes marked NESD in Part C (every seeded class except general plant and machinery)
+  and for more shift days than the asset is depreciated in the period. The days are in the journal's
+  narration and the run's audit row. A run without shift days is unchanged. UNVERIFIED: the formula
+  with several cost layers; classes you add (or a group without a class) are not checked — the
+  preview says so — `src/shared/fixedAssetSources.ts`.
+  [#158](https://github.com/IrminFlow/total/pull/158)
+- **Fixed assets: component lives** (Schedule II Notes para 4). "Split off a component…" on an asset
+  with no depreciation booked yet makes a significant part (a machine's motor, say) its own record
+  with its own cost and useful life; the asset keeps the rest of the cost and both stay on the same
+  ledger, so the books don't change — only the depreciation each is charged. After the first run a
+  different life is a change of estimate on the asset form. UNVERIFIED / not modelled: splitting
+  after depreciation is booked, a stored link between the two records —
+  `src/shared/fixedAssetSources.ts`. [#158](https://github.com/IrminFlow/total/pull/158)
 
 - **Cash forecast: MSME suppliers' bills on their s.15 deadline** (Options → Include, off by
   default; off, every figure is as before, and the simple "Cash in the next 30 days" and the AI

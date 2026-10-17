@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { isoDate } from './schemas'
 import type { DepMethod } from './depreciation'
 import type { ItBlockResult } from './depreciation'
+import type { CapitalGoodsSaleWorking, TaxHeads } from './capitalGoodsGst'
 
 const id = z.number().int().positive()
 const paise = z.number().int().safe()
@@ -110,9 +111,45 @@ export const assetAdditionInputSchema = z.object({
 })
 export type AssetAdditionInput = z.input<typeof assetAdditionInputSchema>
 
+/** Split a significant part off as its own record with its own useful life (Schedule II Notes
+ *  para 4, fixedAssetSources 'SCH2-N4'). Only before any depreciation is booked on the asset. */
+export const componentSplitSchema = z
+  .object({
+    assetId: id,
+    name: z.string().trim().min(1).max(200),
+    costPaise: paise.min(1),
+    lifeMonths: z.number().int().min(1).max(1200),
+    /** Defaults to the asset's. */
+    residualBp: z.number().int().min(0).max(10_000).nullable().default(null),
+    method: z.enum(['slm', 'wdv']).nullable().default(null)
+  })
+export type ComponentSplitInput = z.input<typeof componentSplitSchema>
+
 export const depreciationPeriodSchema = z
   .object({ from: isoDate, to: isoDate })
   .refine((p) => p.to >= p.from, { message: 'The period ends before it starts', path: ['to'] })
+
+export const disposalPartSchema = z
+  .object({ quantity: z.number().int().min(1).max(1e12), of: z.number().int().min(2).max(1e12) })
+  .refine((p) => p.quantity < p.of, { message: 'A part must be less than the whole — dispose of the whole asset instead', path: ['quantity'] })
+export type DisposalPart = z.infer<typeof disposalPartSchema>
+
+const headsSchema = z.object({ igst: paise.min(0), cgst: paise.min(0), sgst: paise.min(0), cess: paise.min(0).default(0) })
+
+/** GST on the sale (CGST Act s.18(6) — src/shared/capitalGoodsGst.ts). A tax invoice for the
+ *  transaction value is posted next to the disposal journal. */
+export const disposalGstSchema = z.object({
+  /** The goods' GST rate (percent, e.g. 18). */
+  ratePercent: z.number().min(0).max(100),
+  cessPercent: z.number().min(0).max(400).default(0),
+  /** Credit taken on the goods; null = read from the purchase voucher (FIXED_ASSET_UNVERIFIED 'cg-itc'). */
+  itc: headsSchema.nullable().default(null),
+  /** Date of the purchase invoice the credit was taken on; null = the purchase voucher's / purchase date. */
+  itcInvoiceDate: isoDate.nullable().default(null),
+  /** s.18(6) proviso: refractory bricks, moulds and dies, jigs and fixtures supplied as scrap. */
+  scrapProviso: z.boolean().default(false)
+})
+export type DisposalGstInput = z.input<typeof disposalGstSchema>
 
 export const disposalInputSchema = z.object({
   assetId: id,
@@ -123,12 +160,48 @@ export const disposalInputSchema = z.object({
   considerationLedgerId: id.nullable().default(null),
   /** Charge depreciation from the last run up to the day before disposal in the same voucher. */
   chargeCatchUp: z.boolean().default(true),
-  narration: z.string().trim().max(500).nullable().default(null)
+  narration: z.string().trim().max(500).nullable().default(null),
+  /** Partial disposal: `quantity` of `of` (units sold of units held, or the part's cost of the
+   *  whole cost). The part is split off as its own record with that share of every figure, and the
+   *  part is disposed of; the rest stays on the register (FIXED_ASSET_UNVERIFIED 'part-split'). */
+  part: disposalPartSchema.nullable().default(null),
+  /** Charge GST: the proceeds are the transaction value (before GST). Null = no GST. */
+  gst: disposalGstSchema.nullable().default(null)
 })
 export type DisposalInput = z.input<typeof disposalInputSchema>
 
+/** Extra-shift working for one asset in a run (Schedule II Notes para 6, fixedAssetSources 'SCH2-N6'). */
+export const extraShiftSchema = z.object({
+  assetId: id,
+  doubleShiftDays: z.number().int().min(0).max(366).default(0),
+  tripleShiftDays: z.number().int().min(0).max(366).default(0)
+})
+export type ExtraShiftInput = z.input<typeof extraShiftSchema>
+
+/** A depreciation run's period, optionally with the assets that worked extra shifts in it. */
+export const depreciationRunSchema = z
+  .object({ from: isoDate, to: isoDate, shifts: z.array(extraShiftSchema).max(5000).default([]) })
+  .refine((p) => p.to >= p.from, { message: 'The period ends before it starts', path: ['to'] })
+  .refine((p) => new Set(p.shifts.map((x) => x.assetId)).size === p.shifts.length, { message: 'An asset is listed twice for extra shifts', path: ['shifts'] })
+
+/**
+ * Seeded Schedule II Part C classes that do NOT carry the NESD mark ("no extra shift depreciation")
+ * — read from the Part C table (fixedAssetSources 'SCH2-N6'): of the seeded classes only general
+ * plant and machinery, IV(i)(a). Every other seeded class is NESD; a class the user added is not
+ * checked (FIXED_ASSET_UNVERIFIED 'shift-user-class').
+ */
+export const EXTRA_SHIFT_SEEDED_CLASS_CODES: readonly string[] = ['IV(a)']
+
 export const scheduleQuerySchema = depreciationPeriodSchema
-export const itStatementQuerySchema = z.object({ fyStartYear: z.number().int().min(1990).max(2100) })
+export const itStatementQuerySchema = z.object({
+  fyStartYear: z.number().int().min(1990).max(2100),
+  /** The assessee is in a regime of the Income-tax Rules, 2026 rule 25(2) Table (a domestic company
+   *  under s.199(3) / 200(5) / 201(2), an individual / HUF / AOP / BOI / AJP under s.202(1), a
+   *  co-operative society under s.203(5) / 204(2)): normal depreciation is capped at 40% of WDV and
+   *  additional depreciation (s.33(8)) is not allowed (s.202(2)(a)(vi), s.205(1)(a)). 2025-Act
+   *  years only — FIXED_ASSET_UNVERIFIED 'r25-1961'. */
+  concessionalRegime: z.boolean().default(false)
+})
 
 // ---------------------------------------------------------------------------------------------
 // Rows (what main returns)
@@ -266,6 +339,13 @@ export interface DepreciationPreviewRow {
   daysUsed: number
   fullyDepreciated: boolean
   ratePpb: number | null
+  /** The asset's class allows extra-shift depreciation (not NESD). */
+  extraShiftAllowed: boolean
+  /** Extra-shift days given for the run and the extra charge they add (inside `depreciation`). */
+  extraShift: { doubleDays: number; tripleDays: number; extra: number } | null
+  /** Set when extra shift is given for an asset whose NESD status Total cannot check (a class the
+   *  user added, or a group without a class) — FIXED_ASSET_UNVERIFIED 'shift-user-class'. */
+  extraShiftNote: string | null
 }
 
 export interface JournalPreviewLine {
@@ -319,6 +399,30 @@ export interface DisposalPreview {
   profit: number
   journal: JournalPreviewLine[]
   blocked: string | null
+  /** Partial disposal: the share disposed of and the cost (incl. additions) left on the asset. */
+  part: DisposalPart | null
+  remainingCost: number | null
+  /** GST on the sale: the s.18(6) working, the tax invoice's lines, where the credit came from. */
+  gst: DisposalGstPreview | null
+  /** The company charges GST on the disposal date (a regular registration) — GST can be asked. */
+  gstApplies: boolean
+  /** The rate the purchase voucher's posted input tax implies on its fixed-asset lines (a hint
+   *  for the form; null when it posted none). */
+  suggestedGstRate: number | null
+}
+
+export interface DisposalGstPreview {
+  ratePercent: number
+  supply: 'intra' | 'inter'
+  taxableValue: number
+  working: CapitalGoodsSaleWorking
+  /** The working in words (it is also the vouchers' narration). */
+  workingText: string
+  itcSource: 'entered' | 'purchase' | 'none'
+  /** The tax invoice (Dr buyer, Cr Sale of Fixed Assets, Cr output GST). */
+  invoice: JournalPreviewLine[]
+  invoiceTotal: number
+  extraOutputTax: TaxHeads
 }
 
 export interface ScheduleGroupRow extends ScheduleTotalsLike {
@@ -379,10 +483,16 @@ export interface ItStatementBlockRow extends ItBlockResult {
   /** Opening WDV came from: the user's entry for this FY, the previous FY's computed closing, or nothing (0). */
   openingSource: 'entered' | 'carried' | 'none'
   assetCount: number
+  /** Rule 25(2): the block's prescribed rate before the 40% cap (null = not capped). */
+  cappedFromBp: number | null
+  /** Rule 25(2) regime: additional depreciation (s.33(8)) not allowed this year. */
+  additionalDisallowed: boolean
 }
 
 export interface ItStatement {
   fyStartYear: number
+  /** Computed for a rule 25(2) regime (the query's flag). */
+  concessionalRegime: boolean
   blocks: ItStatementBlockRow[]
   /** Assets without an IT block — left out of the statement. */
   unassignedAssets: { assetId: number; name: string }[]

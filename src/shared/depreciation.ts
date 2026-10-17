@@ -190,6 +190,10 @@ export interface CaAssetInput {
   /** Last day already depreciated (a posted run's period end, the opening position's date, …);
    *  days on or before it are never charged twice. Null = nothing posted yet. */
   depreciatedThrough: string | null
+  /** Schedule II Notes para 6 (fixedAssetSources 'SCH2-N6'): days of the period the asset worked a
+   *  double / triple shift. The charge for those days rises by 50% / 100%: extra = the single-shift
+   *  charge × (½ × double + 1 × triple) ÷ days used (one rounding). Absent = single shift. */
+  extraShift?: { doubleDays: number; tripleDays: number }
 }
 
 export interface CaPeriodResult {
@@ -295,6 +299,15 @@ export function companiesActPeriod(a: CaAssetInput, period: { from: string; to: 
     }
   }
 
+  // Extra-shift working (Sch II Notes para 6): on top of the single-shift charge, pro rata to the days.
+  const shift = a.extraShift
+  if (shift && daysUsed > 0 && raw > 0 && (shift.doubleDays > 0 || shift.tripleDays > 0)) {
+    if (shift.doubleDays < 0 || shift.tripleDays < 0 || shift.doubleDays + shift.tripleDays > daysUsed) {
+      throw new Error(`Extra-shift days (${shift.doubleDays + shift.tripleDays}) can't exceed the ${daysUsed} days the asset is depreciated in the period`)
+    }
+    raw += mulDivRound(raw, shift.doubleDays + 2 * shift.tripleDays, 2 * daysUsed)
+  }
+
   // The period holding the last day of the useful life writes down to the residual exactly.
   const lifeEndsHere = lifeEnd >= firstChargeable && lifeEnd <= period.to && (!a.disposalDate || a.disposalDate > lifeEnd)
   const depreciation = lifeEndsHere ? maxCharge : Math.min(Math.max(0, raw), maxCharge)
@@ -324,6 +337,14 @@ export interface DisposalFigures {
   proceeds: number
   /** Positive = profit on sale, negative = loss. */
   profit: number
+}
+
+/** The share `quantity / of` of `amount` and what is left — a partial disposal's split (one
+ *  rounding per figure, half away from zero; part + rest is always the amount exactly). */
+export function splitShare(amount: number, quantity: number, of: number): { part: number; rest: number } {
+  if (!(quantity > 0 && quantity < of)) throw new Error('A part must be more than nothing and less than the whole')
+  const part = mulDivRound(amount, quantity, of)
+  return { part, rest: amount - part }
 }
 
 export function disposalFigures(gross: number, accumulated: number, proceeds: number): DisposalFigures {

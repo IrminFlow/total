@@ -7,7 +7,7 @@ import { fyFromStartYear, fyOf, todayISO, toDisplayDate } from '@shared/dates'
 import { formatBp, type ItStatementBlockRow, type ScheduleAssetRow, type ScheduleGroupRow, type ScheduleReconRow } from '@shared/fixedAssets'
 import { faApi } from '../../lib/fixedAssetsClient'
 import { useSession, useToasts } from '../../state/stores'
-import { AmountInput, Banner, Button, Field, Modal, Money, Panel, SectionTitle, Segmented, Select } from '../../components/ui'
+import { AmountInput, Banner, Button, Checkbox, Field, Modal, Money, Panel, SectionTitle, Segmented, Select } from '../../components/ui'
 import { DataTable, defineColumns, type TableColumn } from '../../components/table'
 import { LedgerLink } from '../../components/links'
 import { openLedgerStatement } from '../../lib/drill'
@@ -118,7 +118,11 @@ export const IT_COLUMNS = defineColumns<ItStatementBlockRow>([
   { id: 'block', header: 'Block of assets', kind: 'text', value: (r) => r.blockName, hideable: false, groupable: false, minWidth: 200 },
   {
     id: 'rate', header: 'Rate', kind: 'number', value: (r) => r.rateBp, text: (r) => formatBp(r.rateBp), width: 84,
-    cell: (r) => <span title={`${r.act ? `${r.act} Act — ` : ''}${r.sectionRef}\n${r.rateSource}`}>{formatBp(r.rateBp)}</span>
+    cell: (r) => (
+      <span title={`${r.act ? `${r.act} Act — ` : ''}${r.sectionRef}\n${r.rateSource}${r.cappedFromBp != null ? `\nCapped at 40% by Income-tax Rules, 2026 rule 25(2) (prescribed ${formatBp(r.cappedFromBp)})` : ''}`}>
+        {formatBp(r.rateBp)}{r.cappedFromBp != null && <span className="ml-1 text-hint text-muted" data-testid={`fixed-assets-it-capped-${r.blockId}`}>(cap)</span>}
+      </span>
+    )
   },
   { id: 'act', header: 'Act', kind: 'text', value: (r) => (r.act ? `${r.act} Act` : '—'), width: 90, className: 'text-muted', defaultHidden: true },
   itMoney('openingWdv', 'Opening WDV'),
@@ -143,7 +147,8 @@ export function IncomeTaxTab(): React.JSX.Element {
   for (let y = latest; y >= Math.min(info?.booksFrom ?? latest, latest) - 1; y--) years.push(y)
   const [fyStartYear, setFyStartYear] = useState(fyOf(to).startYear)
   const [opening, setOpening] = useState<ItStatementBlockRow | null>(null)
-  const { data, isLoading } = useQuery({ queryKey: ['faIt', fyStartYear], queryFn: () => faApi.itStatement(fyStartYear) })
+  const [concessional, setConcessional] = useState(false)
+  const { data, isLoading } = useQuery({ queryKey: ['faIt', fyStartYear, concessional], queryFn: () => faApi.itStatement(fyStartYear, concessional) })
   const fy = fyFromStartYear(fyStartYear)
   const gains = (data?.blocks ?? []).filter((b) => b.shortTermCapitalGain > 0 || b.shortTermCapitalLoss > 0)
   return (
@@ -192,6 +197,13 @@ export function IncomeTaxTab(): React.JSX.Element {
           exportOptions={{ title: 'Income-tax depreciation by block', periodLabel: `FY ${fy.label}`, filename: `it-depreciation-${fy.label}` }}
         />
       </Panel>
+      <Checkbox
+        testId="input-fixed-assets-it-concessional"
+        label="Concessional tax regime (Income-tax Rules, 2026 rule 25(2))"
+        hint="A domestic company under s.199(3) / 200(5) / 201(2), an individual, HUF, AOP, BOI or AJP taxed under s.202(1) (the new regime), or a co-operative society under s.203(5) / 204(2): depreciation is capped at 40% of WDV and there is no additional depreciation (s.202(2)(a)(vi), s.205(1)(a)). Applies to FY 2026-27 onwards."
+        checked={concessional}
+        onChange={setConcessional}
+      />
       <p className="text-hint text-muted">Enter on a block (or click it) sets its opening WDV for the year. Later years carry the computed closing WDV forward.</p>
       {opening && <OpeningModal row={opening} fyStartYear={fyStartYear} onClose={() => setOpening(null)} />}
     </div>
