@@ -16,6 +16,7 @@ developer documentation.
 - `06-announcement-draft.md`: a DRAFT (nothing published) for the 1.0 announcement: WhatsApp, LinkedIn, a CA note and a 2-minute "first bill" video shot list.
 - `07-beginner-study-kit.md`: everything for the real beginner study (D5): who to recruit, the script, the tasks, the note sheet, scoring and consent.
 - `08-what-changed-16-17-oct.md`: one page on what the overnight batch of 31 changes did (16 and 17 October), grouped by what you will notice while testing, plus what is still not done.
+- `09-questions-for-your-ca.md`: one list to hand to a CA, 54 questions grouped by topic. Each says what Total does today, the exact point to confirm, and where it is in the code. The first eight are marked "ask first" because they change figures.
 
 These files are for the owner. Review notes about them are kept outside the repository and are not
 committed here.
