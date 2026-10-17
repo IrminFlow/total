@@ -285,7 +285,7 @@ Opt-in per business, off by default, never pre-ticked (`services/companyKeys.ts`
   yet (the payload field is there for it); member charts and pair suggestions still skip a locked
   member that is not open.
 
-## Electron window hardening (D7, PR #PRNUM)
+## Electron window hardening (D7, PR #161)
 
 The passphrase lock protects the files; these rules protect the running app from a page that is
 not its own. They live in two pure, unit-tested modules applied by `main/index.ts`:

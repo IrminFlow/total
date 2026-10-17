@@ -294,7 +294,7 @@ what you typed, and a **Back to simple** button.
   paid out for an expense asks "Do you have a GST bill?" as Money out does, and "Bank charges" can
   say "The charge includes GST" so the GST on it counts toward what you claim back.
   [#139](https://github.com/IrminFlow/total/pull/139)
-- **The app window is locked down further.** Nothing changes in what you see or do. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+- **The app window is locked down further.** Nothing changes in what you see or do. [#161](https://github.com/IrminFlow/total/pull/161)
 
 ### For accountants (figures that changed)
 
@@ -532,7 +532,7 @@ Read these before filing from the next release.
 
 ### For developers
 
-- **Electron hardening (D7)** (to-do §4 Security), [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM): every IPC
+- **Electron hardening (D7)** (to-do §4 Security), [#161](https://github.com/IrminFlow/total/pull/161): every IPC
   call is checked against its sender before anything else (`main/ipcSender.ts`, in `handle()`): only
   the main frame (`senderFrame` is the sender's `mainFrame`, no parent) of the app's own renderer
   page — `out/renderer/index.html` over file:// (query / hash ignored), or the dev server's origin in
