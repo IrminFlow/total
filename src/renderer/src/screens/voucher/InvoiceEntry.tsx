@@ -279,9 +279,14 @@ export function InvoiceEntry({
     }),
     [date, isEdit, alterNumber, numberField.forPayload, partyId, accountId, rows, narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, manualNewBillMode, noteBillRefs, initial, kind, tds, tcs, taxedOriginal]
   )
+  // A bill name still following the number (not typed) is reported as the hand-off had it: blank —
+  // the number arriving from the numbering query is no change of the user's.
   useEffect(() => {
-    onHandoffState?.({ ...formState, number: numberField.touched ? formState.number : '' }, pendingParty ? { party: pendingParty } : {})
-  }, [onHandoffState, formState, numberField.touched, pendingParty])
+    onHandoffState?.(
+      { ...formState, number: numberField.touched ? formState.number : '', billName: billNameTouched ? formState.billName : '' },
+      pendingParty ? { party: pendingParty } : {}
+    )
+  }, [onHandoffState, formState, numberField.touched, billNameTouched, pendingParty])
 
   const computed = useMemo(() => computeInvoice(formState, ctx), [formState, ctx])
   const { supply, fxActive } = computed

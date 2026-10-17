@@ -221,7 +221,7 @@ await scenario('62-handoff', async (h) => {
   await h.waitScreen('simple-sell')
   assertEq(await page.inputValue('[data-testid="input-sell-qty-0"]'), '3', 'an untouched editor: the same quantity')
   await page.waitForFunction(() => document.querySelector('[data-testid="sell-total"]')?.getAttribute('data-paise') === '88500', null, { timeout: 10000 })
-  assertEq(await page.$('[data-testid="carried-back-note"]'), null, 'an untouched editor: no note')
+  assert((await page.$('[data-testid="carried-back-note"]')) == null, `an untouched editor: no note (${(await page.$('[data-testid="carried-back-note"]')) ? await text('carried-back-note') : ''})`)
   await h.click('btn-sell-accountant-view')
   await h.waitScreen('voucher-entry')
   await attached(h, '[data-testid="handoff-banner"]')
