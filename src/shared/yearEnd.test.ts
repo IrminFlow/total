@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { planClose, type CloseLedgerRow } from './yearEnd'
+import { planClose, diffCloseNets, expectedCloseNets, type CloseLedgerRow } from './yearEnd'
 
 describe('planClose', () => {
   it('profit: income credit balance dr\'d, expense debit balance cr\'d, netProfit positive', () => {
@@ -84,5 +84,29 @@ describe('planClose', () => {
     const plan = planClose([])
     expect(plan.lines).toEqual([])
     expect(plan.netProfit).toBe(0)
+  })
+})
+
+describe('guided re-close (0.4.0 closes)', () => {
+  // FY1: Sales stored opening Cr 5,000 + movements Cr 30,000; Rent Dr 10,000. Today's rule closes
+  // Sales Dr 35,000, Rent Cr 10,000, Retained Earnings (id 9) Cr 25,000.
+  const rows: CloseLedgerRow[] = [
+    { ledgerId: 1, name: 'Sales', nature: 'income', net: -35_000_00 },
+    { ledgerId: 2, name: 'Rent', nature: 'expense', net: 10_000_00 }
+  ]
+  it('expected nets reverse each amount and put the sum on the transfer ledger', () => {
+    expect([...expectedCloseNets(rows, 9)]).toEqual([[1, 35_000_00], [2, -10_000_00], [9, -25_000_00]])
+  })
+  it('a 0.4.0 close (movements only) differs on Sales and Retained Earnings by the stored opening', () => {
+    // 0.4.0 posted Sales Dr 30,000, Rent Cr 10,000, Retained Earnings Cr 20,000.
+    const stored = new Map([[1, 30_000_00], [2, -10_000_00], [9, -20_000_00]])
+    expect(diffCloseNets(stored, expectedCloseNets(rows, 9))).toEqual([
+      { ledgerId: 1, stored: 30_000_00, expected: 35_000_00 },
+      { ledgerId: 9, stored: -20_000_00, expected: -25_000_00 }
+    ])
+  })
+  it('a correct close has no difference', () => {
+    const e = expectedCloseNets(rows, 9)
+    expect(diffCloseNets(new Map(e), e)).toEqual([])
   })
 })
