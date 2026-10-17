@@ -289,15 +289,18 @@ export function export27eqCsv(db: DB, slug: string, fyStartYear: number, quarter
   const data = form27eqData(db, fyStartYear, quarter)
   const numbers = db.prepare('SELECT number FROM vouchers WHERE id = ?')
   const challanAmount = new Map(data.challans.map((c) => [c.serial, c.amountPaise]))
+  // The trailing "Note" column (the s.206C(1G) slab rows) appears only when a row carries a note,
+  // so every other quarter's file keeps the exact columns it always had.
+  const withNote = data.deductees.some((r) => r.note)
   let csv = rowsToCsv(
     ['Collectee', 'PAN', 'Collectee Code', 'Section', 'Return Code', 'Date', 'Voucher No', 'Amount (Rs)', 'Rate (%)', 'TCS (Rs)',
-      'Remark', 'Challan BSR', 'Challan Date', 'Challan Serial', 'Challan Amount (Rs)', 'Note'],
+      'Remark', 'Challan BSR', 'Challan Date', 'Challan Serial', 'Challan Amount (Rs)', ...(withNote ? ['Note'] : [])],
     data.deductees.map((r) => [
       r.partyName, r.pan ?? '', r.deducteeCode, r.sectionCode, r.returnCode ?? '', r.paymentDate,
       (numbers.get(r.voucherId) as { number: string } | undefined)?.number ?? '',
       plainRupees(r.amountPaise), r.rateBp != null ? (r.rateBp / 100).toFixed(2) : '', plainRupees(r.tdsPaise), r.reasonCode,
       r.bsrCode ?? '', r.challanDate ?? '', r.challanNo ?? '', r.challanSerial != null ? plainRupees(challanAmount.get(r.challanSerial) ?? 0) : '',
-      r.note ?? ''
+      ...(withNote ? [r.note ?? ''] : [])
     ])
   )
   if (data.challans.length > 0) {

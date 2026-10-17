@@ -536,10 +536,14 @@ Read these before filing from the next release.
   collected in two parts and rounded once (₹6,30,000 already + ₹4,20,000 now: ₹3,70,000 × 5 % +
   ₹50,000 × 20 % = ₹28,500); no PAN: each part the higher of twice its rate and 5 %, at most 20 %.
   Before, every tour collection was 5 % and the 20 % had to be entered as a manual amount — a sale
-  above the limit saved at 5 % is now refused (re-apply TCS or mark it manual). Applies only while
+  above the limit saved at 5 % is now refused (re-apply TCS or mark it manual); one already in the
+  books keeps its recorded figure when edited without changing the collection (same party, date,
+  base and amount) and 27EQ flags it "recorded …, the slab now gives …". Applies only while
   the rate row in force is the seeded, cited one (a row you added yourself is used as it stands);
   FY 2026-27 is unchanged, a flat 2 % (FA 2026 s.85(f)). Form 27EQ: such a collection is written as
-  two rows of the one entry (5 % / 20 %, code O), flagged in a new trailing Note column of the CSV.
+  two rows of the one entry (5 % / 20 %, code O), flagged in a trailing Note column the CSV adds only
+  to a quarter that has such a row (every other quarter's file is unchanged). The slab is counted
+  per buyer ledger — keep one ledger per buyer.
   LRS remittances (s.206C(1G)(a)) are not modelled — only an authorised dealer (a bank) collects
   them. UNVERIFIED (the 1961 text could not be opened; the 27EQ split; Form 143 code 1089):
   `src/shared/tcsSources.ts`, listed on TCS → Sections. [#163](https://github.com/IrminFlow/total/pull/163)

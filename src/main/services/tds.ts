@@ -619,6 +619,30 @@ export function prepareVoucherTds(db: DB, input: VoucherInputParsed, existingId?
 }
 
 /**
+ * A tour-package collection saved before the s.206C(1G) slab was modelled (flat 5 % on the whole
+ * base, the only figure the save then accepted) round-trips unchanged through an edit that leaves
+ * the collection itself alone — same section, party, date, base and amount, still automatic, and
+ * equal to the flat-rate figure — like GST's `legacyTax`. Only a new or changed collection is held
+ * to the slab; Form 27EQ flags the kept figure ("recorded …, the slab now gives …").
+ */
+function keepPreSlabCollection(
+  db: DB, resolved: ResolvedTds, e: { sectionId: number; baseAmount: number; amount: number },
+  input: VoucherInputParsed, existingId: number
+): ResolvedTds {
+  if (resolved.tdsPaise === e.amount) return resolved
+  const stored = db.prepare(
+    `SELECT te.party_ledger_id AS party, te.base_amount AS base, te.tds_amount AS amount, te.is_manual AS manual, v.date AS date
+       FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id
+      WHERE te.voucher_id = ? AND te.section_id = ?`
+  ).get(existingId, e.sectionId) as { party: number; base: number; amount: number; manual: number; date: string } | undefined
+  if (!stored || stored.manual || stored.party !== input.partyLedgerId || stored.date !== input.date ||
+    stored.base !== e.baseAmount || stored.amount !== e.amount) return resolved
+  const flat = expectedTdsPaise(resolved.rate!, e.baseAmount, resolved.priorPaise)
+  if (flat !== e.amount) return resolved
+  return { ...resolved, tdsPaise: flat, slab: undefined }
+}
+
+/**
  * The same for either kind (WP 3.3). `lines` is the line set built so far (TCS runs after TDS
  * on the output of prepareVoucherTds). TDS checks the deduction's payable credit; TCS also that
  * the buyer's debit includes the collection (src/shared/tcs.ts validateTcsEntries). An entry
@@ -648,6 +672,7 @@ export function prepareVoucherWithholding(
   let resolved: ResolvedTds | null = null
   if (rules && input.partyLedgerId != null && e.baseAmount > 0) {
     resolved = resolveTds(db, e.sectionId, input.partyLedgerId, e.baseAmount, input.date, existingId)
+    if (resolved.slab && existingId != null && !e.isManual) resolved = keepPreSlabCollection(db, resolved, e, input, existingId)
   }
   const facts = (): { code: string; expectedPaise: number | null } | null =>
     rules ? { code: rules.code, expectedPaise: resolved?.tdsPaise ?? null } : null

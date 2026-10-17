@@ -15,6 +15,8 @@ import { LedgerLink } from '../../components/links'
 import { openLedgerStatement, useCanEditMasters } from '../../lib/drill'
 import { confirmDialog } from '../../lib/dialogs'
 import { api } from '../../lib/client'
+import { isOwnerOrNoUsers } from '../../lib/roles'
+import { useSession } from '../../state/stores'
 import { TCS_NOT_MODELLED, TCS_SOURCES, TCS_UNVERIFIED } from '@shared/tcsSources'
 
 const optionalMoney = (paise: number): React.JSX.Element => (paise > 0 ? <Money paise={paise} /> : <span className="text-muted">—</span>)
@@ -151,7 +153,7 @@ function SectionsBody(): React.JSX.Element {
         </p>
       </Panel>
 
-      {k === 'tcs' && <TcsStatutoryPanel canEdit={canEdit} />}
+      {k === 'tcs' && <TcsStatutoryPanel />}
 
       <Panel>
         <div className="px-3 pt-3">
@@ -590,7 +592,9 @@ export function SectionsTab({ kind = 'tds' }: { kind?: 'tds' | 'tcs' } = {}): Re
  * migration) and what the s.206C(1G) slab / 1C rows rest on, with the UNVERIFIED and
  * not-modelled points (src/shared/tcsSources.ts).
  */
-function TcsStatutoryPanel({ canEdit }: { canEdit: boolean }): React.JSX.Element {
+function TcsStatutoryPanel(): React.JSX.Element {
+  // tcs:statutoryAdd is owner-only (ipc.ts) — accountants see the list without the button.
+  const canEdit = useSession((st) => isOwnerOrNoUsers(st.user))
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: statutory } = useQuery({ queryKey: ['tcsStatutory'], queryFn: api.tcs.statutory })

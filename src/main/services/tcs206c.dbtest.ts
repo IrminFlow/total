@@ -13,6 +13,7 @@ import { listRates, listSections, saveRate } from './tds'
 import { addStatutoryTcsSections, statutoryTcsSections, tcsSuggestion } from './tcs'
 import { applyTcsToVoucher, export27eqCsv, form27eqData, tcsEligible } from './tcsWorkbench'
 import { ensureCompanyTree } from '../paths'
+import { voucherToPayload } from '@shared/voucherEdit'
 import type { VoucherInput } from '@shared/schemas'
 import type { Form26qData } from '@shared/tdsTypes'
 
@@ -113,6 +114,29 @@ describe('s.206C(1G) tour package — the ₹10 lakh slab', () => {
     const s = suggest(db, fx, fx.walkIn, '2025-06-10', 100000000)
     expect(s).toMatchObject({ basis: 'no_pan', basePaise: 105000000, tdsPaise: 11000000, rateBp: 2000 })
     expect(s.slab).toMatchObject({ belowPaise: 100000000, abovePaise: 5000000, lowerRateBp: 1000, upperRateBp: 2000 })
+  })
+
+  it('a collection saved at the flat 5 % before the slab was modelled still saves on an unrelated edit; a changed one is held to the slab', () => {
+    const db = seededDb()
+    const fx = tourFixture(db)
+    const tcs = (base: number, amount: number, isManual = false): VoucherInput['tcs'] => ({ sectionId: fx.tour, baseAmount: base, tcsAmount: amount, isManual, autoPayable: true })
+    tourSale(db, fx, '2025-06-10', fx.mehta, 60000000, tcs(63000000, 3150000))
+    // Sale 2 as the old code saved it: ₹4,20,000 × 5 % = ₹21,000, automatic (written as manual,
+    // then flipped — the state a pre-slab save left in the books).
+    const v2 = tourSale(db, fx, '2025-08-20', fx.mehta, 40000000, tcs(42000000, 2100000, true))
+    db.prepare('UPDATE tds_entries SET is_manual = 0, rate_bp_at = 500 WHERE voucher_id = ?').run(v2)
+    const old = getVoucher(db, v2)!
+    // Only the narration changes: the recorded ₹21,000 round-trips.
+    saveVoucher(db, { ...voucherToPayload(old), narration: 'Edited later' } as VoucherInput, v2)
+    const after = getVoucher(db, v2)!
+    expect(after.narration).toBe('Edited later')
+    expect(after.tcs).toMatchObject({ tcsAmount: 2100000, baseAmount: 42000000, isManual: false })
+    // 27EQ keeps the recorded figure and flags it (₹28,500 is what the slab gives).
+    expect(form27eqData(db, 2025, 2).deductees.map((d) => [d.tdsPaise, d.note])).toEqual([
+      [2100000, '1G slab: recorded ₹21,000.00, the slab now gives ₹28,500.00 — check']
+    ])
+    // Moving the date is a new computation: refused at the flat figure.
+    expect(() => saveVoucher(db, { ...voucherToPayload(after), date: '2025-08-21' } as VoucherInput, v2)).toThrow(/should be ₹28,500\.00/)
   })
 
   it('a rate row you add yourself (no source) is taken as it stands — no slab on top', () => {
@@ -271,6 +295,8 @@ describe('27EQ / Form 143 — codes and the slab split', () => {
     ensureCompanyTree('tcs206c-co')
     const csv = readFileSync(export27eqCsv(db, 'tcs206c-co', 2025, 2), 'utf8')
     expect(csv.split(/\r?\n/)[0]).toMatch(/,Challan Amount \(Rs\),Note$/)
+    // A quarter without a note keeps the columns it always had (no trailing Note).
+    expect(readFileSync(export27eqCsv(db, 'tcs206c-co', 2025, 1), 'utf8').split(/\r?\n/)[0]).toMatch(/,Challan Amount \(Rs\)$/)
     expect(csv).toContain('370000.00,5.00,18500.00')
     expect(csv).toContain('50000.00,20.00,10000.00')
     expect(csv).toContain('part above the limit')

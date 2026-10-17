@@ -257,9 +257,10 @@ export const TCS_NOT_MODELLED: readonly { key: string; text: string }[] = [
   {
     key: 'tour-before-2025',
     text:
-      's.206C(1G) tour packages before 1 Apr 2025 (5 % to 30 Sep 2023, then 20 % from FA 2023 s.94 with the ₹7 lakh slab) — no ' +
-      'rate rows are seeded for FY 2024-25 or earlier (as for the rest of WP 3.3): such a sale is refused "no rate in force" ' +
-      'unless you add a row or mark the collection manual.'
+      's.206C(1G) tour packages before 1 Apr 2025 (FA 2023 s.94 raised the long line from five to twenty per cent "with effect ' +
+      'from the 1st day of July, 2023"; the later deferral of that date and the ₹7 lakh slab were not read in an official text — ' +
+      'UNVERIFIED) — no rate rows are seeded for FY 2024-25 or earlier (as for the rest of WP 3.3): such a sale is refused "no ' +
+      'rate in force" unless you add a row or mark the collection manual.'
   },
   {
     key: '1c-before-2025',
@@ -289,8 +290,11 @@ export const TCS_UNVERIFIED: readonly { key: string; text: string }[] = [
   {
     key: 'tour-aggregate',
     text:
-      'Tour slab: the ₹10 lakh is measured per buyer per financial year over everything recorded under the 206C(1G) TOUR section ' +
-      '(the same aggregate the section\'s threshold uses — sales and advances, first of debit or receipt), base incl. GST as the ' +
+      'Tour slab: the ₹10 lakh is measured per buyer LEDGER per financial year over everything recorded under the 206C(1G) TOUR ' +
+      'section — a buyer kept under two ledgers (same PAN) is counted twice over, each from nil, and under-collected: keep one ' +
+      'ledger per buyer. The Act says "amount or aggregate of amounts" without naming the period in Sl. 8; the financial year is ' +
+      'the reading of the 1961 proviso, not read (see "1961-text"). The aggregate is ' +
+      'the one the section\'s threshold uses (sales and advances, first of debit or receipt), base incl. GST as the ' +
       'seeded row says. One collection that crosses ₹10 lakh is computed in two parts (5 % below, 20 % above) and rounded to the ' +
       'rupee once. Without a PAN each part takes the higher of twice its rate and 5 %, at most 20 % (s.206CC).'
   },
@@ -299,7 +303,9 @@ export const TCS_UNVERIFIED: readonly { key: string; text: string }[] = [
     text:
       'The slab applies only while the rate row in force is a cited (seeded) one: a row you add yourself (no source) is taken as ' +
       'it stands, so a hand-made 20 % row keeps working as before. The FY 2025-26 row\'s own source text still says "collect it ' +
-      'manually" — the slab now does it.'
+      'manually" — the slab now does it. A collection saved before the slab was modelled (flat 5 % above the limit) stays as ' +
+      'recorded when the voucher is edited without changing the collection (same party, date, base and amount); Form 27EQ flags ' +
+      'it "recorded …, the slab now gives …" so you can re-apply TCS on it.'
   },
   {
     key: 'tour-certificate',
@@ -311,7 +317,9 @@ export const TCS_UNVERIFIED: readonly { key: string; text: string }[] = [
     key: 'tour-27eq-split',
     text:
       'Form 27EQ has one rate per collectee row, and code O covers both slabs. A collection that crosses ₹10 lakh is exported as ' +
-      'two rows of the same entry (the part at 5 %, the part at 20 %, flagged in the Note column); a collection wholly above the ' +
+      'two rows of the same entry (the part at 5 %, the part at 20 %, flagged in a trailing Note column, which Total\'s CSV adds ' +
+      'only to a quarter that has such a row — the CSV is Total\'s own working file, not the Protean RPU / FVU layout); a ' +
+      'collection wholly above the ' +
       'limit carries 20 %. Whether TRACES expects this split is not verified.'
   },
   {

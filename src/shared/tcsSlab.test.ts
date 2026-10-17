@@ -41,6 +41,10 @@ describe('s.206C(1G) tour slab', () => {
     // Rupee rounding once over both parts: ₹10,00,000.50 from nil → inside ₹10,00,000 × 5 % = ₹50,000;
     // 50 paise × 20 % = 10 paise; ₹50,000.10 → ₹50,000.
     expect(slabbedTcs(rate, slab, 100000050, 0, NO_PAN).tcsPaise).toBe(5000000)
+    // ₹9,99,999 already + ₹2 now: ₹1 inside × 5 % = 5 paise, ₹1 above × 20 % = 20 paise; 25 paise → ₹0.
+    expect(slabbedTcs(rate, slab, 200, 99999900, NO_PAN)).toMatchObject({ tcsPaise: 0, belowPaise: 100, abovePaise: 100 })
+    // Exactly ₹10,00,000 already: the next ₹1 is wholly above — 20 paise → ₹0; ₹10 → ₹2.
+    expect(slabbedTcs(rate, slab, 1000, 100000000, NO_PAN)).toMatchObject({ tcsPaise: 200, belowPaise: 0, abovePaise: 1000 })
   })
 
   it('without a PAN each part takes the higher of twice its rate and 5 %, at most 20 % (s.206CC)', () => {
