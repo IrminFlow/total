@@ -422,6 +422,21 @@ Read these before filing from the next release.
   No figure changed: the pending quantity and value are the Pending challans / GRNs report's, and so
   GDNI / GRNI's, to the paisa. [#149](https://github.com/IrminFlow/total/pull/149)
 
+- **Import undo and opening bills.** Undoing an import whose opening bill now has one of your
+  receipts or payments against it keeps every opening that import brought in (ledger and stock
+  openings, opening bills), so Dr still equals Cr and the receipt keeps its bill. The rest of the
+  import is undone, and the kept rows name the bill and the entry. An opening the import changed
+  on an existing ledger also stays at the imported figure until then. Remove that link, then undo
+  again. Receipts the same import brought against its opening bills don't count (the undo removes
+  them). Before this, the party kept its opening while its contra was removed. [#150](https://github.com/IrminFlow/total/pull/150)
+- **Report-pack file names** use the report's own name, made safe the same way as the folder
+  (`02-Con.csv`, not `02-con-company.csv`; "Trial balance" is `01-Trial balance.csv`). Files that
+  earlier runs wrote keep their old names. Running a period again writes the new names beside
+  them, and later runs overwrite the new names. [#150](https://github.com/IrminFlow/total/pull/150)
+- **Applying the ITC reversal again with nothing changed, or saving the GSTR-3B adjustments
+  unchanged, no longer adds an audit row** (the same rule as other settings). No figure changed.
+  [#150](https://github.com/IrminFlow/total/pull/150)
+
 ### For developers
 
 - New banking channels `cheques:backfillPreview` (accountant+, read) and `cheques:backfill`

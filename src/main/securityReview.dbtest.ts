@@ -361,9 +361,10 @@ describe('canSeeProfit: false covers every way to the profit (PR #112 follow-up)
       const r = await ok<{ status: string; files: string[]; error: string | null }>('pack:runNow', { id: pack.id })
       expect(r.status).toBe('partial')
       expect(r.files).toHaveLength(2)
+      // the run's own file list (names follow the report titles, #150): the TB is the pack's first report
       expect(r.error).toMatch(/Profit & Loss: skipped — profit figures are not shown/)
       expect(r.error).toMatch(/Saved report #\d+: skipped/)
-      const tbCsv = readFileSync(r.files.find((f) => f.includes('trial-balance'))!, 'utf8')
+      const tbCsv = readFileSync(r.files.find((f) => /^01-/.test(f.split(/[\\/]/).pop()!))!, 'utf8')
       expect(tbCsv).not.toMatch(/Counter Sales|Rent/)
       expect(tbCsv).toMatch(/Profit figures are not shown/)
     } finally {

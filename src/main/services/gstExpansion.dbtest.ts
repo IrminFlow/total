@@ -18,8 +18,8 @@ import { gstr1, gstr3b, recon2b } from './gst'
 import { exportGstr9, exportItc04, gstr9, itc04, recordGstr1Export } from './gstAnnual'
 import { exportImsActions, getRecon2bTolerances, listImsActions, setImsActions, setRecon2bTolerances } from './gstIms'
 import { generateSelfInvoice, listSelfInvoices, selfInvoiceDocument, selfInvoiceHtml, setSelfInvoiceSeries } from './gstRcm'
-import { applyItcReversalTo3b, itcReversal, postItcReversal } from './gstItcReversal'
-import { getGst3bManual } from './config'
+import { applyItcReversalTo3b, getItcReversalInputs, itcReversal, postItcReversal, setItcReversalInputs } from './gstItcReversal'
+import { getGst3bManual, setGst3bManual } from './config'
 import { costPreview, saveManufacture } from './manufacture'
 import { saveJobWorkChallan } from './jobWork'
 import { ensureCompanyTree } from '../paths'
@@ -337,6 +337,35 @@ describe('ITC reversal workings (rule 42 / 43 / 37, s.17(5))', () => {
     const r9 = gstr9(b.db, INFO, 2026)
     const row = (id: string) => r9.rows.find((x) => x.id === id)!.amounts.cgst
     expect([row('7A'), row('7C'), row('7D'), row('7E'), row('7H')]).toEqual([rs(450), rs(900), rs(30), rs(270), 0])
+  })
+
+  it('applying again with nothing changed writes nothing — and neither does a 3B / inputs save of the same values (#120 note)', () => {
+    const b = seeded()
+    const count = (): number => (b.db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n
+    const meta = (): string => JSON.stringify(b.db.prepare("SELECT key, value FROM meta WHERE key LIKE 'gst%' OR key LIKE '%itcRev%' ORDER BY key").all())
+    // Nothing stored yet: the defaults saved as they are are no change either.
+    const n0 = count()
+    setGst3bManual(b.db, '092026', {})
+    setItcReversalInputs(b.db, '092026', getItcReversalInputs(b.db, '092026'))
+    expect(count()).toBe(n0)
+    applyItcReversalTo3b(b.db, INFO, ...SEP)
+    const n1 = count()
+    expect(n1).toBe(n0 + 2) // the 3B adjustments (company) + the itc_reversal row
+    const m1 = meta()
+    // Second apply: same figures → no row, no meta write (the split's timestamp stays too).
+    expect(applyItcReversalTo3b(b.db, INFO, ...SEP).applied).toBe(true)
+    expect(count()).toBe(n1)
+    expect(meta()).toBe(m1)
+    // The 3B adjustments saved unchanged (key order shuffled) write nothing.
+    const manual = getGst3bManual(b.db, '092026')
+    setGst3bManual(b.db, '092026', Object.fromEntries(Object.entries(manual).reverse()))
+    expect(count()).toBe(n1)
+    // A real change still logs; applying then puts the figures back and logs the apply.
+    setGst3bManual(b.db, '092026', { ...manual, itcRevOth: { ...manual.itcRevOth, cgst: manual.itcRevOth.cgst + 100 } })
+    expect(count()).toBe(n1 + 1)
+    applyItcReversalTo3b(b.db, INFO, ...SEP)
+    expect(count()).toBe(n1 + 3)
+    expect(getGst3bManual(b.db, '092026')).toEqual(manual)
   })
 
   it('re-avails in the month the rest is paid (4(D)(1))', () => {

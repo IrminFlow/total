@@ -48,7 +48,7 @@ import { setCreditHold } from './receivables'
 import { setBankDetails } from './bulkPayments'
 import { markImportedClose } from './yearEnd'
 import { writeAudit } from './audit'
-import { openingBillsByParty, replaceOpeningBills, type OpeningBillRow } from './openingBills'
+import { openingBillsByParty, partySide, replaceOpeningBills, type OpeningBillRow } from './openingBills'
 import { readCompanyInfo, writeCompanyInfo } from '../db/seed'
 
 export type DuplicateStrategy = 'skip' | 'update' | 'create'
@@ -1375,6 +1375,88 @@ export function voucherToInput(v: Voucher): VoucherInput {
 
 const AUDIT_ENTITY_OF: Record<string, string> = { bank_date: 'voucher_line' }
 
+type UndoItem = { id: number; entity: string; entity_id: number; action: 'create' | 'update'; before_json: string | null }
+
+/** Live entries that settle a party's bill by name (or charge interest on it) — the WP 8.7 guard's
+ *  own test (`openingBillsInUse`), with each entry's id and label for the message. */
+function billUsers(db: DB, ledgerId: number, bill: string): { id: number; label: string }[] {
+  return db.prepare(
+    `SELECT DISTINCT v.id, vt.name || ' ' || v.number AS label FROM bill_refs br
+       JOIN vouchers v ON v.id = br.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
+      WHERE br.party_ledger_id = ? AND br.kind = 'against' AND br.name = ? COLLATE NOCASE AND v.deleted_at IS NULL
+     UNION
+     SELECT DISTINCT v.id, vt.name || ' ' || v.number FROM interest_charges ic
+       JOIN vouchers v ON v.id = ic.debit_note_voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
+      WHERE ic.party_ledger_id = ? AND ic.bill_key = ? AND v.deleted_at IS NULL
+     ORDER BY 2`
+  ).all(ledgerId, bill, ledgerId, `o:${bill}`) as { id: number; label: string }[]
+}
+
+/**
+ * Why the batch's openings must stay (the first pinned bill, said with the entries resting on
+ * it), or null. A bill is pinned when the undo would remove it — an opening-bills item whose
+ * earlier bills don't include it, a created party ledger (its bills go with its opening), or a
+ * restored ledger opening its current bills no longer fit — and something rests on it
+ * (`billUsers`, the WP 8.7 guard's own test) other than an entry this undo bins itself.
+ */
+function openingsPinnedBy(db: DB, items: readonly UndoItem[]): string | null {
+  const billsItem = new Map<number, OpeningBillRow[]>()
+  for (const it of items) {
+    if (it.entity === 'opening_bills' && it.before_json) billsItem.set(it.entity_id, (JSON.parse(it.before_json) as { bills?: OpeningBillRow[] }).bills ?? [])
+  }
+  const stored = openingBillsByParty(db, [...new Set(items.filter((it) => it.entity === 'opening_bills' || it.entity === 'ledger').map((it) => it.entity_id))])
+  const goes = new Map<number, string[]>()
+  for (const it of items) {
+    const current = stored.get(it.entity_id) ?? []
+    if (!current.length) continue
+    let names: string[] = []
+    if (it.entity === 'opening_bills') {
+      const keep = new Set((billsItem.get(it.entity_id) ?? []).map((b) => b.name.toLowerCase()))
+      names = current.filter((b) => !keep.has(b.name.toLowerCase())).map((b) => b.name)
+    } else if (it.entity === 'ledger' && it.action === 'create') {
+      names = current.map((b) => b.name)
+    } else if (it.entity === 'ledger' && it.before_json && !billsItem.has(it.entity_id)) {
+      const before = JSON.parse(it.before_json) as { openingBalance?: number; groupId?: number }
+      const side = before.groupId != null ? partySide(db, before.groupId) : null
+      const sum = current.reduce((t, b) => t + b.amount, 0)
+      if (side == null || side * (before.openingBalance ?? 0) !== sum) names = current.map((b) => b.name)
+    }
+    if (names.length) goes.set(it.entity_id, [...(goes.get(it.entity_id) ?? []), ...names])
+  }
+  // Entries this undo bins itself (the batch's own vouchers — a books round trip brings the
+  // receipts against its opening bills too) don't pin anything: they are gone before the openings.
+  const binnedHere = new Set(items.filter((it) => it.entity === 'voucher' && it.action === 'create').map((it) => it.entity_id))
+  for (const [ledgerId, names] of goes) {
+    for (const name of names) {
+      const by = billUsers(db, ledgerId, name).filter((u) => !binnedHere.has(u.id))
+      if (!by.length) continue
+      const party = (db.prepare('SELECT name FROM ledgers WHERE id = ?').get(ledgerId) as { name: string }).name
+      return `opening bill ${name} of ${party} has ${by.map((u) => u.label).join(', ')} against it (opening_bills_in_use), so the import's openings stay as imported and still agree; remove that link, then undo again`
+    }
+  }
+  return null
+}
+
+/** Does this batch item put an opening into the books (what a pin keeps)? */
+function carriesOpening(db: DB, it: UndoItem): boolean {
+  if (it.entity === 'opening_bills') return true
+  if (it.entity === 'ledger') {
+    const now = db.prepare('SELECT opening_balance AS ob, group_id AS g FROM ledgers WHERE id = ?').get(it.entity_id) as { ob: number; g: number } | undefined
+    if (!now) return false
+    if (it.action === 'create') return now.ob !== 0
+    const before = it.before_json ? (JSON.parse(it.before_json) as { openingBalance?: number }) : null
+    return !!before && (before.openingBalance ?? 0) !== now.ob
+  }
+  if (it.entity === 'stockItem') {
+    const now = db.prepare('SELECT opening_qty_milli AS q, opening_value AS v FROM stock_items WHERE id = ?').get(it.entity_id) as { q: number; v: number } | undefined
+    if (!now) return false
+    if (it.action === 'create') return now.q !== 0 || now.v !== 0
+    const before = it.before_json ? (JSON.parse(it.before_json) as { opening_qty_milli?: number; opening_value?: number }) : null
+    return !!before && ((before.opening_qty_milli ?? 0) !== now.q || (before.opening_value ?? 0) !== now.v)
+  }
+  return false
+}
+
 /** Undo an import batch: bin the vouchers / orders it created, delete created masters that
  *  nothing else uses (a binned voucher still references its ledgers — those stay until the bin
  *  is purged), restore the full before-image of what it updated, and clear the bank dates a
@@ -1384,9 +1466,7 @@ export function undoImport(db: DB, batchId: number): UndoResult {
   const batch = db.prepare('SELECT * FROM import_batches WHERE id = ?').get(batchId) as { id: number; status: string; last_audit_id: number | null } | undefined
   if (!batch) throw new Error('Import batch not found')
   if (batch.status === 'undone') throw new Error('This import was already undone')
-  const items = db.prepare('SELECT * FROM import_batch_items WHERE batch_id = ? AND undone_at IS NULL ORDER BY id DESC').all(batchId) as {
-    id: number; entity: string; entity_id: number; action: 'create' | 'update'; before_json: string | null
-  }[]
+  const items = db.prepare('SELECT * FROM import_batch_items WHERE batch_id = ? AND undone_at IS NULL ORDER BY id DESC').all(batchId) as UndoItem[]
   const res: UndoResult = { binned: 0, deleted: 0, restored: 0, kept: [] }
   const used = (sql: string, id: number): boolean => !!db.prepare(sql).get(id)
   const rawDelete = (table: string, entity: string, id: number, inUse: string[]): void => {
@@ -1416,10 +1496,21 @@ export function undoImport(db: DB, batchId: number): UndoResult {
   }
   // WP 8.7: opening bills are put back AFTER the ledgers' openings (they must add up to them).
   const billsBack: { id: number; ledgerId: number; bills: OpeningBillRow[] }[] = []
+  // An opening bill the undo would take away that a user's entry now rests on (a receipt /
+  // payment against it by name, or an interest charge) pins the batch's OPENINGS: every item that
+  // carries an opening (ledger / item openings, opening bills) is kept exactly as imported, so
+  // Dr = Cr and bills = opening (WP 8.7) both still hold, and the entry keeps its bill; the rest
+  // of the batch is undone. Undoing only the pinned party would leave its contra gone (openings
+  // unequal), and which contra pairs with it is unknowable. Remove the link, then undo again.
+  const pin = openingsPinnedBy(db, items.filter((it) => !editedAfter(it.entity, it.entity_id)))
   db.transaction(() => {
     for (const it of items) {
       if (editedAfter(it.entity, it.entity_id)) {
         res.kept.push({ entity: it.entity, id: it.entity_id, reason: 'edited after the import — left as it is' })
+        continue
+      }
+      if (pin && carriesOpening(db, it)) {
+        res.kept.push({ entity: it.entity, id: it.entity_id, reason: `kept with its opening — ${pin}` })
         continue
       }
       let cleared: string | null = null

@@ -11,7 +11,8 @@ import { RULE37_RULES } from '@shared/gst/sources'
 import { gstr3b } from './gst'
 import { fyMonths, itcDocsFor, readReversalSplit, writeReversalSplit } from './gstAnnual'
 import { openBills } from './analysis'
-import { getGst3bManual, setGst3bManual } from './config'
+import { getGst3bManual, sameJsonValue, setGst3bManual } from './config'
+import { gst3bManualSchema } from '@shared/schemas'
 import { createLedger, descendantIdsByName } from './masters'
 import { IN_BOOKS, saveVoucher } from './vouchers'
 import { writeAudit } from './audit'
@@ -49,6 +50,8 @@ export function getItcReversalInputs(db: DB, period: string): ItcReversalInputs 
 export function setItcReversalInputs(db: DB, period: string, input: unknown): ItcReversalInputs {
   const before = getItcReversalInputs(db, period)
   const parsed = itcReversalInputsSchema.parse(input)
+  // Nothing changed in effect → nothing written (the setGst3bManual rule).
+  if (sameJsonValue(before, parsed)) return before
   writeMeta(db, INPUTS_KEY(period), parsed)
   writeAudit(db, 'company', 0, 'update', { itcReversalInputs: { period, ...before } }, { itcReversalInputs: { period, ...parsed } })
   return parsed
@@ -255,13 +258,13 @@ export function applyItcReversalTo3b(db: DB, company: CompanyInfo, from: string,
   db.transaction(() => {
     const v = itcReversal(db, company, from, to, period)
     const manual = getGst3bManual(db, period)
-    setGst3bManual(db, period, {
+    const next = {
       ...manual,
       itcRevRul: v.summary.table4B1,
       itcRevOth: v.summary.table4B2,
       itcReclaimed: v.summary.reclaimed,
       interest: v.summary.interest
-    })
+    }
     const beforeSplit = readReversalSplit(db, period)
     const split = {
       rule37: v.summary.rule37,
@@ -269,7 +272,13 @@ export function applyItcReversalTo3b(db: DB, company: CompanyInfo, from: string,
       rule42: addHeads(v.summary.rule42, v.summary.trueUp),
       rule43: v.summary.rule43
     }
-    writeReversalSplit(db, period, split)
+    // Applying again with nothing changed (the 3B already holds these figures and the split GSTR-9
+    // reads is the same) is a no-op: no meta write, no audit row — setGst3bManual's own rule.
+    const threeBSame = sameJsonValue(gst3bManualSchema.parse(next), manual)
+    const splitSame = beforeSplit !== null && sameJsonValue(beforeSplit, split)
+    if (threeBSame && splitSame) return
+    setGst3bManual(db, period, next)
+    if (!splitSame) writeReversalSplit(db, period, split)
     // WP 3.8: the apply itself is an event of its own — the 3B adjustments log as a company
     // update; this row records the reversal split GSTR-9 reads, with the period it was applied to.
     writeAudit(db, 'itc_reversal', 0, 'update',
