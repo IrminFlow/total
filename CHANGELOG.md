@@ -458,6 +458,25 @@ Read these before filing from the next release.
   (2025 Act s.41(1)(c); the 1961 Act's s.43(6)(c) was not re-read); the block goes on while assets remain. Binning the journal puts
   the part back as its own record. Assets without a partial disposal are unchanged. Readings and
   UNVERIFIED points: `src/shared/fixedAssetSources.ts`. [#PR](https://github.com/IrminFlow/total/pull/PR)
+- **Fixed assets: GST on the sale of a capital good** (CGST Act s.18(6)). Tick "Charge GST" on a
+  disposal (regular registration on the sale date only): the proceeds are the value before GST, a
+  tax invoice goes to the buyer in the sales series (Dr buyer, Cr "Sale of Fixed Assets", Cr output
+  GST — it is in GSTR-1, GSTR-3B 3.1(a), prints and e-invoices like any ledger-line sale) and the
+  disposal journal clears "Sale of Fixed Assets" instead of the buyer. Where input tax credit was
+  taken (read from the purchase voucher's input tax in the asset's share, or entered by hand), the
+  credit is reduced both ways the rules prescribe — rule 40(2), five points per quarter or part from
+  the invoice date, and rule 44(6), the remaining months of a five-year life — and the higher of
+  the two is compared with the tax on the value. When the credit-based amount is higher, the
+  difference is extra output tax (rule 44(6) proviso): Dr "GST on Sale of Capital Goods (s.18(6))",
+  Cr output GST in the disposal journal, added to GSTR-3B 3.1(a) tax (taxable 0) and its set-off.
+  The working (credit, both reductions, tax on the value, the amount paid) is in both narrations and
+  on the review step. The s.18(6) scrap proviso (refractory bricks, moulds and dies, jigs and
+  fixtures) pays the tax on the value only. The invoice can't be edited on its own; the journal is
+  restored only with its invoice. Returns without such a sale are unchanged. UNVERIFIED: which rule
+  governs (both computed, the higher used), quarter / month counting, the comparison on the GST
+  total, the GSTR-1 table for the extra (not in the export or GSTR-9 — enter it on the portal as your
+  CA advises), the credit share — `src/shared/fixedAssetSources.ts`.
+  [#PR](https://github.com/IrminFlow/total/pull/PR)
 
 ### For developers
 

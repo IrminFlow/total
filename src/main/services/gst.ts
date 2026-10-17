@@ -1,6 +1,7 @@
 import { writeFileSync } from 'fs'
 import { join } from 'path'
 import type { DB } from '../db/connection'
+import { capitalGoodsExtraTaxDocs } from './fixedAssets'
 import type { CompanyInfo, TradePurpose } from '@shared/domain'
 import type { Gstr3bView } from '@shared/gst/views'
 import { resolvePostedRates, type PostedRateLine, type PostedRates } from '@shared/gst/postedRate'
@@ -788,7 +789,10 @@ export function gstr1(db: DB, company: CompanyInfo, from: string, to: string, pe
 }
 
 export function gstr3b(db: DB, company: CompanyInfo, from: string, to: string, period: string): Gstr3bView {
-  const docs = extractOutwardDocs(db, company, from, to)
+  const outward = extractOutwardDocs(db, company, from, to)
+  // CGST Act s.18(6) / rule 44(6) proviso: the extra output tax on a capital good sold below its
+  // credit (services/fixedAssets.ts; empty for a company without such sales).
+  const docs = [...outward, ...capitalGoodsExtraTaxDocs(db, outward, from, to)]
   const books = itcBreakdown(db, company, from, to)
   const entered = getGst3bManual(db, period)
   const shaped = circular170Inputs(books, entered, entered.itcReclaimed)

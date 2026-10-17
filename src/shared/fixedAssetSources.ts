@@ -58,6 +58,45 @@ export const FIXED_ASSET_EVENT_SOURCES: readonly FixedAssetSource[] = [
     accessed: '2026-10-17'
   },
   {
+    key: 'CGST-S18-6',
+    title: 'CGST Act, 2017 — s.18(6) (supply of capital goods on which input tax credit was taken)',
+    quote:
+      'In case of supply of capital goods or plant and machinery, on which input tax credit has been taken, the registered person ' +
+      'shall pay an amount equal to the input tax credit taken on the said capital goods or plant and machinery reduced by such ' +
+      'percentage points as may be prescribed or the tax on the transaction value of such capital goods or plant and machinery ' +
+      'determined under section 15, whichever is higher: Provided that where refractory bricks, moulds and dies, jigs and fixtures ' +
+      'are supplied as scrap, the taxable person may pay tax on the transaction value of such goods determined under section 15.',
+    url: 'https://cbic-gst.gov.in/hindi/CGST-bill-e.html',
+    readIn: 'CBIC GST site, CGST Act text page',
+    accessed: '2026-10-17'
+  },
+  {
+    key: 'CGST-R40-2',
+    title: 'CGST Rules, 2017 — rule 40(2) (percentage points for s.18(6))',
+    quote:
+      'The amount of credit in the case of supply of capital goods or plant and machinery, for the purposes of sub-section (6) of ' +
+      'section 18, shall be calculated by reducing the input tax on the said goods at the rate of five percentage points for every ' +
+      'quarter or part thereof from the date of the issue of the invoice for such goods.',
+    url: 'https://cbic-gst.gov.in/gst-acts.html',
+    readIn: 'gstzen.in reproduction of rule 40 (as substituted by Notification 22/2017-CT), https://gstzen.in/a/manner-of-claiming-credit-in-special-circumstances-cgst-rule-40.html — the CBIC text itself was not opened',
+    accessed: '2026-10-17'
+  },
+  {
+    key: 'CGST-R44-6',
+    title: 'CGST Rules, 2017 — rule 44(6) with 44(1)(b) (credit for s.18(6) on capital goods; excess is output tax)',
+    quote:
+      '(6) The amount of input tax credit for the purposes of sub-section (6) of section 18 relating to capital goods shall be ' +
+      'determined in the same manner as specified in clause (b) of sub-rule (1) and the amount shall be determined separately for ' +
+      'input tax credit of central tax, State tax, Union territory tax and integrated tax: Provided that where the amount so ' +
+      'determined is more than the tax determined on the transaction value of the capital goods, the amount determined shall form ' +
+      'part of the output tax liability and the same shall be furnished in FORM GSTR-1. — (1)(b): for capital goods held in stock, ' +
+      'the input tax credit involved in the remaining useful life in months shall be computed on pro-rata basis, taking the useful ' +
+      'life as five years.',
+    url: 'https://cbic-gst.gov.in/gst-acts.html',
+    readIn: 'gstzen.in reproduction of rule 44 (sub-rule (6) as substituted by Notification 15/2017-CT), https://gstzen.in/a/manner-of-reversal-of-credit-under-special-circumstances-cgst-rule-44.html — the CBIC text itself was not opened',
+    accessed: '2026-10-17'
+  },
+  {
     key: 'IT61-S50',
     title: 'Income-tax Act, 1961 — s.50 (capital gains on depreciable assets; block of assets)',
     quote:
@@ -112,6 +151,46 @@ export const FIXED_ASSET_UNVERIFIED: readonly { key: string; text: string }[] = 
   {
     key: 'part-undo',
     text: 'Binning a partial disposal\'s journal reinstates the part as its own record next to the remainder — the split itself is not undone (the totals are the same).'
+  },
+  {
+    key: 'cg-two-rules',
+    text:
+      'Rule 40(2) (five points per quarter) and rule 44(6) (remaining months of a five-year life) both prescribe the s.18(6) ' +
+      'credit and give different figures; practitioners disagree which governs. Total computes both and uses the HIGHER, so it ' +
+      'never pays less than either rule asks.'
+  },
+  {
+    key: 'cg-quarters',
+    text: 'Quarters "or part thereof" are counted as three-month periods from the invoice date (not calendar quarters); a sale on the invoice date is in the first quarter.'
+  },
+  {
+    key: 'cg-months',
+    text: 'Rule 44(1)(b) "remaining useful life in months": months used are counted in whole months from the invoice date (a part month is not counted as used).'
+  },
+  {
+    key: 'cg-compare',
+    text:
+      '"Whichever is higher" is compared on the GST total (CGST + SGST + IGST), cess on its own. The extra output tax is paid under ' +
+      'the sale\'s own heads (CGST + SGST within the State, the odd paisa to CGST; IGST between States), whatever heads the credit was taken in.'
+  },
+  {
+    key: 'cg-where',
+    text:
+      'Rule 44(6) puts the extra amount in the output tax liability and says to furnish it in GSTR-1 without naming a table. Total ' +
+      'posts it as output tax (Dr "GST on Sale of Capital Goods (s.18(6))", Cr Output GST) in the disposal journal and adds it to ' +
+      'GSTR-3B 3.1(a) tax (taxable value 0); the GSTR-1 export and GSTR-9 show only the invoice — enter the extra on the portal as ' +
+      'your CA advises. It is not an ITC reversal, so it is not in 3B 4(B)(1).'
+  },
+  {
+    key: 'cg-itc',
+    text:
+      'Credit taken defaults to the input-tax lines of the asset\'s purchase voucher in the share the asset\'s cost bears to the ' +
+      'voucher\'s fixed-asset lines (a part: its share). Credit on later additions / improvements is not counted — enter the credit ' +
+      'by hand when it differs.'
+  },
+  {
+    key: 'cg-hsn',
+    text: 'The invoice credits one "Sale of Fixed Assets" account (no GST rate or HSN of its own — the rate is read back from the posted tax), so GSTR-1\'s HSN summary flags it until an HSN is set on that account.'
   },
   {
     key: 's50-text',

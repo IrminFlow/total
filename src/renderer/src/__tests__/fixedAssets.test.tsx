@@ -10,7 +10,7 @@ import { FixedAssetsScreen } from '../screens/FixedAssets'
 import { YearEndScreen } from '../screens/YearEnd'
 import { blankDraft, draftFromCandidate, draftToInput } from '../screens/fixedAssets/AssetForm'
 import { FA_QUERY_FAMILIES } from '../screens/fixedAssets/common'
-import { partOf } from '../screens/fixedAssets/DisposalWizard'
+import { gstRateOf, partOf } from '../screens/fixedAssets/DisposalWizard'
 import { SCREENS, invalidationFamilies } from '../lib/screens'
 import { useSession } from '../state/stores'
 
@@ -68,11 +68,20 @@ beforeEach(() => {
       case 'fa:runs': return { ok: true, data: [] }
       case 'fa:runPost': return { ok: true, data: { id: 1, voucherNumber: '4', voucherId: 300 } }
       case 'fa:disposalPreview': {
-        const p = payload as { proceedsPaise: number; part?: { quantity: number; of: number } | null }
+        const p = payload as { proceedsPaise: number; part?: { quantity: number; of: number } | null; gst?: { ratePercent: number } | null }
         return {
           ok: true,
           data: {
-            part: p.part ?? null, remainingCost: p.part ? 4_500_000 : null,
+            part: p.part ?? null, remainingCost: p.part ? 4_500_000 : null, gstApplies: true, suggestedGstRate: 18,
+            gst: p.gst
+              ? {
+                  ratePercent: p.gst.ratePercent, supply: 'intra', taxableValue: p.proceedsPaise, itcSource: 'purchase', invoiceTotal: p.proceedsPaise * 1.18,
+                  workingText: 's.18(6) CGST Act: ITC ₹10,800.00; higher = ₹10,800.00 (extra output tax ₹2,700.00)',
+                  extraOutputTax: { igst: 0, cgst: 135_000, sgst: 135_000, cess: 0 },
+                  invoice: [{ ledgerId: 60, ledgerName: 'HDFC Bank', drCr: 'dr', amount: p.proceedsPaise * 1.18, assetId: null }],
+                  working: {}
+                }
+              : null,
             assetId: 11, date: '2026-03-31', gross: 6_000_000, accumulatedBooked: 1_900_000, catchUp: 0, catchUpFrom: null,
             carrying: 4_100_000, proceeds: p.proceedsPaise, profit: p.proceedsPaise - 4_100_000, blocked: p.proceedsPaise > 0 ? null : 'Pick the cash, bank or buyer account the proceeds go to',
             journal: [{ ledgerId: 40, ledgerName: 'Computers', drCr: 'cr', amount: 6_000_000, assetId: null }]
@@ -203,6 +212,28 @@ describe('partial disposal', () => {
     const sent = calls.filter((c) => c.channel === 'fa:disposalPreview').at(-1)!.payload as { part: unknown; proceedsPaise: number }
     expect(sent).toMatchObject({ part: { quantity: 1, of: 4 }, proceedsPaise: 800_000 })
     expect((await screen.findByTestId('fixed-assets-disposal-remaining')).textContent).toContain('45,000.00')
+  })
+})
+
+describe('GST on the sale', () => {
+  it('reads the rate as a percentage', () => {
+    expect(gstRateOf('18')).toBe(18)
+    expect(gstRateOf('0.25')).toBe(0.25)
+    expect(gstRateOf('')).toBeNull()
+    expect(gstRateOf('101')).toBeNull()
+    expect(gstRateOf('1.234')).toBeNull()
+  })
+
+  it('charging GST starts from the purchase rate, sends it and shows the s.18(6) working', async () => {
+    renderUi(<FixedAssetsScreen />)
+    fireEvent.click(await screen.findByTestId('btn-fixed-assets-dispose-11'))
+    fireEvent.change(await screen.findByTestId('input-fixed-assets-proceeds'), { target: { value: '45000' } })
+    const box = await screen.findByTestId('input-fixed-assets-charge-gst')
+    fireEvent.click(box.querySelector('input') ?? box)
+    await waitFor(() => expect((screen.getByTestId('input-fixed-assets-gst-rate') as HTMLInputElement).value).toBe('18'))
+    await waitFor(() => expect(calls.some((c) => c.channel === 'fa:disposalPreview' && (c.payload as { gst: unknown }).gst != null)).toBe(true))
+    expect((calls.filter((c) => c.channel === 'fa:disposalPreview').at(-1)!.payload as { gst: unknown }).gst).toEqual({ ratePercent: 18, scrapProviso: false, itc: null })
+    expect((await screen.findByTestId('fixed-assets-disposal-gst-working')).textContent).toContain('s.18(6)')
   })
 })
 

@@ -16,20 +16,28 @@
 import type { DB } from '../db/connection'
 import { fyFromStartYear, fyOf } from '@shared/dates'
 import {
-  addDays, companiesActPeriod, disposalLines, splitShare, itBlockYear, lifeEndDate, scheduleTotals,
+  addDays, companiesActPeriod, disposalLines, mulDivRound, splitShare, itBlockYear, lifeEndDate, scheduleTotals,
   type CaAssetInput, type CostLayer, type DepMethod
 } from '@shared/depreciation'
 import {
   assetAdditionInputSchema, assetGroupInputSchema, caClassInputSchema, disposalInputSchema, fixedAssetInputSchema,
   itBlockInputSchema, itBlockOpeningInputSchema, itBlockRateInputSchema,
   type AssetAdditionInput, type AssetAdditionRow, type AssetGroupInput, type AssetGroupRow, type AssetSchedule,
-  type CaClassInput, type CaClassRow, type DepreciationPreview, type DisposalPart, type DepreciationPreviewRow, type DepreciationRunRow,
+  type CaClassInput, type CaClassRow, type DepreciationPreview, type DisposalGstPreview, type DisposalPart, type DepreciationPreviewRow, type DepreciationRunRow,
   type DepreciationYearStatus, type DisposalInput, type DisposalKind, type DisposalPreview, type FixedAssetInput,
   type FixedAssetRow, type ItBlockInput, type ItBlockOpeningInput, type ItBlockRateInput, type ItBlockRateRow,
   type ItBlockRow, type ItStatement, type ItStatementBlockRow, type JournalPreviewLine, type PurchaseCandidate,
   type ScheduleAssetRow, type ScheduleGroupRow, type ScheduleReconRow
 } from '@shared/fixedAssets'
-import { descendantIdsByName, findOrCreateLedger } from './masters'
+import { createLedger, descendantIdsByName, findOrCreateLedger } from './masters'
+import { readCompanyInfo } from '../db/seed'
+import { chargesGstOn, gstRegistrationOf } from '@shared/gst/registration'
+import { computeGst, supplyTypeFor } from '@shared/gst/calc'
+import { pickTaxLedger } from '@shared/voucherEdit'
+import type { GstDoc } from '@shared/gst/returns'
+import {
+  capitalGoodsSale, capitalGoodsWorkingText, headsTotal, ZERO_TAX_HEADS, type TaxHeads
+} from '@shared/capitalGoodsGst'
 import { getLockDate, saveVoucher, NOT_DELETED } from './vouchers'
 import { closingBalances } from './reports'
 import { writeAudit } from './audit'
@@ -81,6 +89,12 @@ function assertExpenseLedger(db: DB, ledgerId: number): void {
 function journalTypeId(db: DB): number {
   const row = db.prepare("SELECT id FROM voucher_types WHERE kind = 'journal' AND is_system = 1").get() as { id: number } | undefined
   if (!row) throw new Error('Journal voucher type not found')
+  return row.id
+}
+
+function salesTypeId(db: DB): number {
+  const row = db.prepare("SELECT id FROM voucher_types WHERE kind = 'sales' ORDER BY is_system DESC, id LIMIT 1").get() as { id: number } | undefined
+  if (!row) throw new Error('Sales voucher type not found')
   return row.id
 }
 
@@ -931,16 +945,36 @@ function computeDisposal(db: DB, input: ReturnType<typeof disposalInputSchema.pa
   const profitId = ledgerIdByName(db, PROFIT_ON_SALE_LEDGER)
   const lossId = ledgerIdByName(db, LOSS_ON_SALE_LEDGER)
   // Placeholder ids (negative) for ledgers that will be created at posting; names map them back.
-  const ids = { asset: a.row.ledger_id, acc: L.accId ?? -1, dep: L.depId ?? -2, cons: input.considerationLedgerId ?? -3, profit: profitId ?? -4, loss: lossId ?? -5 }
+  // GST on the sale (s.18(6)): the proceeds are the transaction value; the tax invoice credits the
+  // "Sale of Fixed Assets" clearing account, which this journal debits instead of the buyer.
+  const gst = input.gst ? gstOnSale(db, a, input, blocked) : null
+  if (!blocked && gst?.blocked) blocked = gst.blocked
+  const saleId = ledgerIdByName(db, SALE_OF_ASSETS_LEDGER)
+  const s186Id = ledgerIdByName(db, S186_LEDGER)
+  // Placeholder ids (negative) for ledgers that will be created at posting; names map them back.
+  const ids = {
+    asset: a.row.ledger_id, acc: L.accId ?? -1, dep: L.depId ?? -2, cons: gst ? saleId ?? -6 : input.considerationLedgerId ?? -3,
+    profit: profitId ?? -4, loss: lossId ?? -5, s186: s186Id ?? -7
+  }
   const names = new Map<number, string>([
     [ids.asset, ledgerName(db, a.row.ledger_id) ?? ''], [ids.acc, L.accName], [ids.dep, L.depName],
-    [ids.cons, ledgerName(db, input.considerationLedgerId) ?? ''], [ids.profit, PROFIT_ON_SALE_LEDGER], [ids.loss, LOSS_ON_SALE_LEDGER]
+    [ids.cons, gst ? SALE_OF_ASSETS_LEDGER : ledgerName(db, input.considerationLedgerId) ?? ''], [ids.profit, PROFIT_ON_SALE_LEDGER],
+    [ids.loss, LOSS_ON_SALE_LEDGER], [ids.s186, S186_LEDGER]
   ])
   const { lines, figures } = disposalLines({
     gross, accumulatedBooked, catchUp, proceeds: input.proceedsPaise,
     assetLedgerId: ids.asset, accDepLedgerId: ids.acc, depExpenseLedgerId: ids.dep,
     considerationLedgerId: input.proceedsPaise > 0 ? ids.cons : null, profitLedgerId: ids.profit, lossLedgerId: ids.loss
   })
+  const journal: JournalPreviewLine[] = lines.map((l) => ({ ledgerId: l.ledgerId > 0 ? l.ledgerId : null, ledgerName: names.get(l.ledgerId) ?? '', drCr: l.drCr, amount: l.amount, assetId: null }))
+  // The extra output tax (rule 44(6) proviso): its own expense, paid as output GST.
+  if (gst) {
+    const extra = headsTotal(gst.preview.extraOutputTax)
+    if (extra > 0) {
+      journal.push({ ledgerId: s186Id, ledgerName: S186_LEDGER, drCr: 'dr', amount: extra, assetId: null })
+      journal.push(...outputTaxLines(db, gst.preview.extraOutputTax))
+    }
+  }
   return {
     a,
     catchUpPeriod,
@@ -948,9 +982,172 @@ function computeDisposal(db: DB, input: ReturnType<typeof disposalInputSchema.pa
     preview: {
       assetId: a.row.id, date, gross, accumulatedBooked, catchUp, catchUpFrom, carrying: figures.carrying,
       proceeds: input.proceedsPaise, profit: figures.profit, blocked, part: null, remainingCost: null,
-      journal: lines.map((l) => ({ ledgerId: l.ledgerId > 0 ? l.ledgerId : null, ledgerName: names.get(l.ledgerId) ?? '', drCr: l.drCr, amount: l.amount, assetId: null }))
+      journal, gst: gst?.preview ?? null, gstApplies: chargesGstOn(gstRegistrationOf(readCompanyInfo(db)), date),
+      suggestedGstRate: purchaseItc(db, a).ratePercent
     }
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// GST on the sale of a capital good — CGST Act s.18(6), rules 40(2) / 44(6)
+// (src/shared/capitalGoodsGst.ts; texts FIXED_ASSET_EVENT_SOURCES CGST-*)
+// ---------------------------------------------------------------------------------------------
+
+export const SALE_OF_ASSETS_LEDGER = 'Sale of Fixed Assets'
+export const S186_LEDGER = 'GST on Sale of Capital Goods (s.18(6))'
+/** meta key: { [disposal journal id]: tax invoice id } — the invoice a GST disposal posted. */
+const SALE_INVOICES_META = 'fixedAssets.saleInvoices'
+const TAX_KEYS = ['cgst', 'sgst', 'igst', 'cess'] as const
+
+function taxLedgers(db: DB): { id: number; name: string; taxType: string }[] {
+  return db.prepare('SELECT id, name, tax_type AS taxType FROM ledgers WHERE tax_type IS NOT NULL ORDER BY id').all() as { id: number; name: string; taxType: string }[]
+}
+
+/** Cr output-tax lines for `heads` (the ledger the sales editor would pick; a missing one is named
+ *  as the editor creates it — CGST / SGST / IGST / CESS under Duties & Taxes). */
+function outputTaxLines(db: DB, heads: TaxHeads): JournalPreviewLine[] {
+  const all = taxLedgers(db)
+  return TAX_KEYS.filter((k) => heads[k] > 0).map((k) => {
+    const id = pickTaxLedger(all, k, 'output')
+    return { ledgerId: id, ledgerName: id != null ? ledgerName(db, id) ?? k.toUpperCase() : k.toUpperCase(), drCr: 'cr' as const, amount: heads[k], assetId: null }
+  })
+}
+
+function ensureOutputTaxLedgers(db: DB, heads: TaxHeads): void {
+  const groupId = (db.prepare("SELECT id FROM groups WHERE name = 'Duties & Taxes'").get() as { id: number } | undefined)?.id
+  if (groupId == null) throw new Error('Duties & Taxes group missing')
+  for (const k of TAX_KEYS) {
+    if (heads[k] <= 0 || pickTaxLedger(taxLedgers(db), k, 'output') != null) continue
+    createLedger(db, {
+      name: k.toUpperCase(), groupId, taxType: k, openingBalance: 0, gstin: null, stateCode: null, address: null, gstRate: null,
+      hsn: null, tdsSectionId: null, pan: null, creditDays: null, exportType: null
+    })
+  }
+}
+
+/** Credit taken on the asset, from its purchase voucher's input-tax lines in the share the asset's
+ *  cost bears to the voucher's fixed-asset lines (FIXED_ASSET_UNVERIFIED 'cg-itc'), the invoice
+ *  date, and the rate that tax implies (a hint). */
+function purchaseItc(db: DB, a: AssetRec): { heads: TaxHeads; invoiceDate: string; ratePercent: number | null } {
+  const none = { heads: { ...ZERO_TAX_HEADS }, invoiceDate: a.row.purchase_date, ratePercent: null }
+  const pv = a.row.purchase_voucher_id
+  if (pv == null || a.purchaseVoucherBinned) return none
+  const v = db.prepare('SELECT date FROM vouchers WHERE id = ?').get(pv) as { date: string } | undefined
+  if (!v) return none
+  const rows = db.prepare(
+    `SELECT vl.amount, vl.dr_cr AS drCr, l.tax_type AS taxType, l.group_id AS groupId
+       FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id WHERE vl.voucher_id = ?`
+  ).all(pv) as { amount: number; drCr: 'dr' | 'cr'; taxType: string | null; groupId: number }[]
+  const faGroups = fixedAssetGroupIds(db)
+  const value = rows.filter((r) => r.drCr === 'dr' && r.taxType == null && faGroups.has(r.groupId)).reduce((s, r) => s + r.amount, 0)
+  const tax = { ...ZERO_TAX_HEADS }
+  for (const r of rows) {
+    if (!r.taxType) continue
+    const k = r.taxType as keyof TaxHeads
+    tax[k] += r.drCr === 'dr' ? r.amount : -r.amount
+  }
+  if (value <= 0) return { ...none, invoiceDate: v.date }
+  const share = (n: number): number => Math.max(0, mulDivRound(n, a.row.cost_paise, value))
+  const heads: TaxHeads = { igst: share(tax.igst), cgst: share(tax.cgst), sgst: share(tax.sgst), cess: share(tax.cess) }
+  const gstTax = tax.igst + tax.cgst + tax.sgst
+  const ratePercent = gstTax > 0 ? mulDivRound(gstTax, 10_000, value) / 100 : null
+  return { heads, invoiceDate: v.date, ratePercent }
+}
+
+function gstOnSale(
+  db: DB, a: AssetRec, input: ReturnType<typeof disposalInputSchema.parse>, earlier: string | null
+): { preview: DisposalGstPreview; blocked: string | null } {
+  const g = input.gst!
+  const company = readCompanyInfo(db)
+  let blocked: string | null = null
+  if (!chargesGstOn(gstRegistrationOf(company), input.date)) blocked = 'GST is not charged on this date (the registration is not regular) — sell without GST'
+  if (!blocked && input.considerationLedgerId == null) blocked = 'Pick the buyer (or cash / bank) the tax invoice is made out to'
+  const buyerState = input.considerationLedgerId != null
+    ? (db.prepare('SELECT state_code AS s FROM ledgers WHERE id = ?').get(input.considerationLedgerId) as { s: string | null } | undefined)?.s ?? null
+    : null
+  const supply = supplyTypeFor(company.stateCode, buyerState ?? company.stateCode)
+  const t = computeGst(input.proceedsPaise, g.ratePercent, supply, g.cessPercent)
+  const taxOnValue: TaxHeads = { igst: t.igst, cgst: t.cgst, sgst: t.sgst, cess: t.cess }
+  const fromPurchase = purchaseItc(db, a)
+  const itc: TaxHeads = g.itc ? { igst: g.itc.igst, cgst: g.itc.cgst, sgst: g.itc.sgst, cess: g.itc.cess } : fromPurchase.heads
+  const itcSource: DisposalGstPreview['itcSource'] = g.itc ? 'entered' : headsTotal(fromPurchase.heads) > 0 ? 'purchase' : 'none'
+  const invoiceDate = g.itcInvoiceDate ?? fromPurchase.invoiceDate
+  const supplyDate = input.date < invoiceDate ? invoiceDate : input.date
+  if (!blocked && !earlier && input.date < invoiceDate) blocked = 'The sale is dated before the purchase invoice the credit was taken on'
+  const working = capitalGoodsSale({ itc, invoiceDate, supplyDate, taxOnValue, supply, scrapProviso: g.scrapProviso })
+  const buyerName = ledgerName(db, input.considerationLedgerId) ?? ''
+  const saleId = ledgerIdByName(db, SALE_OF_ASSETS_LEDGER)
+  const invoiceTotal = input.proceedsPaise + headsTotal(taxOnValue)
+  const invoice: JournalPreviewLine[] = [
+    { ledgerId: input.considerationLedgerId, ledgerName: buyerName, drCr: 'dr' as const, amount: invoiceTotal, assetId: null },
+    ...(input.proceedsPaise > 0 ? [{ ledgerId: saleId, ledgerName: SALE_OF_ASSETS_LEDGER, drCr: 'cr' as const, amount: input.proceedsPaise, assetId: null }] : []),
+    ...outputTaxLines(db, taxOnValue)
+  ].filter((l) => l.amount > 0)
+  return {
+    blocked,
+    preview: {
+      ratePercent: g.ratePercent, supply, taxableValue: input.proceedsPaise, working, workingText: capitalGoodsWorkingText(working),
+      itcSource, invoice, invoiceTotal, extraOutputTax: working.excess
+    }
+  }
+}
+
+function saleInvoices(db: DB): Record<string, number> {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(SALE_INVOICES_META) as { value: string } | undefined
+  if (!row) return {}
+  try {
+    const v = JSON.parse(row.value) as Record<string, number>
+    return v && typeof v === 'object' ? v : {}
+  } catch {
+    return {}
+  }
+}
+
+function linkSaleInvoice(db: DB, journalId: number, invoiceId: number): void {
+  const map = { ...saleInvoices(db), [String(journalId)]: invoiceId }
+  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(SALE_INVOICES_META, JSON.stringify(map))
+}
+
+/** The tax invoice a GST disposal journal posted (null for a disposal without GST). */
+export function saleInvoiceOf(db: DB, journalId: number): number | null {
+  return saleInvoices(db)[String(journalId)] ?? null
+}
+
+/**
+ * GSTR-3B 3.1(a): the extra output tax of s.18(6) sales in the period (rule 44(6) proviso — "part
+ * of the output tax liability"), as documents with taxable value 0 shaped like their tax invoice
+ * (same class / place of supply), so buildGstr3b adds the tax and its set-off like any supply.
+ * Read from the live disposal journals' Cr output-tax lines; GSTR-1 is not changed
+ * (FIXED_ASSET_UNVERIFIED 'cg-where'). Empty for a company without such sales.
+ */
+export function capitalGoodsExtraTaxDocs(db: DB, docs: readonly GstDoc[], from: string, to: string): GstDoc[] {
+  const links = saleInvoices(db)
+  const journalIds = Object.keys(links).map(Number)
+  if (journalIds.length === 0) return []
+  const out: GstDoc[] = []
+  const lineStmt = db.prepare(
+    `SELECT l.tax_type AS taxType, SUM(vl.amount) AS amount FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+      WHERE vl.voucher_id = ? AND vl.dr_cr = 'cr' AND l.tax_type IS NOT NULL GROUP BY l.tax_type`
+  )
+  for (const jid of journalIds) {
+    const v = db.prepare(`SELECT v.id, v.date FROM vouchers v WHERE v.id = ? AND ${NOT_DELETED} AND v.date BETWEEN ? AND ?`).get(jid, from, to) as { id: number; date: string } | undefined
+    if (!v) continue
+    const base = docs.find((d) => d.voucherId === links[String(jid)])
+    if (!base) continue
+    const heads = { ...ZERO_TAX_HEADS }
+    for (const r of lineStmt.all(jid) as { taxType: keyof TaxHeads; amount: number }[]) heads[r.taxType] += r.amount
+    if (headsTotal(heads) === 0) continue
+    out.push({
+      ...base,
+      voucherId: jid,
+      invoiceValue: 0,
+      items: [{ rate: base.items[0]?.rate ?? 0, taxable: 0, cgst: heads.cgst, sgst: heads.sgst, igst: heads.igst, cess: heads.cess }],
+      nilLines: [],
+      hsnLines: [],
+      validation: { valDiff: 0, missingHsnCount: 0, missingGstin: false }
+    })
+  }
+  return out
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1067,10 +1264,12 @@ export function previewDisposal(db: DB, raw: DisposalInput): DisposalPreview {
 
 export function disposeAsset(db: DB, raw: DisposalInput): {
   asset: FixedAssetRow; voucherId: number; preview: DisposalPreview; remaining: FixedAssetRow | null
+  /** The tax invoice of a GST sale (null without GST). */
+  invoiceVoucherId: number | null
 } {
   const parsed = disposalInputSchema.parse(raw)
   let input = parsed
-  const tx = db.transaction((): { voucherId: number; preview: DisposalPreview } => {
+  const tx = db.transaction((): { voucherId: number; preview: DisposalPreview; invoiceVoucherId: number | null } => {
     if (parsed.part) {
       const whole = getAssetRec(db, parsed.assetId)
       const check = computeDisposal(db, { ...parsed, part: null })
@@ -1084,6 +1283,14 @@ export function disposeAsset(db: DB, raw: DisposalInput): {
     if (first.preview.accumulatedBooked > 0 || first.preview.catchUp > 0) ensureLedgers(db, first.a)
     if (first.preview.profit > 0) findOrCreateLedger(db, PROFIT_ON_SALE_LEDGER, 'Indirect Incomes')
     if (first.preview.profit < 0) findOrCreateLedger(db, LOSS_ON_SALE_LEDGER, 'Indirect Expenses')
+    if (first.preview.gst) {
+      const g = first.preview.gst
+      if (g.taxableValue > 0) findOrCreateLedger(db, SALE_OF_ASSETS_LEDGER, 'Indirect Incomes')
+      if (headsTotal(g.extraOutputTax) > 0) findOrCreateLedger(db, S186_LEDGER, 'Indirect Expenses')
+      const need = { ...ZERO_TAX_HEADS }
+      for (const k of TAX_KEYS) need[k] = g.working.taxOnValue[k] + g.extraOutputTax[k]
+      ensureOutputTaxLedgers(db, need)
+    }
     const { preview, a, catchUpPeriod, catchUpRow } = computeDisposal(db, input)
     const lines = preview.journal.map((l) => {
       if (l.ledgerId == null) throw new Error(`Ledger ${l.ledgerName} could not be resolved`)
@@ -1092,12 +1299,35 @@ export function disposeAsset(db: DB, raw: DisposalInput): {
     const verb = input.kind === 'sale' ? 'Sale' : 'Scrap'
     const what = parsed.part ? `part (${partLabel(parsed.part)}) of fixed asset` : 'fixed asset'
     const assetName = parsed.part ? getAssetRec(db, parsed.assetId).row.name : a.row.name
+    const describe = `${verb} of ${what} ${assetName}${a.row.identifier ? ` (${a.row.identifier})` : ''}`
+    // GST: the tax invoice first (the sales series, the buyer as party) — GSTR-1 / 3B / e-invoice
+    // read it like any ledger-line sale; the working goes in both narrations.
+    let invoice: { id: number; number: string } | null = null
+    if (preview.gst) {
+      const g = preview.gst
+      const invLines = g.invoice.map((l) => {
+        if (l.ledgerId == null) throw new Error(`Ledger ${l.ledgerName} could not be resolved`)
+        return { ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount, costAllocations: [] as [] }
+      })
+      const saved = saveVoucher(db, {
+        voucherTypeId: salesTypeId(db),
+        date: input.date,
+        partyLedgerId: input.considerationLedgerId,
+        narration: `${describe} — GST ${g.ratePercent}% on ₹${(g.taxableValue / 100).toFixed(2)}. ${g.workingText}`.slice(0, 1000),
+        reference: null,
+        lines: invLines,
+        inventory: [],
+        billRefs: [],
+        tds: null
+      })
+      invoice = { id: saved.id, number: saved.number }
+    }
     const voucher = saveVoucher(db, {
       voucherTypeId: journalTypeId(db),
       date: input.date,
       partyLedgerId: null,
-      narration: input.narration ?? `${verb} of ${what} ${assetName}${a.row.identifier ? ` (${a.row.identifier})` : ''}`,
-      reference: null,
+      narration: (input.narration ?? (preview.gst ? `${describe} — tax invoice ${invoice!.number}. ${preview.gst.workingText}` : describe)).slice(0, 1000),
+      reference: invoice ? `Invoice ${invoice.number}`.slice(0, 120) : null,
       lines,
       inventory: [],
       billRefs: [],
@@ -1113,18 +1343,21 @@ export function disposeAsset(db: DB, raw: DisposalInput): {
     db.prepare(
       "UPDATE fixed_assets SET disposal_date = ?, disposal_voucher_id = ?, disposal_kind = ?, disposal_proceeds_paise = ?, status = 'disposed' WHERE id = ?"
     ).run(input.date, voucher.id, input.kind, input.proceedsPaise, a.row.id)
-    const out = { voucherId: voucher.id, preview }
+    if (invoice) linkSaleInvoice(db, voucher.id, invoice.id)
+    const out = { voucherId: voucher.id, preview, invoiceVoucherId: invoice?.id ?? null }
     // Audited inside the transaction: the disposal is recorded with the books it changed.
-    writeAudit(db, 'fixed_asset', input.assetId, 'update', null, { disposal: { ...input, part: parsed.part, voucherId: voucher.id } })
+    writeAudit(db, 'fixed_asset', input.assetId, 'update', null, {
+      disposal: { ...input, part: parsed.part, voucherId: voucher.id, invoiceVoucherId: invoice?.id ?? null, gstWorking: preview.gst?.working ?? null }
+    })
     return out
   })
-  const { voucherId, preview } = tx()
+  const { voucherId, preview, invoiceVoucherId } = tx()
   const asset = getAsset(db, input.assetId, '9999-12-31')
   const remaining = parsed.part ? getAsset(db, parsed.assetId, '9999-12-31') : null
   const shaped: DisposalPreview = parsed.part
     ? { ...preview, assetId: parsed.assetId, part: parsed.part, remainingCost: remaining ? remaining.costPaise + remaining.additions.filter((x) => x.date < parsed.date).reduce((s, x) => s + x.amountPaise, 0) : null }
     : preview
-  return { asset, voucherId, preview: shaped, remaining }
+  return { asset, voucherId, preview: shaped, remaining, invoiceVoucherId }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1141,6 +1374,10 @@ export function assertNotFixedAssetVoucher(db: DB, voucherId: number): void {
     'SELECT 1 FROM depreciation_runs WHERE voucher_id = ? UNION SELECT 1 FROM fixed_assets WHERE disposal_voucher_id = ? LIMIT 1'
   ).get(voucherId, voucherId)
   if (owned) throw new Error(FIXED_ASSET_VOUCHER_EDIT)
+  // The tax invoice of a GST disposal: its value is cleared by the disposal journal.
+  if (Object.values(saleInvoices(db)).includes(voucherId)) {
+    throw new Error('This tax invoice was posted by a fixed-asset disposal — bin the disposal journal and this invoice, and dispose of the asset again')
+  }
 }
 
 /** Restoring a binned depreciation journal must not double-charge a period that has since been
@@ -1154,6 +1391,11 @@ export function assertFixedAssetVoucherRestorable(db: DB, voucherId: number): vo
         WHERE ${NOT_DELETED} AND r.asset_id IS NULL AND r.voucher_id <> ? AND r.period_from <= ? AND r.period_to >= ? LIMIT 1`
     ).get(voucherId, run.to, run.from) as { from: string; to: string } | undefined
     if (clash) throw new Error(`Depreciation for ${fmtDate(clash.from)} to ${fmtDate(clash.to)} has been posted again since — bin that run to restore this one`)
+  }
+  // A GST disposal's journal comes back only with its tax invoice in the books.
+  const invoiceId = saleInvoiceOf(db, voucherId)
+  if (invoiceId != null && !db.prepare(`SELECT 1 FROM vouchers v WHERE v.id = ? AND ${NOT_DELETED}`).get(invoiceId)) {
+    throw new Error('Restore the sale\'s tax invoice first — the disposal journal clears its value')
   }
   const disposalOf = db.prepare('SELECT id FROM depreciation_runs WHERE voucher_id = ? AND asset_id IS NOT NULL').get(voucherId)
   const asset = db.prepare('SELECT id, disposal_voucher_id FROM fixed_assets WHERE disposal_voucher_id = ?').get(voucherId)

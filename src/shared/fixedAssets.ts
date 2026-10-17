@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { isoDate } from './schemas'
 import type { DepMethod } from './depreciation'
 import type { ItBlockResult } from './depreciation'
+import type { CapitalGoodsSaleWorking, TaxHeads } from './capitalGoodsGst'
 
 const id = z.number().int().positive()
 const paise = z.number().int().safe()
@@ -119,6 +120,23 @@ export const disposalPartSchema = z
   .refine((p) => p.quantity < p.of, { message: 'A part must be less than the whole — dispose of the whole asset instead', path: ['quantity'] })
 export type DisposalPart = z.infer<typeof disposalPartSchema>
 
+const headsSchema = z.object({ igst: paise.min(0), cgst: paise.min(0), sgst: paise.min(0), cess: paise.min(0).default(0) })
+
+/** GST on the sale (CGST Act s.18(6) — src/shared/capitalGoodsGst.ts). A tax invoice for the
+ *  transaction value is posted next to the disposal journal. */
+export const disposalGstSchema = z.object({
+  /** The goods' GST rate (percent, e.g. 18). */
+  ratePercent: z.number().min(0).max(100),
+  cessPercent: z.number().min(0).max(400).default(0),
+  /** Credit taken on the goods; null = read from the purchase voucher (FIXED_ASSET_UNVERIFIED 'cg-itc'). */
+  itc: headsSchema.nullable().default(null),
+  /** Date of the purchase invoice the credit was taken on; null = the purchase voucher's / purchase date. */
+  itcInvoiceDate: isoDate.nullable().default(null),
+  /** s.18(6) proviso: refractory bricks, moulds and dies, jigs and fixtures supplied as scrap. */
+  scrapProviso: z.boolean().default(false)
+})
+export type DisposalGstInput = z.input<typeof disposalGstSchema>
+
 export const disposalInputSchema = z.object({
   assetId: id,
   date: isoDate,
@@ -132,7 +150,9 @@ export const disposalInputSchema = z.object({
   /** Partial disposal: `quantity` of `of` (units sold of units held, or the part's cost of the
    *  whole cost). The part is split off as its own record with that share of every figure, and the
    *  part is disposed of; the rest stays on the register (FIXED_ASSET_UNVERIFIED 'part-split'). */
-  part: disposalPartSchema.nullable().default(null)
+  part: disposalPartSchema.nullable().default(null),
+  /** Charge GST: the proceeds are the transaction value (before GST). Null = no GST. */
+  gst: disposalGstSchema.nullable().default(null)
 })
 export type DisposalInput = z.input<typeof disposalInputSchema>
 
@@ -331,6 +351,27 @@ export interface DisposalPreview {
   /** Partial disposal: the share disposed of and the cost (incl. additions) left on the asset. */
   part: DisposalPart | null
   remainingCost: number | null
+  /** GST on the sale: the s.18(6) working, the tax invoice's lines, where the credit came from. */
+  gst: DisposalGstPreview | null
+  /** The company charges GST on the disposal date (a regular registration) — GST can be asked. */
+  gstApplies: boolean
+  /** The rate the purchase voucher's posted input tax implies on its fixed-asset lines (a hint
+   *  for the form; null when it posted none). */
+  suggestedGstRate: number | null
+}
+
+export interface DisposalGstPreview {
+  ratePercent: number
+  supply: 'intra' | 'inter'
+  taxableValue: number
+  working: CapitalGoodsSaleWorking
+  /** The working in words (it is also the vouchers' narration). */
+  workingText: string
+  itcSource: 'entered' | 'purchase' | 'none'
+  /** The tax invoice (Dr buyer, Cr Sale of Fixed Assets, Cr output GST). */
+  invoice: JournalPreviewLine[]
+  invoiceTotal: number
+  extraOutputTax: TaxHeads
 }
 
 export interface ScheduleGroupRow extends ScheduleTotalsLike {

@@ -1,11 +1,13 @@
 // Fixed-asset events beyond WP 3.6's whole-asset disposal: a partial disposal (a quantity / share
-// split off and disposed of). Figures are hand-worked in the comments (integer paise); statutory
+// split off and disposed of); GST on the sale of a capital good (CGST Act s.18(6)). Figures are hand-worked in the comments (integer paise); statutory
 // text in src/shared/fixedAssetSources.ts.
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { DB } from '../db/connection'
 import { seededDb } from '../db/testdb'
 import { createLedger } from './masters'
-import { deleteVoucher, getVoucher, saveVoucher, setLockDate } from './vouchers'
+import { deleteVoucher, getVoucher, restoreVoucher, saveVoucher, setLockDate } from './vouchers'
+import { extractOutwardDocs, gstr3b } from './gst'
+import { readCompanyInfo, writeCompanyInfo } from '../db/seed'
 import { closingBalances } from './reports'
 import * as fa from './fixedAssets'
 import type { FixedAssetInput } from '@shared/fixedAssets'
@@ -20,7 +22,7 @@ const R = (rupees: number): number => Math.round(rupees * 100)
 function groupId(db: DB, name: string): number {
   return (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
 }
-function ledger(db: DB, name: string, group: string, over: Partial<typeof LEDGER_DEFAULTS> = {}): number {
+function ledger(db: DB, name: string, group: string, over: { stateCode?: string; taxType?: 'cgst' | 'sgst' | 'igst' | 'cess' } = {}): number {
   return createLedger(db, { ...LEDGER_DEFAULTS, ...over, name, groupId: groupId(db, group) }).id
 }
 function vtype(db: DB, kind: string): number {
@@ -149,5 +151,123 @@ describe('partial disposal', () => {
     expect(count()).toBe(1)
     // The part must be less than the whole (Zod).
     expect(() => fa.previewDisposal(db, { assetId: asset.id, date: '2026-04-01', kind: 'scrap', proceedsPaise: 0, part: { quantity: 3, of: 3 } })).toThrow(/less than the whole/)
+  })
+})
+
+describe('GST on the sale of a capital good (s.18(6))', () => {
+  let plant: number
+  let buyer: number
+  let machineBill: number
+  let machine: number
+  beforeEach(() => {
+    plant = ledger(db, 'Plant and Machinery', 'Fixed Assets')
+    const inCgst = ledger(db, 'Input CGST', 'Duties & Taxes', { taxType: 'cgst' })
+    const inSgst = ledger(db, 'Input SGST', 'Duties & Taxes', { taxType: 'sgst' })
+    ledger(db, 'Output CGST', 'Duties & Taxes', { taxType: 'cgst' })
+    ledger(db, 'Output SGST', 'Duties & Taxes', { taxType: 'sgst' })
+    const supplier = ledger(db, 'Machine Works', 'Sundry Creditors', { stateCode: '27' })
+    buyer = ledger(db, 'Shree Traders', 'Sundry Debtors', { stateCode: '27' })
+    // ₹1,00,000 machine + CGST 9,000 + SGST 9,000 (credit taken), invoiced 1 Apr 2025.
+    machineBill = post(db, 'purchase', '2025-04-01', [
+      { ledgerId: plant, drCr: 'dr', amount: R(100000) },
+      { ledgerId: inCgst, drCr: 'dr', amount: R(9000) },
+      { ledgerId: inSgst, drCr: 'dr', amount: R(9000) },
+      { ledgerId: supplier, drCr: 'cr', amount: R(118000) }
+    ], supplier)
+    machine = fa.saveAsset(db, laptops({
+      name: 'CNC lathe', assetGroupId: faGroup(db, 'Plant and machinery'), ledgerId: plant, purchaseVoucherId: machineBill,
+      costPaise: R(100000), lifeMonths: 180, itBlockId: null
+    })).id
+    // FY 2025-26: (1,00,000 − 5,000) ÷ 15 = 6,333.33 (633,333 paise).
+    expect(fa.postRun(db, '2025-04-01', '2026-03-31').total).toBe(633333)
+  })
+
+  const sale = (over: Record<string, unknown> = {}) => ({
+    assetId: machine, date: '2026-09-15', kind: 'sale' as const, proceedsPaise: R(50000), considerationLedgerId: buyer,
+    chargeCatchUp: true, gst: { ratePercent: 18 }, ...over
+  })
+
+  it('posts the tax invoice at the value, the extra output tax in the disposal journal, and 3B 3.1(a) carries both', () => {
+    const p = fa.previewDisposal(db, sale())
+    expect(p.blocked).toBeNull()
+    expect(p).toMatchObject({ gstApplies: true, suggestedGstRate: 18 })
+    // Working (as capitalGoodsGst.test): ITC 18,000; rule 40(2) 6 quarters ⇒ 12,600; rule 44(6)
+    // 43/60 ⇒ 12,900; tax on ₹50,000 @ 18% = 9,000 ⇒ s.18(6) amount 12,900, extra 3,900.
+    expect(p.gst).toMatchObject({
+      supply: 'intra', taxableValue: R(50000), itcSource: 'purchase', invoiceTotal: R(59000),
+      extraOutputTax: { igst: 0, cgst: R(1950), sgst: R(1950), cess: 0 }
+    })
+    expect(p.gst!.working.payable).toEqual({ igst: 0, cgst: R(6450), sgst: R(6450), cess: 0 })
+
+    const { voucherId, invoiceVoucherId } = fa.disposeAsset(db, sale())
+    const inv = getVoucher(db, invoiceVoucherId!)!
+    expect(inv.partyLedgerId).toBe(buyer)
+    expect(inv.narration).toContain('rule 44(6) 43/60 months left = ₹12,900.00')
+    expect(inv.lines.map((l) => [ledgerName(db, l.ledgerId), l.drCr, l.amount])).toEqual([
+      ['Shree Traders', 'dr', R(59000)],
+      ['Sale of Fixed Assets', 'cr', R(50000)],
+      ['Output CGST', 'cr', R(4500)],
+      ['Output SGST', 'cr', R(4500)]
+    ])
+    // Catch-up 1 Apr – 14 Sep 2026 (167 days): 9,500,000 × 167 ÷ (15 × 365) = 289,771.69 → 289,772.
+    // Carrying 1,00,000 − 6,333.33 − 2,897.72 = 90,768.95 ⇒ loss on sale 40,768.95.
+    const j = getVoucher(db, voucherId)!
+    expect(j.reference).toBe(`Invoice ${inv.number}`)
+    expect(j.lines.map((l) => [ledgerName(db, l.ledgerId), l.drCr, l.amount])).toEqual([
+      ['Sale of Fixed Assets', 'dr', R(50000)],
+      ['Depreciation', 'dr', 289772],
+      ['Accumulated Depreciation - Plant and machinery', 'dr', 633333],
+      ['Plant and Machinery', 'cr', R(100000)],
+      ['Loss on Sale of Fixed Assets', 'dr', 4076895],
+      ['GST on Sale of Capital Goods (s.18(6))', 'dr', R(3900)],
+      ['Output CGST', 'cr', R(1950)],
+      ['Output SGST', 'cr', R(1950)]
+    ])
+    const id = (name: string): number => (db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number }).id
+    expect(balanceOf(db, id('Sale of Fixed Assets'), '2026-09-30')).toBe(0)
+    expect(balanceOf(db, id('Output CGST'), '2026-09-30')).toBe(-R(6450))
+
+    // GSTR-1 / the export see the invoice alone (18% on ₹50,000); 3B 3.1(a) adds the extra 3,900.
+    const info = readCompanyInfo(db)
+    const docs = extractOutwardDocs(db, info, '2026-09-01', '2026-09-30')
+    expect(docs.map((d) => [d.voucherId, d.items])).toEqual([[invoiceVoucherId, [{ rate: 18, taxable: R(50000), cgst: R(4500), sgst: R(4500), igst: 0, cess: 0 }]]])
+    const r = gstr3b(db, info, '2026-09-01', '2026-09-30', '092026')
+    expect(r.outward).toMatchObject({ taxable: R(50000), cgst: R(6450), sgst: R(6450), igst: 0 })
+    expect(r.netPayable).toMatchObject({ cgst: R(6450), sgst: R(6450) })
+
+    // The invoice can't be edited on its own; binning the journal reinstates the asset and drops
+    // the extra from 3B; the journal comes back only with its invoice.
+    expect(() => saveVoucher(db, { ...inv, lines: inv.lines.map((l) => ({ ...l, costAllocations: [] })) } as unknown as VoucherInput, inv.id)).toThrow(/posted by a fixed-asset disposal/)
+    deleteVoucher(db, voucherId)
+    expect(fa.getAsset(db, machine, '2026-09-30').status).toBe('active')
+    expect(gstr3b(db, info, '2026-09-01', '2026-09-30', '092026').outward).toMatchObject({ cgst: R(4500), sgst: R(4500) })
+    deleteVoucher(db, invoiceVoucherId!)
+    expect(() => restoreVoucher(db, voucherId)).toThrow(/tax invoice first/)
+    restoreVoucher(db, invoiceVoucherId!)
+    restoreVoucher(db, voucherId)
+    expect(gstr3b(db, info, '2026-09-01', '2026-09-30', '092026').outward).toMatchObject({ cgst: R(6450), sgst: R(6450) })
+  })
+
+  it('a sale above the credit-based amount pays the tax on the value only; entered credit wins; the scrap proviso', () => {
+    // ₹90,000 @ 18% = 16,200 > 12,900 ⇒ no extra.
+    const high = fa.previewDisposal(db, sale({ proceedsPaise: R(90000) }))
+    expect(high.gst!.extraOutputTax).toEqual({ igst: 0, cgst: 0, sgst: 0, cess: 0 })
+    expect(high.journal.some((l) => l.ledgerName.startsWith('GST on Sale'))).toBe(false)
+    // Credit entered by hand: IGST 6,000 ⇒ rule 44(6) 6,000 × 43/60 = 4,300 < 9,000 ⇒ no extra.
+    const entered = fa.previewDisposal(db, sale({ gst: { ratePercent: 18, itc: { igst: R(6000), cgst: 0, sgst: 0, cess: 0 } } }))
+    expect(entered.gst).toMatchObject({ itcSource: 'entered', extraOutputTax: { cgst: 0, sgst: 0 } })
+    const scrap = fa.previewDisposal(db, sale({ kind: 'scrap', proceedsPaise: R(1000), gst: { ratePercent: 18, scrapProviso: true } }))
+    expect(scrap.gst!.extraOutputTax).toEqual({ igst: 0, cgst: 0, sgst: 0, cess: 0 })
+  })
+
+  it('refuses GST for an unregistered company on the sale date, and without a buyer — leaving nothing behind', () => {
+    const before = (db.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n
+    expect(fa.previewDisposal(db, sale({ considerationLedgerId: null })).blocked).toMatch(/proceeds go to|buyer/)
+    writeCompanyInfo(db, { ...readCompanyInfo(db), gstRegistrationType: 'unregistered' })
+    const p = fa.previewDisposal(db, sale())
+    expect(p.gstApplies).toBe(false)
+    expect(p.blocked).toMatch(/GST is not charged/)
+    expect(() => fa.disposeAsset(db, sale())).toThrow(/GST is not charged/)
+    expect((db.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n).toBe(before)
   })
 })
