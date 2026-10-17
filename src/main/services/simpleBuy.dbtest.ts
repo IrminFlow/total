@@ -318,3 +318,51 @@ describe('WP 9.3 Record a purchase: the form → simple:post = the purchase an a
     expect(buySetup(db).suppliers.map((s) => s.name)).toEqual(['Bharat Steel', 'Karnataka Mills'])
   })
 })
+
+describe('PR #171 review: an amount typed WITH GST is the printed total, in every registration', () => {
+  // Hand-worked (18 %, intra-state):
+  //   ₹1,180.50 → before GST 118050 / 1.18 = 100042.37 → ₹1,000.42; CGST = SGST = 9 % × 100042 = 9003.78 → ₹90.04;
+  //               100042 + 9004 + 9004 = 118050 → no round off.
+  //   ₹999.99   → 99999 / 1.18 = 84745.0 → ₹847.45; 9 % × 84745 = 7627.05 → ₹76.27; 84745 + 7627 + 7627 = 99999.
+  const CASES = [
+    { total: 118_050, taxable: 100_042, half: 9_004 },
+    { total: 99_999, taxable: 84_745, half: 7_627 }
+  ]
+  it('regular: the bill is the typed total (no rupee rounding), the money paid too; GSTR-3B = the accountant-entered twin', () => {
+    const outs = CASES.map((c, i) =>
+      buy({ supplierId: L('Bharat Steel'), billNo: `T-${i}`, mode: 'expense', categoryId: L('Rent'), amount: c.total, gstRate: 18, ratesIncludeGst: true, paid: 'bank' })
+    )
+    outs.forEach((o, i) => {
+      const c = CASES[i]!
+      const v = getVoucher(db, o.voucherIds[0]!)!
+      expect(v.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([
+        [L('Bharat Steel'), 'cr', c.total], [L('Rent'), 'dr', c.taxable], [L('Input CGST'), 'dr', c.half], [L('Input SGST'), 'dr', c.half]
+      ])
+      expect(getVoucher(db, o.voucherIds[1]!)!.lines.find((l) => l.ledgerId === L('HDFC Bank'))).toMatchObject({ drCr: 'cr', amount: c.total })
+      roundTrips(o.voucherIds[0]!, 'accounting')
+    })
+    const { twin } = handEntered(
+      INFO,
+      CASES.map((c, i) => (t: DB) => ({
+        kind: 'purchase' as const, form: 'accounting' as const,
+        state: acc('2025-08-10', [r('cr', L('Bharat Steel', t), c.total), r('dr', L('Rent', t), c.taxable), r('dr', L('Input CGST', t), c.half), r('dr', L('Input SGST', t), c.half)], [{ kind: 'new', name: `T-${i}`, amount: c.total, dueDate: '2025-09-09' }], { reference: `T-${i}` })
+      }))
+    )
+    expect(itcOf(db, INFO)).toEqual(itcOf(twin, INFO))
+    expect(itcOf(db, INFO).itc).toMatchObject({ cgst: 9_004 + 7_627, sgst: 9_004 + 7_627 })
+  })
+
+  it('unregistered / composition: what was paid is the cost to the paisa — no round-off line, no simple_bill_total refusal', () => {
+    for (const ci of [UNREG, { ...UNREG, name: 'Comp Co', gstin: '27AAPFU0939F1ZV', gstRegistrationType: 'composition' as const }]) {
+      info = ci
+      db = company(ci)
+      for (const c of CASES) {
+        const o = buy({ supplierId: L('Bharat Steel'), billNo: `U-${c.total}`, mode: 'expense', categoryId: L('Rent'), amount: c.total, gstRate: 18, ratesIncludeGst: true, paid: 'cash' }, db, ci)
+        expect(o.facts.total).toBe(c.total)
+        const v = getVoucher(db, o.voucherIds[0]!)!
+        expect(v.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[L('Bharat Steel'), 'cr', c.total], [L('Rent'), 'dr', c.total]])
+        roundTrips(o.voucherIds[0]!, 'accounting')
+      }
+    }
+  })
+})

@@ -554,6 +554,17 @@ describe('to-do §4: bills of one name, and names a credit has had', () => {
     expect(pending(day)).toEqual([])
   })
 
+  it('PR #171 review: a stale billId (no open bill of that entry) is refused on the bill, never a crash or another bill; no trace', () => {
+    const { older } = twinBills()
+    const before = trace()
+    for (const billId of [999_999, older + 1_000]) {
+      expect(() => at('2026-04-15', { kind: 'money_in', customerId: L('Ramesh'), amount: 20_000, into: { how: 'cash' }, bills: [{ name: '1', billId }] })).toThrow(
+        expect.objectContaining({ code: 'simple_bill_unknown', field: 'bills.0' })
+      )
+    }
+    expect(trace()).toEqual(before)
+  })
+
   it('untouched (oldest first) reaches both bills of one name in turn, as the engine does', () => {
     const { older, newer } = twinBills()
     const out = at('2026-04-15', { kind: 'money_in', customerId: L('Ramesh'), amount: 30_000, into: { how: 'cash' } })
@@ -571,6 +582,30 @@ describe('to-do §4: bills of one name, and names a credit has had', () => {
     const sale = at(TODAY, { kind: 'sale', customerId: L('Ramesh'), number: 'ADV1', amount: { amount: 5_000, gstRate: 0 }, payment: { how: 'credit' } })
     expect(db.prepare("SELECT name FROM bill_refs WHERE voucher_id = ? AND kind = 'new'").all(sale.voucherIds[0]) as { name: string }[]).toEqual([{ name: 'ADV1/25-26' }])
     expect(partyAllocation(db, L('Ramesh'), TODAY).bills.map((b) => [b.number, b.pending])).toEqual([['ADV1/25-26', 5_000]])
+  })
+})
+
+describe('PR #171 review: default numbering next to an advance', () => {
+  const nameOf = (vid: number) => (db.prepare("SELECT name FROM bill_refs WHERE voucher_id = ? AND kind = 'new'").all(vid) as { name: string }[]).map((r) => r.name)
+  it('an advance named by the default receipt number that is still OPEN: the first sale takes the year (as before this PR)', () => {
+    const adv = post({ kind: 'money_in', customerId: L('Ramesh'), amount: 10_000, into: { how: 'cash' }, bills: [], advance: true })
+    const advName = nameOf(adv.voucherIds[0]!)[0]!
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: 5_000, gstRate: 0 }, payment: { how: 'credit' } })
+    // Both series start at "1" in a fresh company: receipt 1 = the advance's name, sale 1 takes the year.
+    expect([advName, getVoucher(db, sale.voucherIds[0]!)!.number, nameOf(sale.voucherIds[0]!)]).toEqual(['1', '1', ['1/25-26']])
+  })
+  it('the same advance USED UP (refunded): a sale numbered like it still takes the year — only this party, only that number', () => {
+    const adv = post({ kind: 'money_in', customerId: L('Ramesh'), amount: 10_000, into: { how: 'cash' }, bills: [], advance: true })
+    const advName = nameOf(adv.voucherIds[0]!)[0]!
+    post({ kind: 'money_out', customerId: L('Ramesh'), amount: 10_000, from: { how: 'cash' } })
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), number: advName, amount: { amount: 5_000, gstRate: 0 }, payment: { how: 'credit' } })
+    expect(nameOf(sale.voucherIds[0]!)).toEqual([`${advName}/25-26`])
+    // Another customer's bill of that number is untouched.
+    const other = ledger(db, 'Suresh', 'Sundry Debtors', { stateCode: '27' })
+    const s2 = post({ kind: 'sale', customerId: other, number: `${advName}-x`, amount: { amount: 5_000, gstRate: 0 }, payment: { how: 'credit' } })
+    expect(nameOf(s2.voucherIds[0]!)).toEqual([`${advName}-x`])
+    // And Undo of the year-suffixed sale is offered (nothing rests on its own name) — the point of the rule.
+    expect(db.prepare("SELECT COUNT(*) AS n FROM bill_refs WHERE kind = 'against' AND name = ? AND party_ledger_id = ?").get(`${advName}/25-26`, L('Ramesh'))).toEqual({ n: 0 })
   })
 })
 
@@ -623,6 +658,32 @@ describe('Move money, the list, the setup', () => {
     // Binning the bill: nothing to read it from, the payment names the supplier only.
     db.prepare("UPDATE vouchers SET deleted_at = '2025-08-14T00:00:00Z' WHERE id = ?").run(rent.voucherIds[0])
     expect(moneyEntry(db, pay)!.forWhat).toBeUndefined()
+  })
+
+  it('PR #171 review: one bill over two expense accounts, two bills of different expenses — neither named; two Rent bills — Rent', () => {
+    const elec = ledger(db, 'Electricity', 'Indirect Expenses')
+    // An accountant's bill split over Rent + Electricity (and its GST), then paid in full.
+    const { ids: [split] } = handEntered(
+      [{ kind: 'purchase', state: blank(TODAY, [r('cr', L('Delhi Traders'), 23_600), r('dr', L('Rent'), 10_000), r('dr', elec, 10_000), r('dr', L('IGST'), 3_600)], [{ kind: 'new', name: 'SPLIT', amount: 23_600, dueDate: null }], { reference: 'SPLIT' }) }],
+      db
+    )
+    expect(split).toBeGreaterThan(0)
+    const paySplit = moneyOut({ who: 'supplier', supplierId: L('Delhi Traders'), amount: 23_600, how: 'cash' }).out.voucherIds[0]!
+    // Two bills of Bharat Steel: rent and electricity, paid together.
+    post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: 'R-1', date: TODAY, amount: { amount: 10_000, accountId: L('Rent'), gstRate: 18 }, payment: { how: 'credit' } })
+    post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: 'E-1', date: TODAY, amount: { amount: 10_000, accountId: elec, gstRate: 18 }, payment: { how: 'credit' } })
+    const payBoth = moneyOut({ who: 'supplier', supplierId: L('Bharat Steel'), amount: 23_600, how: 'cash' }).out.voucherIds[0]!
+    // Two Rent bills paid together: Rent.
+    post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: 'R-2', date: TODAY, amount: { amount: 10_000, accountId: L('Rent'), gstRate: 18 }, payment: { how: 'credit' } })
+    post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: 'R-3', date: TODAY, amount: { amount: 10_000, accountId: L('Rent'), gstRate: 18 }, payment: { how: 'credit' } })
+    const payRents = moneyOut({ who: 'supplier', supplierId: L('Bharat Steel'), amount: 23_600, how: 'cash' }).out.voucherIds[0]!
+    const list = moneyList(db, '2025-04-01', TODAY)
+    const row = (id: number) => list.find((x) => x.voucherId === id)!
+    expect(row(paySplit).forWhat).toBeUndefined()
+    expect(row(payBoth).forWhat).toBeUndefined()
+    expect(row(payBoth).chips).toEqual(['bills'])
+    expect(row(payRents)).toMatchObject({ forWhat: 'Rent', chips: ['bills', 'expense'] })
+    expect(moneyWho(row(payRents), translator('hi'))).toBe('Rent (Bharat Steel)')
   })
 
   it('the money list reaches as far ahead as simple:post allows (+30 days); rows after today say “dated ahead”', () => {

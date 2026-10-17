@@ -124,7 +124,8 @@ const OTHER_CHIP: Partial<Record<LedgerClass, MoneyChip>> = { expense: 'expense'
 /** The expense account a GST bill was booked on (WP 9.4 Money out → a purchase of just an amount
  *  on an expense account): the purchase whose `new` ref the payment's `against` ref names — the
  *  party's latest in-books purchase of that name dated on / before the payment — and its one
- *  expense account outside Purchase Accounts (biggest debit). Null for goods / Purchases bills. */
+ *  expense account outside Purchase Accounts (a round off aside). Null for goods / Purchases bills
+ *  and for a bill split over several expense accounts. */
 function billExpenseAccount(db: DB, partyId: number, name: string, onOrBefore: string, cls: ReturnType<typeof ledgerClassifier>, groupOf: (id: number) => number | undefined, purchaseGroups: Set<number>): number | null {
   const bill = db
     .prepare(
@@ -135,10 +136,12 @@ function billExpenseAccount(db: DB, partyId: number, name: string, onOrBefore: s
     .get(partyId, name, onOrBefore) as { id: number } | undefined
   if (!bill) return null
   const lines = db.prepare("SELECT ledger_id AS ledgerId, amount FROM voucher_lines WHERE voucher_id = ? AND dr_cr = 'dr' ORDER BY amount DESC, line_order").all(bill.id) as { ledgerId: number; amount: number }[]
-  const exp = lines.find((l) => cls.cls(l.ledgerId) === 'expense')
-  if (!exp) return null
-  const g = groupOf(exp.ledgerId)
-  return g != null && purchaseGroups.has(g) ? null : exp.ledgerId
+  // One expense account only: a bill split over two (rent + electricity) names neither. A round
+  // off (< ₹1, the billTotal / rupee rounding line) is not what the bill was for.
+  const exp = [...new Set(lines.filter((l) => cls.cls(l.ledgerId) === 'expense' && l.amount >= 100).map((l) => l.ledgerId))]
+  if (exp.length !== 1) return null
+  const g = groupOf(exp[0]!)
+  return g != null && purchaseGroups.has(g) ? null : exp[0]!
 }
 
 function describe(db: DB, h: Head, cls: ReturnType<typeof ledgerClassifier>, groupOf: (id: number) => number | undefined, groups: { capital: Set<number>; loans: Set<number>; purchases: Set<number> }): MoneyEntryView {
