@@ -241,7 +241,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
     try {
       const r = await poster.post(buyIntentFrom(form, ctx, setup.defaults))
       setSavedIds(r.voucherIds)
-      for (const k of ['simpleBuySetup', 'simplePurchases', 'ledgers', 'stockItems', 'dashboard']) void queryClient.invalidateQueries({ queryKey: [k] }) // i18n-technical
+      for (const k of ['simpleBuySetup', 'simplePurchases', 'simpleMoneyList', 'simpleHome', 'ledgers', 'stockItems', 'dashboard']) void queryClient.invalidateQueries({ queryKey: [k] }) // i18n-technical
     } catch (err) {
       place(err)
     }

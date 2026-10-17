@@ -29,7 +29,7 @@ import { getVoucher, nextVoucherNumber, saveVoucher } from './vouchers'
 import { intentForm, postIntent } from './simplePost'
 import { carryBackForm, handoffFacts } from './simpleHandoff'
 import { emptySellForm, saleIntentFrom, type SellForm } from '@shared/simple/sell'
-import { emptyBuyForm, purchaseIntentFrom, type BuyForm } from '@shared/simple/buy'
+import { buyIntentFrom, emptyBuyForm, purchaseIntentFrom, type BuyForm } from '@shared/simple/buy'
 import { emptyMoneyInForm, moneyInIntentFrom, type MoneyInForm } from '@shared/simple/money'
 import { emptyReturnForm, type ReturnForm } from '@shared/simple/returns'
 import type { CarryFlow, CarryForms } from '@shared/simple/carryBack'
@@ -372,6 +372,20 @@ describe('simple:carryBack — the unsaved editor\'s changes back into the simpl
       return { ...e, state: { ...s, date: '2025-08-12', rows: s.rows.map((r) => ({ ...r, amount: scale(r.ledgerId, r.amount) })), billRefs: s.billRefs.map((b) => ({ ...b, amount: 295_000, dueDate: '2025-08-12' })) } } as HandoffEntry
     }, buyIntent)
     expect(back).toMatchObject({ mode: 'expense', categoryId: L('Rent'), amount: 250_000, gstRate: 18, date: '2025-08-12', billNo: 'R-9' })
+  })
+
+  it('PR #177: a cash expense with no supplier hands off as the payment; another amount / account in the editor comes back', () => {
+    const cashIntent = (f: BuyForm): Record<string, unknown> => buyIntentFrom(f, { invoice: invoiceCtx(), purchaseAccountId: L('Purchases') }, NONE)
+    const form: BuyForm = { ...emptyBuyForm(TODAY, { mode: 'expense', ratesIncludeGst: true }), categoryId: L('Rent'), amount: 150_000, paid: 'cash', accountId: L('Cash'), gstOnBill: false, billNo: 'ignored', note: 'Rent' }
+    const hf = intentForm(db, INFO, intent(cashIntent(form)), TODAY)
+    expect(hf.entries.map((e) => [e.kind, e.form, e.amount])).toEqual([['payment', 'accounting', 150_000]])
+    const rowsOf = (e: HandoffEntry): unknown => (e.state as AccountingFormState).rows.filter((r) => (r.amount ?? 0) > 0).map((r) => [r.ledgerId, r.drCr, r.amount])
+    expect(rowsOf(hf.entries[0]!)).toEqual([[L('Rent'), 'dr', 150_000], [L('Cash'), 'cr', 150_000]])
+    const back = carriesAsEdited('simple-buy', cashIntent(form), form, (e) => {
+      const s = e.state as AccountingFormState
+      return { ...e, state: { ...s, narration: 'Rent, August', rows: s.rows.map((r) => ({ ...r, amount: r.amount == null ? r.amount : 160_000 })) } } as HandoffEntry
+    }, cashIntent)
+    expect(back).toMatchObject({ supplierId: null, mode: 'expense', categoryId: L('Rent'), amount: 160_000, paid: 'cash', accountId: L('Cash'), note: 'Rent, August' })
   })
 
   it('money in: the bill ticked in the editor comes back as the tick', () => {
