@@ -559,7 +559,8 @@ Read these before filing from the next release.
   schedule regeneration (prepayment) keeps it. A loan taken BEFORE the books began gets no voucher:
   the loan ledger's opening balance becomes what the schedule says was still owed on the
   books-begin day, and the instalments that fell due before then are part of that opening (Post
-  EMI refuses them and no longer waits for them). Existing loans and figures are unchanged until
+  EMI refuses them and no longer waits for them; while one of them is already posted — from
+  before this rule — setting the opening is refused until that voucher is binned). Existing loans and figures are unchanged until
   the button is used. [#162](https://github.com/IrminFlow/total/pull/162)
 - **Forex: foreign-currency openings in their currency.** Forex → foreign-currency ledgers → "Set
   the rupee opening": a customer's, supplier's or bank's opening entered as a foreign amount
