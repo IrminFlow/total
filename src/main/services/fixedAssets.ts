@@ -1476,7 +1476,27 @@ function rateFor(rates: ItBlockRateRow[], fyFrom: string): ItBlockRateRow | null
     .sort((a, b) => b.effectiveFrom.localeCompare(a.effectiveFrom))[0] ?? null
 }
 
-export function itStatement(db: DB, fyStartYear: number): ItStatement {
+/** Income-tax Rules, 2026 rule 25(2): normal depreciation of a block "shall not exceed 40% of the
+ *  written down value" for the persons and regimes in its Table (FIXED_ASSET_EVENT_SOURCES R2026-R25-2). */
+export const RULE_25_2_CAP_BP = 4000
+
+/** The rate and additional rate a year computes with: the block's own, or — for a rule 25(2)
+ *  regime in a 2025-Act year — capped at 40% with no additional depreciation (s.202(2)(a)(vi) /
+ *  s.205(1)(a): total income without the deduction under s.33(8)). */
+export function itRateFor(rate: ItBlockRateRow | null, concessional: boolean): { rateBp: number; additionalRateBp: number; cappedFromBp: number | null; additionalDisallowed: boolean } {
+  const rateBp = rate?.rateBp ?? 0
+  const additionalRateBp = rate?.additionalRateBp ?? 0
+  if (!concessional || rate?.act !== '2025') return { rateBp, additionalRateBp, cappedFromBp: null, additionalDisallowed: false }
+  return {
+    rateBp: Math.min(rateBp, RULE_25_2_CAP_BP),
+    additionalRateBp: 0,
+    cappedFromBp: rateBp > RULE_25_2_CAP_BP ? rateBp : null,
+    additionalDisallowed: true
+  }
+}
+
+export function itStatement(db: DB, fyStartYear: number, opts: { concessionalRegime?: boolean } = {}): ItStatement {
+  const concessional = !!opts.concessionalRegime
   const blocks = listBlocks(db)
   const assets = loadAssets(db)
   const rows: ItStatementBlockRow[] = []
@@ -1496,6 +1516,7 @@ export function itStatement(db: DB, fyStartYear: number): ItStatement {
       const openingWdv = entered ? entered.openingWdv : carried?.wdv ?? 0
       const addlBf = entered ? entered.additionalBroughtForward : carried?.addl ?? 0
       const rate = rateFor(b.rates, fy.from)
+      const eff = itRateFor(rate, concessional)
       const additions = [
         ...inBlock
           .filter((a) => a.row.put_to_use_date >= fy.from && a.row.put_to_use_date <= fy.to)
@@ -1505,23 +1526,25 @@ export function itStatement(db: DB, fyStartYear: number): ItStatement {
       const sold = inBlock.filter((a) => a.disposed && a.row.disposal_date! >= fy.from && a.row.disposal_date! <= fy.to)
       const remaining = inBlock.filter((a) => a.row.put_to_use_date <= fy.to && !(a.disposed && a.row.disposal_date! <= fy.to))
       const r = itBlockYear({
-        fy, rateBp: rate?.rateBp ?? 0, openingWdv, additions,
+        fy, rateBp: eff.rateBp, openingWdv, additions,
         saleProceeds: sold.reduce((s, a) => s + (a.row.disposal_proceeds_paise ?? 0), 0),
         blockCeases: sold.length > 0 && remaining.length === 0,
-        additionalRateBp: rate?.additionalRateBp ?? 0,
-        additionalBroughtForward: addlBf
+        additionalRateBp: eff.additionalRateBp,
+        additionalBroughtForward: eff.additionalDisallowed ? 0 : addlBf
       })
       carried = { wdv: r.closingWdv, addl: r.additionalCarriedForward }
       result = {
-        ...r, blockId: b.id, blockCode: b.code, blockName: b.name, rateBp: rate?.rateBp ?? 0,
-        additionalRateBp: rate?.additionalRateBp ?? 0, act: rate?.act ?? null, sectionRef: rate?.sectionRef ?? '',
-        rateSource: rate?.source ?? '', openingSource, assetCount: remaining.length
+        ...r, blockId: b.id, blockCode: b.code, blockName: b.name, rateBp: eff.rateBp,
+        additionalRateBp: eff.additionalRateBp, act: rate?.act ?? null, sectionRef: rate?.sectionRef ?? '',
+        rateSource: rate?.source ?? '', openingSource, assetCount: remaining.length,
+        cappedFromBp: eff.cappedFromBp, additionalDisallowed: eff.additionalDisallowed
       }
     }
     if (result && (result.openingWdv !== 0 || result.wdvBeforeDepreciation !== 0 || result.saleProceeds !== 0 || result.assetCount > 0)) rows.push(result)
   }
   return {
     fyStartYear,
+    concessionalRegime: concessional,
     blocks: rows,
     unassignedAssets: assets.filter((a) => a.row.it_block_id == null).map((a) => ({ assetId: a.row.id, name: a.row.name }))
   }

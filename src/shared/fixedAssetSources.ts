@@ -97,6 +97,40 @@ export const FIXED_ASSET_EVENT_SOURCES: readonly FixedAssetSource[] = [
     accessed: '2026-10-17'
   },
   {
+    key: 'R2026-R25-2',
+    title: 'Income-tax Rules, 2026 — rule 25(2) (40% cap on block depreciation for the concessional regimes)',
+    quote:
+      '(2) The allowance under section 33(3) in respect of depreciation of any block of assets with respect to the persons mentioned ' +
+      'in Column B of the following Table shall not exceed 40% of the written down value of such block of assets, if conditions ' +
+      'mentioned in column C thereof are fulfilled:— 1. Domestic company — Which has exercised option under– (a) section 199(3); or ' +
+      '(b) section 200(5); or (c) section 201(2). 2. (a) Individual or Hindu undivided family; or (b) association of persons or a ' +
+      'body of individuals, whether incorporated or not; or (c) artificial juridical person referred to in section 2(77)(g). — ' +
+      'Whose income is chargeable to tax under section 202(1). 3. Cooperative society resident in India — Which has exercised ' +
+      'option under– (a) section 203(5); or (b) section 204(2).',
+    url: 'https://simpliance.in/download/file/dXBsb2Fkcy9nb3Z0bm90aWZpY2F0aW9uL1RoZSBJbmNvbWUtdGF4IFJ1bGVzLCAyMDI2LnBkZg==',
+    readIn: 'Gazette of India, G.S.R. 198(E) of 20 March 2026 (scan, p. 1552–1553), the copy migration 026 cites as [R2026]',
+    accessed: '2026-10-17'
+  },
+  {
+    key: 'IT25-S202',
+    title: 'Income-tax Act, 2025 — s.202(2)(a)(vi) (new regime: no deduction under s.33(8), additional depreciation)',
+    quote: '(2) For the purposes of sub-section (1), the total income of the assessee shall be computed— (a) without any exemption or deduction under–– … (vi) section 33(8);',
+    url: 'https://prsindia.org/files/bills_acts/bills_parliament/2025/Bill_as_passed_by_LS_Income_Tax_(No.2)_Bill.pdf',
+    readIn: 'Income-tax (No.2) Bill, 2025 as passed by Lok Sabha',
+    accessed: '2026-10-17'
+  },
+  {
+    key: 'IT25-S205',
+    title: 'Income-tax Act, 2025 — s.205(1)(a) (company / co-operative regimes: no deduction under s.33(8))',
+    quote:
+      '205. (1) For the purposes of sections 199(1)(c)(i)(C), 200(1)(a)(iii), 201(3)(a)(iii), 203(1)(a)(ii) and 204(3)(a)(ii), the ' +
+      'total income shall be computed without any deduction or exemption, under the following provisions:–– (a) section 33(8), ' +
+      'determined in such manner, as may be prescribed;',
+    url: 'https://prsindia.org/files/bills_acts/bills_parliament/2025/Bill_as_passed_by_LS_Income_Tax_(No.2)_Bill.pdf',
+    readIn: 'Income-tax (No.2) Bill, 2025 as passed by Lok Sabha',
+    accessed: '2026-10-17'
+  },
+  {
     key: 'IT61-S50',
     title: 'Income-tax Act, 1961 — s.50 (capital gains on depreciable assets; block of assets)',
     quote:
@@ -191,6 +225,21 @@ export const FIXED_ASSET_UNVERIFIED: readonly { key: string; text: string }[] = 
   {
     key: 'cg-hsn',
     text: 'The invoice credits one "Sale of Fixed Assets" account (no GST rate or HSN of its own — the rate is read back from the posted tax), so GSTR-1\'s HSN summary flags it until an HSN is set on that account.'
+  },
+  {
+    key: 'r25-1961',
+    text:
+      'Rule 25(2) is applied to 2025-Act years (FY 2026-27 on) only. The 1961 Act\'s equivalent for s.115BAA / 115BAB / 115BAC ' +
+      'taxpayers (FY 2025-26 and earlier) was not re-read, so the "concessional regime" switch changes nothing for those years ' +
+      '(the seeded 1961 rates are 40% at most anyway).'
+  },
+  {
+    key: 'r25-regime',
+    text:
+      'The switch applies to every 2025-Act year of the carried-forward chain; the regime is the taxpayer\'s own (and, for a ' +
+      'company, a once-for-all) choice. Under it, additional depreciation — including any half brought forward — is shown as nil ' +
+      '(s.202(2)(a)(vi) / s.205(1)(a) read as covering each row of the rule 25(2) Table); s.205(1)(a)\'s "determined in such manner, ' +
+      'as may be prescribed" was not followed into the rules.'
   },
   {
     key: 's50-text',

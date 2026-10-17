@@ -42,5 +42,5 @@ export const faApi = {
   dispose: (data: DisposalInput) => call<{ asset: FixedAssetRow; voucherId: number; preview: DisposalPreview; remaining: FixedAssetRow | null }>('fa:dispose', data),
 
   schedule: (from: string, to: string) => call<AssetSchedule>('fa:schedule', { from, to }),
-  itStatement: (fyStartYear: number) => call<ItStatement>('fa:itStatement', { fyStartYear })
+  itStatement: (fyStartYear: number, concessionalRegime = false) => call<ItStatement>('fa:itStatement', { fyStartYear, concessionalRegime })
 }

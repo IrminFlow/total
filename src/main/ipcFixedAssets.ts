@@ -92,5 +92,8 @@ export function registerFixedAssetIpc(handle: Handle, db: () => DB): void {
     const { from, to } = scheduleQuerySchema.parse(p)
     return fa.assetSchedule(db(), from, to)
   }, 'viewer')
-  handle('fa:itStatement', (p) => fa.itStatement(db(), itStatementQuerySchema.parse(p).fyStartYear), 'viewer')
+  handle('fa:itStatement', (p) => {
+    const q = itStatementQuerySchema.parse(p)
+    return fa.itStatement(db(), q.fyStartYear, { concessionalRegime: q.concessionalRegime })
+  }, 'viewer')
 }

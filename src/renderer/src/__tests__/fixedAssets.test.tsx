@@ -88,6 +88,23 @@ beforeEach(() => {
           }
         }
       }
+      case 'fa:itStatement': {
+        const q = payload as { fyStartYear: number; concessionalRegime: boolean }
+        return {
+          ok: true,
+          data: {
+            fyStartYear: q.fyStartYear, concessionalRegime: q.concessionalRegime, unassignedAssets: [],
+            blocks: [{
+              blockId: 3, blockCode: 'PM45', blockName: 'Motor buses on hire', rateBp: q.concessionalRegime ? 4000 : 4500,
+              cappedFromBp: q.concessionalRegime ? 4500 : null, additionalDisallowed: q.concessionalRegime, additionalRateBp: 0, act: '2025',
+              sectionRef: '', rateSource: '', openingSource: 'none', assetCount: 1, openingWdv: 0, additionsFullRate: 10_000_000,
+              additionsHalfRate: 0, saleProceeds: 0, wdvBeforeDepreciation: 10_000_000, depreciationFullRate: q.concessionalRegime ? 4_000_000 : 4_500_000,
+              depreciationHalfRate: 0, additionalDepreciation: 0, additionalCarriedForward: 0, totalDepreciation: q.concessionalRegime ? 4_000_000 : 4_500_000,
+              closingWdv: q.concessionalRegime ? 6_000_000 : 5_500_000, shortTermCapitalGain: 0, shortTermCapitalLoss: 0
+            }]
+          }
+        }
+      }
       case 'master:ledgers:list': return { ok: true, data: [{ id: 40, name: 'Computers', groupId: 5 }, { id: 60, name: 'HDFC Bank', groupId: 9 }] }
       case 'master:groups:list': return { ok: true, data: [{ id: 5, name: 'Fixed Assets', parentId: null, nature: 'asset' }, { id: 9, name: 'Bank Accounts', parentId: null, nature: 'asset' }] }
       case 'yearend:preview':
@@ -234,6 +251,19 @@ describe('GST on the sale', () => {
     await waitFor(() => expect(calls.some((c) => c.channel === 'fa:disposalPreview' && (c.payload as { gst: unknown }).gst != null)).toBe(true))
     expect((calls.filter((c) => c.channel === 'fa:disposalPreview').at(-1)!.payload as { gst: unknown }).gst).toEqual({ ratePercent: 18, scrapProviso: false, itc: null })
     expect((await screen.findByTestId('fixed-assets-disposal-gst-working')).textContent).toContain('s.18(6)')
+  })
+})
+
+describe('income-tax statement', () => {
+  it('the rule 25(2) switch asks for the capped statement and marks the capped rate', async () => {
+    renderUi(<FixedAssetsScreen tab="income-tax" />)
+    const table = await screen.findByTestId('rows-fixed-assets-it')
+    await waitFor(() => expect(table.textContent).toContain('45.00%'))
+    expect(calls.find((c) => c.channel === 'fa:itStatement')!.payload).toMatchObject({ concessionalRegime: false })
+    fireEvent.click(screen.getByTestId('input-fixed-assets-it-concessional'))
+    await waitFor(() => expect(screen.getByTestId('fixed-assets-it-capped-3')).toBeTruthy())
+    expect(calls.filter((c) => c.channel === 'fa:itStatement').at(-1)!.payload).toMatchObject({ concessionalRegime: true })
+    expect(screen.getByTestId('rows-fixed-assets-it').textContent).toContain('40.00%')
   })
 })
 

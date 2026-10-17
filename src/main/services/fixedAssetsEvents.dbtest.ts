@@ -1,5 +1,6 @@
 // Fixed-asset events beyond WP 3.6's whole-asset disposal: a partial disposal (a quantity / share
-// split off and disposed of); GST on the sale of a capital good (CGST Act s.18(6)). Figures are hand-worked in the comments (integer paise); statutory
+// split off and disposed of); GST on the sale of a capital good (CGST Act s.18(6)); the rule 25(2)
+// 40% cap of the Income-tax Rules, 2026. Figures are hand-worked in the comments (integer paise); statutory
 // text in src/shared/fixedAssetSources.ts.
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { DB } from '../db/connection'
@@ -269,5 +270,32 @@ describe('GST on the sale of a capital good (s.18(6))', () => {
     expect(p.blocked).toMatch(/GST is not charged/)
     expect(() => fa.disposeAsset(db, sale())).toThrow(/GST is not charged/)
     expect((db.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n).toBe(before)
+  })
+})
+
+describe('Income-tax Rules, 2026 rule 25(2) — 40% cap for the concessional regimes', () => {
+  it('caps a block\'s rate at 40% of WDV and allows no additional depreciation; 1961-Act years are unchanged', () => {
+    const block = fa.saveBlock(db, { code: 'PM45', name: 'Motor buses on hire (test 45%)' })
+    fa.saveBlockRate(db, { blockId: block.id, effectiveFrom: '2026-04-01', rateBp: 4500, additionalRateBp: 2000, act: '2025', sectionRef: 'test', source: 'test' })
+    const bus = ledger(db, 'Buses', 'Fixed Assets')
+    fa.saveAsset(db, laptops({
+      name: 'Bus', ledgerId: bus, purchaseVoucherId: null, purchaseDate: '2026-04-01', putToUseDate: '2026-04-01', costPaise: R(100000),
+      assetGroupId: faGroup(db, 'Motor vehicles'), lifeMonths: 96, itBlockId: block.id, itAdditionalEligible: true
+    }))
+    // Ordinary: 1,00,000 × 45% = 45,000 + additional 20% = 20,000 ⇒ 65,000; closing 35,000.
+    const plain = fa.itStatement(db, 2026).blocks.find((b) => b.blockCode === 'PM45')!
+    expect(plain).toMatchObject({ rateBp: 4500, depreciationFullRate: R(45000), additionalDepreciation: R(20000), totalDepreciation: R(65000), closingWdv: R(35000), cappedFromBp: null, additionalDisallowed: false })
+    // Rule 25(2) regime: 40% ⇒ 40,000, no additional (s.202(2)(a)(vi) / s.205(1)(a)); closing 60,000.
+    const st = fa.itStatement(db, 2026, { concessionalRegime: true })
+    expect(st.concessionalRegime).toBe(true)
+    expect(st.blocks.find((b) => b.blockCode === 'PM45')).toMatchObject({
+      rateBp: 4000, cappedFromBp: 4500, additionalRateBp: 0, additionalDepreciation: 0, totalDepreciation: R(40000), closingWdv: R(60000), additionalDisallowed: true
+    })
+    // FY 2027-28 carries 60,000 forward: 60,000 × 40% = 24,000.
+    expect(fa.itStatement(db, 2027, { concessionalRegime: true }).blocks.find((b) => b.blockCode === 'PM45')).toMatchObject({ openingWdv: R(60000), totalDepreciation: R(24000) })
+    // A 1961-Act year (FY 2025-26, the four laptops at 40%) is the same either way.
+    fa.saveAsset(db, laptops())
+    const y25 = fa.itStatement(db, 2025).blocks
+    expect(fa.itStatement(db, 2025, { concessionalRegime: true }).blocks).toEqual(y25)
   })
 })

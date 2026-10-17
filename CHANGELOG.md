@@ -477,6 +477,14 @@ Read these before filing from the next release.
   total, the GSTR-1 table for the extra (not in the export or GSTR-9 — enter it on the portal as your
   CA advises), the credit share — `src/shared/fixedAssetSources.ts`.
   [#PR](https://github.com/IrminFlow/total/pull/PR)
+- **Fixed assets: the rule 25(2) 40 % cap on income-tax depreciation.** The Income-tax tab has a
+  "Concessional tax regime" switch for the persons in the Income-tax Rules, 2026 rule 25(2) Table (a
+  domestic company under s.199(3) / 200(5) / 201(2), an individual / HUF / AOP / BOI / AJP taxed
+  under s.202(1), a co-operative society under s.203(5) / 204(2)). With it on, each block's rate is
+  capped at 40 % of WDV (the Rate column marks a capped rate) and no additional depreciation is
+  shown (s.202(2)(a)(vi), s.205(1)(a): no deduction under s.33(8)). FY 2026-27 onwards only — the
+  1961 Act's equivalent was not re-read (UNVERIFIED, `src/shared/fixedAssetSources.ts`). Off = the
+  statement as before. [#PR](https://github.com/IrminFlow/total/pull/PR)
 
 ### For developers
 

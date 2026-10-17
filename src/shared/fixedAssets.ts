@@ -157,7 +157,15 @@ export const disposalInputSchema = z.object({
 export type DisposalInput = z.input<typeof disposalInputSchema>
 
 export const scheduleQuerySchema = depreciationPeriodSchema
-export const itStatementQuerySchema = z.object({ fyStartYear: z.number().int().min(1990).max(2100) })
+export const itStatementQuerySchema = z.object({
+  fyStartYear: z.number().int().min(1990).max(2100),
+  /** The assessee is in a regime of the Income-tax Rules, 2026 rule 25(2) Table (a domestic company
+   *  under s.199(3) / 200(5) / 201(2), an individual / HUF / AOP / BOI / AJP under s.202(1), a
+   *  co-operative society under s.203(5) / 204(2)): normal depreciation is capped at 40% of WDV and
+   *  additional depreciation (s.33(8)) is not allowed (s.202(2)(a)(vi), s.205(1)(a)). 2025-Act
+   *  years only — FIXED_ASSET_UNVERIFIED 'r25-1961'. */
+  concessionalRegime: z.boolean().default(false)
+})
 
 // ---------------------------------------------------------------------------------------------
 // Rows (what main returns)
@@ -432,10 +440,16 @@ export interface ItStatementBlockRow extends ItBlockResult {
   /** Opening WDV came from: the user's entry for this FY, the previous FY's computed closing, or nothing (0). */
   openingSource: 'entered' | 'carried' | 'none'
   assetCount: number
+  /** Rule 25(2): the block's prescribed rate before the 40% cap (null = not capped). */
+  cappedFromBp: number | null
+  /** Rule 25(2) regime: additional depreciation (s.33(8)) not allowed this year. */
+  additionalDisallowed: boolean
 }
 
 export interface ItStatement {
   fyStartYear: number
+  /** Computed for a rule 25(2) regime (the query's flag). */
+  concessionalRegime: boolean
   blocks: ItStatementBlockRow[]
   /** Assets without an IT block — left out of the statement. */
   unassignedAssets: { assetId: number; name: string }[]
