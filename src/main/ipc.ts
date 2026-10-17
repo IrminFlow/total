@@ -46,7 +46,7 @@ import {
   tdsRateInputSchema, tdsRatesQuerySchema, tdsCertificateInputSchema, tdsCertificatesQuerySchema, tdsChallanInputSchema,
   tdsChallansQuerySchema, tdsAllocateSchema, tdsUnallocateSchema, tdsUnallocatedSchema,
   tdsEligibleSchema, tdsDeductedSchema, tdsApplySchema, tdsApplyManySchema, tdsVoucherSchema, tdsExemptSchema, tdsQuarterSchema,
-  tdsChallanFromPaymentSchema, tdsChallanRowsSchema, tcsSuggestSchema, tdsChallanInterestSchema, tdsAutoAllocateSchema, tdsForm16aSchema, tdsLedgerSummarySchema
+  tdsChallanFromPaymentSchema, tdsChallanRowsSchema, tcsSuggestSchema, tcsStatutoryAddSchema, tdsChallanInterestSchema, tdsAutoAllocateSchema, tdsForm16aSchema, tdsLedgerSummarySchema
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
 import { AppError, structuredOf, type StructuredError } from '@shared/errors'
@@ -2409,6 +2409,10 @@ export function registerIpc(): void {
   handle('tcs:sections', () => tds.listSections(requireCompany().db, 'tcs'), 'viewer')
   handle('tcs:sectionSave', (p) => tds.saveSection(requireCompany().db, tdsSectionInputSchema.parse(p), 'tcs'), 'owner')
   handle('tcs:suggest', (p) => tcsSvc.tcsSuggestion(requireCompany().db, tcsSuggestSchema.parse(p)), 'viewer')
+  // Statutory sections a company may lack (s.206C(1C)) and the owner's "add them" (no migration;
+  // cited rows in src/shared/tcsSources.ts, audited tdsSection / tdsRate creates).
+  handle('tcs:statutory', () => tcsSvc.statutoryTcsSections(requireCompany().db), 'viewer')
+  handle('tcs:statutoryAdd', (p) => tcsSvc.addStatutoryTcsSections(requireCompany().db, tcsStatutoryAddSchema.parse(p ?? {}).codes), 'owner')
   handle('tcs:rates', (p) => tds.listRates(requireCompany().db, tdsRatesQuerySchema.parse(p ?? {}).sectionId, 'tcs'), 'viewer')
   handle('tcs:rateSave', (p) => tds.saveRate(requireCompany().db, tdsRateInputSchema.parse(p)), 'owner')
   handle('tcs:rateDelete', (p) => tds.deleteRate(requireCompany().db, idSchema.parse(p).id), 'owner')

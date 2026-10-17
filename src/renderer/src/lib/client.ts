@@ -352,6 +352,15 @@ export type TcsSuggestion = Omit<TdsSuggestion, 'sectionFrom' | 'candidates'> & 
   slab?: { limitPaise: number; priorPaise: number; belowPaise: number; abovePaise: number; lowerRateBp: number; upperRateBp: number } | null
 }
 
+/** Mirrors src/main/services/tcs.ts TcsStatutoryStatus: a statutory TCS section and whether the company has it. */
+export interface TcsStatutoryStatus {
+  code: string
+  description: string
+  legacyCode: string
+  newReference: string
+  sectionId: number | null
+}
+
 /** tcs:suggest payload (src/shared/schemas.ts tcsSuggestSchema). */
 export interface TcsSuggestRequest {
   partyLedgerId: number
@@ -1223,6 +1232,8 @@ export const api = {
   tcs: {
     sections: () => call<TdsSection[]>('tcs:sections'),
     sectionSave: (data: TdsSectionInput) => call<TdsSection>('tcs:sectionSave', data),
+    statutory: () => call<TcsStatutoryStatus[]>('tcs:statutory'),
+    statutoryAdd: (codes?: string[]) => call<TdsSection[]>('tcs:statutoryAdd', codes ? { codes } : {}),
     suggest: (input: TcsSuggestRequest) => call<TcsSuggestion | null>('tcs:suggest', input),
     rates: (sectionId?: number) => call<TdsRate[]>('tcs:rates', { sectionId }),
     rateSave: (data: TdsRateInput) => call<TdsRate>('tcs:rateSave', data),
