@@ -457,7 +457,7 @@ Read these before filing from the next release.
   depreciating on its own cost. In the income-tax block the part's sale price reduces the block
   (2025 Act s.41(1)(c); the 1961 Act's s.43(6)(c) was not re-read); the block goes on while assets remain. Binning the journal puts
   the part back as its own record. Assets without a partial disposal are unchanged. Readings and
-  UNVERIFIED points: `src/shared/fixedAssetSources.ts`. [#PR](https://github.com/IrminFlow/total/pull/PR)
+  UNVERIFIED points: `src/shared/fixedAssetSources.ts`. [#158](https://github.com/IrminFlow/total/pull/158)
 - **Fixed assets: GST on the sale of a capital good** (CGST Act s.18(6)). Tick "Charge GST" on a
   disposal (regular registration on the sale date only): the proceeds are the value before GST, a
   tax invoice goes to the buyer in the sales series (Dr buyer, Cr "Sale of Fixed Assets", Cr output
@@ -476,7 +476,7 @@ Read these before filing from the next release.
   governs (both computed, the higher used), quarter / month counting, the comparison on the GST
   total, the GSTR-1 table for the extra (not in the export or GSTR-9 — enter it on the portal as your
   CA advises), the credit share — `src/shared/fixedAssetSources.ts`.
-  [#PR](https://github.com/IrminFlow/total/pull/PR)
+  [#158](https://github.com/IrminFlow/total/pull/158)
 - **Fixed assets: the rule 25(2) 40 % cap on income-tax depreciation.** The Income-tax tab has a
   "Concessional tax regime" switch for the persons in the Income-tax Rules, 2026 rule 25(2) Table (a
   domestic company under s.199(3) / 200(5) / 201(2), an individual / HUF / AOP / BOI / AJP taxed
@@ -484,7 +484,7 @@ Read these before filing from the next release.
   capped at 40 % of WDV (the Rate column marks a capped rate) and no additional depreciation is
   shown (s.202(2)(a)(vi), s.205(1)(a): no deduction under s.33(8)). FY 2026-27 onwards only — the
   1961 Act's equivalent was not re-read (UNVERIFIED, `src/shared/fixedAssetSources.ts`). Off = the
-  statement as before. [#PR](https://github.com/IrminFlow/total/pull/PR)
+  statement as before. [#158](https://github.com/IrminFlow/total/pull/158)
 - **Fixed assets: extra-shift depreciation** (Schedule II Notes para 6). A depreciation run can take
   double- and triple-shift days per asset: the charge for those days rises by 50 % / 100 % (the
   period's single-shift charge × (½ × double + 1 × triple days) ÷ days depreciated). Refused for
@@ -492,14 +492,14 @@ Read these before filing from the next release.
   and for more shift days than the asset is depreciated in the period. The days are in the journal's
   narration and the run's audit row. A run without shift days is unchanged. UNVERIFIED: the formula
   with several cost layers, classes you add are not checked — `src/shared/fixedAssetSources.ts`.
-  [#PR](https://github.com/IrminFlow/total/pull/PR)
+  [#158](https://github.com/IrminFlow/total/pull/158)
 - **Fixed assets: component lives** (Schedule II Notes para 4). "Split off a component…" on an asset
   with no depreciation booked yet makes a significant part (a machine's motor, say) its own record
   with its own cost and useful life; the asset keeps the rest of the cost and both stay on the same
   ledger, so the books don't change — only the depreciation each is charged. After the first run a
   different life is a change of estimate on the asset form. UNVERIFIED / not modelled: splitting
   after depreciation is booked, a stored link between the two records —
-  `src/shared/fixedAssetSources.ts`. [#PR](https://github.com/IrminFlow/total/pull/PR)
+  `src/shared/fixedAssetSources.ts`. [#158](https://github.com/IrminFlow/total/pull/158)
 
 ### For developers
 
