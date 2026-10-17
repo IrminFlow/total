@@ -39,6 +39,7 @@ import { ledgerStatement } from './reports'
 import { openingBillsByParty, outstandings, partyAllocation, registerVoucherRows } from './analysis'
 import { createLedger, descendantIdsByName, getLedger } from './masters'
 import { outwardSupplyClass } from './gst'
+import { hasTaxSnapshots } from './taxFacts'
 import { extractEdocInvoices } from './edocs'
 import { resolveTemplate } from './printTemplates'
 import { plexFontFaceCss } from './printFonts'
@@ -438,14 +439,22 @@ interface SupplyFacts {
  *  class (services/gst.ts outwardSupplyClass — SEZ / export, pos override); a bill with no
  *  invoice (opening balance, journal) gets the party's class and no shares. */
 function supplyFacts(db: DB, company: CompanyInfo, party: PartyRow, voucherId: number | null): SupplyFacts {
+  const snap = hasTaxSnapshots(db)
   const head = voucherId == null
     ? undefined
     : (db
-        .prepare(`SELECT vt.kind, v.pos_override AS posOverride FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.id = ? AND ${IN_BOOKS}`)
-        .get(voucherId) as { kind: string; posOverride: string | null } | undefined)
+        .prepare(`SELECT vt.kind, v.pos_override AS posOverride${snap ? ', v.snap_tax_facts AS snapped, v.snap_party_export_type AS snapExportType, v.snap_party_state AS snapState' : ''}
+                  FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id WHERE v.id = ? AND ${IN_BOOKS}`)
+        .get(voucherId) as { kind: string; posOverride: string | null; snapped?: number | null; snapExportType?: string | null; snapState?: string | null } | undefined)
   const isInvoice = !!head && (head.kind === 'sales' || head.kind === 'debit_note')
   const posOverride = isInvoice ? head!.posOverride : null
-  const cls = outwardSupplyClass(company, { partyExportType: party.exportType, partyState: party.stateCode, posOverride })
+  // To-do §4: the original invoice's own snapshot of the party's class wins over today's master.
+  const frozen = isInvoice && head!.snapped === 1
+  const cls = outwardSupplyClass(company, {
+    partyExportType: frozen ? (head!.snapExportType as PartyRow['exportType']) ?? null : party.exportType,
+    partyState: frozen ? head!.snapState ?? null : party.stateCode,
+    posOverride
+  })
   let shares: RateShare[] = []
   if (isInvoice) {
     const [inv] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId!)

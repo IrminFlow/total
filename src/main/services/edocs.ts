@@ -14,6 +14,7 @@ import { computeGst, supplyTypeFor } from '@shared/gst/calc'
 import { toUqc } from '@shared/gst/uqc'
 import { descendantIdsByName } from './masters'
 import { outwardDebitNoteIds, postedLineRates } from './gst'
+import { lineSnapSql, partySnapshots, withPartySnap } from './taxFacts'
 import { writeAudit } from './audit'
 import { companyExportsDir } from '../paths'
 import { IN_BOOKS, NOT_DELETED } from './vouchers'
@@ -88,13 +89,15 @@ function supTypFor(exportType: string | null, partyStateCode: string | null): 'B
 export function listSalesInvoices(db: DB, from: string, to: string, company?: CompanyInfo): EdocListRow[] {
   const kindPlaceholders = EDOC_KINDS.map(() => '?').join(', ')
   const outwardDbn = outwardDebitNoteIds(db, from, to)
-  const rows = db
+  // To-do §4: a voucher's own tax-fact snapshot (services/taxFacts.ts) wins over today's masters.
+  const itemFacts = lineSnapSql(db, 'v', 'il', 'si')
+  const scanned = db
     .prepare(
       `SELECT v.id AS voucherId, v.number, v.date, vt.kind AS kind, p.id AS partyLedgerId, p.name AS partyName, p.gstin AS partyGstin,
               COALESCE(t.total, 0) AS total, v.vehicle_no AS vehicleNo,
               CASE WHEN v.irn_cancelled_at IS NULL THEN v.irn END AS irn, v.irn_cancelled_at AS irnCancelledAt, v.ewb_no AS ewbNo,
               EXISTS(SELECT 1 FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id
-                     WHERE il.voucher_id = v.id AND si.hsn IS NOT NULL) AS hasHsn,
+                     WHERE il.voucher_id = v.id AND ${itemFacts.hsn} IS NOT NULL) AS hasHsn,
               EXISTS(SELECT 1 FROM inventory_lines il2 WHERE il2.voucher_id = v.id AND il2.qty_milli != 0) AS hasGoods
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
@@ -105,6 +108,8 @@ export function listSalesInvoices(db: DB, from: string, to: string, company?: Co
        ORDER BY v.date, v.id`
     )
     .all(...EDOC_KINDS, from, to) as any[]
+  const listSnaps = partySnapshots(db, scanned.map((r: { voucherId: number }) => r.voucherId))
+  const rows = scanned.map((r: { voucherId: number; partyGstin: string | null }) => withPartySnap(r, listSnaps.get(r.voucherId))) as any[]
   const onChallan = goodsMovedOnChallan(db, rows.filter((r) => r.kind === 'sales').map((r) => r.voucherId))
   const invoiceRows = rows.map((r: any) => {
       const { kind, hasGoods, ...rest } = r
@@ -224,7 +229,10 @@ export function extractEdocInvoices(
 ): EdocInvoice[] {
   const kindPlaceholders = kinds.map(() => '?').join(', ')
   const stockNotes = kinds.some((k) => (STOCK_NOTE_EDOC_KINDS as readonly string[]).includes(k))
-  const vouchers = db
+  // To-do §4: a voucher's own tax-fact snapshot (services/taxFacts.ts) wins over today's masters.
+  const itemFacts = lineSnapSql(db, 'v', 'il', 'si')
+  const ledgerFacts = lineSnapSql(db, 'v', 'vl', 'l')
+  const scanned = db
     .prepare(
       `SELECT v.id, v.number, v.date, vt.kind AS kind, v.reference, v.party_ledger_id AS partyLedgerId, v.ewb_no AS ewbNo,
               ${stockNotes ? 'tvd.purpose' : 'NULL'} AS purpose,
@@ -261,19 +269,24 @@ export function extractEdocInvoices(
       ship_to_state: string | null
     }[]
 
+  // To-do §4: a voucher's own snapshot of the party's class wins (services/taxFacts.ts).
+  const partySnaps = partySnapshots(db, scanned.map((v) => v.id))
+  const vouchers = scanned.map((v) => withPartySnap(v, partySnaps.get(v.id)))
+
   const salesGroupIds = descendantIdsByName(db, ['Sales Accounts', 'Direct Incomes', 'Indirect Incomes'])
 
   const invStmt = db.prepare(
     `SELECT il.qty_milli AS qtyMilli, il.rate_paise AS ratePaise, il.amount, il.discount_paise AS discountPaise,
-            si.name, si.hsn, si.gst_rate AS gstRate, si.cess_rate AS cessRate, si.barcode, u.uqc
+            si.name, ${itemFacts.hsn} AS hsn, ${itemFacts.gstRate} AS gstRate, ${itemFacts.cessRate} AS cessRate, si.barcode, u.uqc
      FROM inventory_lines il
+     JOIN vouchers v ON v.id = il.voucher_id
      JOIN stock_items si ON si.id = il.stock_item_id
      JOIN units u ON u.id = si.unit_id
      WHERE il.voucher_id = ? ORDER BY il.line_order, il.id`
   )
   const lineStmt = db.prepare(
-    `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, l.gst_rate AS gstRate, l.cess_rate AS cessRate, l.hsn, l.name
-     FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+    `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, ${ledgerFacts.gstRate} AS gstRate, ${ledgerFacts.cessRate} AS cessRate, ${ledgerFacts.hsn} AS hsn, l.name
+     FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id JOIN ledgers l ON l.id = vl.ledger_id
      WHERE vl.voucher_id = ? ORDER BY vl.line_order, vl.id`
   )
   const totalStmt = db.prepare(

@@ -27,6 +27,7 @@ import { IN_BOOKS } from './vouchers'
 import { chargesGstOn } from '@shared/gst/registration'
 import { hasTradeSchema } from './tradeLinks'
 import { writeAudit } from './audit'
+import { lineSnapSql, partySnapSql, partySnapshots, withPartySnap } from './taxFacts'
 
 interface DocVoucherRow {
   id: number; date: string; number: string; kind: 'sales' | 'credit_note' | 'debit_note'
@@ -139,7 +140,10 @@ export function extractOutwardDocs(db: DB, company: CompanyInfo, from: string, t
 }
 
 function extractOutwardDocsRaw(db: DB, company: CompanyInfo, from: string, to: string): GstDoc[] {
-  const vouchers = db
+  // To-do §4: a voucher's own tax-fact snapshot (services/taxFacts.ts) wins over today's masters.
+  const itemFacts = lineSnapSql(db, 'v', 'il', 'si')
+  const ledgerFacts = lineSnapSql(db, 'v', 'vl', 'l')
+  const scanned = db
     .prepare(
       `SELECT v.id, v.date, v.number, vt.kind, v.pos_override AS posOverride,
               p.name AS partyName, p.gstin AS partyGstin, p.state_code AS partyState,
@@ -153,6 +157,8 @@ function extractOutwardDocsRaw(db: DB, company: CompanyInfo, from: string, to: s
        ORDER BY v.date, v.id`
     )
     .all(from, to) as DocVoucherRow[]
+  const partySnaps = partySnapshots(db, scanned.map((v) => v.id))
+  const vouchers = scanned.map((v) => withPartySnap(v, partySnaps.get(v.id)))
 
   const outwardDbn = outwardDebitNoteIds(db, from, to)
   const salesGroupIds = descendantIdsByName(db, INCOME_GROUPS)
@@ -170,9 +176,10 @@ function extractOutwardDocsRaw(db: DB, company: CompanyInfo, from: string, to: s
     const invRows = db
       .prepare(
         `SELECT il.voucher_id AS voucherId, il.qty_milli AS qtyMilli, il.amount,
-                si.name AS itemName, si.hsn, si.gst_rate AS gstRate, si.cess_rate AS cessRate,
+                si.name AS itemName, ${itemFacts.hsn} AS hsn, ${itemFacts.gstRate} AS gstRate, ${itemFacts.cessRate} AS cessRate,
                 u.uqc
          FROM inventory_lines il
+         JOIN vouchers v ON v.id = il.voucher_id
          JOIN stock_items si ON si.id = il.stock_item_id
          JOIN units u ON u.id = si.unit_id
          WHERE il.voucher_id IN (${marks}) ORDER BY il.voucher_id, il.line_order, il.id`
@@ -192,8 +199,8 @@ function extractOutwardDocsRaw(db: DB, company: CompanyInfo, from: string, to: s
       .all(...chunk) as { id: number; t: number }[]) tcsBy.set(r.id, r.t)
   }
   const lineStmt = db.prepare(
-    `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, l.gst_rate AS gstRate, l.cess_rate AS cessRate, l.hsn, l.name
-     FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+    `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, ${ledgerFacts.gstRate} AS gstRate, ${ledgerFacts.cessRate} AS cessRate, ${ledgerFacts.hsn} AS hsn, l.name
+     FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id JOIN ledgers l ON l.id = vl.ledger_id
      WHERE vl.voucher_id = ? ORDER BY vl.line_order, vl.id`
   )
   // WP 3.3: income-tax TCS on the invoice is part of the invoice value (the buyer's total, as the
@@ -347,13 +354,16 @@ export function rcmInwardByVoucher(
   db: DB, company: CompanyInfo, from: string, to: string
 ): (TaxTotals & { voucherId: number; kind: 'purchase' | 'debit_note'; partyGstin: string | null })[] {
   const outwardDbn = outwardDebitNoteIds(db, from, to)
+  const party = partySnapSql(db)
+  const itemFacts = lineSnapSql(db, 'v', 'il', 'si')
+  const ledgerFacts = lineSnapSql(db, 'v', 'vl', 'l')
   const vouchers = (db
     .prepare(
-      `SELECT v.id, vt.kind, p.state_code AS partyState, p.gstin AS partyGstin
+      `SELECT v.id, vt.kind, ${party.state} AS partyState, ${party.gstin} AS partyGstin
        FROM vouchers v
        JOIN voucher_types vt ON vt.id = v.voucher_type_id
        JOIN ledgers p ON p.id = v.party_ledger_id
-       WHERE vt.kind IN ('purchase', 'debit_note') AND p.rcm = 1 AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
+       WHERE vt.kind IN ('purchase', 'debit_note') AND ${party.rcm} = 1 AND v.date BETWEEN ? AND ? AND ${IN_BOOKS}
        ORDER BY v.date, v.id`
     )
     .all(from, to) as { id: number; kind: 'purchase' | 'debit_note'; partyState: string | null; partyGstin: string | null }[])
@@ -361,13 +371,13 @@ export function rcmInwardByVoucher(
 
   const purchaseGroupIds = descendantIdsByName(db, ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses'])
   const invStmt = db.prepare(
-    `SELECT il.amount, si.gst_rate AS gstRate, si.cess_rate AS cessRate
-     FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id
+    `SELECT il.amount, ${itemFacts.gstRate} AS gstRate, ${itemFacts.cessRate} AS cessRate
+     FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id JOIN stock_items si ON si.id = il.stock_item_id
      WHERE il.voucher_id = ?`
   )
   const lineStmt = db.prepare(
-    `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, l.gst_rate AS gstRate
-     FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id WHERE vl.voucher_id = ?`
+    `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, ${ledgerFacts.gstRate} AS gstRate
+     FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id JOIN ledgers l ON l.id = vl.ledger_id WHERE vl.voucher_id = ?`
   )
 
   return vouchers.map((v) => {
@@ -428,7 +438,7 @@ export function bookedItcByVoucher(
   db: DB, from: string, to: string
 ): (InwardSummary & { voucherId: number; kind: 'purchase' | 'debit_note'; bucket: 'impg' | 'oth' | 'blocked'; itcEligibility: string })[] {
   const outwardDbn = outwardDebitNoteIds(db, from, to)
-  const rows = db
+  const scanned = db
     .prepare(
       `SELECT v.id AS voucherId, vt.kind, l.tax_type AS taxType,
               SUM(CASE
@@ -452,6 +462,9 @@ export function bookedItcByVoucher(
       voucherId: number; kind: 'purchase' | 'debit_note'; taxType: 'cgst' | 'sgst' | 'igst' | 'cess'; amount: number
       partyState: string | null; partyRcm: number; itcEligibility: string
     }[]
+  // To-do §4: a voucher's own snapshot of the party's class wins (services/taxFacts.ts).
+  const partySnaps = partySnapshots(db, scanned.map((r) => r.voucherId))
+  const rows = scanned.map((r) => withPartySnap(r, partySnaps.get(r.voucherId)))
   const byVoucher = new Map<number, InwardSummary & { voucherId: number; kind: 'purchase' | 'debit_note'; bucket: 'impg' | 'oth' | 'blocked'; itcEligibility: string }>()
   for (const r of rows) {
     if (r.kind === 'debit_note' && outwardDbn.has(r.voucherId)) continue
@@ -703,7 +716,7 @@ interface PurchaseVoucherRow {
  */
 export function extractPurchaseDocs(db: DB, from: string, to: string): PurchaseDoc[] {
   const outwardDbn = outwardDebitNoteIds(db, from, to)
-  const vouchers = (db
+  const scanned = (db
     .prepare(
       `SELECT v.id, v.date, v.number, v.reference, v.party_ledger_id AS partyLedgerId, vt.kind,
               p.name AS partyName, p.gstin AS partyGstin
@@ -715,6 +728,9 @@ export function extractPurchaseDocs(db: DB, from: string, to: string): PurchaseD
     )
     .all(from, to) as PurchaseVoucherRow[])
     .filter((v) => v.kind !== 'debit_note' || !outwardDbn.has(v.id))
+  // To-do §4: a voucher's own snapshot of the party's GSTIN wins (services/taxFacts.ts).
+  const purchaseSnaps = partySnapshots(db, scanned.map((v) => v.id))
+  const vouchers = scanned.map((v) => withPartySnap(v, purchaseSnaps.get(v.id)))
 
   const purchaseGroupIds = descendantIdsByName(db, ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses'])
 
