@@ -139,6 +139,9 @@ describe('cash-flow forecast — MSME s.15 deadlines (msmeDue)', () => {
     post(db, 'journal', '2026-05-25', [dr(purchases, 10_000_00), cr(micro, 10_000_00)], { partyLedgerId: micro })
     // Accepted before the supplier's registration date: not covered.
     post(db, 'journal', '2026-05-10', [dr(purchases, 5_000_00), cr(later, 5_000_00)], { partyLedgerId: later })
+    // A small supplier with 5 days' terms: own due 2 Jun comes before its s.15 date (12 Jun) — s.15 is a cap.
+    const quick = createLedger(db, { name: 'Quick Small', groupId: creditors, creditDays: 5 }).id
+    const bill3 = post(db, 'journal', '2026-05-28', [dr(purchases, 7_000_00), cr(quick, 7_000_00)], { partyLedgerId: quick })
     void bank
     const AS_ON = '2026-06-01'
     const registry = createToolRegistry()
@@ -153,6 +156,7 @@ describe('cash-flow forecast — MSME s.15 deadlines (msmeDue)', () => {
     expect(before.base.flows.some((x) => x.msme)).toBe(false)
     // Register both suppliers as micro (Late Registrant only from 15 May).
     db.prepare("UPDATE ledgers SET msme_registered = 1, msme_category = 'micro' WHERE id IN (?, ?)").run(micro, later)
+    db.prepare("UPDATE ledgers SET msme_registered = 1, msme_category = 'small' WHERE id = ?").run(quick)
     db.prepare("UPDATE ledgers SET msme_registered_from = '2026-05-15' WHERE id = ?").run(later)
     const after = await snapshot()
     // Default (msmeDue off): byte-identical everywhere.
@@ -176,6 +180,15 @@ describe('cash-flow forecast — MSME s.15 deadlines (msmeDue)', () => {
     expect(on.contributions.find((c) => c.ledgerId === later)!.effectiveDate).toBe('2026-07-09')
     expect(plan1.interestIndicative).toBeGreaterThan(0)
     expect(on.msmeInterest!.lines.map((l) => [l.voucherId, l.interestPaise])).toEqual([[bill1, plan1.interestIndicative]])
+    // Fix A: the forecast date is the EARLIER of the bill's own due date and its s.15 date — the
+    // Payables plan's payBy (clamped to today when already past) for every MSME bill.
+    const b3 = on.contributions.find((c) => c.voucherId === bill3)!
+    expect(b3.msme!.payBy).toBe('2026-06-12')
+    expect(b3.effectiveDate).toBe('2026-06-02')
+    for (const c of on.contributions.filter((x) => x.source === 'payable' && x.msme)) {
+      const row = plan.find((r) => r.voucherId === c.voucherId)!
+      expect(c.effectiveDate).toBe(row.payBy < AS_ON ? AS_ON : row.payBy)
+    }
     expect(on.totals.outflow).toBe(JSON.parse(after.forecast).totals.outflow)
   })
 })

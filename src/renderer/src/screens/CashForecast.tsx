@@ -237,7 +237,8 @@ export function CashForecastScreen(): React.JSX.Element {
                 <OptionToggle label="MSME suppliers’ bills on their s.15 deadline" checked={o.msmeDue} onChange={(v) => opts.set('msmeDue', v)} testId="input-forecast-msme-on" />
                 <p className="text-hint text-muted" data-testid="forecast-msme-note">
                   {MSME_RULE.citation}: pay a registered micro / small supplier within the agreed period (max 45 days), or 15 days
-                  with no written agreement. Late bills are expected now; their s.16 interest is indicative and not in the totals.
+                  with no written agreement — counted here from the bill date. A bill falls due on its own terms or that
+                  deadline, whichever is earlier. Late bills are expected now; their s.16 interest is indicative and not in the totals.
                   A pending cheque’s date wins over the deadline.
                 </p>
               </DrawerSection>
@@ -248,7 +249,8 @@ export function CashForecastScreen(): React.JSX.Element {
                   history shows for their ageing bucket, orders by the conversion slider, everything else at 100 %. Overdue items
                   are expected now. Amounts are taxable values for orders (GST nets out against output tax). Pending post-dated
                   cheques, when included, count on their date at 100 % and take their amount off the same party’s open bills.
-                  With MSME deadlines on, a registered micro / small supplier’s bills move to their s.15 pay-by date; the
+                  With MSME deadlines on, a registered micro / small supplier’s bills fall due on their own terms or their s.15 date (from the
+                  bill date), whichever is earlier; the
                   s.16 interest on late ones is shown separately and never counted.
                 </p>
               </DrawerSection>

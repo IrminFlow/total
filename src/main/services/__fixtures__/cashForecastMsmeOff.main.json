@@ -1,0 +1,1641 @@
+{
+ "weekly": {
+  "periods": [
+   {
+    "key": "w1",
+    "label": "Wk 1 · 1 Jun",
+    "from": "2026-06-01",
+    "to": "2026-06-07",
+    "opening": 30800000,
+    "inflow": 8550000,
+    "outflow": 4000000,
+    "net": 4550000,
+    "closing": 35350000,
+    "bySource": {
+     "receivable": 8550000,
+     "payable": 4000000,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w2",
+    "label": "Wk 2 · 8 Jun",
+    "from": "2026-06-08",
+    "to": "2026-06-14",
+    "opening": 35350000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 35350000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w3",
+    "label": "Wk 3 · 15 Jun",
+    "from": "2026-06-15",
+    "to": "2026-06-21",
+    "opening": 35350000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 35350000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w4",
+    "label": "Wk 4 · 22 Jun",
+    "from": "2026-06-22",
+    "to": "2026-06-28",
+    "opening": 35350000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 35350000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w5",
+    "label": "Wk 5 · 29 Jun",
+    "from": "2026-06-29",
+    "to": "2026-07-05",
+    "opening": 35350000,
+    "inflow": 0,
+    "outflow": 4000000,
+    "net": -4000000,
+    "closing": 31350000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 4000000,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w6",
+    "label": "Wk 6 · 6 Jul",
+    "from": "2026-07-06",
+    "to": "2026-07-12",
+    "opening": 31350000,
+    "inflow": 0,
+    "outflow": 500000,
+    "net": -500000,
+    "closing": 30850000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 500000,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w7",
+    "label": "Wk 7 · 13 Jul",
+    "from": "2026-07-13",
+    "to": "2026-07-19",
+    "opening": 30850000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 30850000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w8",
+    "label": "Wk 8 · 20 Jul",
+    "from": "2026-07-20",
+    "to": "2026-07-26",
+    "opening": 30850000,
+    "inflow": 0,
+    "outflow": 1000000,
+    "net": -1000000,
+    "closing": 29850000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 1000000,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w9",
+    "label": "Wk 9 · 27 Jul",
+    "from": "2026-07-27",
+    "to": "2026-08-02",
+    "opening": 29850000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 29850000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w10",
+    "label": "Wk 10 · 3 Aug",
+    "from": "2026-08-03",
+    "to": "2026-08-09",
+    "opening": 29850000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 29850000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w11",
+    "label": "Wk 11 · 10 Aug",
+    "from": "2026-08-10",
+    "to": "2026-08-16",
+    "opening": 29850000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 29850000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w12",
+    "label": "Wk 12 · 17 Aug",
+    "from": "2026-08-17",
+    "to": "2026-08-23",
+    "opening": 29850000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 29850000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w13",
+    "label": "Wk 13 · 24 Aug",
+    "from": "2026-08-24",
+    "to": "2026-08-30",
+    "opening": 29850000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 29850000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   }
+  ],
+  "contributions": [
+   {
+    "source": "receivable",
+    "direction": "in",
+    "date": "2026-05-25",
+    "amount": 9000000,
+    "probabilityBp": 9500,
+    "label": "Acme Buyer · 1",
+    "ledgerId": 5,
+    "voucherId": 2,
+    "bucket": 0,
+    "effectiveDate": "2026-06-01",
+    "effectiveBp": 9500,
+    "weighted": 8550000,
+    "periodKey": "w1"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-05-30",
+    "amount": 2500000,
+    "probabilityBp": 10000,
+    "label": "Small Forge · 4",
+    "ledgerId": 7,
+    "voucherId": 5,
+    "effectiveDate": "2026-06-01",
+    "effectiveBp": 10000,
+    "weighted": 2500000,
+    "periodKey": "w1"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-05-15",
+    "amount": 1500000,
+    "probabilityBp": 10000,
+    "label": "Medium Mills · 5",
+    "ledgerId": 8,
+    "voucherId": 6,
+    "effectiveDate": "2026-06-01",
+    "effectiveBp": 10000,
+    "weighted": 1500000,
+    "periodKey": "w1"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-06-30",
+    "amount": 4000000,
+    "probabilityBp": 10000,
+    "label": "Micro Castings · 2",
+    "ledgerId": 6,
+    "voucherId": 3,
+    "effectiveDate": "2026-06-30",
+    "effectiveBp": 10000,
+    "weighted": 4000000,
+    "periodKey": "w5"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-07-09",
+    "amount": 500000,
+    "probabilityBp": 10000,
+    "label": "Late Registrant · 6",
+    "ledgerId": 9,
+    "voucherId": 7,
+    "effectiveDate": "2026-07-09",
+    "effectiveBp": 10000,
+    "weighted": 500000,
+    "periodKey": "w6"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-07-24",
+    "amount": 1000000,
+    "probabilityBp": 10000,
+    "label": "Micro Castings · 3",
+    "ledgerId": 6,
+    "voucherId": 4,
+    "effectiveDate": "2026-07-24",
+    "effectiveBp": 10000,
+    "weighted": 1000000,
+    "periodKey": "w8"
+   }
+  ],
+  "totals": {
+   "inflow": 8550000,
+   "outflow": 9500000,
+   "closing": 29850000
+  },
+  "lowest": {
+   "closing": 29850000,
+   "periodKey": "w8"
+  },
+  "firstShortfall": null,
+  "beyond": {
+   "inflow": 0,
+   "outflow": 0
+  }
+ },
+ "monthly": {
+  "periods": [
+   {
+    "key": "2026-06",
+    "label": "Jun 2026",
+    "from": "2026-06-01",
+    "to": "2026-06-30",
+    "opening": 30800000,
+    "inflow": 8550000,
+    "outflow": 8000000,
+    "net": 550000,
+    "closing": 31350000,
+    "bySource": {
+     "receivable": 8550000,
+     "payable": 8000000,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "2026-07",
+    "label": "Jul 2026",
+    "from": "2026-07-01",
+    "to": "2026-07-31",
+    "opening": 31350000,
+    "inflow": 0,
+    "outflow": 1500000,
+    "net": -1500000,
+    "closing": 29850000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 1500000,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "2026-08",
+    "label": "Aug 2026",
+    "from": "2026-08-01",
+    "to": "2026-08-31",
+    "opening": 29850000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 29850000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "2026-09",
+    "label": "Sep 2026",
+    "from": "2026-09-01",
+    "to": "2026-09-30",
+    "opening": 29850000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 29850000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   }
+  ],
+  "contributions": [
+   {
+    "source": "receivable",
+    "direction": "in",
+    "date": "2026-05-25",
+    "amount": 9000000,
+    "probabilityBp": 9500,
+    "label": "Acme Buyer · 1",
+    "ledgerId": 5,
+    "voucherId": 2,
+    "bucket": 0,
+    "effectiveDate": "2026-06-01",
+    "effectiveBp": 9500,
+    "weighted": 8550000,
+    "periodKey": "2026-06"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-05-30",
+    "amount": 2500000,
+    "probabilityBp": 10000,
+    "label": "Small Forge · 4",
+    "ledgerId": 7,
+    "voucherId": 5,
+    "effectiveDate": "2026-06-01",
+    "effectiveBp": 10000,
+    "weighted": 2500000,
+    "periodKey": "2026-06"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-05-15",
+    "amount": 1500000,
+    "probabilityBp": 10000,
+    "label": "Medium Mills · 5",
+    "ledgerId": 8,
+    "voucherId": 6,
+    "effectiveDate": "2026-06-01",
+    "effectiveBp": 10000,
+    "weighted": 1500000,
+    "periodKey": "2026-06"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-06-30",
+    "amount": 4000000,
+    "probabilityBp": 10000,
+    "label": "Micro Castings · 2",
+    "ledgerId": 6,
+    "voucherId": 3,
+    "effectiveDate": "2026-06-30",
+    "effectiveBp": 10000,
+    "weighted": 4000000,
+    "periodKey": "2026-06"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-07-09",
+    "amount": 500000,
+    "probabilityBp": 10000,
+    "label": "Late Registrant · 6",
+    "ledgerId": 9,
+    "voucherId": 7,
+    "effectiveDate": "2026-07-09",
+    "effectiveBp": 10000,
+    "weighted": 500000,
+    "periodKey": "2026-07"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-07-24",
+    "amount": 1000000,
+    "probabilityBp": 10000,
+    "label": "Micro Castings · 3",
+    "ledgerId": 6,
+    "voucherId": 4,
+    "effectiveDate": "2026-07-24",
+    "effectiveBp": 10000,
+    "weighted": 1000000,
+    "periodKey": "2026-07"
+   }
+  ],
+  "totals": {
+   "inflow": 8550000,
+   "outflow": 9500000,
+   "closing": 29850000
+  },
+  "lowest": {
+   "closing": 29850000,
+   "periodKey": "2026-07"
+  },
+  "firstShortfall": null,
+  "beyond": {
+   "inflow": 0,
+   "outflow": 0
+  }
+ },
+ "worst": {
+  "periods": [
+   {
+    "key": "w1",
+    "label": "Wk 1 · 1 Jun",
+    "from": "2026-06-01",
+    "to": "2026-06-07",
+    "opening": 30800000,
+    "inflow": 0,
+    "outflow": 4000000,
+    "net": -4000000,
+    "closing": 26800000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 4000000,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w2",
+    "label": "Wk 2 · 8 Jun",
+    "from": "2026-06-08",
+    "to": "2026-06-14",
+    "opening": 26800000,
+    "inflow": 5985000,
+    "outflow": 0,
+    "net": 5985000,
+    "closing": 32785000,
+    "bySource": {
+     "receivable": 5985000,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w3",
+    "label": "Wk 3 · 15 Jun",
+    "from": "2026-06-15",
+    "to": "2026-06-21",
+    "opening": 32785000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 32785000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w4",
+    "label": "Wk 4 · 22 Jun",
+    "from": "2026-06-22",
+    "to": "2026-06-28",
+    "opening": 32785000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 32785000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w5",
+    "label": "Wk 5 · 29 Jun",
+    "from": "2026-06-29",
+    "to": "2026-07-05",
+    "opening": 32785000,
+    "inflow": 0,
+    "outflow": 4000000,
+    "net": -4000000,
+    "closing": 28785000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 4000000,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w6",
+    "label": "Wk 6 · 6 Jul",
+    "from": "2026-07-06",
+    "to": "2026-07-12",
+    "opening": 28785000,
+    "inflow": 0,
+    "outflow": 500000,
+    "net": -500000,
+    "closing": 28285000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 500000,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w7",
+    "label": "Wk 7 · 13 Jul",
+    "from": "2026-07-13",
+    "to": "2026-07-19",
+    "opening": 28285000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 28285000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w8",
+    "label": "Wk 8 · 20 Jul",
+    "from": "2026-07-20",
+    "to": "2026-07-26",
+    "opening": 28285000,
+    "inflow": 0,
+    "outflow": 1000000,
+    "net": -1000000,
+    "closing": 27285000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 1000000,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w9",
+    "label": "Wk 9 · 27 Jul",
+    "from": "2026-07-27",
+    "to": "2026-08-02",
+    "opening": 27285000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 27285000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w10",
+    "label": "Wk 10 · 3 Aug",
+    "from": "2026-08-03",
+    "to": "2026-08-09",
+    "opening": 27285000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 27285000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w11",
+    "label": "Wk 11 · 10 Aug",
+    "from": "2026-08-10",
+    "to": "2026-08-16",
+    "opening": 27285000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 27285000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w12",
+    "label": "Wk 12 · 17 Aug",
+    "from": "2026-08-17",
+    "to": "2026-08-23",
+    "opening": 27285000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 27285000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w13",
+    "label": "Wk 13 · 24 Aug",
+    "from": "2026-08-24",
+    "to": "2026-08-30",
+    "opening": 27285000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 27285000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   }
+  ],
+  "contributions": [
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-05-30",
+    "amount": 2500000,
+    "probabilityBp": 10000,
+    "label": "Small Forge · 4",
+    "ledgerId": 7,
+    "voucherId": 5,
+    "effectiveDate": "2026-06-01",
+    "effectiveBp": 10000,
+    "weighted": 2500000,
+    "periodKey": "w1"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-05-15",
+    "amount": 1500000,
+    "probabilityBp": 10000,
+    "label": "Medium Mills · 5",
+    "ledgerId": 8,
+    "voucherId": 6,
+    "effectiveDate": "2026-06-01",
+    "effectiveBp": 10000,
+    "weighted": 1500000,
+    "periodKey": "w1"
+   },
+   {
+    "source": "receivable",
+    "direction": "in",
+    "date": "2026-05-25",
+    "amount": 9000000,
+    "probabilityBp": 9500,
+    "label": "Acme Buyer · 1",
+    "ledgerId": 5,
+    "voucherId": 2,
+    "bucket": 0,
+    "effectiveDate": "2026-06-09",
+    "effectiveBp": 6650,
+    "weighted": 5985000,
+    "periodKey": "w2"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-06-30",
+    "amount": 4000000,
+    "probabilityBp": 10000,
+    "label": "Micro Castings · 2",
+    "ledgerId": 6,
+    "voucherId": 3,
+    "effectiveDate": "2026-06-30",
+    "effectiveBp": 10000,
+    "weighted": 4000000,
+    "periodKey": "w5"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-07-09",
+    "amount": 500000,
+    "probabilityBp": 10000,
+    "label": "Late Registrant · 6",
+    "ledgerId": 9,
+    "voucherId": 7,
+    "effectiveDate": "2026-07-09",
+    "effectiveBp": 10000,
+    "weighted": 500000,
+    "periodKey": "w6"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-07-24",
+    "amount": 1000000,
+    "probabilityBp": 10000,
+    "label": "Micro Castings · 3",
+    "ledgerId": 6,
+    "voucherId": 4,
+    "effectiveDate": "2026-07-24",
+    "effectiveBp": 10000,
+    "weighted": 1000000,
+    "periodKey": "w8"
+   }
+  ],
+  "totals": {
+   "inflow": 5985000,
+   "outflow": 9500000,
+   "closing": 27285000
+  },
+  "lowest": {
+   "closing": 26800000,
+   "periodKey": "w1"
+  },
+  "firstShortfall": null,
+  "beyond": {
+   "inflow": 0,
+   "outflow": 0
+  }
+ },
+ "pdc": {
+  "periods": [
+   {
+    "key": "w1",
+    "label": "Wk 1 · 1 Jun",
+    "from": "2026-06-01",
+    "to": "2026-06-07",
+    "opening": 30800000,
+    "inflow": 3800000,
+    "outflow": 4000000,
+    "net": -200000,
+    "closing": 30600000,
+    "bySource": {
+     "receivable": 3800000,
+     "payable": 4000000,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w2",
+    "label": "Wk 2 · 8 Jun",
+    "from": "2026-06-08",
+    "to": "2026-06-14",
+    "opening": 30600000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 30600000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w3",
+    "label": "Wk 3 · 15 Jun",
+    "from": "2026-06-15",
+    "to": "2026-06-21",
+    "opening": 30600000,
+    "inflow": 5000000,
+    "outflow": 3000000,
+    "net": 2000000,
+    "closing": 32600000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 8000000
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w4",
+    "label": "Wk 4 · 22 Jun",
+    "from": "2026-06-22",
+    "to": "2026-06-28",
+    "opening": 32600000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 32600000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w5",
+    "label": "Wk 5 · 29 Jun",
+    "from": "2026-06-29",
+    "to": "2026-07-05",
+    "opening": 32600000,
+    "inflow": 0,
+    "outflow": 1000000,
+    "net": -1000000,
+    "closing": 31600000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 1000000,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w6",
+    "label": "Wk 6 · 6 Jul",
+    "from": "2026-07-06",
+    "to": "2026-07-12",
+    "opening": 31600000,
+    "inflow": 0,
+    "outflow": 500000,
+    "net": -500000,
+    "closing": 31100000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 500000,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w7",
+    "label": "Wk 7 · 13 Jul",
+    "from": "2026-07-13",
+    "to": "2026-07-19",
+    "opening": 31100000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 31100000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w8",
+    "label": "Wk 8 · 20 Jul",
+    "from": "2026-07-20",
+    "to": "2026-07-26",
+    "opening": 31100000,
+    "inflow": 0,
+    "outflow": 1000000,
+    "net": -1000000,
+    "closing": 30100000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 1000000,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w9",
+    "label": "Wk 9 · 27 Jul",
+    "from": "2026-07-27",
+    "to": "2026-08-02",
+    "opening": 30100000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 30100000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w10",
+    "label": "Wk 10 · 3 Aug",
+    "from": "2026-08-03",
+    "to": "2026-08-09",
+    "opening": 30100000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 30100000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w11",
+    "label": "Wk 11 · 10 Aug",
+    "from": "2026-08-10",
+    "to": "2026-08-16",
+    "opening": 30100000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 30100000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w12",
+    "label": "Wk 12 · 17 Aug",
+    "from": "2026-08-17",
+    "to": "2026-08-23",
+    "opening": 30100000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 30100000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   },
+   {
+    "key": "w13",
+    "label": "Wk 13 · 24 Aug",
+    "from": "2026-08-24",
+    "to": "2026-08-30",
+    "opening": 30100000,
+    "inflow": 0,
+    "outflow": 0,
+    "net": 0,
+    "closing": 30100000,
+    "bySource": {
+     "receivable": 0,
+     "payable": 0,
+     "sales_order": 0,
+     "purchase_order": 0,
+     "item": 0,
+     "adjustment": 0,
+     "statutory": 0,
+     "emi": 0,
+     "pdc": 0
+    },
+    "shortfall": false
+   }
+  ],
+  "contributions": [
+   {
+    "source": "receivable",
+    "direction": "in",
+    "date": "2026-05-25",
+    "amount": 4000000,
+    "probabilityBp": 9500,
+    "label": "Acme Buyer · 1",
+    "ledgerId": 5,
+    "voucherId": 2,
+    "bucket": 0,
+    "effectiveDate": "2026-06-01",
+    "effectiveBp": 9500,
+    "weighted": 3800000,
+    "periodKey": "w1"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-05-30",
+    "amount": 2500000,
+    "probabilityBp": 10000,
+    "label": "Small Forge · 4",
+    "ledgerId": 7,
+    "voucherId": 5,
+    "effectiveDate": "2026-06-01",
+    "effectiveBp": 10000,
+    "weighted": 2500000,
+    "periodKey": "w1"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-05-15",
+    "amount": 1500000,
+    "probabilityBp": 10000,
+    "label": "Medium Mills · 5",
+    "ledgerId": 8,
+    "voucherId": 6,
+    "effectiveDate": "2026-06-01",
+    "effectiveBp": 10000,
+    "weighted": 1500000,
+    "periodKey": "w1"
+   },
+   {
+    "source": "pdc",
+    "direction": "in",
+    "date": "2026-06-18",
+    "amount": 5000000,
+    "probabilityBp": 10000,
+    "label": "Acme Buyer · cheque 000777",
+    "ledgerId": 5,
+    "voucherId": 9,
+    "effectiveDate": "2026-06-18",
+    "effectiveBp": 10000,
+    "weighted": 5000000,
+    "periodKey": "w3"
+   },
+   {
+    "source": "pdc",
+    "direction": "out",
+    "date": "2026-06-20",
+    "amount": 3000000,
+    "probabilityBp": 10000,
+    "label": "Micro Castings · cheque 1",
+    "ledgerId": 6,
+    "voucherId": 8,
+    "effectiveDate": "2026-06-20",
+    "effectiveBp": 10000,
+    "weighted": 3000000,
+    "periodKey": "w3"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-06-30",
+    "amount": 1000000,
+    "probabilityBp": 10000,
+    "label": "Micro Castings · 2",
+    "ledgerId": 6,
+    "voucherId": 3,
+    "effectiveDate": "2026-06-30",
+    "effectiveBp": 10000,
+    "weighted": 1000000,
+    "periodKey": "w5"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-07-09",
+    "amount": 500000,
+    "probabilityBp": 10000,
+    "label": "Late Registrant · 6",
+    "ledgerId": 9,
+    "voucherId": 7,
+    "effectiveDate": "2026-07-09",
+    "effectiveBp": 10000,
+    "weighted": 500000,
+    "periodKey": "w6"
+   },
+   {
+    "source": "payable",
+    "direction": "out",
+    "date": "2026-07-24",
+    "amount": 1000000,
+    "probabilityBp": 10000,
+    "label": "Micro Castings · 3",
+    "ledgerId": 6,
+    "voucherId": 4,
+    "effectiveDate": "2026-07-24",
+    "effectiveBp": 10000,
+    "weighted": 1000000,
+    "periodKey": "w8"
+   }
+  ],
+  "totals": {
+   "inflow": 8800000,
+   "outflow": 9500000,
+   "closing": 30100000
+  },
+  "lowest": {
+   "closing": 30100000,
+   "periodKey": "w8"
+  },
+  "firstShortfall": null,
+  "beyond": {
+   "inflow": 0,
+   "outflow": 0
+  }
+ },
+ "simple": {
+  "asOn": "2026-06-01",
+  "until": "2026-06-30",
+  "now": 30800000,
+  "moneyIn": 8550000,
+  "moneyOut": 8000000,
+  "end": 31350000,
+  "lowest": null,
+  "inBy": {
+   "customers": 8550000
+  },
+  "outBy": {
+   "suppliers": 8000000
+  },
+  "topIn": [
+   {
+    "label": "Acme Buyer",
+    "date": "2026-06-01",
+    "amount": 8550000,
+    "source": "customers",
+    "ledgerId": 5
+   }
+  ],
+  "topOut": [
+   {
+    "label": "Micro Castings",
+    "date": "2026-06-30",
+    "amount": 4000000,
+    "source": "suppliers",
+    "ledgerId": 6
+   },
+   {
+    "label": "Small Forge",
+    "date": "2026-06-01",
+    "amount": 2500000,
+    "source": "suppliers",
+    "ledgerId": 7
+   },
+   {
+    "label": "Medium Mills",
+    "date": "2026-06-01",
+    "amount": 1500000,
+    "source": "suppliers",
+    "ledgerId": 8
+   }
+  ],
+  "warnings": 0,
+  "split": {
+   "cash": 800000,
+   "bank": 30000000,
+   "total": 30800000,
+   "ledgerIds": [
+    1,
+    2
+   ],
+   "banks": 1
+  },
+  "belowZero": null
+ },
+ "tool": {
+  "asOn": "2026-06-01",
+  "scenario": "expected",
+  "openingCash": "₹3,08,000.00",
+  "totalInflow": "₹85,500.00",
+  "totalOutflow": "₹95,000.00",
+  "closing": "₹2,98,500.00",
+  "lowest": {
+   "closing": "₹2,98,500.00",
+   "period": "Wk 8 · 20 Jul"
+  },
+  "firstShortfall": "none",
+  "periods": [
+   {
+    "period": "Wk 1 · 1 Jun",
+    "inflow": "₹85,500.00",
+    "outflow": "₹40,000.00",
+    "closing": "₹3,53,500.00"
+   },
+   {
+    "period": "Wk 2 · 8 Jun",
+    "inflow": "₹0.00",
+    "outflow": "₹0.00",
+    "closing": "₹3,53,500.00"
+   },
+   {
+    "period": "Wk 3 · 15 Jun",
+    "inflow": "₹0.00",
+    "outflow": "₹0.00",
+    "closing": "₹3,53,500.00"
+   },
+   {
+    "period": "Wk 4 · 22 Jun",
+    "inflow": "₹0.00",
+    "outflow": "₹0.00",
+    "closing": "₹3,53,500.00"
+   },
+   {
+    "period": "Wk 5 · 29 Jun",
+    "inflow": "₹0.00",
+    "outflow": "₹40,000.00",
+    "closing": "₹3,13,500.00"
+   },
+   {
+    "period": "Wk 6 · 6 Jul",
+    "inflow": "₹0.00",
+    "outflow": "₹5,000.00",
+    "closing": "₹3,08,500.00"
+   },
+   {
+    "period": "Wk 7 · 13 Jul",
+    "inflow": "₹0.00",
+    "outflow": "₹0.00",
+    "closing": "₹3,08,500.00"
+   },
+   {
+    "period": "Wk 8 · 20 Jul",
+    "inflow": "₹0.00",
+    "outflow": "₹10,000.00",
+    "closing": "₹2,98,500.00"
+   },
+   {
+    "period": "Wk 9 · 27 Jul",
+    "inflow": "₹0.00",
+    "outflow": "₹0.00",
+    "closing": "₹2,98,500.00"
+   },
+   {
+    "period": "Wk 10 · 3 Aug",
+    "inflow": "₹0.00",
+    "outflow": "₹0.00",
+    "closing": "₹2,98,500.00"
+   },
+   {
+    "period": "Wk 11 · 10 Aug",
+    "inflow": "₹0.00",
+    "outflow": "₹0.00",
+    "closing": "₹2,98,500.00"
+   },
+   {
+    "period": "Wk 12 · 17 Aug",
+    "inflow": "₹0.00",
+    "outflow": "₹0.00",
+    "closing": "₹2,98,500.00"
+   },
+   {
+    "period": "Wk 13 · 24 Aug",
+    "inflow": "₹0.00",
+    "outflow": "₹0.00",
+    "closing": "₹2,98,500.00"
+   }
+  ],
+  "largestFlows": [
+   {
+    "date": "2026-06-01",
+    "direction": "in",
+    "source": "receivable",
+    "label": "Acme Buyer · 1",
+    "ledgerId": 5,
+    "expected": "₹85,500.00"
+   },
+   {
+    "date": "2026-06-30",
+    "direction": "out",
+    "source": "payable",
+    "label": "Micro Castings · 2",
+    "ledgerId": 6,
+    "expected": "₹40,000.00"
+   },
+   {
+    "date": "2026-06-01",
+    "direction": "out",
+    "source": "payable",
+    "label": "Small Forge · 4",
+    "ledgerId": 7,
+    "expected": "₹25,000.00"
+   },
+   {
+    "date": "2026-06-01",
+    "direction": "out",
+    "source": "payable",
+    "label": "Medium Mills · 5",
+    "ledgerId": 8,
+    "expected": "₹15,000.00"
+   },
+   {
+    "date": "2026-07-24",
+    "direction": "out",
+    "source": "payable",
+    "label": "Micro Castings · 3",
+    "ledgerId": 6,
+    "expected": "₹10,000.00"
+   },
+   {
+    "date": "2026-07-09",
+    "direction": "out",
+    "source": "payable",
+    "label": "Late Registrant · 6",
+    "ledgerId": 9,
+    "expected": "₹5,000.00"
+   }
+  ]
+ }
+}

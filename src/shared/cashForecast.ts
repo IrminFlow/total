@@ -22,8 +22,8 @@
  *   payable (out) flows, earliest first (`netPdcAgainstBills`), so nothing is counted twice.
  * - MSME s.15 deadlines (OFF unless `msmeDue`): a payable bill of a registered micro / small
  *   supplier (the service attaches `msme` — the payables helpers' s.15 date, the bill accepted on
- *   or after `msme_registered_from`) is placed on its s.15 pay-by date instead of its own due date,
- *   at the same 100 %; one already past it is overdue (expected now) and its INDICATIVE s.16
+ *   or after `msme_registered_from`) is placed on the EARLIER of its own due date and its s.15
+ *   pay-by date (s.15 caps the terms, as in the Payables plan), at the same 100 % weight; one already past it is overdue (expected now) and its INDICATIVE s.16
  *   interest is listed separately (`msmeInterest`) — never added to the cash totals, never posted.
  *   With PDCs on as well, a cheque takes its amount off the bill first and its own date wins
  *   (the cheque exists); only what the cheque leaves stays on the s.15 date, with its share of the
@@ -469,9 +469,17 @@ export function netPdcAgainstBills(flows: readonly ForecastFlow[]): ForecastFlow
   return out
 }
 
-/** With MSME deadlines on: every payable flow carrying `msme` moves to its s.15 pay-by date. */
+/**
+ * With MSME deadlines on: a payable flow carrying `msme` is dated the EARLIER of its own due date
+ * (the flow's date — the credit-terms due date, else the bill date) and its s.15 pay-by date,
+ * exactly as the Payables plan does (`payByDate` in shared/payables/planning.ts). s.15 is a CAP,
+ * not a replacement: the buyer pays "on or before the date agreed upon between him and the
+ * supplier in writing" and that period may "in no case ... exceed forty-five days" (msmeSources.ts,
+ * "Payment deadline (agreed period, max 45 days; 15 days with no written agreement)") — a bill due
+ * sooner on its own terms stays on its own date.
+ */
 export function placeOnMsmeDeadline(flows: readonly ForecastFlow[]): ForecastFlow[] {
-  return flows.map((f) => (f.source === 'payable' && f.msme ? { ...f, date: f.msme.payBy } : f))
+  return flows.map((f) => (f.source === 'payable' && f.msme && f.msme.payBy < f.date ? { ...f, date: f.msme.payBy } : f))
 }
 
 /** The indicative s.16 interest lines for the MSME payables still counted (`counted` = the flows
