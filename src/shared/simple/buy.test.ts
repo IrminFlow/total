@@ -110,6 +110,37 @@ describe('live totals = the editor calculation = what is posted', () => {
     expect(linesOf(posted(rent, c))).toEqual([[10, 'cr', 118_000], [21, 'dr', 100_000], [50, 'dr', 9_000], [51, 'dr', 9_000]])
   })
 
+  it('to-do §4: an amount typed WITH GST is the printed bill total — the bill is exactly that, the rest its round off', () => {
+    const c = ctxFor()
+    // ₹1,180.50 printed at 18 %: before GST = solveTaxable's; the bill stays ₹1,180.50 (not ₹1,181).
+    const f = form({ mode: 'expense', categoryId: 22, amount: 118_050, gstRate: 18, ratesIncludeGst: true })
+    const intent = purchaseIntentFrom(f, c, DEFAULTS)
+    expect(intent.amount).toMatchObject({ accountId: 22, gstRate: 18, billTotal: 118_050 })
+    const tot = buyTotals(f, c)
+    expect(tot.total).toBe(118_050)
+    expect(tot.taxable + tot.tax + tot.rounding).toBe(118_050)
+    expect(Math.abs(tot.rounding)).toBeLessThan(100)
+    const m = posted(f, c)
+    expect(m.facts).toMatchObject({ total: tot.total, tax: tot.tax })
+    expect(linesOf(m)[0]).toEqual([10, 'cr', 118_050])
+    // Paid now: the money paid is the printed total, never a rupee-rounded figure.
+    const paid = posted({ ...f, paid: 'upi' }, c)
+    expect(paid.entries[1]!.payload.lines.find((l) => l.ledgerId === 31)).toMatchObject({ drCr: 'cr', amount: 118_050 })
+    // Typed before GST: unchanged — rounded to the rupee, no billTotal sent.
+    const before = form({ mode: 'expense', categoryId: 22, amount: 100_050, gstRate: 18 })
+    expect(purchaseIntentFrom(before, c, DEFAULTS).amount).not.toHaveProperty('billTotal')
+    // A business that can't claim, typed with GST: what was paid is the bill, to the paisa.
+    for (const reg of ['unregistered', 'composition'] as const) {
+      const cc = ctxFor(reg)
+      const amt = form({ mode: 'amount', amount: 50_050, ratesIncludeGst: true })
+      expect(purchaseIntentFrom(amt, cc, DEFAULTS).amount).toMatchObject({ amount: 50_050, billTotal: 50_050 })
+      expect(buyTotals(amt, cc)).toMatchObject({ total: 50_050, rounding: 0 })
+      expect(posted(amt, cc).facts.total).toBe(50_050)
+      // Before GST (folded) keeps the rupee rounding.
+      expect(purchaseIntentFrom({ ...amt, ratesIncludeGst: false, gstRate: 18 }, cc, DEFAULTS).amount).not.toHaveProperty('billTotal')
+    }
+  })
+
   it('a regular company, no GST on the bill: just an amount, no tax lines', () => {
     const c = ctxFor()
     const f = form({ mode: 'amount', amount: 50_000, gstOnBill: false })

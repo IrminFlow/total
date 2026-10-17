@@ -216,6 +216,16 @@ function amountTaxable(form: BuyForm, ctx: BuyContext): number | null {
   return form.amount
 }
 
+/** The bill's printed total, when the amount was typed WITH GST (a claimed bill, or what a business
+ *  that can't claim paid): the bill IS that total and what its value + GST leave over (< ₹1) is its
+ *  round off — the WP 9.1 amount line's `billTotal`, as Money out's GST bill sends it. Null = the
+ *  amount was typed before GST (the total is rounded to the rupee as before). */
+function amountBillTotal(form: BuyForm, ctx: BuyContext): number | null {
+  if (form.mode === 'items' || !form.ratesIncludeGst || form.amount == null || form.amount <= 0) return null
+  const g = buyGst(form, ctx)
+  return g === 'claim' || g === 'paid' ? form.amount : null
+}
+
 export interface BuyTotals {
   /** Before GST (on a claimed bill), else the cost. */
   taxable: number
@@ -241,12 +251,12 @@ export function buyTotals(form: BuyForm, ctx: BuyContext): BuyTotals {
     if (taxable == null) return { taxable: 0, tax: 0, folded: 0, total: 0, rounding: 0, lineAmounts: [], gst: g }
     if (g === 'claim') {
       const gst = addBreakups([computeGst(taxable, amountRate(form, ctx) ?? 0, supply)])
-      const total = roundToRupee(gst.total)
+      const total = amountBillTotal(form, ctx) ?? roundToRupee(gst.total)
       return { taxable: gst.taxable, tax: gst.total - gst.taxable, folded: 0, total, rounding: total - gst.total, lineAmounts: [], gst: g }
     }
     const cost = g === 'fold' ? foldGstIntoAmount(taxable, amountRate(form, ctx)) : taxable
     const gst = addBreakups([computeGst(cost, 0, supply)])
-    const total = roundToRupee(gst.total)
+    const total = amountBillTotal(form, ctx) ?? roundToRupee(gst.total)
     return { taxable: gst.taxable, tax: 0, folded: cost - taxable, total, rounding: total - gst.total, lineAmounts: [], gst: g }
   }
   const { lines } = buyIntentLines(form, ctx)
@@ -303,12 +313,15 @@ export function purchaseIntentFrom(form: BuyForm, ctx: BuyContext, defaults: Buy
   if (form.mode !== 'items') {
     const acct = amountAccountId(form, ctx)
     const rate = amountRate(form, ctx)
+    const billTotal = amountBillTotal(form, ctx)
     return {
       ...base,
       amount: {
         amount: amountTaxable(form, ctx) ?? 0,
         ...(acct != null ? { accountId: acct } : {}),
-        ...((g === 'claim' || g === 'fold') && rate != null ? { gstRate: rate } : {})
+        ...((g === 'claim' || g === 'fold') && rate != null ? { gstRate: rate } : {}),
+        // The printed total typed with GST: the bill is exactly that (Money out's GST bill rule).
+        ...(billTotal != null ? { billTotal } : {})
       }
     }
   }
