@@ -104,7 +104,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - ~~Items created over IPC after a screen loaded don't appear in screens that cache the item list (Labels tab)~~ DONE — `total:masters:changed` refreshes the cached master lists — PR #137 — e2e 68 notes
 - TDS: ~~late-deduction (1 %) interest computed but not shown~~ DONE — Deducted tab column + export, display only — PR #126; purchase returns don't reduce the threshold aggregate; 26Q CSV is RPU input, not FVU — WP 3.2
 - Fixed assets not done: partial disposals, GST on asset sale, extra-shift depreciation, component lives, rule 25(2) 40 % cap — WP 3.6
-- Trade cycle not done: ~~16-char invoice-number warning~~ DONE — PR #140 (NIC DocDtls.No warning for e-invoicing companies: gstValidate + the sales editor; an explicit e-invoicing switch in Company details; unset = the history heuristic — PR #144), challan / GRN list screens, convert-to-invoice, live NIC e-way for challans — WP 2.5b
+- Trade cycle not done: ~~16-char invoice-number warning~~ DONE — PR #140 (NIC DocDtls.No warning for e-invoicing companies: gstValidate + the sales editor; an explicit e-invoicing switch in Company details; unset = the history heuristic — PR #144), ~~challan / GRN list screens, convert-to-invoice~~ DONE — PR #149 (Trade → Challans / GRNs lists, "Convert to invoice / bill", several challans of one party onto one invoice), live NIC e-way for challans — WP 2.5b
 - TCS not modelled: 206C(1G) 20 % slab, 206C(1C), LRS — WP 3.3
 - Cash & finance not done: MSME deadlines in the forecast, loan disbursement posting, foreign opening balances — WP 4.4
 - NIC follow-ups needing a migration: store signed QR / signed invoice; cancel IRN / cancel + extend e-way UI — WP 3.5

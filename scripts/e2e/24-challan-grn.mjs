@@ -2,10 +2,12 @@
 // Orders & challans on: a delivery challan with no order → a sales invoice raised from it via
 // "Add from challans…" → the stock moved once (on the challan) and Pending challans is empty;
 // a GRN at ₹100 → a purchase bill from it at ₹110 → the GRN is re-priced in stock and Pending
-// GRNs is empty. With WP25B_SHOTS set, the new screens are captured in both themes there.
+// GRNs is empty; then (WP 2.5b lists) two more challans for the same customer → Challans list →
+// tick both → "Convert 2 challans to one invoice" → the editor holds both challans' lines → save →
+// both challans read Invoiced, no stock moved. With WP25B_SHOTS set, the new screens are captured in both themes there.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import { scenario, assert, assertEq, PICKER_OPTION } from '../lib/harness.mjs'
+import { scenario, assert, assertEq, localToday, PICKER_OPTION } from '../lib/harness.mjs'
 
 await scenario('24-challan-grn', async (h) => {
   await h.createDemoCompany()
@@ -200,6 +202,45 @@ await scenario('24-challan-grn', async (h) => {
   const inv = edocs.find((r) => r.ewbReason?.startsWith('Goods moved on challan'))
   assert(inv, 'the invoice from the challan needs no second e-way bill')
   await both('07-edocs-challan')
+
+  // ---------- 5. Challans list → convert two challans of one customer into one invoice ----------
+  const today = localToday()
+  const challanVia = async (qty) => (await h.invoke('voucher:save', {
+    data: {
+      voucherTypeId: typeOf('delivery_note').id, date: today, partyLedgerId: debtor.id, narration: null, reference: null,
+      instrumentNo: null, instrumentDate: null, transporterId: null, vehicleNo: null, transportDistanceKm: null, currencyCode: null,
+      exchangeRate: null, trade: { purpose: 'supply' }, lines: [],
+      inventory: [{ stockItemId: bolt.id, godownId: null, batchId: null, qtyMilli: qty * 1000, ratePaise: 15_000, amount: qty * 15_000, direction: 'out' }]
+    }
+  })).id
+  const dcA = await challanVia(2)
+  const dcB = await challanVia(3)
+  const beforeConvert = await stockOf()
+  await h.goto('pending-challans')
+  await h.click('tab-trade-pending-challans')
+  await h.waitScreen('challans')
+  await page.waitForSelector(`[data-testid="rows-trade-notes-delivery_note"] [data-row-id="${dcB}"]`, { timeout: 10000 })
+  // The first challan (already invoiced) is not in the pending view.
+  assertEq(await page.locator(`[data-testid="rows-trade-notes-delivery_note"] [data-row-id="${dcRow.voucherId ?? dcRow.id}"]`).count(), 0, 'an invoiced challan is not pending')
+  await h.click(`trade-notes-delivery_note-select-${dcA}`)
+  await h.click(`trade-notes-delivery_note-select-${dcB}`)
+  await page.waitForFunction(() => document.querySelector('[data-testid="btn-notes-convert-selected"]')?.textContent === 'Convert 2 challans to one invoice', null, { timeout: 5000 })
+  await both('08-challans-list')
+  await h.click('btn-notes-convert-selected')
+  await page.waitForFunction(() => document.querySelectorAll('[data-testid="chip-line-source"]').length === 2, null, { timeout: 10000 })
+  const qtys = await page.locator('[data-testid="input-line-qty"]').evaluateAll((els) => els.map((e) => e.value).filter((v) => v))
+  assertEq(qtys.join(','), '2,3', "the invoice holds both challans' pending lines")
+  await pickAccount('e.g. Sales', salesAcc.name)
+  await both('09-invoice-from-two-challans')
+  const salesBefore2 = await count('sales')
+  await h.click('btn-save-voucher')
+  await saved('sales', salesBefore2 + 1)
+  const afterConvert = await stockOf()
+  assertEq(afterConvert.closingQtyMilli, beforeConvert.closingQtyMilli, 'the converted invoice moved no stock')
+  const listed = await h.invoke('trade:noteList', { stage: 'delivery_note', from: '2000-01-01', to: FAR, filter: 'all' })
+  const st = (id) => listed.find((r) => r.voucherId === id)
+  assertEq(`${st(dcA).status},${st(dcB).status}`, 'done,done', 'both challans are invoiced')
+  assertEq(st(dcA).targets[0].voucherId, st(dcB).targets[0].voucherId, 'by one invoice')
 
   // Leave clean.
   await h.goto('gateway')

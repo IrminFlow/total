@@ -33,6 +33,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 2.3 | Valuation method per item (FIFO), stock ageing, negative stock, barcode labels, physical stock | 68 (gap filled) | |
 | 2.4 | Multi-level BOM, versions, scrap, job work, manufacturing reports | 21 | |
 | 2.5 | Quotation / SO / PO, challans / GRNs, returns, linked docs, trade reports | 24, 26, 28 | |
+| 2.5b lists | Challans / GRNs lists, convert two challans of one party to one invoice | 24 | renderer: `tradeNoteList.test.tsx`; db: `tradeLists.dbtest.ts`, `tradeConvert.dbtest.ts` |
 | 2.6 | Price levels, schemes, counter billing | 29 | |
 
 ## Phase 3 — Compliance

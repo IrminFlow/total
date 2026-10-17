@@ -128,6 +128,8 @@ const load_screens_Payables = () => import('./screens/Payables')
 export const PayablesScreen = lazyScreen(load_screens_Payables, 'PayablesScreen')
 const load_screens_TradePending = () => import('./screens/TradePending')
 export const TradePendingScreen = lazyScreen(load_screens_TradePending, 'TradePendingScreen')
+const load_screens_TradeNoteList = () => import('./screens/TradeNoteList')
+export const TradeNoteListScreen = lazyScreen(load_screens_TradeNoteList, 'TradeNoteListScreen')
 const load_screens_TradeDocList = () => import('./screens/TradeDocList')
 export const TradeDocListScreen = lazyScreen(load_screens_TradeDocList, 'TradeDocListScreen')
 const load_screens_TradeDocEntry = () => import('./screens/TradeDocEntry')
@@ -251,6 +253,8 @@ export const SCREEN_CHUNKS: { readonly [N in Screen['name']]?: readonly LazyComp
   'payables': [PayablesScreen],
   'pending-challans': [TradePendingScreen],
   'pending-grns': [TradePendingScreen],
+  'challans': [TradeNoteListScreen],
+  'grns': [TradeNoteListScreen],
   'quotations': [TradeDocListScreen],
   'sales-orders': [TradeDocListScreen],
   'purchase-orders': [TradeDocListScreen],

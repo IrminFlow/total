@@ -216,6 +216,19 @@ describe('conversion into a voucher', () => {
     expect(screen.getByTestId('chip-line-source').textContent).toContain('Sales Order SO-4')
     expect(screen.getByTestId('btn-add-from').textContent).toContain('Add from sales orders')
   })
+
+  it('reads the open order lines afresh: a cached list from before the order was saved is not used', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 60_000 } } })
+    // What an earlier "Add from…" in this session cached: the order wasn't saved yet.
+    client.setQueryData(['openSourceLines', 10, 'delivery_note', 'fulfil', null, null], [])
+    render(
+      <QueryClientProvider client={client}>
+        <VoucherEntry kindHint="delivery_note" draft={{ partyLedgerId: 10, fromTradeDocId: 7 }} />
+      </QueryClientProvider>
+    )
+    await screen.findByTestId('chip-line-source')
+    expect((screen.getAllByTestId('input-line-qty')[0] as HTMLInputElement).value).toBe('6')
+  })
 })
 
 describe('credit-limit warning text (§9 Q9)', () => {

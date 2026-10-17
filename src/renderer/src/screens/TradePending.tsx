@@ -11,7 +11,7 @@ import { Button, DrawerSection, Page, PageHeader, Panel } from '../components/ui
 import { OptionsPeriod, OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import { ItemLink, LedgerLink, VoucherLink } from '../components/links'
-import { TabBar } from '../components/TabBar'
+import { NoteTabs } from './trade/noteTabs'
 
 export type PendingStage = 'delivery_note' | 'receipt_note'
 
@@ -68,17 +68,7 @@ export function TradePendingScreen({ stage }: { stage: PendingStage }): React.JS
       <PageHeader
         title={TITLE[stage]}
         period={periodLabel}
-        tabs={
-          <TabBar
-            screen="trade-pending"
-            tabs={[
-              { id: 'delivery_note', label: 'Challans not invoiced' },
-              { id: 'receipt_note', label: 'GRNs not billed' }
-            ]}
-            active={stage}
-            onSelect={(s) => nav.go({ name: s === 'delivery_note' ? 'pending-challans' : 'pending-grns' })}
-          />
-        }
+        tabs={<NoteTabs active={stage} />}
         actions={
           <Button
             data-testid="btn-trade-pending-new"

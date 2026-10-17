@@ -93,6 +93,7 @@ import * as serials from './services/serials'
 import * as tradeLinks from './services/tradeLinks'
 import * as tradeDocTypes from './services/tradeDocTypes'
 import * as tradeReports from './services/tradeReports'
+import * as tradeLists from './services/tradeLists'
 import * as tradeDocs from './services/tradeDocs'
 import * as tradeChain from './services/tradeChain'
 import * as tradeAnalysis from './services/tradeAnalysis'
@@ -182,7 +183,7 @@ import { roleAllows, type Role } from './services/roles'
 import {
   bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
   userInputSchema, authLoginSchema, payHeadInputSchema, employeeHeadsSetSchema, payrollRunIdSchema,
-  auditRetentionSchema, auditExportSchema, auditTrailRequiredSchema, invoicePdfBatchSchema, linksForVoucherSchema, openSourceLinesSchema, tradePendingSchema, tradeDocNextNumberSchema,
+  auditRetentionSchema, auditExportSchema, auditTrailRequiredSchema, invoicePdfBatchSchema, linksForVoucherSchema, openSourceLinesSchema, tradePendingSchema, tradeNoteListSchema, tradeDocNextNumberSchema,
   tradeDocTypeSaveSchema, tradeDocListSchema, tradeDocSaveSchema, tradeDocActionSchema, tradeDocConvertSchema, pendingOrdersSchema,
   quotationPipelineSchema, openOrderValueSchema, tradeChainSchema, threeWayMatchSchema, itemDemandSchema, orderBookSchema,
   leadTimeSchema, returnsRegisterSchema, returnsRateSchema, asOnSchema, staleDocumentsSchema, noteActionSchema, noteClosureSchema,
@@ -1549,6 +1550,8 @@ export function registerIpc(): void {
     const { stage, asOn } = tradePendingSchema.parse(p)
     return tradeReports.pendingStockNotes(requireCompany().db, stage, asOn)
   }, 'viewer')
+  // WP 2.5b lists: the challan / GRN list screens (documents + live links at query time).
+  handle('trade:noteList', (p) => tradeLists.listStockNotes(requireCompany().db, tradeNoteListSchema.parse(p)), 'viewer')
   // ---------- quotations / sales orders / purchase orders (WP 2.5c) ----------
   handle('tradeDocs:list', (p) => tradeDocs.listTradeDocs(requireCompany().db, tradeDocListSchema.parse(p)), 'viewer')
   handle('tradeDocs:get', (p) => tradeDocs.getTradeDoc(requireCompany().db, idSchema.parse(p).id), 'viewer')

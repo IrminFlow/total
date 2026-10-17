@@ -411,6 +411,16 @@ Read these before filing from the next release.
   payer's leaf). **Upgrading:** if you used cheque numbers before adding a cheque book, open
   Banking → Cheques on each bank and run "Fill the register from earlier entries" once.
   [#146](https://github.com/IrminFlow/total/pull/146)
+- **Challans and GRNs lists, and "Convert to invoice / bill".** Orders & challans now has a
+  Delivery challans list and a Goods receipt notes list (tabs beside Pending challans / Pending
+  GRNs, and in ⌘K): date, number, party, items, quantity, what is still pending, status (not
+  invoiced / partly invoiced / invoiced / short-closed) and the invoices or bills drawing on each.
+  "Pending" lists every note still to invoice whatever its date; "Done / closed" and "All" list the
+  period. "Convert to invoice" (a challan) or "Convert to bill" (a GRN) opens the sales / purchase
+  editor with every pending line drawn and linked, as "Add from…" would; tick several notes of one
+  party to put them on one invoice. Only supply / on-approval challans and purchase GRNs convert.
+  No figure changed: the pending quantity and value are the Pending challans / GRNs report's, and so
+  GDNI / GRNI's, to the paisa. [#149](https://github.com/IrminFlow/total/pull/149)
 
 ### For developers
 
@@ -418,6 +428,18 @@ Read these before filing from the next release.
   (owner, Zod-strict `{ bankLedgerId?, includeOutside?, voucherIds? }`, audited `cheque`) in
   `services/cheques.ts`; the number reader is `chequeNumberOf` in `shared/chequeRegister.ts`
   (over `leafValue`). No migration. [#146](https://github.com/IrminFlow/total/pull/146)
+- WP 2.5b lists: new viewer read `trade:noteList` (`services/tradeLists.ts`, Zod
+  `tradeNoteListSchema`) — documents + live links at query time, batched in chunks of 500, nothing
+  stored. Screens `challans` / `grns` (`screens/TradeNoteList.tsx`, `navSection: null` — the
+  accountant sidebar snapshot is unchanged; reached by the shared `trade/noteTabs.tsx` tabs and the
+  palette). The voucher-entry draft gained `fromVoucherIds` beside `fromTradeDocId`; both go through
+  the pure `shared/tradeCycle/convert.ts` `convertPicks` (the drawer's own picks) into
+  `rowsFromSourcePicks`, and the editor saves through `voucher:save` (links written by the target's
+  save, I1–I7 unchanged). `GDNI_PURPOSES` / `GRNI_PURPOSES` moved there (re-exported by
+  tradeAnalysis.ts). A conversion (order → challan / GRN in `useAddFrom` too) draws only from open
+  lines read after the editor opened — a cached list could miss a note / order saved since. No
+  migration. [#149](https://github.com/IrminFlow/total/pull/149)
+
 - `receivables:statementPdf` is a viewer read, governed by `canExport` (in `EXPORT_CHANNELS`, like
   `report:pdf`). New viewer read `gst:einvoicing`
   (`services/gst.ts einvoicingOn`). `CashFlowRow` gained optional `parts` (ledger id, name, cash

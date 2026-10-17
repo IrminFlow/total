@@ -30,6 +30,9 @@ export interface VoucherDraft {
   /** WP 2.5c "Convert to challan / invoice / GRN / bill": draw every pending line of this
    *  sales / purchase order (the "Add from…" picks, pre-filled). */
   fromTradeDocId?: number
+  /** WP 2.5b lists "Convert to invoice / bill" (Challans / GRNs): draw every pending line of these
+   *  delivery challans / GRNs (one party), the same "Add from…" picks, pre-filled. */
+  fromVoucherIds?: number[]
   /** WP 5.1: this prefill is an AI draft (ai_drafts.id) — voucher:save marks it consumed. */
   aiDraftId?: number
 }
@@ -156,6 +159,9 @@ export type Screen =
   // WP 2.5b: delivery challans not invoiced / GRNs not billed.
   | { name: 'pending-challans' }
   | { name: 'pending-grns' }
+  // WP 2.5b lists: every challan / GRN with its pending quantity, status and linked invoices / bills.
+  | { name: 'challans'; filter?: 'pending' | 'closed' | 'all' }
+  | { name: 'grns'; filter?: 'pending' | 'closed' | 'all' }
   // WP 2.5c: quotations / sales orders / purchase orders — lists, the entry form (a saved one by
   // `id`; a converted / duplicated `draft` for a new one), and their reports.
   | { name: 'quotations' }

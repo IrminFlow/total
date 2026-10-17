@@ -72,6 +72,7 @@ import {
   ReceivablesScreen,
   PayablesScreen,
   TradePendingScreen,
+  TradeNoteListScreen,
   TradeDocListScreen,
   TradeDocEntry,
   PendingOrdersScreen,
@@ -305,6 +306,8 @@ export default function App(): React.JSX.Element {
           {screen.name === 'payables' && <PayablesScreen key={screen.tab ?? 'plan'} tab={screen.tab} />}
           {screen.name === 'pending-challans' && <TradePendingScreen stage="delivery_note" />}
           {screen.name === 'pending-grns' && <TradePendingScreen stage="receipt_note" />}
+          {screen.name === 'challans' && <TradeNoteListScreen stage="delivery_note" filter={screen.filter} />}
+          {screen.name === 'grns' && <TradeNoteListScreen stage="receipt_note" filter={screen.filter} />}
           {screen.name === 'quotations' && <TradeDocListScreen kind="quotation" />}
           {screen.name === 'sales-orders' && <TradeDocListScreen kind="sales_order" />}
           {screen.name === 'purchase-orders' && <TradeDocListScreen kind="purchase_order" />}
