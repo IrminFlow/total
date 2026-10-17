@@ -20,8 +20,8 @@
 //   7. Reopen: the closing journal's banner Move to Bin (lock moves back first) → the year reads as open again (preview +
 //      Year-end screen, P&L opening row back); restoring it from Settings → Bin closes the year
 //      again. TB ties at every step.
-// The company gets an owner user (signed in through the lock screen): the Period lock card's
-// "Change…" is offered to a signed-in owner.
+// The company has NO users: the Period lock card's "Change…" is offered in a company without users
+// (#107), so the scenario drives it exactly so.
 import { scenario, assert, assertEq, fixedToday, fyStartYearOf } from '../lib/harness.mjs'
 
 /** "4,80,000.00 Dr" → +48000000, "… Cr" → negative, "—" → 0. */
@@ -45,14 +45,13 @@ await scenario('67-year-boundary', async (h) => {
   const curStart = `${cur}-04-01`
   const curEnd = `${cur + 1}-03-31`
 
-  // ---------------- 1. setup: books from the previous FY, an owner, openings, vouchers
+  // ---------------- 1. setup: books from the previous FY (no users), openings, vouchers
   await h.invoke('company:create', {
     name: 'Boundary Co', stateCode: '27', gstin: null, gstRegistrationType: 'unregistered',
     address: '', booksFrom: prev, email: null, phone: null, pan: null, tan: null
   })
   await h.relaunch()
   assertEq(await h.openCompany('Boundary Co'), 'gateway', 'opened Boundary Co')
-  await h.invoke('users:save', { data: { name: 'Bina Owner', role: 'owner', pin: '1234', active: true } })
 
   const groups = await h.invoke('master:groups:list')
   const gid = (name) => groups.find((g) => g.name === name).id
@@ -89,11 +88,7 @@ await scenario('67-year-boundary', async (h) => {
   const PRIOR_RENT = 2_000_000
 
   await h.relaunch()
-  assertEq(await h.openCompany('Boundary Co'), 'lock', 'a company with users asks for sign-in')
-  await h.clickText('Bina Owner')
-  await h.fill('input-pin', '1234')
-  await h.click('btn-unlock')
-  await h.waitScreen('gateway')
+  assertEq(await h.openCompany('Boundary Co'), 'gateway', 'a company without users opens straight in')
 
   const tbTies = async (label) => {
     for (const asOn of [prevEnd, curEnd]) {

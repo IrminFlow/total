@@ -145,7 +145,7 @@ with workarounds; the review switched them to assert the fixed behaviour where t
 
 | Bug | Scenario | Now |
 | --- | --- | --- |
-| Settings → Period lock is not editable in a company without users | 67 | still creates an owner user and signs in (keeps the lock-screen sign-in covered); #107's renderer test covers the no-users case |
+| Settings → Period lock is not editable in a company without users | 67 | runs in a company with no users and changes / removes the lock from Settings → About (the lock-screen sign-in stays covered by the other scenarios) |
 | The closing journal's Delete is disabled in its editor (inside the read-only fieldset) | 67 | bins it from the banner's Move to Bin; asserts the lock moves back to the day before the FY |
 | The editor's pre-save duplicate-number check ignores the financial year | 67 | re-saves last year's No. 1 (the same number as this year's April payment) |
 | Stock ageing uses the period END as its as-on date | 68 | the working period stays the whole FY; ageing is as on today |
