@@ -542,7 +542,7 @@ Read these before filing from the next release.
   two rows of the one entry (5 % / 20 %, code O), flagged in a new trailing Note column of the CSV.
   LRS remittances (s.206C(1G)(a)) are not modelled — only an authorised dealer (a bank) collects
   them. UNVERIFIED (the 1961 text could not be opened; the 27EQ split; Form 143 code 1089):
-  `src/shared/tcsSources.ts`, listed on TCS → Sections. [#TBD](https://github.com/IrminFlow/total/pull/TBD)
+  `src/shared/tcsSources.ts`, listed on TCS → Sections. [#163](https://github.com/IrminFlow/total/pull/163)
 - **TCS: s.206C(1C) parking lot / toll plaza / mine or quarry** (to-do §4). TCS → Sections →
   Statutory sections → Add (owner) creates three sections — 206C(1C) PARKING / TOLL / MINE, 2 % of
   the amount payable by the licensee or lessee, collected at debit or receipt whichever is earlier,
@@ -551,7 +551,7 @@ Read these before filing from the next release.
   the licence-fee ledger a default section): the banner, the Eligible list, the TCS payable ledger
   and the returns work as for any TCS section. Not applied by itself: a PSU licensee and mineral-oil
   mining are excluded by the Act — mark those "Not applicable". UNVERIFIED (1961 wording read via a
-  search index; GST in the base): `src/shared/tcsSources.ts`. [#TBD](https://github.com/IrminFlow/total/pull/TBD)
+  search index; GST in the base): `src/shared/tcsSources.ts`. [#163](https://github.com/IrminFlow/total/pull/163)
 
 ### For developers
 
@@ -574,7 +574,7 @@ Read these before filing from the next release.
   `will-attach-webview` (refused) — applied to EVERY web contents through `web-contents-created`
   (the hidden PDF window too); `windowPolicy.test.ts`.
 
-- **TCS after WP 3.3** ([#TBD](https://github.com/IrminFlow/total/pull/TBD)), no migration:
+- **TCS after WP 3.3** ([#163](https://github.com/IrminFlow/total/pull/163)), no migration:
   `src/shared/tcsSources.ts` (quoted sources with URL / where read / access date, `TCS_SLABS`,
   `TCS_STATUTORY_SECTIONS`, `TCS_NOT_MODELLED`, `TCS_UNVERIFIED`); `slabbedTcs` / `tcsSlabOn` in
   `shared/tcs.ts`, applied in `tds.resolveTds` (so suggestion, save-time check, Eligible and Move to
