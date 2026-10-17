@@ -106,14 +106,17 @@ const PRUNABLE_TAGS = new Set(['auto', 'open'])
 /**
  * Prune old backups in `dir`, keeping the newest `keep` files overall but only ever deleting
  * files tagged 'auto' or 'open'. Manual / pre-restore / pre-tally-import / quit snapshots are
- * never pruned automatically.
+ * never pruned automatically. Files in `uncounted` are kept while inside the window but do not
+ * count toward `keep`; past it they are pruned like any other (the list stays bounded).
  */
-export function pruneBackupsIn(dir: string, keep: number): void {
+export function pruneBackupsIn(dir: string, keep: number, uncounted: ReadonlySet<string> = new Set()): void {
   const all = listBackupsIn(dir)
   let kept = 0
   for (const b of all) {
     if (kept < keep) {
-      kept++
+      // PR #175 review: a copy still waiting for its quick_check verdict (an open backup) is kept
+      // inside the window without taking a slot — it may never push a checked one out.
+      if (!uncounted.has(b.file)) kept++
       continue
     }
     if (PRUNABLE_TAGS.has(b.tag)) {
