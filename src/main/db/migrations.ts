@@ -3516,13 +3516,15 @@ export const MIGRATIONS: string[] = [
   // old file or backup gets it when it is opened and migrated). Party names are not copied in:
   // search matches parties by ledger id through the indexes, so a rename never touches it. A
   // future rebuild of `vouchers` must recreate the view and the three triggers and run the
-  // 'rebuild' again (dropping a table drops its triggers).
+  // 'rebuild' again (dropping a table drops its triggers). `detail = 'full'` keeps the trigram
+  // positions a substring (a phrase of trigrams) needs; `columnsize = 0` drops the per-row sizes,
+  // which only bm25 ranking reads (search ranks by its own tiers).
   `
   CREATE VIEW voucher_fts_source AS SELECT id, number, narration, reference FROM vouchers WHERE deleted_at IS NULL;
   CREATE VIRTUAL TABLE voucher_fts USING fts5(
     number, narration, reference,
     content = 'voucher_fts_source', content_rowid = 'id',
-    tokenize = 'trigram', detail = 'full'
+    tokenize = 'trigram', detail = 'full', columnsize = 0
   );
   CREATE TRIGGER voucher_fts_insert AFTER INSERT ON vouchers WHEN NEW.deleted_at IS NULL BEGIN
     INSERT INTO voucher_fts (rowid, number, narration, reference) VALUES (NEW.id, NEW.number, NEW.narration, NEW.reference);

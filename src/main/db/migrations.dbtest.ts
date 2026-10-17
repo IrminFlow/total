@@ -155,7 +155,6 @@ const EXPECTED_TABLES = [
   'voucher_fts',
   'voucher_fts_data',
   'voucher_fts_idx',
-  'voucher_fts_docsize',
   'voucher_fts_config'
 ]
 

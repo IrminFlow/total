@@ -144,6 +144,9 @@ what you typed, and a **Back to simple** button.
 - **Faster on big books.** Reports, lists, search and opening a business are faster with 100,000
   or more entries (for example the profit and loss for a year in about 0.2 s on a 100,000-entry
   test company). Nothing you see changes except the speed. [#104](https://github.com/IrminFlow/total/pull/104)
+- **Searching for a word or a bill number is quicker on big books.** Words from a narration, a
+  reference or part of a number ("bill 4", "1/25") are found through a text index instead of
+  reading every entry; the results are exactly the same as before. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
 - **Windows.** Updating on Windows works again (see Developers), Tally and bank files saved by
   Windows programs (UTF-16 or with a byte-order mark) import, and shortcuts show as Ctrl and Alt.
   [#109](https://github.com/IrminFlow/total/pull/109)
@@ -522,6 +525,16 @@ Read these before filing from the next release.
 
 - **Export gate sweep covers every role.** `securityReview.dbtest` now scans every IPC handler under `src/main` that writes a file or audits an `export` (directly or through a helper in its file; viewer-role ones included, which the audit-coverage registry does not list), plus every channel whose name says file / print / export, and requires each in `EXPORT_CHANNELS`, `NOT_EXPORTS` or a listed read / input; review: the bank reconciliation PDF (`banking:brsPdf`, written with no gate and no audit row) is now a `canExport` channel with an export audit row, and report packs (`pack:runNow`, `pack:save`) are `canExport` channels; Form 16 / 16A / 27D, self-invoice, barcode-label prints and the template export are listed as non-exports with reasons. The data-folder-move locked case no longer sleeps 1.7 s, and the e-invoicing Company details test waits for the loaded switch (Windows flake). [#155](https://github.com/IrminFlow/total/pull/155)
 
+- **Voucher text index** (to-do §4), [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM): migration
+  "voucher text index" (last) — `voucher_fts`, an external-content FTS5 table (trigram tokenizer,
+  `detail = 'full'`, `columnsize = 0`) over vouchers' number / narration / reference with the view
+  `voucher_fts_source` (not binned) as content, three triggers on `vouchers` and a `'rebuild'` for
+  existing files. `services/search.ts` narrows a term of 3+ characters through it and keeps the
+  same `LIKE`, so results are unchanged (`searchFts.dbtest.ts` against a fixture generated from
+  origin/main; `migrationVoucherFts.dbtest.ts` checks FTS5's integrity-check after save / edit / bin
+  / restore / purge and in a backup copy). Id lists are literal SQL lists and a narrow lookup
+  drives the query from its indexes (`Driving`). ~2.6 MB on the 100k seed; out of the books export.
+  Numbers in `docs/perf-budgets.md`.
 - New banking channels `cheques:backfillPreview` (accountant+, read) and `cheques:backfill`
   (owner, Zod-strict `{ bankLedgerId?, includeOutside?, voucherIds? }`, audited `cheque`) in
   `services/cheques.ts`; the number reader is `chequeNumberOf` in `shared/chequeRegister.ts`
