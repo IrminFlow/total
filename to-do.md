@@ -157,7 +157,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - ~~deleteVoucher writes its audit row after (outside) the deleting transaction~~ DONE — restore / purge / PDC maturing too — PR #118
 - ~~A company file migrates on open before any pre-upgrade snapshot is taken~~ DONE — `backups/pre-upgrade-*.db` before every migration, no copy = no migration (PR #116); interrupted multi-migration upgrades tested in PR #118 — GPT review, `src/main/db/connection.ts`
 - The audit hash chain detects but can't prevent tampering (whoever holds the file can recompute it) — WP 3.8
-- In a company without users anyone can change the app-wide update setting; real signed / unsigned macOS update behaviour unverified until a release — PR #108
+- ~~In a company without users anyone can change the app-wide update setting~~ DONE — PR #176 (the AI-key rule; `app:updates:canSet`). Real signed / unsigned macOS update behaviour unverified until a release — PR #108
 
 ## 5. UNVERIFIED tax points (confirm with a CA before relying on them)
 
