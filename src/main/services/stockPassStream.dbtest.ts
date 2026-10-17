@@ -5,7 +5,7 @@
 // (setStreamedPassInput(false) — the test-only flag) on the demo company, a 10k Perf Traders seed
 // and the randomised stock fixture (with derived manufactures), and every memoised answer with
 // the same reader called on its own.
-import { describe, it, expect, vi, afterEach } from 'vitest'
+import { describe, it, expect, vi, afterEach, beforeAll, afterAll } from 'vitest'
 import { mkdtempSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -42,8 +42,12 @@ const monthEnds = (from: string, to: string): string[] => {
   return out
 }
 
-/** Every reader that now streams, on `dates`, plus each item's movement register (FY of the last date). */
-function streamedReaders(db: DB, dates: string[], opts: { registers?: 'all' | number } = {}): Record<string, unknown> {
+/** Hand the event loop back (vitest's worker RPC starves under long synchronous runs — PR #153). */
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+/** Every reader that now streams, on `dates`, plus each item's movement register (FY of the last
+ *  date) — as thunks, so the parity check can run them one at a time. */
+function streamedReaders(db: DB, dates: string[], opts: { registers?: 'all' | number | 'none' } = {}): Record<string, () => unknown> {
   const items = (db.prepare('SELECT id FROM stock_items ORDER BY id').all() as { id: number }[]).map((r) => r.id)
   const godowns = (db.prepare('SELECT id FROM godowns ORDER BY id').all() as { id: number }[]).map((r) => r.id)
   const last = dates[dates.length - 1]!
@@ -52,31 +56,39 @@ function streamedReaders(db: DB, dates: string[], opts: { registers?: 'all' | nu
     db.prepare(`SELECT v.id, v.date FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
                 WHERE vt.kind = 'physical_stock' AND v.deleted_at IS NULL ORDER BY v.id LIMIT 20`).all() as { id: number; date: string }[]
   )
-  const registerItems = opts.registers === 'all' || opts.registers === undefined ? items : items.slice(0, opts.registers)
-  const out: Record<string, unknown> = {
-    summary: dates.map((d) => sa.stockSummary(db, d)),
-    godown: godowns.slice(0, 3).map((g) => sa.stockSummary(db, last, { godownId: g })),
-    value: dates.map((d) => sa.stockValue(db, d)),
-    valuesAt: [...sa.stockValuesAt(db, dates).entries()],
-    consumption: [[fyFrom, last], [dates[0]!, dates[0]!]].map(([f, t]) => [...sa.periodConsumption(db, f!, t!).entries()]),
-    counts: counts.map((c) => [...sa.countLineEffects(db, c.id, c.date).entries()]),
-    reorder: sa.reorderPlan(db, fyFrom, last, { onlyBelow: false })
+  const registerItems =
+    opts.registers === 'none' ? [] : opts.registers === 'all' || opts.registers === undefined ? items : items.slice(0, opts.registers)
+  const out: Record<string, () => unknown> = {
+    summary: () => dates.map((d) => sa.stockSummary(db, d)),
+    godown: () => godowns.slice(0, 3).map((g) => sa.stockSummary(db, last, { godownId: g })),
+    value: () => dates.map((d) => sa.stockValue(db, d)),
+    valuesAt: () => [...sa.stockValuesAt(db, dates).entries()],
+    consumption: () => [[fyFrom, last], [dates[0]!, dates[0]!]].map(([f, t]) => [...sa.periodConsumption(db, f!, t!).entries()]),
+    counts: () => counts.map((c) => [...sa.countLineEffects(db, c.id, c.date).entries()]),
+    reorder: () => sa.reorderPlan(db, fyFrom, last, { onlyBelow: false })
   }
   for (const id of registerItems) {
-    out[`register:${id}`] = sa.stockMovements(db, id, fyFrom, last)
-    if (godowns[0]) out[`register:${id}:g`] = sa.stockMovements(db, id, fyFrom, last, godowns[0])
+    out[`register:${id}`] = () => sa.stockMovements(db, id, fyFrom, last)
+    if (godowns[0]) out[`register:${id}:g`] = () => sa.stockMovements(db, id, fyFrom, last, godowns[0])
   }
   return out
 }
 
-/** Streamed vs in-memory, key by key (so a failure names the reader and the item). */
-function expectStreamParity(db: DB, dates: string[], opts?: { registers?: 'all' | number }): void {
-  sa.setStreamedPassInput(false)
-  const before = streamedReaders(db, dates, opts)
-  sa.setStreamedPassInput(true)
-  const after = streamedReaders(db, dates, opts)
-  expect(Object.keys(after)).toEqual(Object.keys(before))
-  for (const k of Object.keys(before)) expect(canonical(after[k]), k).toBe(canonical(before[k]))
+/** Streamed vs in-memory, key by key (so a failure names the reader and the item), yielding to
+ *  the event loop between readers. */
+async function expectStreamParity(
+  db: DB, dates: string[], opts?: { registers?: 'all' | number | 'none' }, only: (key: string) => boolean = () => true
+): Promise<void> {
+  const readers = Object.entries(streamedReaders(db, dates, opts)).filter(([k]) => only(k))
+  expect(readers.length).toBeGreaterThan(0)
+  for (const [k, read] of readers) {
+    sa.setStreamedPassInput(false)
+    const before = read()
+    sa.setStreamedPassInput(true)
+    const after = read()
+    expect(canonical(after), k).toBe(canonical(before))
+    await yieldToEventLoop()
+  }
 }
 
 /** The same readers, answered inside ONE withStockPass call, equal the readers called alone. */
@@ -158,24 +170,24 @@ describe('valuation pass — streamed input = the in-memory input (PR #104)', ()
     db.close()
   })
 
-  it('on the randomised stock fixture, with derived manufactures and godown views', () => {
+  it('on the randomised stock fixture, with derived manufactures and godown views', async () => {
     const db = seededDb()
     const fx = seedStockFixture(db, { vouchers: 2500, items: 30, seed: 7 })
     const dates = monthEnds('2025-04-01', '2026-03-31')
-    expectStreamParity(db, dates)
+    await expectStreamParity(db, dates)
     const marked = new Set(fx.mixedJournalIds.filter((_, i) => i % 2 === 0))
     sa.setDerivedCostingSource((d, asOn) =>
       (d.prepare('SELECT id, date FROM vouchers WHERE date <= ?').all(asOn) as { id: number }[])
         .filter((v) => marked.has(v.id))
         .map((v) => ({ voucherId: v.id, additionalCostPaise: v.id % 3 === 0 ? 1500 : null }))
     )
-    expectStreamParity(db, dates)
+    await expectStreamParity(db, dates)
     expectMemoParity(db, dates, '2025-04-01')
     expectOnePass(db, '2026-03-31')
     db.close()
   })
 
-  it('on the demo company', () => {
+  it('on the demo company', async () => {
     const root = mkdtempSync(join(tmpdir(), 'total-stream-demo-'))
     const prev = process.env.TOTAL_DATA_DIR
     process.env.TOTAL_DATA_DIR = root
@@ -186,7 +198,7 @@ describe('valuation pass — streamed input = the in-memory input (PR #104)', ()
       const db = openCompanyDb(slug)
       try {
         const dates = monthEnds('2025-04-01', PERF_TODAY)
-        expectStreamParity(db, dates)
+        await expectStreamParity(db, dates)
         expectMemoParity(db, dates, '2025-04-01')
       } finally {
         db.close()
@@ -198,20 +210,34 @@ describe('valuation pass — streamed input = the in-memory input (PR #104)', ()
       rmSync(root, { recursive: true, force: true })
     }
   }, 120_000)
+})
 
-  it('on a 10k-voucher Perf Traders seed', async () => {
+// The 10k seed, phase by phase: no single test runs long synchronous work (the Windows runner's
+// vitest worker RPC timed out on the one ~74 s test) — the seed yields between batches, the parity
+// checks between readers.
+describe('valuation pass — streamed input = the in-memory input on a 10k-voucher Perf Traders seed (PR #104)', () => {
+  let db: DB
+  const dates = monthEnds('2024-04-01', PERF_TODAY).filter((_, i, a) => i % 3 === 2 || i === a.length - 1)
+  beforeAll(async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date(`${PERF_TODAY}T10:00:00`))
-    const db = freshDb()
-    try {
-      await seedLargeAsync(db, { vouchers: 10_000 })
-      const dates = monthEnds('2024-04-01', PERF_TODAY).filter((_, i, a) => i % 3 === 2 || i === a.length - 1)
-      // Every item's register on the last date (500 items), the readers on every quarter end.
-      expectStreamParity(db, dates, { registers: 'all' })
-      expectMemoParity(db, dates, '2024-04-01')
-    } finally {
-      db.close()
-      vi.useRealTimers()
-    }
+    db = freshDb()
+    await seedLargeAsync(db, { vouchers: 10_000 })
   }, 600_000)
+  afterAll(() => {
+    db?.close()
+    vi.useRealTimers()
+  })
+
+  it('every reader on every quarter end', async () => {
+    await expectStreamParity(db, dates, { registers: 'none' })
+  }, 300_000)
+
+  it("every item's movement register on the last date (500 items, also per godown)", async () => {
+    await expectStreamParity(db, dates, { registers: 'all' }, (k) => k.startsWith('register:'))
+  }, 600_000)
+
+  it('memoised answers = the readers alone', () => {
+    expectMemoParity(db, dates, '2024-04-01')
+  }, 300_000)
 })
