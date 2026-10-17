@@ -33,7 +33,10 @@ import { CANNED_BHARAT_BILL } from './mock'
 const sampleBill = (): typeof CANNED_BHARAT_BILL => structuredClone(CANNED_BHARAT_BILL)
 import * as aiStore from '../store'
 import { captureMockStep } from './mock'
-import { captureFilesDir, captureInboxDir } from './files'
+import { captureFilesDir, captureInboxDir, readCaptureFile } from './files'
+import { randomBytes } from 'crypto'
+import { forgetFolderKey, rememberFolderKey } from '../../db/folderKeys'
+import { hasFileHeader, readStoredBytes } from '../../db/fileCrypto'
 import { passthroughImages } from './prepare'
 import { addCaptureFile, getItem, listItems, patchItem, recoverQueue } from './store'
 import { CaptureRunner, redraft, type CaptureEnv } from './runner'
@@ -198,6 +201,37 @@ describe('bill → purchase draft', () => {
     const sentAll = JSON.stringify(provider.requests.map((r) => r.input))
     expect(sentAll).not.toContain('bharat-0142.pdf')
     expect(sentAll).not.toContain('bharat-photo.png')
+  })
+
+  it('WP 7.2: in a locked business the queued copy is encrypted, the run reads the decrypted bytes, the attachment is stored encrypted', async () => {
+    const key = randomBytes(32)
+    rememberFolderKey(dir, key)
+    try {
+      const bytes = pdf(FIXTURE_BILL_LINES)
+      const { item: it } = await add('bharat-0142.pdf', bytes)
+      const stored = join(captureFilesDir(dir), getItem(db, it!.id)!.storedPath)
+      const onDisk = readFileSync(stored)
+      expect(hasFileHeader(onDisk)).toBe(true)
+      expect(onDisk.includes(Buffer.from('%PDF-'))).toBe(false)
+      expect(readCaptureFile(captureFilesDir(dir), getItem(db, it!.id)!.storedPath, it!.sha256).equals(bytes)).toBe(true)
+      // The same file dropped again is still recognised (dedupe by the plaintext hash).
+      expect((await add('again.pdf', bytes)).item).toBeFalsy()
+      await run([it!.id])
+      // The model saw the bill's text layer, i.e. the decrypted PDF.
+      expect(JSON.stringify(provider.requests[0]!.input)).toContain('Office Chair')
+      const vId = saveDraft(getItem(db, it!.id)!.draftId!)
+      const att = listAttachments(db, { entity: 'voucher', entityId: vId })
+      expect(att).toHaveLength(1)
+      expect(att[0]!.sha256).toBe(it!.sha256)
+      const attFile = readFileSync(join(dir, 'attachments', storedPathFor(att[0]!.sha256)))
+      expect(hasFileHeader(attFile)).toBe(true)
+      expect(readStoredBytes(join(dir, 'attachments', storedPathFor(att[0]!.sha256)), att[0]!.sha256, key).equals(bytes)).toBe(true)
+      // Without the key (the business closed) the stored copy does not open.
+      forgetFolderKey(dir)
+      expect(() => readCaptureFile(captureFilesDir(dir), getItem(db, it!.id)!.storedPath, it!.sha256)).toThrow(/locked/)
+    } finally {
+      forgetFolderKey(dir)
+    }
   })
 
   it('same supplier + amount within 7 days is drafted but flagged with a link to the voucher', async () => {

@@ -2,9 +2,16 @@
 // <sha256[0:2]>/<sha256> (content-addressed, so the same file dropped twice is stored once), and
 // the type policy: an allowed extension AND matching magic bytes, at most CAPTURE_MAX_BYTES.
 // Electron-free (the folder is passed in) so dbtests drive it directly.
+//
+// Passphrase lock (db/fileCrypto.ts): while the business is locked (its key remembered for the
+// company folder) the stored copy is encrypted under the same content-addressed name; reads take
+// either form and always check the plaintext hash. The drop folder (`capture-inbox/`, and its
+// `processed/` / `failed/`) is the user's own folder and stays as the user put the files there.
 import { createHash } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { renameReplacing } from '../../fsRetry'
+import { keyForPath } from '../../db/folderKeys'
+import { FileCryptoError, encryptBytes, readStoredBytes, storedFileMatches } from '../../db/fileCrypto'
 import { join } from 'path'
 import { CAPTURE_MAX_BYTES, CAPTURE_TYPES } from '@shared/capture/types'
 
@@ -52,16 +59,17 @@ export function captureRefusal(name: string, bytes: Uint8Array): { refusal: stri
 
 export const storedRel = (sha: string): string => `${sha.slice(0, 2)}/${sha}`
 
-/** Store the bytes under their hash (atomic: temp + rename); an existing copy is kept. */
-export function putCaptureFile(dir: string, bytes: Uint8Array): { sha256: string; rel: string } {
+/** Store the bytes under their hash (atomic: temp + rename) — encrypted while the business is
+ *  locked (`key`, default the folder's remembered key); an existing good copy is kept. */
+export function putCaptureFile(dir: string, bytes: Uint8Array, key: Buffer | null = keyForPath(dir)): { sha256: string; rel: string } {
   const sha = sha256Of(bytes)
   const rel = storedRel(sha)
   const abs = join(dir, rel)
-  if (existsSync(abs) && sha256Of(readFileSync(abs)) === sha) return { sha256: sha, rel }
+  if (existsSync(abs) && storedFileMatches(abs, sha, key)) return { sha256: sha, rel }
   mkdirSync(join(dir, sha.slice(0, 2)), { recursive: true })
   const tmp = `${abs}.tmp-${process.pid}-${Date.now()}`
   try {
-    writeFileSync(tmp, bytes, { mode: 0o600 })
+    writeFileSync(tmp, key ? encryptBytes(bytes, key, sha) : bytes, { mode: 0o600 })
     renameReplacing(tmp, abs)
   } finally {
     rmSync(tmp, { force: true })
@@ -69,17 +77,19 @@ export function putCaptureFile(dir: string, bytes: Uint8Array): { sha256: string
   return { sha256: sha, rel }
 }
 
-/** The stored bytes, hash-checked (a damaged or missing file throws). */
-export function readCaptureFile(dir: string, rel: string, sha: string): Buffer {
+/** The stored bytes (decrypted when the copy is encrypted), hash-checked (a damaged or missing
+ *  file throws). */
+export function readCaptureFile(dir: string, rel: string, sha: string, key: Buffer | null = keyForPath(dir)): Buffer {
   if (!/^[0-9a-f]{2}\/[0-9a-f]{64}$/.test(rel) || rel !== storedRel(sha)) throw new Error('Bad capture file path')
   const abs = join(dir, rel)
   if (!existsSync(abs)) throw new Error('The captured file is missing from the capture folder')
-  const b = readFileSync(abs)
-  if (sha256Of(b) !== sha) throw new Error('The captured file changed on disk since it was queued')
-  return b
+  try {
+    return readStoredBytes(abs, sha, key)
+  } catch (err) {
+    if (err instanceof FileCryptoError && /locked/.test(err.message)) throw err
+    throw new Error('The captured file changed on disk since it was queued')
+  }
 }
-
-export const captureFilePath = (dir: string, rel: string): string => join(dir, rel)
 
 export function deleteCaptureFile(dir: string, rel: string): void {
   if (!/^[0-9a-f]{2}\/[0-9a-f]{64}$/.test(rel)) return

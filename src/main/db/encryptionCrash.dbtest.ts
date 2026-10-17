@@ -14,7 +14,11 @@ import { newDataKey, wrapKey } from './keyEnvelope'
 import { migrate } from './migrate'
 import { seedCompany } from './seed'
 import { TEST_INFO, testFileDb } from './testdb'
-import { bookFacts, commitConvertedCopy, convertBackups, convertCompanyFile, prepareConvertedCopy, removeLeftoverCopies, sameFacts } from '../services/dbEncryption'
+import {
+  bookFacts, commitConvertedCopy, companyFileStores, convertBackups, convertCompanyFile, convertCompanyFiles, fileConversionPending, markFileConversion, prepareConvertedCopy,
+  removeLeftoverCopies, resumeFileConversion, sameFacts
+} from '../services/dbEncryption'
+import { CONVERTING_SUFFIX, readStoredBytes, sha256Hex, storedForm } from './fileCrypto'
 import { readEnvelopes, unlockKey, writeEnvelope } from '../services/companyKeys'
 import { WrongPassphraseError } from './keyEnvelope'
 import type { SecretStore } from '../services/secrets'
@@ -246,5 +250,79 @@ describe('backups of a locked business', () => {
     } finally {
       copy.close()
     }
+  })
+})
+
+describe('the company’s files (attachments, backup copies, captured bills) under a crash', () => {
+  /** A company folder with one file in each store, plaintext. */
+  function companyWithFiles(): { path: string; dir: string; files: { abs: string; sha: string; data: Buffer }[] } {
+    const path = companyFile()
+    const dir = join(path, '..')
+    const files = companyFileStores(dir).map((store, i) => {
+      const data = Buffer.from(`%PDF-1.4 stored file ${i} `.repeat(40 + i))
+      const sha = sha256Hex(data)
+      mkdirSync(join(store, sha.slice(0, 2)), { recursive: true })
+      const abs = join(store, sha.slice(0, 2), sha)
+      writeFileSync(abs, data)
+      return { abs, sha, data }
+    })
+    return { path, dir, files }
+  }
+
+  it('lock on: books swapped, then a kill before / during the file conversion — the marked conversion is finished on the next open, byte-identical', () => {
+    const { path, dir, files } = companyWithFiles()
+    const key = newDataKey()
+    // The flow: marker, swap, then files. Killed after the swap with one file done.
+    markFileConversion(dir, 'encrypted')
+    convertCompanyFile({ db: open(path, null), dbPath: path, to: key, asOn: AS_ON, audit })
+    expect(isEncryptedFile(path)).toBe(true)
+    const first = files[0]!
+    writeFileSync(`${first.abs}${CONVERTING_SUFFIX}`, first.data) // the kill landed mid-copy: a plaintext temp
+    // Next open: the leftover sweep, then the resume toward the books' form (encrypted).
+    removeLeftoverCopies(path, join(dir, 'backups'), join(dir, 'exports'))
+    expect(existsSync(`${first.abs}${CONVERTING_SUFFIX}`)).toBe(false)
+    expect(fileConversionPending(dir)).toBe(true)
+    const r = resumeFileConversion(dir, key)!
+    expect(r).toEqual({ converted: 3, failed: [] })
+    expect(fileConversionPending(dir)).toBe(false)
+    for (const f of files) {
+      expect(storedForm(f.abs, f.sha)).toBe('encrypted')
+      expect(readStoredBytes(f.abs, f.sha, key).equals(f.data)).toBe(true)
+    }
+    // Nothing to resume after that.
+    expect(resumeFileConversion(dir, key)).toBeNull()
+  })
+
+  it('lock off: files decrypted before the swap; a kill before the swap is put back (encrypted) on the next open; after it, nothing is left encrypted', () => {
+    const { path, dir, files } = companyWithFiles()
+    const key = newDataKey()
+    rekeyFile(path, null, key)
+    expect(convertCompanyFiles(dir, null, key).failed).toEqual([])
+    // Killed after the files were decrypted but before the books were swapped.
+    expect(convertCompanyFiles(dir, key, null).failed).toEqual([])
+    markFileConversion(dir, 'plain')
+    expect(isEncryptedFile(path)).toBe(true)
+    expect(resumeFileConversion(dir, key)).toEqual({ converted: 3, failed: [] }) // books still locked → files locked again
+    for (const f of files) expect(storedForm(f.abs, f.sha)).toBe('encrypted')
+    // This time the swap happens: the next (plaintext) open finds every file plaintext.
+    convertCompanyFiles(dir, key, null)
+    markFileConversion(dir, 'plain')
+    convertCompanyFile({ db: open(path, key), dbPath: path, to: null, asOn: AS_ON, audit: { before: { encrypted: true }, after: { encrypted: false } } })
+    expect(resumeFileConversion(dir, null)).toEqual({ converted: 0, failed: [] })
+    for (const f of files) expect(readFileSync(f.abs).equals(f.data)).toBe(true)
+  })
+
+  it('a file that cannot be converted is reported and left as it was; the marker stays so the next open tries again', () => {
+    const { dir, files } = companyWithFiles()
+    const key = newDataKey()
+    writeFileSync(files[1]!.abs, 'damaged — no longer its hash')
+    const r = convertCompanyFiles(dir, null, key)
+    expect(r.converted).toBe(2)
+    expect(r.failed).toEqual([`backups/attachments/${files[1]!.sha.slice(0, 2)}/${files[1]!.sha}`])
+    expect(readFileSync(files[1]!.abs, 'utf8')).toBe('damaged — no longer its hash')
+    expect(fileConversionPending(dir)).toBe(true)
+    // Encrypted files need the key: a plaintext open with a marker reports them, never guesses.
+    expect(resumeFileConversion(dir, null)!.failed.length).toBe(2) // the two encrypted ones
+    expect(storedForm(files[0]!.abs, files[0]!.sha)).toBe('encrypted')
   })
 })

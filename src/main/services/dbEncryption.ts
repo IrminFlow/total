@@ -17,7 +17,14 @@
 // The company's backups are converted after the swap (each one copied, rekeyed, quick-checked,
 // renamed over itself), so no plaintext backup is left behind a locked company — and none
 // encrypted behind an unlocked one. Electron-free.
-import { closeSync, copyFileSync, existsSync, fsyncSync, openSync, readdirSync, renameSync, rmSync, statSync } from 'fs'
+//
+// The company's FILES follow too (db/fileCrypto.ts): attachments, the backups' attachment copies
+// and captured bills. Lock ON encrypts them after the swap; lock OFF decrypts them just before it
+// (while the key is still in hand). Both directions first write a marker (`.files-converting`);
+// a file already in the target form is skipped, and every open of the company resumes a marked
+// conversion toward the books' own form — so a crash anywhere leaves files readable (reads take
+// either form) and the next open finishes the job.
+import { closeSync, copyFileSync, existsSync, fsyncSync, openSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import type { DB } from '../db/connection'
 import { copyWithKey, isEncryptedFile, keyOfHandle, openDb, rekeyFile, removeDbFiles } from '../db/encryption'
@@ -26,6 +33,7 @@ import { AppError } from '@shared/errors'
 import { verifyAudit, writeAudit } from './audit'
 import { trialBalance } from './reports'
 import { fileTimeMs } from '@shared/e2eClock'
+import { convertStore, removeConvertingLeftovers } from '../db/fileCrypto'
 
 export interface BookFacts {
   tables: Record<string, number>
@@ -152,6 +160,65 @@ export function removeLeftoverCopies(dbPath: string, backupsDir: string, exports
   // An export may still be writing its snapshot (it awaits the file encryption): only an old one.
   const hourAgo = Date.now() - 60 * 60 * 1000
   sweep(exportsDir, (f) => /^\.export-tmp-.*\.db(-journal|-wal|-shm)?$/.test(f) && fileTimeMs(statSync(join(exportsDir, f)).mtimeMs) < hourAgo)
+  // A file being converted in place (plaintext when the lock was being taken off) and the stores'
+  // scratch copies.
+  for (const store of companyFileStores(dirname(dbPath))) removeConvertingLeftovers(store)
+}
+
+// ---------- the company's files (attachments, capture) ----------
+
+/** The content-addressed stores the passphrase lock covers: the attachments, the backups' copies
+ *  of them, and the captured bills (paths.ts companyAttachmentsDir / companyBackupAttachmentsDir,
+ *  ai/capture/files.ts captureFilesDir). The capture INBOX is the user's drop folder — not here. */
+export function companyFileStores(companyDir: string): string[] {
+  return [join(companyDir, 'attachments'), join(companyDir, 'backups', 'attachments'), join(companyDir, 'capture', 'files')]
+}
+
+/** Written before a file conversion starts, removed once every file is in the target form. */
+export const FILES_MARKER = '.files-converting'
+
+export interface FileConversion {
+  converted: number
+  /** `<store>/<sha[0:2]>/<sha>` of each file left as it was (reported, like backups). */
+  failed: string[]
+}
+
+export function markFileConversion(companyDir: string, to: 'encrypted' | 'plain'): void {
+  const p = join(companyDir, FILES_MARKER)
+  writeFileSync(p, JSON.stringify({ to, at: new Date().toISOString() }), { mode: 0o600 })
+  fsyncFile(p)
+  fsyncDir(companyDir)
+}
+
+export function fileConversionPending(companyDir: string): boolean {
+  return existsSync(join(companyDir, FILES_MARKER))
+}
+
+/** Bring every stored file of the company into the target form (`to` = encrypt under that key,
+ *  null = plaintext; `from` decrypts encrypted ones). The marker is written first and removed
+ *  only when nothing failed. */
+export function convertCompanyFiles(companyDir: string, from: Buffer | null, to: Buffer | null): FileConversion {
+  markFileConversion(companyDir, to ? 'encrypted' : 'plain')
+  const out: FileConversion = { converted: 0, failed: [] }
+  for (const store of companyFileStores(companyDir)) {
+    const r = convertStore(store, from, to)
+    out.converted += r.converted
+    const name = store.slice(companyDir.length + 1).split(/[\\/]/).join('/')
+    for (const f of r.failed) out.failed.push(`${name}/${f}`)
+  }
+  if (out.failed.length === 0) {
+    rmSync(join(companyDir, FILES_MARKER), { force: true })
+    fsyncDir(companyDir)
+  }
+  return out
+}
+
+/** On open: finish a marked conversion toward the books' own form (`key` = the open handle's key,
+ *  null for plaintext books — encrypted files then need a key nobody holds, so they are reported
+ *  and the marker stays). Null when there was nothing to resume. */
+export function resumeFileConversion(companyDir: string, key: Buffer | null): FileConversion | null {
+  if (!fileConversionPending(companyDir)) return null
+  return convertCompanyFiles(companyDir, key, key)
 }
 
 /** Steps 1–4 for a handle nothing else holds (tests): `db` is closed on success. */
