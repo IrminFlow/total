@@ -16,7 +16,7 @@ to #145. One later change, #146 (the cheque register), is **not** in that DMG. T
 
 ### Simple screens
 
-- Small fixes across Home, Taxes and the lists. The GST tile updates after you say "I've filed". Print errors are clear. You can switch between prices with GST and without. The dark theme chip reads better. A viewer sees a note instead of a Save button that fails (#119).
+- Small fixes across Home, Taxes and the lists. The GST tile updates after you say "I've filed". Print errors are clear. You can switch between prices with GST and without. The dark theme chip reads better. Someone who can only look is told so at the top of each form and sees a note instead of "Back up now" (#119).
 - Names no longer get cut off at a narrow window. Pop-up messages stay clear of the Save bar. Switching company asks first. Opening products use today's GST rates (#130).
 - Going to the full editor and back is smoother. Your typed answers are kept, there is no pointless "discard?" question, and the "Always open the full app" menus work (#122).
 - Hindi leftovers are fixed: dates in error messages, state names in the setup wizard, the PDF footer, and the language of bank suggestions (#123). The language packs now load only when needed (#143, #145).
@@ -24,7 +24,7 @@ to #145. One later change, #146 (the cheque register), is **not** in that DMG. T
 ### Money and bank
 
 - On the Bank screen you can skip a line, say "Not this", and go back to Bank. A return keeps a note of its bill and shows older bills. The money list shows entries that are ahead (#121).
-- Refunds work in both directions. A supplier refund is refused when the supplier holds no credit from you. You can refund a customer. Money out shows buying-goods hints (a "Record a purchase instead" row). A bank line can carry a GST bill (#139).
+- Refunds are handled in both directions. Money in from a supplier who owes you nothing back is no longer saved as a refund: Total says so and offers "Record it as other money in". Money out can pay a customer back the money of theirs you hold. Money out shows buying-goods hints (a "Record a purchase instead" row). A bank line can carry a GST bill (#139).
 
 ### Stock and recipes
 
@@ -33,7 +33,7 @@ to #145. One later change, #146 (the cheque register), is **not** in that DMG. T
 
 ### People and reminders
 
-- A viewer can open a customer's statement. The reminder asks you to confirm. Cash flow figures can be clicked to see what they are made of (#140).
+- Someone who can only look can now save a customer's statement too. A reminder sent inside your "don't remind within N days" window asks first. Cash flow lines can be clicked to see the entries they are made of (#140).
 - Ask Total understands bills by number and TDS or payroll amounts, and its drafts no longer pile up (#125).
 - Cheque register: entries saved before you set up a cheque book can be filled in later (#146, not in the test DMG).
 
@@ -44,8 +44,8 @@ to #145. One later change, #146 (the cheque register), is **not** in that DMG. T
 
 ### Speed
 
-- Opening Home needs one trip to the data instead of four. The backup check now waits until you are not busy (#131). On the test laptop under load, launch to Home went from about 22 seconds to about 12 on a very large test business.
-- Screens load the first time you open them. The startup load fell from 5.7 MB to 2.7 MB (#135). The backup restore check no longer freezes the app (#136).
+- Opening Home needs one trip to the data instead of four. The backup check now waits until Home has loaded (#131). On the test laptop under load, launch to Home went from about 22 seconds to about 12 on a very large test business.
+- Screens load the first time you open them. The startup load fell from 5.7 MB to 2.7 MB (#135). The backup restore check no longer freezes the app, and a business with more than one year of entries no longer gets a false red "entries do not balance" card on Home (#136).
 
 ### Safety and locks
 
@@ -62,7 +62,7 @@ to #145. One later change, #146 (the cheque register), is **not** in that DMG. T
 ### Windows and files
 
 - **Settings can move the data folder** (for example out of OneDrive). Total checks the new folder, copies and compares everything, and restarts (#133). The command line tool and the MCP link follow the moved folder (#138) and can open a business locked with a passphrase (#132).
-- A Windows-only test failure was fixed (#129). The automatic screen tests now work on any date (#128).
+- A Windows-only test failure was fixed (#129). The tour card no longer hides what it points at, and Home's "entries added for a closed date" counts only real cases. The automatic screen tests now work on any date (#128).
 
 ---
 
@@ -74,7 +74,7 @@ The 34 simple checks and the 13 accountant checks in 04 section 2 still apply. T
 2. **Check 17, Return a sale.** The return notes and older bills changed.
 3. **Check 18, Count your stock.** Counts can be reopened and undone safely now.
 4. **Check 21, Reminder.** It now asks you to confirm and follows your chosen language.
-5. **Check 26, Taxes.** Quarterly links and the first month shown changed.
+5. **Check 26, Taxes.** Quarterly filers can prepare their files here, and the GSTR links open the quarter's last month.
 6. **Check 27, Ask Total.** It reads bills by number and amounts for TDS or payroll.
 7. **Check 32, Passphrase lock.** Try "Remember on this computer", then Forget it.
 8. **Check 33, Accountant view and back.** Your typed answers should now survive both ways.
