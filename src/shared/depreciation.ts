@@ -326,6 +326,14 @@ export interface DisposalFigures {
   profit: number
 }
 
+/** The share `quantity / of` of `amount` and what is left — a partial disposal's split (one
+ *  rounding per figure, half away from zero; part + rest is always the amount exactly). */
+export function splitShare(amount: number, quantity: number, of: number): { part: number; rest: number } {
+  if (!(quantity > 0 && quantity < of)) throw new Error('A part must be more than nothing and less than the whole')
+  const part = mulDivRound(amount, quantity, of)
+  return { part, rest: amount - part }
+}
+
 export function disposalFigures(gross: number, accumulated: number, proceeds: number): DisposalFigures {
   const carrying = gross - accumulated
   return { gross, accumulated, carrying, proceeds, profit: proceeds - carrying }

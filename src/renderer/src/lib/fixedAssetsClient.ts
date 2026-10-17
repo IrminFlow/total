@@ -39,7 +39,7 @@ export const faApi = {
   yearStatus: (fyStartYear: number) => call<DepreciationYearStatus>('fa:yearStatus', { fyStartYear }),
 
   disposalPreview: (data: DisposalInput) => call<DisposalPreview>('fa:disposalPreview', data),
-  dispose: (data: DisposalInput) => call<{ asset: FixedAssetRow; voucherId: number; preview: DisposalPreview }>('fa:dispose', data),
+  dispose: (data: DisposalInput) => call<{ asset: FixedAssetRow; voucherId: number; preview: DisposalPreview; remaining: FixedAssetRow | null }>('fa:dispose', data),
 
   schedule: (from: string, to: string) => call<AssetSchedule>('fa:schedule', { from, to }),
   itStatement: (fyStartYear: number) => call<ItStatement>('fa:itStatement', { fyStartYear })

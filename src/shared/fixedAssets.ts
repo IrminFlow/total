@@ -114,6 +114,11 @@ export const depreciationPeriodSchema = z
   .object({ from: isoDate, to: isoDate })
   .refine((p) => p.to >= p.from, { message: 'The period ends before it starts', path: ['to'] })
 
+export const disposalPartSchema = z
+  .object({ quantity: z.number().int().min(1).max(1e12), of: z.number().int().min(2).max(1e12) })
+  .refine((p) => p.quantity < p.of, { message: 'A part must be less than the whole — dispose of the whole asset instead', path: ['quantity'] })
+export type DisposalPart = z.infer<typeof disposalPartSchema>
+
 export const disposalInputSchema = z.object({
   assetId: id,
   date: isoDate,
@@ -123,7 +128,11 @@ export const disposalInputSchema = z.object({
   considerationLedgerId: id.nullable().default(null),
   /** Charge depreciation from the last run up to the day before disposal in the same voucher. */
   chargeCatchUp: z.boolean().default(true),
-  narration: z.string().trim().max(500).nullable().default(null)
+  narration: z.string().trim().max(500).nullable().default(null),
+  /** Partial disposal: `quantity` of `of` (units sold of units held, or the part's cost of the
+   *  whole cost). The part is split off as its own record with that share of every figure, and the
+   *  part is disposed of; the rest stays on the register (FIXED_ASSET_UNVERIFIED 'part-split'). */
+  part: disposalPartSchema.nullable().default(null)
 })
 export type DisposalInput = z.input<typeof disposalInputSchema>
 
@@ -319,6 +328,9 @@ export interface DisposalPreview {
   profit: number
   journal: JournalPreviewLine[]
   blocked: string | null
+  /** Partial disposal: the share disposed of and the cost (incl. additions) left on the asset. */
+  part: DisposalPart | null
+  remainingCost: number | null
 }
 
 export interface ScheduleGroupRow extends ScheduleTotalsLike {

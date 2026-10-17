@@ -10,6 +10,7 @@ import { FixedAssetsScreen } from '../screens/FixedAssets'
 import { YearEndScreen } from '../screens/YearEnd'
 import { blankDraft, draftFromCandidate, draftToInput } from '../screens/fixedAssets/AssetForm'
 import { FA_QUERY_FAMILIES } from '../screens/fixedAssets/common'
+import { partOf } from '../screens/fixedAssets/DisposalWizard'
 import { SCREENS, invalidationFamilies } from '../lib/screens'
 import { useSession } from '../state/stores'
 
@@ -67,10 +68,11 @@ beforeEach(() => {
       case 'fa:runs': return { ok: true, data: [] }
       case 'fa:runPost': return { ok: true, data: { id: 1, voucherNumber: '4', voucherId: 300 } }
       case 'fa:disposalPreview': {
-        const p = payload as { proceedsPaise: number }
+        const p = payload as { proceedsPaise: number; part?: { quantity: number; of: number } | null }
         return {
           ok: true,
           data: {
+            part: p.part ?? null, remainingCost: p.part ? 4_500_000 : null,
             assetId: 11, date: '2026-03-31', gross: 6_000_000, accumulatedBooked: 1_900_000, catchUp: 0, catchUpFrom: null,
             carrying: 4_100_000, proceeds: p.proceedsPaise, profit: p.proceedsPaise - 4_100_000, blocked: p.proceedsPaise > 0 ? null : 'Pick the cash, bank or buyer account the proceeds go to',
             journal: [{ ledgerId: 40, ledgerName: 'Computers', drCr: 'cr', amount: 6_000_000, assetId: null }]
@@ -176,6 +178,31 @@ describe('Fixed assets screen', () => {
     await waitFor(() => expect(screen.getByTestId('fixed-assets-disposal-figures').textContent).toContain('Profit on sale'))
     expect(screen.getByTestId('fixed-assets-disposal-figures').textContent).toContain('4,000.00')
     await waitFor(() => expect((screen.getByTestId('btn-fixed-assets-disposal-next') as HTMLButtonElement).disabled).toBe(false))
+  })
+})
+
+describe('partial disposal', () => {
+  it('reads the part as two whole numbers, the part less than the whole', () => {
+    expect(partOf('3', '10')).toEqual({ quantity: 3, of: 10 })
+    expect(partOf(' 1 ', '4')).toEqual({ quantity: 1, of: 4 })
+    for (const [q, o] of [['', '10'], ['0', '10'], ['10', '10'], ['11', '10'], ['1.5', '4'], ['1', '1'], ['-1', '4'], ['a', '4']]) {
+      expect(partOf(q!, o!), `${q} of ${o}`).toBeNull()
+    }
+  })
+
+  it('the wizard sends the part with the preview and says what stays on the register', async () => {
+    renderUi(<FixedAssetsScreen />)
+    fireEvent.click(await screen.findByTestId('btn-fixed-assets-dispose-11'))
+    await screen.findByTestId('fixed-assets-disposal')
+    fireEvent.click(screen.getByTestId('btn-fixed-assets-disposal-scope-part'))
+    expect(screen.getByTestId('fixed-assets-disposal-part-hint').textContent).toMatch(/3 of 10/)
+    fireEvent.change(screen.getByTestId('input-fixed-assets-part-qty'), { target: { value: '1' } })
+    fireEvent.change(screen.getByTestId('input-fixed-assets-part-of'), { target: { value: '4' } })
+    fireEvent.change(screen.getByTestId('input-fixed-assets-proceeds'), { target: { value: '8000' } })
+    await waitFor(() => expect(calls.some((c) => c.channel === 'fa:disposalPreview' && (c.payload as { part: unknown }).part != null)).toBe(true))
+    const sent = calls.filter((c) => c.channel === 'fa:disposalPreview').at(-1)!.payload as { part: unknown; proceedsPaise: number }
+    expect(sent).toMatchObject({ part: { quantity: 1, of: 4 }, proceedsPaise: 800_000 })
+    expect((await screen.findByTestId('fixed-assets-disposal-remaining')).textContent).toContain('45,000.00')
   })
 })
 

@@ -16,14 +16,14 @@
 import type { DB } from '../db/connection'
 import { fyFromStartYear, fyOf } from '@shared/dates'
 import {
-  addDays, companiesActPeriod, disposalLines, itBlockYear, lifeEndDate, scheduleTotals,
+  addDays, companiesActPeriod, disposalLines, splitShare, itBlockYear, lifeEndDate, scheduleTotals,
   type CaAssetInput, type CostLayer, type DepMethod
 } from '@shared/depreciation'
 import {
   assetAdditionInputSchema, assetGroupInputSchema, caClassInputSchema, disposalInputSchema, fixedAssetInputSchema,
   itBlockInputSchema, itBlockOpeningInputSchema, itBlockRateInputSchema,
   type AssetAdditionInput, type AssetAdditionRow, type AssetGroupInput, type AssetGroupRow, type AssetSchedule,
-  type CaClassInput, type CaClassRow, type DepreciationPreview, type DepreciationPreviewRow, type DepreciationRunRow,
+  type CaClassInput, type CaClassRow, type DepreciationPreview, type DisposalPart, type DepreciationPreviewRow, type DepreciationRunRow,
   type DepreciationYearStatus, type DisposalInput, type DisposalKind, type DisposalPreview, type FixedAssetInput,
   type FixedAssetRow, type ItBlockInput, type ItBlockOpeningInput, type ItBlockRateInput, type ItBlockRateRow,
   type ItBlockRow, type ItStatement, type ItStatementBlockRow, type JournalPreviewLine, type PurchaseCandidate,
@@ -947,20 +947,137 @@ function computeDisposal(db: DB, input: ReturnType<typeof disposalInputSchema.pa
     catchUpRow,
     preview: {
       assetId: a.row.id, date, gross, accumulatedBooked, catchUp, catchUpFrom, carrying: figures.carrying,
-      proceeds: input.proceedsPaise, profit: figures.profit, blocked,
+      proceeds: input.proceedsPaise, profit: figures.profit, blocked, part: null, remainingCost: null,
       journal: lines.map((l) => ({ ledgerId: l.ledgerId > 0 ? l.ledgerId : null, ledgerName: names.get(l.ledgerId) ?? '', drCr: l.drCr, amount: l.amount, assetId: null }))
     }
   }
 }
 
-export function previewDisposal(db: DB, raw: DisposalInput): DisposalPreview {
-  const input = disposalInputSchema.parse(raw)
-  return computeDisposal(db, input).preview
+// ---------------------------------------------------------------------------------------------
+// Partial disposal: split the part off as its own record (Sch II Note 2 — FIXED_ASSET_EVENT_SOURCES
+// 'SCH2-N2'; block side IT61-S50 / IT25-S41: the part's moneys payable reduce the block)
+// ---------------------------------------------------------------------------------------------
+
+const partLabel = (p: DisposalPart): string => `${p.quantity} of ${p.of}`
+
+class Rehearsed extends Error {}
+
+/** Run `fn` in a transaction that is always rolled back (the WP 5.3 rehearsal pattern, kept local:
+ *  this module is bundled into the check worker, which may not reach src/main/ai). */
+function rolledBack<T>(db: DB, fn: () => T): T {
+  let out: { v: T } | null = null
+  try {
+    db.transaction(() => {
+      out = { v: fn() }
+      throw new Rehearsed()
+    })()
+  } catch (e) {
+    if (!(e instanceof Rehearsed)) throw e
+  }
+  return (out as { v: T } | null)!.v
 }
 
-export function disposeAsset(db: DB, raw: DisposalInput): { asset: FixedAssetRow; voucherId: number; preview: DisposalPreview } {
+/**
+ * Splits `part` of an asset off into a new register record: the same share of the cost, of every
+ * addition, of the opening accumulated depreciation and of EVERY depreciation line booked so far
+ * (live or binned runs — so a restored run stays consistent), each rounded once, the remainder left
+ * on the asset. Totals per run, per voucher and per ledger are unchanged; nothing is posted. The
+ * new record copies the asset's group, ledgers, dates, life, method, residual %, IT block and
+ * purchase voucher. Returns the new record's id. Audited: the asset's update (whole before /
+ * after) and the part's create.
+ */
+function splitAsset(db: DB, a: AssetRec, part: DisposalPart, name: string): number {
+  const cost = splitShare(a.row.cost_paise, part.quantity, part.of)
+  if (cost.part <= 0 || cost.rest <= 0) throw new Error('This share of the cost rounds to nothing — give a larger part (or dispose of the whole asset)')
+  const opening = splitShare(a.row.opening_acc_dep_paise, part.quantity, part.of)
+  const before = getAsset(db, a.row.id, '9999-12-31')
+  const r = a.row
+  const partId = Number(db.prepare(
+    `INSERT INTO fixed_assets (name, asset_group_id, ledger_id, purchase_voucher_id, purchase_date, put_to_use_date,
+       cost_paise, residual_pct_bp, useful_life_months, method, basis_date, it_block_id, it_additional_eligible,
+       location, identifier, acc_dep_ledger_id, opening_acc_dep_paise, opening_acc_dep_as_of, notes)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    name, r.asset_group_id, r.ledger_id, r.purchase_voucher_id, r.purchase_date, r.put_to_use_date, cost.part,
+    r.residual_pct_bp, r.useful_life_months, r.method, r.basis_date, r.it_block_id, r.it_additional_eligible,
+    r.location, r.identifier, r.acc_dep_ledger_id, opening.part, r.opening_acc_dep_as_of,
+    `Part (${partLabel(part)}) split off ${r.name} (asset #${r.id})`
+  ).lastInsertRowid)
+  db.prepare('UPDATE fixed_assets SET cost_paise = ?, opening_acc_dep_paise = ? WHERE id = ?').run(cost.rest, opening.rest, r.id)
+
+  for (const x of a.additions) {
+    const s = splitShare(x.amountPaise, part.quantity, part.of)
+    if (s.rest === 0) {
+      db.prepare('UPDATE fixed_asset_additions SET asset_id = ? WHERE id = ?').run(partId, x.id)
+      continue
+    }
+    if (s.part === 0) continue
+    db.prepare('INSERT INTO fixed_asset_additions (asset_id, date, voucher_id, amount_paise, kind, note) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(partId, x.date, x.voucherId, s.part, x.kind, x.note)
+    db.prepare('UPDATE fixed_asset_additions SET amount_paise = ? WHERE id = ?').run(s.rest, x.id)
+  }
+
+  // Every line of the asset, the part's line inserted even when its share is 0 so the part's
+  // "depreciated through" date is the asset's (no period is ever charged twice).
+  const lines = db.prepare('SELECT id, run_id, opening_wdv, depreciation, closing_wdv, days_used FROM depreciation_lines WHERE asset_id = ? ORDER BY id').all(r.id) as {
+    id: number; run_id: number; opening_wdv: number; depreciation: number; closing_wdv: number; days_used: number
+  }[]
+  const ins = db.prepare('INSERT INTO depreciation_lines (run_id, asset_id, opening_wdv, depreciation, closing_wdv, days_used) VALUES (?, ?, ?, ?, ?, ?)')
+  const upd = db.prepare('UPDATE depreciation_lines SET opening_wdv = ?, depreciation = ?, closing_wdv = ? WHERE id = ?')
+  for (const l of lines) {
+    const ow = splitShare(l.opening_wdv, part.quantity, part.of)
+    const dep = splitShare(l.depreciation, part.quantity, part.of)
+    const cw = splitShare(l.closing_wdv, part.quantity, part.of)
+    ins.run(l.run_id, partId, ow.part, dep.part, cw.part, l.days_used)
+    upd.run(ow.rest, dep.rest, cw.rest, l.id)
+  }
+  const after = getAsset(db, r.id, '9999-12-31')
+  writeAudit(db, 'fixed_asset', r.id, 'update', before, { ...after, split: { part, partAssetId: partId } })
+  writeAudit(db, 'fixed_asset', partId, 'create', null, { ...getAsset(db, partId, '9999-12-31'), splitFrom: { assetId: r.id, part } })
+  return partId
+}
+
+function partName(a: AssetRec, part: DisposalPart): string {
+  return `${a.row.name} (part ${partLabel(part)})`
+}
+
+/** The cost (incl. additions before the date) the asset keeps after the part is split off. */
+function remainingCostAfter(a: AssetRec, part: DisposalPart, date: string): number {
+  return grossAtDisposal(a, date) - (splitShare(a.row.cost_paise, part.quantity, part.of).part +
+    a.additions.filter((x) => x.date < date).reduce((s, x) => s + splitShare(x.amountPaise, part.quantity, part.of).part, 0))
+}
+
+export function previewDisposal(db: DB, raw: DisposalInput): DisposalPreview {
   const input = disposalInputSchema.parse(raw)
+  if (!input.part) return computeDisposal(db, input).preview
+  const part = input.part
+  const a = getAssetRec(db, input.assetId)
+  if (a.disposed) return { ...computeDisposal(db, input).preview, part, remainingCost: null }
+  // Rehearse the split (always rolled back) and preview the part's disposal on it.
+  try {
+    return rolledBack(db, () => {
+      const partId = splitAsset(db, a, part, partName(a, part))
+      const p = computeDisposal(db, { ...input, assetId: partId }).preview
+      return { ...p, assetId: input.assetId, part, remainingCost: remainingCostAfter(a, part, input.date) }
+    })
+  } catch (e) {
+    return { ...computeDisposal(db, { ...input, part: null }).preview, blocked: (e as Error).message, part, remainingCost: null }
+  }
+}
+
+export function disposeAsset(db: DB, raw: DisposalInput): {
+  asset: FixedAssetRow; voucherId: number; preview: DisposalPreview; remaining: FixedAssetRow | null
+} {
+  const parsed = disposalInputSchema.parse(raw)
+  let input = parsed
   const tx = db.transaction((): { voucherId: number; preview: DisposalPreview } => {
+    if (parsed.part) {
+      const whole = getAssetRec(db, parsed.assetId)
+      const check = computeDisposal(db, { ...parsed, part: null })
+      if (check.preview.blocked) throw new Error(check.preview.blocked)
+      const partId = splitAsset(db, whole, parsed.part, partName(whole, parsed.part))
+      input = { ...parsed, assetId: partId }
+    }
     const first = computeDisposal(db, input)
     if (first.preview.blocked) throw new Error(first.preview.blocked)
     // Create whatever ledgers the journal needs, then recompute so every line has a real id.
@@ -973,11 +1090,13 @@ export function disposeAsset(db: DB, raw: DisposalInput): { asset: FixedAssetRow
       return { ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount, costAllocations: [] as [] }
     })
     const verb = input.kind === 'sale' ? 'Sale' : 'Scrap'
+    const what = parsed.part ? `part (${partLabel(parsed.part)}) of fixed asset` : 'fixed asset'
+    const assetName = parsed.part ? getAssetRec(db, parsed.assetId).row.name : a.row.name
     const voucher = saveVoucher(db, {
       voucherTypeId: journalTypeId(db),
       date: input.date,
       partyLedgerId: null,
-      narration: input.narration ?? `${verb} of fixed asset ${a.row.name}${a.row.identifier ? ` (${a.row.identifier})` : ''}`,
+      narration: input.narration ?? `${verb} of ${what} ${assetName}${a.row.identifier ? ` (${a.row.identifier})` : ''}`,
       reference: null,
       lines,
       inventory: [],
@@ -994,12 +1113,18 @@ export function disposeAsset(db: DB, raw: DisposalInput): { asset: FixedAssetRow
     db.prepare(
       "UPDATE fixed_assets SET disposal_date = ?, disposal_voucher_id = ?, disposal_kind = ?, disposal_proceeds_paise = ?, status = 'disposed' WHERE id = ?"
     ).run(input.date, voucher.id, input.kind, input.proceedsPaise, a.row.id)
-    return { voucherId: voucher.id, preview }
+    const out = { voucherId: voucher.id, preview }
+    // Audited inside the transaction: the disposal is recorded with the books it changed.
+    writeAudit(db, 'fixed_asset', input.assetId, 'update', null, { disposal: { ...input, part: parsed.part, voucherId: voucher.id } })
+    return out
   })
   const { voucherId, preview } = tx()
   const asset = getAsset(db, input.assetId, '9999-12-31')
-  writeAudit(db, 'fixed_asset', input.assetId, 'update', null, { disposal: { ...input, voucherId } })
-  return { asset, voucherId, preview }
+  const remaining = parsed.part ? getAsset(db, parsed.assetId, '9999-12-31') : null
+  const shaped: DisposalPreview = parsed.part
+    ? { ...preview, assetId: parsed.assetId, part: parsed.part, remainingCost: remaining ? remaining.costPaise + remaining.additions.filter((x) => x.date < parsed.date).reduce((s, x) => s + x.amountPaise, 0) : null }
+    : preview
+  return { asset, voucherId, preview: shaped, remaining }
 }
 
 // ---------------------------------------------------------------------------------------------

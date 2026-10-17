@@ -447,6 +447,17 @@ Read these before filing from the next release.
 - **Applying the ITC reversal again with nothing changed, or saving the GSTR-3B adjustments
   unchanged, no longer adds an audit row** (the same rule as other settings). No figure changed.
   [#150](https://github.com/IrminFlow/total/pull/150)
+- **Fixed assets: partial disposals.** Dispose of a part of an asset — a quantity of identical
+  units ("1 of 4") or a share of the cost (₹20,000 of ₹60,000). The part is split off as its own
+  register record with that share of the cost, of every addition, of the opening accumulated
+  depreciation and of every depreciation line booked so far (each rounded once to the paisa, the
+  rest left on the asset; run and ledger totals unchanged), then disposed of in one journal:
+  proceeds, the part's accumulated depreciation written back, its cost out, catch-up depreciation
+  to the day before the sale (Schedule II Note 2) and profit / loss on sale. The rest keeps
+  depreciating on its own cost. In the income-tax block the part's sale price reduces the block
+  (2025 Act s.41(1)(c); the 1961 Act's s.43(6)(c) was not re-read); the block goes on while assets remain. Binning the journal puts
+  the part back as its own record. Assets without a partial disposal are unchanged. Readings and
+  UNVERIFIED points: `src/shared/fixedAssetSources.ts`. [#PR](https://github.com/IrminFlow/total/pull/PR)
 
 ### For developers
 

@@ -7,6 +7,7 @@ import { DEP_METHOD_LABELS, type DepMethod } from '@shared/depreciation'
 import {
   FIXED_ASSET_SOURCES, formatBp, formatLife, type AssetGroupRow, type CaClassRow, type ItBlockRateRow, type ItBlockRow
 } from '@shared/fixedAssets'
+import { FIXED_ASSET_EVENT_SOURCES, FIXED_ASSET_UNVERIFIED } from '@shared/fixedAssetSources'
 import { faApi } from '../../lib/fixedAssetsClient'
 import { useToasts } from '../../state/stores'
 import { Badge, Banner, Button, Checkbox, Field, Modal, Panel, SectionTitle, Select, TextInput } from '../../components/ui'
@@ -125,6 +126,13 @@ export function SetupTab(): React.JSX.Element {
             Schedule II (ICAI GN(A) 35 ¶56–58). A company may adopt a materiality threshold as its own policy.
           </li>
           <li>Rows marked Unverified (and the migration-026 notes) list what could not be checked against the official text.</li>
+          {FIXED_ASSET_EVENT_SOURCES.map((s) => (
+            <li key={s.key} title={s.quote}>{s.title} — <span className="num">{s.url}</span></li>
+          ))}
+        </ul>
+        <p className="mt-2 text-hint font-medium text-muted">Unverified (partial disposals and later additions)</p>
+        <ul className="list-disc pl-5 text-hint text-muted" data-testid="fixed-assets-unverified">
+          {FIXED_ASSET_UNVERIFIED.map((u) => <li key={u.key}>{u.text}</li>)}
         </ul>
       </Panel>
       {editGroup && <GroupModal group={editGroup === 'new' ? null : editGroup} classes={classes} blocks={blocks} onClose={() => setEditGroup(null)} />}
