@@ -125,7 +125,7 @@ what you typed, and a **Back to simple** button.
 - **Files you attach are locked too.** With the passphrase lock on, the bills, photos and
   documents attached to entries, parties and products, and the bills waiting in Capture, are stored
   encrypted with the same lock; they open as before. Files you drop into the capture folder stay as
-  you put them until Total takes them in. [#<n>](https://github.com/IrminFlow/total/pull/<n>)
+  you put them until Total takes them in. [#152](https://github.com/IrminFlow/total/pull/152)
 - **Lock the screen without setting up people.** Ctrl/Cmd+L and the idle timeout now work in a
   business with no sign-ins: with a passphrase lock it asks for the passphrase, otherwise it is a
   privacy screen that anyone can unlock (it says so, and points to People and roles for a real
@@ -465,7 +465,7 @@ Read these before filing from the next release.
   `markFileConversion` / `resumeFileConversion` (marker `.files-converting`, resumed on every open);
   `security:passphrase:on` / `off` return `filesConverted` / `filesFailed` (additive).
   `attachments.addAttachmentBytes` (capture → attachment reads the decrypted bytes). No migration.
-  [#<n>](https://github.com/IrminFlow/total/pull/<n>)
+  [#152](https://github.com/IrminFlow/total/pull/152)
 - `receivables:statementPdf` is a viewer read, governed by `canExport` (in `EXPORT_CHANNELS`, like
   `report:pdf`). New viewer read `gst:einvoicing`
   (`services/gst.ts einvoicingOn`). `CashFlowRow` gained optional `parts` (ledger id, name, cash
