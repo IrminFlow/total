@@ -228,6 +228,27 @@ describe('e-Invoice / e-way bill table', () => {
     fireEvent.click(bodyRows('edocs')[2]!)
     expect(go).toHaveBeenLastCalledWith({ name: 'voucher-entry', voucherId: 3 })
   })
+
+  // NIC follow-up: a row with an IRN (live or cancelled) offers "IRN details"; a cancelled one says so.
+  it('IRN details on rows with an IRN; a cancelled IRN reads "IRN cancelled"', async () => {
+    EDOCS[0] = { ...EDOCS[0]!, irn: 'a'.repeat(64) }
+    EDOCS[2] = { ...EDOCS[2]!, irnCancelledAt: '2026-04-07 15:00:00' }
+    try {
+      renderWithClient(<EdocsScreen />)
+      await waitFor(() => expect(screen.getByTestId('rows-edocs')).toBeTruthy())
+      const rows = bodyRows('edocs')
+      expect(within(rows[0]!).getByTestId('btn-edocs-details')).toBeTruthy()
+      expect(within(rows[1]!).queryByTestId('btn-edocs-details')).toBeNull()
+      expect(within(rows[2]!).getByTestId('edoc-irn-cancelled').textContent).toBe('IRN cancelled')
+      expect(within(rows[2]!).getByTestId('btn-edocs-details')).toBeTruthy()
+      fireEvent.click(within(rows[0]!).getByTestId('btn-edocs-details'))
+      expect(go).not.toHaveBeenCalled()
+      await waitFor(() => expect(invoke.mock.calls.some(([c, p]) => c === 'nic:record' && (p as { voucherId: number }).voucherId === 1)).toBe(true))
+    } finally {
+      EDOCS[0] = { ...EDOCS[0]!, irn: null }
+      EDOCS[2] = { ...EDOCS[2]!, irnCancelledAt: null }
+    }
+  })
 })
 
 describe('GSTR-1 section summary', () => {
