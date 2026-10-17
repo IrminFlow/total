@@ -112,6 +112,19 @@ export const postEmiSchema = z.object({
 })
 export type PostEmiInput = z.input<typeof postEmiSchema>
 
+export const loanDisbursementSchema = z.object({
+  loanId: id,
+  /** The bank the money came into; defaults to the loan's bank ledger. */
+  bankLedgerId: id.optional()
+})
+export type LoanDisbursementInput = z.input<typeof loanDisbursementSchema>
+
+/** How a loan's disbursement is in the books: a voucher posted from Loans (Dr bank / Cr the loan
+ *  ledger), or — for a loan taken before the books began — the loan ledger's opening balance. */
+export type LoanDisbursement =
+  | { mode: 'voucher'; voucherId: number; voucherNumber: string; date: string; amount: number }
+  | { mode: 'opening'; amount: number }
+
 export interface LoanSummary {
   id: number
   name: string
@@ -146,6 +159,15 @@ export interface LoanSummary {
   /** Interest falling due in the current financial year (posted or not). */
   interestThisFy: number
   totalInterest: number
+  /** The disbursement as recorded (null = not in the books from Loans yet). */
+  disbursement: LoanDisbursement | null
+  /** The loan was taken before the books began: its disbursement is an opening balance, not a voucher. */
+  beforeBooks: boolean
+  /** What "Record the disbursement" would put in the books: the principal, or for a loan taken
+   *  before the books began the schedule's outstanding on the books-begin day. */
+  disbursementAmount: number
+  /** The books-begin day (instalments due before it, on a loan taken before it, are in the opening). */
+  booksBegin: string
 }
 
 export interface LoanScheduleRow {

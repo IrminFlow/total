@@ -45,7 +45,8 @@ const LOAN: LoanSummary = {
   interestLedgerId: null, interestLedgerName: null, principal: 1_00_000_00, annualRateMilli: 12_000, tenureMonths: 12, disbursedOn: '2026-04-01',
   firstDueDate: '2026-05-05', method: 'reducing', moratoriumMonths: 0, moratoriumMode: 'capitalise', emiOverride: null, status: 'active', notes: null,
   emi: 8_884_88, outstanding: 1_00_000_00, ledgerBalance: 1_00_000_00, postedCount: 0, pendingCount: 12,
-  nextDue: { scheduleId: 101, dueDate: '2026-05-05', payment: 8_884_88 }, overdueCount: 1, interestThisFy: 6_618_55, totalInterest: 6_618_55
+  nextDue: { scheduleId: 101, dueDate: '2026-05-05', payment: 8_884_88 }, overdueCount: 1, interestThisFy: 6_618_55, totalInterest: 6_618_55,
+  disbursement: null, beforeBooks: false, disbursementAmount: 1_00_000_00, booksBegin: '2025-04-01'
 }
 const DETAIL: LoanDetail = {
   loan: LOAN,
@@ -95,6 +96,7 @@ beforeEach(() => {
       case 'forecast:items': return { ok: true, data: [] }
       case 'loan:list': return { ok: true, data: [LOAN] }
       case 'loan:get': return { ok: true, data: DETAIL }
+      case 'loan:recordDisbursement': return { ok: true, data: DETAIL }
       case 'loan:postEmi': return { ok: true, data: { ...DETAIL.schedule[0], posted: true, voucherId: 500, voucherNumber: '12' } }
       case 'fx:preview': return { ok: true, data: FX }
       case 'fx:rates': return { ok: true, data: [{ id: 1, date: TODAY, currencyCode: 'USD', rateMicro: 83_250_000, note: null }] }
@@ -171,6 +173,16 @@ describe('loans', () => {
     expect(modal.textContent).toContain('1,000.00')
     fireEvent.click(screen.getByTestId('btn-loan-post-confirm'))
     await waitFor(() => expect(calls.find((c) => c.channel === 'loan:postEmi')?.payload).toEqual({ scheduleId: 101, date: '2026-05-05', bankLedgerId: 2 }))
+  }, 20_000)
+
+  it('records the disbursement (Dr bank / Cr loan) into the loan’s bank', async () => {
+    renderUi(<LoansScreen />)
+    fireEvent.click(await screen.findByTestId('btn-loan-disburse'))
+    const modal = await screen.findByTestId('loan-disburse-modal')
+    expect(modal.textContent).toContain('Cr HDFC Term Loan')
+    expect(modal.textContent).toContain('1,00,000.00')
+    fireEvent.click(screen.getByTestId('btn-loan-disburse-confirm'))
+    await waitFor(() => expect(calls.find((c) => c.channel === 'loan:recordDisbursement')?.payload).toEqual({ loanId: 1, bankLedgerId: 2 }))
   }, 20_000)
 })
 

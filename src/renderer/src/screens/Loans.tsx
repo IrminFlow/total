@@ -135,7 +135,9 @@ function LoanDetailPanel({ loan, onEdit, onDeleted }: { loan: LoanSummary; onEdi
   const [posting, setPosting] = useState<LoanScheduleRow | null>(null)
   const [prepaying, setPrepaying] = useState(false)
   const columns = useMemo(() => scheduleColumns(today), [today])
-  const nextRow = data?.schedule.find((r) => !r.posted) ?? null
+  // Instalments that fell due before the books began (a loan taken before them) are in the opening.
+  const nextRow = data?.schedule.find((r) => !r.posted && !(loan.beforeBooks && r.dueDate < loan.booksBegin)) ?? null
+  const [disbursing, setDisbursing] = useState(false)
   const refresh = async (): Promise<void> => {
     await qc.invalidateQueries({ queryKey: ['loans'] })
     await qc.invalidateQueries({ queryKey: ['loan', loan.id] })
@@ -171,6 +173,9 @@ function LoanDetailPanel({ loan, onEdit, onDeleted }: { loan: LoanSummary; onEdi
               Post {KIND_LABEL[nextRow.kind]} #{nextRow.seq} · {toDisplayDate(nextRow.dueDate)}
             </Button>
           )}
+          {!loan.disbursement && loan.status === 'active' && (
+            <Button size="sm" data-testid="btn-loan-disburse" onClick={() => setDisbursing(true)}>Record the disbursement</Button>
+          )}
           {loan.method === 'reducing' && loan.status === 'active' && <Button size="sm" data-testid="btn-loan-prepay" onClick={() => setPrepaying(true)}>Prepayment…</Button>}
           <Button size="sm" data-testid="btn-loan-edit" onClick={onEdit}>Edit</Button>
           <Button size="sm" variant="ghost" onClick={() => void toggleStatus()}>{loan.status === 'active' ? 'Mark closed' : 'Reopen'}</Button>
@@ -184,6 +189,15 @@ function LoanDetailPanel({ loan, onEdit, onDeleted }: { loan: LoanSummary; onEdi
         <li><StatTile label="Interest this FY" testId="tile-loan-interest-fy" value={formatPaise(loan.interestThisFy, { symbol: true })} footer="due in the year, posted or not" /></li>
         <li><StatTile label="Total interest" testId="tile-loan-interest-total" value={formatPaise(loan.totalInterest, { symbol: true })} footer={`over ${toDisplayDate(loan.firstDueDate)} → end`} /></li>
       </ul>
+      {loan.disbursement && (
+        <p className="mb-3 text-hint text-muted" data-testid="loan-disbursement">
+          {loan.disbursement.mode === 'voucher' ? (
+            <>Disbursement: {formatPaise(loan.disbursement.amount, { symbol: true })} on {toDisplayDate(loan.disbursement.date)} · <VoucherLink voucherId={loan.disbursement.voucherId} label={loan.disbursement.voucherNumber} /></>
+          ) : (
+            <>Disbursement: in the opening balance of <LedgerLink ledgerId={loan.loanLedgerId} name={loan.loanLedgerName} /> ({formatPaise(loan.disbursement.amount, { symbol: true })} Cr) — the loan was taken before the books began</>
+          )}
+        </p>
+      )}
       {loan.method === 'flat' && (
         <Banner tone="info" className="mb-3">A flat rate charges interest on the original principal throughout — its effective (reducing) rate is close to double the quoted one.</Banner>
       )}
@@ -218,6 +232,7 @@ function LoanDetailPanel({ loan, onEdit, onDeleted }: { loan: LoanSummary; onEdi
         </p>
       )}
       {posting && <PostEmiModal loan={loan} row={posting} onClose={() => setPosting(null)} onPosted={async () => { setPosting(null); await refresh() }} />}
+      {disbursing && <DisbursementModal loan={loan} onClose={() => setDisbursing(false)} onDone={async () => { setDisbursing(false); await refresh() }} />}
       {prepaying && <PrepaymentModal loan={loan} onClose={() => setPrepaying(false)} onSaved={async () => { setPrepaying(false); await refresh() }} />}
     </section>
   )
@@ -272,6 +287,55 @@ function PostEmiModal({ loan, row, onClose, onPosted }: { loan: LoanSummary; row
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button variant="primary" data-testid="btn-loan-post-confirm" onClick={() => void post()}>Post</Button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function DisbursementModal({ loan, onClose, onDone }: { loan: LoanSummary; onClose: () => void; onDone: () => Promise<void> }): React.JSX.Element {
+  const toast = useToasts()
+  const [bank, setBank] = useState<number | null>(loan.bankLedgerId)
+  const record = async (): Promise<void> => {
+    try {
+      await cfApi.loans.recordDisbursement(loan.id, loan.beforeBooks ? undefined : bank ?? undefined)
+      toast.push('success', loan.beforeBooks ? 'Opening balance set' : 'Disbursement posted')
+      await onDone()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
+  return (
+    <Modal title="Record the disbursement" onClose={onClose}>
+      <div className="flex flex-col gap-3" data-testid="loan-disburse-modal">
+        {loan.beforeBooks ? (
+          <p className="text-small">
+            The loan was taken on {toDisplayDate(loan.disbursedOn)}, before the books began ({toDisplayDate(loan.booksBegin)}). No voucher is posted:
+            the opening balance of {loan.loanLedgerName} becomes {formatPaise(loan.disbursementAmount, { symbol: true })} Cr — what the schedule
+            says was still owed on the books-begin day. Instalments that fell due before then are part of it and are not posted.
+          </p>
+        ) : (
+          <>
+            <table className="ledger-table">
+              <tbody>
+                <tr><td>Dr bank</td><td className="r num">{formatPaise(loan.disbursementAmount)}</td></tr>
+                <tr className="total-row"><td>Cr {loan.loanLedgerName}</td><td className="r num">{formatPaise(loan.disbursementAmount)}</td></tr>
+              </tbody>
+            </table>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Date"><TextInput value={toDisplayDate(loan.disbursedOn)} readOnly /></Field>
+              <Field label="Paid into">
+                <LedgerPicker value={bank} onPick={setBank} filter={isCashBank} placeholder="Bank" testId="picker-loan-disburse-bank" />
+              </Field>
+            </div>
+            <p className="text-hint text-muted">Creates a receipt voucher on the disbursement date. Like the instalments it can only be moved to the bin, not edited.</p>
+          </>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button onClick={onClose}>Cancel</Button>
+          <Button variant="primary" data-testid="btn-loan-disburse-confirm" onClick={() => void record()} disabled={!loan.beforeBooks && !bank}>
+            {loan.beforeBooks ? 'Set the opening' : 'Post'}
+          </Button>
         </div>
       </div>
     </Modal>

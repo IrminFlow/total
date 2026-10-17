@@ -167,21 +167,24 @@ describe('migrate', () => {
   })
 
   // Found by content, never by position (number by position; later entries are appended).
-  it('the reminder_log channel rebuild (PR #148) comes right before the voucher text index', () => {
+  it('the reminder_log channel rebuild (PR #148) comes right before the voucher text index, then the NIC e-document columns, then the loan_vouchers disbursement rebuild (last)', () => {
     const at = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE reminder_log_new'))
     const rebuild = MIGRATIONS[at]!
     expect(rebuild.startsWith('-- @foreign-keys-off')).toBe(true)
     expect(rebuild).toContain("'whatsapp', 'sms'")
     expect(MIGRATIONS[at + 1]).toContain('CREATE VIRTUAL TABLE voucher_fts')
+    expect(MIGRATIONS[at + 2]).toContain('irn_signed_invoice')
+    expect(MIGRATIONS.at(-1)).toContain('CREATE TABLE loan_vouchers_new')
+    expect(at).toBe(MIGRATIONS.length - 4)
   })
 
   // WP 3.5 follow-up: the NIC signed copies / cancel state / e-way history — appended columns only.
-  it('the NIC e-document columns are the last migration: columns appended to vouchers, no rebuild', () => {
-    const last = MIGRATIONS.at(-1)!
+  it('the NIC e-document columns come right after the voucher text index (the loan_vouchers disbursement rebuild is last): columns appended to vouchers, no rebuild', () => {
+    const last = MIGRATIONS.at(-2)!
     expect(last).toContain('irn_signed_invoice')
     expect(last.trimStart().startsWith('-- @foreign-keys-off')).toBe(false)
     expect(last).not.toMatch(/DROP TABLE|CREATE TABLE/i)
-    expect(MIGRATIONS.at(-2)).toContain('CREATE VIRTUAL TABLE voucher_fts')
+    expect(MIGRATIONS.at(-3)).toContain('CREATE VIRTUAL TABLE voucher_fts')
     const db = freshDb()
     const cols = (db.prepare('PRAGMA table_info(vouchers)').all() as { name: string }[]).map((c) => c.name)
     for (const c of ['irn_signed_invoice', 'irn_signed_qr', 'irn_cancelled_at', 'irn_cancel_reason', 'irn_cancel_remark', 'ewb_date', 'ewb_history']) {

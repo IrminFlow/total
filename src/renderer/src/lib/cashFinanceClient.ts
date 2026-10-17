@@ -26,6 +26,7 @@ export const cfApi = {
     prepaymentAdd: (data: LoanPrepaymentInput) => call<LoanDetail>('loan:prepaymentAdd', data),
     prepaymentDelete: (id: number) => call<LoanDetail>('loan:prepaymentDelete', { id }),
     postEmi: (data: PostEmiInput) => call<LoanScheduleRow>('loan:postEmi', data),
+    recordDisbursement: (loanId: number, bankLedgerId?: number) => call<LoanDetail>('loan:recordDisbursement', bankLedgerId ? { loanId, bankLedgerId } : { loanId }),
     reminders: () => call<EmiReminder[]>('loan:reminders', {})
   },
   fx: {

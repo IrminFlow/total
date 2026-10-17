@@ -3563,5 +3563,23 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE vouchers ADD COLUMN irn_cancel_remark TEXT;
   ALTER TABLE vouchers ADD COLUMN ewb_date TEXT;
   ALTER TABLE vouchers ADD COLUMN ewb_history TEXT;
+  `,
+  // To-do §4 / WP 4.4 (last — after the voucher text index; number by position) — a loan's
+  // disbursement voucher (Dr bank / Cr the loan ledger, from Loans → "Record the disbursement") is
+  // linked like its instalments, so it is bin-only and its link survives schedule regeneration.
+  // loan_vouchers' kind CHECK gains 'disbursement' (seq 0 — no schedule row). A rebuild: nothing
+  // references loan_vouchers and it has no triggers, so a plain copy-drop-rename is safe with
+  // foreign keys on; every row is kept as it was.
+  `
+  CREATE TABLE loan_vouchers_new (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    loan_id INTEGER NOT NULL,
+    seq INTEGER NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('emi', 'moratorium', 'prepayment', 'disbursement'))
+  );
+  INSERT INTO loan_vouchers_new (voucher_id, loan_id, seq, kind) SELECT voucher_id, loan_id, seq, kind FROM loan_vouchers;
+  DROP TABLE loan_vouchers;
+  ALTER TABLE loan_vouchers_new RENAME TO loan_vouchers;
+  CREATE INDEX idx_loan_vouchers_loan ON loan_vouchers(loan_id);
   `
 ]

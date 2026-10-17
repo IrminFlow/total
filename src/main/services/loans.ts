@@ -4,21 +4,29 @@
 // interest ledger (interest), Cr the bank (the instalment) — or, for a capitalised moratorium
 // month, a journal Dr interest / Cr loan. A row counts as posted while its voucher is live: binning
 // the voucher re-opens the instalment. Instalments post in order.
+// "Record the disbursement" puts the loan itself in the books: a Receipt Dr the bank / Cr the
+// loan ledger on the disbursement date (linked in loan_vouchers as kind 'disbursement', seq 0 —
+// bin-only like the instalments; regeneration never touches it), or, for a loan taken before the
+// books began, the loan ledger's opening balance through masters.updateLedger (no voucher): the
+// schedule's outstanding on the books-begin day. Instalments that fell due before the books began
+// are part of that opening and are never posted.
 import type { DB } from '../db/connection'
 import {
   generateSchedule, interestBetween, type LoanSchedule, type LoanTerms, type Prepayment, type ScheduleRow
 } from '@shared/loanSchedule'
 import {
-  loanInputSchema, loanPrepaymentInputSchema, postEmiSchema,
-  type EmiReminder, type LoanDetail, type LoanInput, type LoanPrepaymentInput, type LoanScheduleRow, type LoanSummary, type PostEmiInput
+  loanDisbursementSchema, loanInputSchema, loanPrepaymentInputSchema, postEmiSchema,
+  type EmiReminder, type LoanDetail, type LoanDisbursement, type LoanDisbursementInput, type LoanInput, type LoanPrepaymentInput,
+  type LoanScheduleRow, type LoanSummary, type PostEmiInput
 } from '@shared/cashFinance'
-import { fyOf, todayISO } from '@shared/dates'
+import { ledgerInputSchema } from '@shared/schemas'
+import { fyOf, toDisplayDate, todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { writeAudit } from './audit'
-import { findOrCreateLedger } from './masters'
+import { findOrCreateLedger, getLedger, updateLedger } from './masters'
 import { closingBalances } from './reports'
 import { saveVoucher } from './vouchers'
-import { addDays, isCashOrBankLedger, ledgerInfo, postingBlock, systemVoucherTypeId } from './cashFinanceCommon'
+import { addDays, booksBeginDay, isCashOrBankLedger, ledgerInfo, postingBlock, systemVoucherTypeId } from './cashFinanceCommon'
 
 export const INTEREST_LEDGER = 'Interest on Loans'
 export const INTEREST_GROUP = 'Indirect Expenses'
@@ -95,8 +103,41 @@ function regenerate(db: DB, loan: LoanDbRow): LoanSchedule {
   return gen
 }
 
+/** The live disbursement voucher of a loan, if any. */
+function disbursementVoucher(db: DB, loanId: number): { voucherId: number; voucherNumber: string; date: string; amount: number } | null {
+  return (db
+    .prepare(
+      `SELECT v.id AS voucherId, v.number AS voucherNumber, v.date,
+              COALESCE((SELECT SUM(vl.amount) FROM voucher_lines vl WHERE vl.voucher_id = v.id AND vl.dr_cr = 'cr'), 0) AS amount
+       FROM loan_vouchers lv JOIN vouchers v ON v.id = lv.voucher_id
+       WHERE lv.loan_id = ? AND lv.kind = 'disbursement' AND v.deleted_at IS NULL
+       ORDER BY v.id DESC LIMIT 1`
+    )
+    .get(loanId) as { voucherId: number; voucherNumber: string; date: string; amount: number } | undefined) ?? null
+}
+
+/** A loan taken before the books began: its disbursement belongs in the loan ledger's opening. */
+const takenBeforeBooks = (loan: LoanDbRow, begin: string): boolean => loan.disbursed_on < begin
+
+/** What the books should carry for the disbursement: the principal, or — before the books — the
+ *  schedule's outstanding on the books-begin day (the closing of the last row due before it). */
+function disbursementAmountOf(loan: LoanDbRow, rows: readonly { dueDate: string; closing: number }[], begin: string): number {
+  if (!takenBeforeBooks(loan, begin)) return loan.principal
+  const before = rows.filter((r) => r.dueDate < begin)
+  return before.length ? before[before.length - 1]!.closing : loan.principal
+}
+
+function disbursementOf(db: DB, loan: LoanDbRow, begin: string): LoanDisbursement | null {
+  const v = disbursementVoucher(db, loan.id)
+  if (v) return { mode: 'voucher', ...v }
+  if (!takenBeforeBooks(loan, begin)) return null
+  const ob = (db.prepare('SELECT opening_balance AS ob FROM ledgers WHERE id = ?').get(loan.loan_ledger_id) as { ob: number } | undefined)?.ob ?? 0
+  return ob < 0 ? { mode: 'opening', amount: -ob } : null
+}
+
 function summary(db: DB, loan: LoanDbRow, today: string, balances: Map<number, number>): LoanSummary {
   const rows = scheduleRows(db, loan.id).map(mapSchedule)
+  const begin = booksBeginDay(db)
   const name = (id: number | null): string | null => (id == null ? null : ledgerInfo(db, id)?.name ?? null)
   const lastPosted = [...rows].reverse().find((r) => r.posted)
   const pending = rows.filter((r) => !r.posted)
@@ -118,7 +159,11 @@ function summary(db: DB, loan: LoanDbRow, today: string, balances: Map<number, n
     nextDue: next ? { scheduleId: next.id, dueDate: next.dueDate, payment: next.payment } : null,
     overdueCount: pending.filter((r) => r.dueDate <= today).length,
     interestThisFy: interestBetween(rows, fy.from, fy.to),
-    totalInterest: rows.reduce((s, r) => s + r.interest, 0)
+    totalInterest: rows.reduce((s, r) => s + r.interest, 0),
+    disbursement: disbursementOf(db, loan, begin),
+    beforeBooks: takenBeforeBooks(loan, begin),
+    disbursementAmount: disbursementAmountOf(loan, rows, begin),
+    booksBegin: begin
   }
 }
 
@@ -178,6 +223,11 @@ export function saveLoan(db: DB, raw: LoanInput, id?: number): LoanDetail {
         }
         vals[3] = interestAfter
       }
+      // The disbursement voucher names the loan ledger, the principal and the date.
+      const disbursed = disbursementVoucher(db, id)
+      if (disbursed && (input.loanLedgerId !== stored.loan_ledger_id || input.principal !== stored.principal || input.disbursedOn !== stored.disbursed_on)) {
+        throw new Error(`The disbursement is posted (voucher ${disbursed.voucherNumber}) — the loan ledger, principal and disbursement date can no longer change; bin it first`)
+      }
       db.prepare(
         `UPDATE loans SET name = ?, loan_ledger_id = ?, bank_ledger_id = ?, interest_ledger_id = ?, principal = ?, annual_rate_milli = ?,
            tenure_months = ?, disbursed_on = ?, first_due_date = ?, method = ?, moratorium_months = ?, moratorium_mode = ?,
@@ -210,9 +260,10 @@ export function setLoanStatus(db: DB, id: number, status: 'active' | 'closed'): 
 export function deleteLoan(db: DB, id: number): void {
   const detail = getLoan(db, id)
   if (detail.schedule.some((r) => r.posted)) throw new Error('This loan has posted instalments — bin their vouchers first, or mark the loan closed')
+  if (detail.loan.disbursement?.mode === 'voucher') throw new Error(`This loan's disbursement is posted (voucher ${detail.loan.disbursement.voucherNumber}) — bin it first, or mark the loan closed`)
   // Binned instalment vouchers would otherwise be restorable against a loan that no longer exists.
   const binned = (db.prepare('SELECT COUNT(*) AS n FROM loan_vouchers WHERE loan_id = ?').get(id) as { n: number }).n
-  if (binned > 0) throw new Error(`This loan still has ${binned} instalment voucher${binned === 1 ? '' : 's'} in the bin — purge them first`)
+  if (binned > 0) throw new Error(`This loan still has ${binned} voucher${binned === 1 ? '' : 's'} in the bin — purge them first`)
   db.prepare('DELETE FROM loans WHERE id = ?').run(id)
   writeAudit(db, 'loan', id, 'delete', { ...detail.loan, schedule: detail.schedule.length }, null)
 }
@@ -258,7 +309,13 @@ export function postEmi(db: DB, raw: PostEmiInput): LoanScheduleRow {
     const rows = scheduleRows(db, loan.id)
     const me = rows.find((r) => r.id === row.id)!
     if (me.live) throw new Error(`Instalment ${row.seq} is already posted (voucher ${me.voucher_number})`)
-    const earlier = rows.find((r) => r.seq < row.seq && !r.live)
+    // Instalments that fell due before the books began are part of the loan ledger's opening.
+    const begin = booksBeginDay(db)
+    const inOpening = (r: { due_date: string }): boolean => takenBeforeBooks(loan, begin) && r.due_date < begin
+    if (inOpening(row)) {
+      throw new Error(`Instalment ${row.seq} fell due on ${toDisplayDate(row.due_date)}, before the books began (${toDisplayDate(begin)}) — it is part of the loan ledger's opening balance`)
+    }
+    const earlier = rows.find((r) => r.seq < row.seq && !r.live && !inOpening(r))
     if (earlier) throw new Error(`Post instalment ${earlier.seq} (${earlier.due_date}) first — instalments post in order`)
     const date = input.date ?? row.due_date
     const block = postingBlock(db, date)
@@ -311,6 +368,59 @@ export function postEmi(db: DB, raw: PostEmiInput): LoanScheduleRow {
   const id = run()
   const row = db.prepare('SELECT loan_id FROM loan_schedules WHERE id = ?').get(id) as { loan_id: number }
   return scheduleRows(db, row.loan_id).map(mapSchedule).find((r) => r.id === id)!
+}
+
+/** Put the loan's disbursement in the books: a Receipt (Dr the bank, Cr the loan ledger) dated
+ *  the disbursement date and linked to the loan — or, for a loan taken before the books began,
+ *  the loan ledger's opening balance (credit = the schedule's outstanding on the books-begin day)
+ *  through the masters service, with no voucher. Refused once recorded. */
+export function recordDisbursement(db: DB, raw: LoanDisbursementInput): LoanDetail {
+  const input = loanDisbursementSchema.parse(raw)
+  const run = db.transaction(() => {
+    const loan = loanRow(db, input.loanId)
+    if (loan.status !== 'active') throw new Error('This loan is closed')
+    const begin = booksBeginDay(db)
+    const already = disbursementOf(db, loan, begin)
+    if (already) {
+      throw new Error(already.mode === 'voucher'
+        ? `The disbursement is already posted (voucher ${already.voucherNumber})`
+        : 'The disbursement is already in the loan ledger\'s opening balance')
+    }
+    if (takenBeforeBooks(loan, begin)) {
+      const ledger = getLedger(db, loan.loan_ledger_id)
+      if (!ledger) throw new Error('Loan ledger not found')
+      if (ledger.openingBalance !== 0) {
+        throw new Error(`${ledger.name} already has an opening balance of ${formatPaise(Math.abs(ledger.openingBalance), { symbol: true })} Dr — change it in the ledger itself`)
+      }
+      const amount = disbursementAmountOf(loan, scheduleRows(db, loan.id).map(mapSchedule), begin)
+      updateLedger(db, ledger.id, ledgerInputSchema.parse({ ...ledger, openingBalance: -amount }))
+      writeAudit(db, 'loan', loan.id, 'update', { disbursement: null }, { disbursement: { mode: 'opening', ledgerId: ledger.id, amount, asOf: begin } })
+      return
+    }
+    const bank = input.bankLedgerId ?? loan.bank_ledger_id
+    if (bank == null) throw new Error('Pick the bank the loan was paid into')
+    if (!isCashOrBankLedger(db, bank)) throw new Error('The disbursement must come into a cash or bank ledger')
+    const block = postingBlock(db, loan.disbursed_on)
+    if (block) throw new Error(block)
+    const voucher = saveVoucher(db, {
+      voucherTypeId: systemVoucherTypeId(db, 'receipt'),
+      date: loan.disbursed_on,
+      partyLedgerId: null,
+      narration: `Disbursement — ${loan.name} (principal ${formatPaise(loan.principal, { symbol: true })})`,
+      reference: `${loan.name} disbursement`.slice(0, 60),
+      lines: [
+        { ledgerId: bank, drCr: 'dr', amount: loan.principal, costAllocations: [] },
+        { ledgerId: loan.loan_ledger_id, drCr: 'cr', amount: loan.principal, costAllocations: [] }
+      ],
+      inventory: [],
+      billRefs: [],
+      tds: null
+    })
+    db.prepare("INSERT INTO loan_vouchers (voucher_id, loan_id, seq, kind) VALUES (?, ?, 0, 'disbursement')").run(voucher.id, loan.id)
+    writeAudit(db, 'loan', loan.id, 'update', { disbursement: null }, { disbursement: { mode: 'voucher', voucherId: voucher.id, bankLedgerId: bank, amount: loan.principal } })
+  })
+  run()
+  return getLoan(db, input.loanId)
 }
 
 /** Unposted instalments due within `days` of today (or overdue) on active loans — the dashboard

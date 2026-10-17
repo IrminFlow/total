@@ -12,7 +12,7 @@ import { isoDate } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
 import {
   budgetCsvImportSchema, budgetDrillSchema, budgetMonthlySchema, forecastBaseSchema, forecastItemInputSchema, fxAsOfSchema,
-  fxLedgerCurrencySchema, fxRateInputSchema, fxRevaluePostSchema, fxSettleInputSchema, loanInputSchema, loanPrepaymentInputSchema, postEmiSchema
+  fxLedgerCurrencySchema, fxRateInputSchema, fxRevaluePostSchema, fxSettleInputSchema, loanDisbursementSchema, loanInputSchema, loanPrepaymentInputSchema, postEmiSchema
 } from '@shared/cashFinance'
 import * as forecast from './services/cashForecast'
 import * as loans from './services/loans'
@@ -62,6 +62,7 @@ export function registerCashFinanceIpc(handle: Handle, company: () => Company): 
   handle('loan:prepaymentAdd', (p) => loans.addPrepayment(db(), loanPrepaymentInputSchema.parse(p)))
   handle('loan:prepaymentDelete', (p) => loans.deletePrepayment(db(), idSchema.parse(p).id))
   handle('loan:postEmi', (p) => loans.postEmi(db(), postEmiSchema.parse(p)))
+  handle('loan:recordDisbursement', (p) => loans.recordDisbursement(db(), loanDisbursementSchema.parse(p)))
   handle('loan:reminders', (p) => loans.emiReminders(db(), todaySchema.parse(p ?? {}).today ?? todayISO()), 'viewer')
 
   // ---------- forex ----------
