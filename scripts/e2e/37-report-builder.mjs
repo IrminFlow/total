@@ -140,7 +140,9 @@ await scenario('37-report-builder', async (h) => {
   assertEq(runs[0].status, 'ok', `pack run ok (${runs[0].error ?? ''})`)
   assertEq(runs[0].files.length, 8, 'four reports × PDF + CSV')
   for (const f of runs[0].files) assert(fs.existsSync(f) && fs.statSync(f).size > 0, `pack file written: ${f}`)
-  assert(runs[0].files.some((f) => /sales-by-party-by-month\.pdf$/.test(f)), 'the saved report is in the pack')
+  // Pack files are named NN-<report title> (PR #150, portableFileName); matched by title, not by position.
+  const names = runs[0].files.map((f) => path.basename(f))
+  for (const ext of ['pdf', 'csv']) assert(names.some((n) => new RegExp(`^\\d\\d-Sales by party by month\\.${ext}$`).test(n)), `the saved report is in the pack (${ext}): ${names.join(', ')}`)
   await bothThemes('05-scheduled-packs')
   fs.rmSync(out, { recursive: true, force: true })
 })
