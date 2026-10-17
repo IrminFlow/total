@@ -80,10 +80,16 @@ export type SenderVerdict = { ok: true } | { ok: false; reason: 'no_frame' | 'ch
 /** The whole rule: a main frame showing the trusted renderer page. */
 export function checkSender(event: unknown, t: TrustedRenderer | null = trusted, platform: string = process.platform): SenderVerdict {
   const e = (event ?? {}) as IpcEventLike
-  if (!e.senderFrame) return { ok: false, reason: 'no_frame' }
-  if (!isMainFrame(e)) return { ok: false, reason: 'child_frame' }
-  if (!isTrustedRendererUrl(e.senderFrame.url, t, platform)) return { ok: false, reason: 'foreign_url' }
-  return { ok: true }
+  // A WebFrameMain disposed between the event and this check throws on every property read
+  // (Electron: "Render frame was disposed before WebFrameMain could be accessed") — refuse, never throw.
+  try {
+    if (!e.senderFrame) return { ok: false, reason: 'no_frame' }
+    if (!isMainFrame(e)) return { ok: false, reason: 'child_frame' }
+    if (!isTrustedRendererUrl(e.senderFrame.url, t, platform)) return { ok: false, reason: 'foreign_url' }
+    return { ok: true }
+  } catch {
+    return { ok: false, reason: 'no_frame' }
+  }
 }
 
 const logged = new Set<string>()

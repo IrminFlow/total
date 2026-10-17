@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { checkSender, isTrustedRendererUrl } from './ipcSender'
+import { checkSender, firstRefusalOf, isTrustedRendererUrl } from './ipcSender'
 
 const FILE = 'file:///Applications/Total.app/Contents/Resources/app.asar/out/renderer/index.html'
 const T = { fileUrl: FILE }
@@ -58,5 +58,14 @@ describe('checkSender', () => {
     expect(checkSender({ senderFrame: { url: FILE, parent: null, processId: 1, routingId: 3 }, sender: { mainFrame: main } }, T, 'darwin')).toEqual({ ok: false, reason: 'child_frame' })
     expect(checkSender({ senderFrame: { url: FILE, parent: null }, sender: {} }, T, 'darwin')).toEqual({ ok: false, reason: 'child_frame' })
     expect(checkSender(mainEvent('https://evil.example/'), T, 'darwin')).toEqual({ ok: false, reason: 'foreign_url' })
+  })
+})
+
+describe('a disposed frame', () => {
+  it('is refused, never thrown (Electron throws on every property of a disposed WebFrameMain)', () => {
+    const disposed = new Proxy({}, { get: () => { throw new Error('Render frame was disposed before WebFrameMain could be accessed') } })
+    const t = { fileUrl: 'file:///app/out/renderer/index.html' }
+    expect(checkSender({ senderFrame: disposed, sender: { id: 1, mainFrame: disposed } }, t)).toEqual({ ok: false, reason: 'no_frame' })
+    expect(firstRefusalOf({ senderFrame: disposed, sender: { id: 1 } }, 'no_frame').first).toBe(true)
   })
 })
