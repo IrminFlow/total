@@ -167,29 +167,42 @@ describe('migrate', () => {
   })
 
   // Found by content, never by position (number by position; later entries are appended).
-  it('the reminder_log channel rebuild (PR #148) comes right before the voucher text index, then the NIC e-document columns, then the loan_vouchers disbursement rebuild (last)', () => {
+  it('the reminder_log channel rebuild (PR #148) comes right before the voucher text index, then the NIC e-document columns, then the loan_vouchers disbursement rebuild, then the tax-fact snapshot columns (last)', () => {
     const at = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE reminder_log_new'))
     const rebuild = MIGRATIONS[at]!
     expect(rebuild.startsWith('-- @foreign-keys-off')).toBe(true)
     expect(rebuild).toContain("'whatsapp', 'sms'")
     expect(MIGRATIONS[at + 1]).toContain('CREATE VIRTUAL TABLE voucher_fts')
     expect(MIGRATIONS[at + 2]).toContain('irn_signed_invoice')
-    expect(MIGRATIONS.at(-1)).toContain('CREATE TABLE loan_vouchers_new')
-    expect(at).toBe(MIGRATIONS.length - 4)
+    expect(MIGRATIONS[at + 3]).toContain('CREATE TABLE loan_vouchers_new')
+    expect(MIGRATIONS.at(-1)).toContain('snap_tax_facts')
+    expect(at).toBe(MIGRATIONS.length - 5)
   })
 
   // WP 3.5 follow-up: the NIC signed copies / cancel state / e-way history — appended columns only.
-  it('the NIC e-document columns come right after the voucher text index (the loan_vouchers disbursement rebuild is last): columns appended to vouchers, no rebuild', () => {
-    const last = MIGRATIONS.at(-2)!
+  it('the NIC e-document columns come right after the voucher text index (then the loan_vouchers disbursement rebuild and the tax-fact snapshot columns): columns appended to vouchers, no rebuild', () => {
+    const last = MIGRATIONS.at(-3)!
     expect(last).toContain('irn_signed_invoice')
     expect(last.trimStart().startsWith('-- @foreign-keys-off')).toBe(false)
     expect(last).not.toMatch(/DROP TABLE|CREATE TABLE/i)
-    expect(MIGRATIONS.at(-3)).toContain('CREATE VIRTUAL TABLE voucher_fts')
+    expect(MIGRATIONS.at(-4)).toContain('CREATE VIRTUAL TABLE voucher_fts')
     const db = freshDb()
     const cols = (db.prepare('PRAGMA table_info(vouchers)').all() as { name: string }[]).map((c) => c.name)
     for (const c of ['irn_signed_invoice', 'irn_signed_qr', 'irn_cancelled_at', 'irn_cancel_reason', 'irn_cancel_remark', 'ewb_date', 'ewb_history']) {
       expect(cols).toContain(c)
     }
+  })
+
+  // To-do §4 GST: the tax-fact snapshot columns — nullable columns appended, no rebuild, no backfill.
+  it('the tax-fact snapshot columns are the last migration: columns appended, nothing backfilled', () => {
+    const last = MIGRATIONS.at(-1)!
+    expect(last).toContain('snap_tax_facts')
+    expect(last.trimStart().startsWith('-- @foreign-keys-off')).toBe(false)
+    expect(last.replace(/--[^\n]*/g, '')).not.toMatch(/DROP TABLE|CREATE TABLE|UPDATE|INSERT/i)
+    const db = freshDb()
+    const cols = (t: string): string[] => (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name)
+    for (const c of ['snap_tax_facts', 'snap_party_gstin', 'snap_party_state', 'snap_party_export_type', 'snap_party_rcm']) expect(cols('vouchers')).toContain(c)
+    for (const t of ['voucher_lines', 'inventory_lines']) for (const c of ['snap_gst_rate', 'snap_cess_rate', 'snap_hsn']) expect(cols(t)).toContain(c)
   })
 
   it('applies every migration exactly once and records them all', () => {

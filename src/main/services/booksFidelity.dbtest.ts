@@ -149,6 +149,10 @@ describe('Books workbook fidelity', () => {
     expect(r.blocked).toBeUndefined()
     expect(r.steps.flatMap((s) => s.errors.map((e) => `${s.sheet}:${e.line} ${e.message}`))).toEqual([])
     expect(r.warnings).toEqual([])
+    // To-do §4: the vouchers carry tax-fact snapshots (party class, item rate / HSN) — the dump
+    // below compares those columns too, so they round-trip exactly.
+    expect((src.prepare('SELECT COUNT(*) AS n FROM vouchers WHERE snap_tax_facts = 1').get() as { n: number }).n).toBeGreaterThan(0)
+    expect((src.prepare("SELECT COUNT(*) AS n FROM inventory_lines WHERE snap_hsn = '8517' AND snap_gst_rate = 18").get() as { n: number }).n).toBeGreaterThan(0)
     const a = canonicalDump(src)
     const b = canonicalDump(dst)
     for (const t of Object.keys(a)) expect({ table: t, rows: b[t] }).toEqual({ table: t, rows: a[t] })
