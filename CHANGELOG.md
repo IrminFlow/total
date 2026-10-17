@@ -550,6 +550,7 @@ Read these before filing from the next release.
   post-dated cheques on as well, a cheque takes its amount off the supplier's bills first and its
   own date wins, so a bill counts once; only what the cheque leaves stays on the s.15 date, with its
   share of the interest. [#156](https://github.com/IrminFlow/total/pull/156)
+- **Barcode labels** are now priced and dated as on the working date, not the end of the working period. [#170](https://github.com/IrminFlow/total/pull/170)
 
 - **TCS: s.206C(1G) overseas tour packages — the 20 % slab** (to-do §4). For FY 2025-26 the seller
   collects 5 % on a buyer's aggregate for the year up to ₹10 lakh and 20 % on the excess (FA 2023

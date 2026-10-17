@@ -282,9 +282,8 @@ await scenario('68-stock-depth', async (h) => {
   const pdfs = walk(h.dataDir).filter((f) => /^barcode-labels-.+\.pdf$/.test(path.basename(f)))
   assertEq(pdfs.length, 1, 'one labels PDF written')
   assert(pdfs[0].includes(`${path.sep}exports${path.sep}`), `written into the company's exports folder (${pdfs[0]})`)
-  // The labels' date (prices, file name) is the working period's END — the whole FY here, as the
-  // ageing step left it (ageing itself clamps to today; labels do not — reported in the PR).
-  assertEq(path.basename(pdfs[0]), `barcode-labels-${fyEnd}.pdf`, 'named after the working period end')
+  // The labels' date (prices, file name) is the WORKING date — today — not the period end (the FY end here).
+  assertEq(path.basename(pdfs[0]), `barcode-labels-${today}.pdf`, 'named after the working date')
   const bytes = fs.readFileSync(pdfs[0])
   assertEq(bytes.subarray(0, 5).toString('latin1'), '%PDF-', 'the file is a PDF')
   assert(bytes.length > 1000, `the PDF has content (${bytes.length} bytes)`)

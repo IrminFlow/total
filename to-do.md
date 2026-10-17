@@ -99,7 +99,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - ~~e-invoice original-bill lookup takes the newest sales voucher with that number at ANY party (wrong once numbers restart yearly)~~ DONE — the note's own party, its FY first — PR #120
 - ~~Import undo keeps a party ledger whose opening bill has a user receipt against it (openings stay unequal until fixed by hand)~~ DONE — the batch's openings are kept as imported (and reported) while an entry rests on one of its opening bills; Dr = Cr holds — PR #150 — PR #107, `services/dataImport.ts`
 - ~~Stock summary analysis panel runs as on today while the summary runs to the period end (no date shown)~~ DONE — the date and a note are shown; the panel stays as on today (running it to a future period end would change what it shows) — PR #120
-- Barcode labels date / price by the period END — PR #110
+- ~~Barcode labels date / price by the period END~~ DONE — dated as on the working date, renderer test + e2e 68 file name — PR #170
 - ~~Cash flow statement has no drill-down; labels PDF, CA pack and e-invoice export write to `exports/` with no save dialog; e-invoice export is whole-period only~~ DONE — drill-down PR #140 (a line opens the Day book on its vouchers, ▸ lists its ledgers → their statements); save dialog (skipped in hermetic runs), optional e-invoice dates — PR #137 — e2e 68–71 notes
 - ~~Items created over IPC after a screen loaded don't appear in screens that cache the item list (Labels tab)~~ DONE — `total:masters:changed` refreshes the cached master lists — PR #137 — e2e 68 notes
 - TDS: ~~late-deduction (1 %) interest computed but not shown~~ DONE — Deducted tab column + export, display only — PR #126; purchase returns don't reduce the threshold aggregate; 26Q CSV is RPU input, not FVU — WP 3.2
@@ -193,7 +193,8 @@ done on main were dropped. One line each; the pointer says where to look.
 - WP 7.1: server-side DataTable paging not needed yet (Sales / People under budget at 100k) — PR #104
 - WP 7.2: encrypt ~~attachments~~ (DONE — PR #152) / exports / logs — PR #112 (member-passphrase prompt on the consolidation screen DONE in PR #144; CLI / MCP passphrase DONE in PR #132; remember-on-this-computer DONE in PR #142)
 - WP 7.3: ~~no data-folder move setting for OneDrive users~~ DONE — PR #133 (the CLI / MCP still ignore the pointer — follow-up); full e2e on Windows — PR #109
-- WP 7.4: tighten e2e 67–71 to the paths #107 fixed (drop workarounds); deferred coverage in `docs/e2e-coverage.md` (live NIC sandbox, price-list editor, TDS lower-deduction certificates) — PR #110
+- ~~WP 7.4: tighten e2e 67–71 to the paths #107 fixed~~ DONE (68–71 in the earlier reviews; 67 now runs in a company without users) — PR #170
+- WP 7.4: deferred coverage in `docs/e2e-coverage.md` (live NIC sandbox, price-list editor, TDS lower-deduction certificates) — PR #110
 - WP 7.6: before tagging the release, finish `CHANGELOG.md`'s Unreleased section — it has no entries for #107, #108, #110, #111, #112 and still calls #104 open (#109's Windows text has no PR link); then confirm main's CI is green on all five jobs (the tag run does not repeat e2e or perf) — owner-docs review
 - ~~WP 8.x: no schema-version guard against downgrade~~ DONE — PR #116
 - WP 9.1: TDS / TCS, place-of-supply override and the owner's credit-hold override aren't part of simple intents — PR #85
@@ -218,7 +219,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - ~~e2e 57 / 59 move the "40 days ago" sale to the FY start, so overdue checks can fail 1 April – mid May~~ DONE — PR #128 (already on `pickSetupStart`; proven with `TOTAL_E2E_TODAY`) — shots-92
 - ~~e2e harness can lose a failed scenario's result line on macOS (process.exit while writing to a pipe; exit code still fails)~~ DONE — PR #128 (also closing over an unsaved form crashed / hung the harness) — PR #110
 - ~~e2e 63 uses `page.focus()` twice~~ DONE — PR #128. ~~e2e 12 "mid-fade" flake diagnosis unproven~~ DONE — PR #134: `node scripts/run-e2e.mjs 12 --repeat 5` on 16–17 Oct 2026, 5 / 5 passed (124 / 171 / 190 / 255 / 233 s, no flaky run), and again on the PR's build; no code change — PR #103
-- Plain AI drawer a11y and the escalated drawer checked in renderer tests only (needs `TOTAL_AI_MOCK` in e2e) — PR #103
+- ~~Plain AI drawer a11y and the escalated drawer checked in renderer tests only~~ DONE — e2e 35 sweeps the plain drawer in both themes — PR #170
 - No live-model run of AI evals, capture or Ask Total escalation — PR #98 / #101
 - No live NIC sandbox scenario — WP 3.5, `docs/e2e-coverage.md`
 - 500k-voucher run and the packaged DMG / EXE perf not verified by the reviewer — PR #104
