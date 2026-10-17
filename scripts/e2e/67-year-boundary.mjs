@@ -20,6 +20,10 @@
 //   7. Reopen: the closing journal's banner Move to Bin (lock moves back first) → the year reads as open again (preview +
 //      Year-end screen, P&L opening row back); restoring it from Settings → Bin closes the year
 //      again. TB ties at every step.
+//   8. Guided re-close: a stored P&L opening the close never carried (what a 0.4.0 close left)
+//      → Year-end → Check earlier closes lists the year as "Needs repair" with the corrected
+//      lines → Repair (confirm) → no "(opening)" row, Retained Earnings carries it, the lock
+//      is back where it was, a second check finds nothing.
 // The company has NO users: the Period lock card's "Change…" is offered in a company without users
 // (#107), so the scenario drives it exactly so.
 import { scenario, assert, assertEq, fixedToday, fyStartYearOf } from '../lib/harness.mjs'
@@ -298,4 +302,39 @@ await scenario('67-year-boundary', async (h) => {
   await tbTies('after restoring the closing journal')
   await h.goto('year-end')
   await h.page.waitForFunction((l) => document.body.innerText.includes(`Books for FY ${l} are already closed`), prevLabel, { timeout: 10000 })
+
+  // ---------------- 8. guided re-close (the 0.4.0 upgrade note): a stored P&L opening the close
+  // never carried. Office Rent gets a ₹3,000 Dr opening in the books' first FY — exactly what a
+  // 0.4.0 close left behind (it netted movements only) — so the "(opening)" row shows ₹3,000 Dr.
+  const STORED_RENT = 300_000
+  const rentLedger = (await h.invoke('master:ledgers:list')).find((l) => l.id === rent.id)
+  await h.invoke('master:ledgers:update', { id: rent.id, data: { ...rentLedger, openingBalance: STORED_RENT } })
+  // …balanced by ₹3,000 more capital, so the openings still agree (Dr = Cr).
+  const capital = (await h.invoke('master:ledgers:list')).find((l) => l.name === 'Owner Capital')
+  await h.invoke('master:ledgers:update', { id: capital.id, data: { ...capital, openingBalance: capital.openingBalance - STORED_RENT } })
+  await tbTies('a stored P&L opening the close missed')
+  assertEq(await tbRow(-5), STORED_RENT, 'the stored opening the close missed sits in the P&L opening row')
+  const lockBeforeRepair = (await h.invoke('company:lock:get')).date
+  await h.click('btn-year-end-recheck')
+  const fyRow = `[data-testid="rows-year-end-recheck-years"] tr.dt-row[data-row-id="${prev}"]`
+  await h.page.waitForSelector(`${fyRow}[data-state="repair"]`, { timeout: 15000 })
+  await h.page.waitForSelector(`[data-testid="rows-year-end-recheck-lines-${prev}"] tr.dt-row`, { timeout: 10000 })
+  const rp = await h.invoke('yearEnd:repairPreview', {})
+  const y = rp.years.find((x) => x.fyStartYear === prev)
+  assertEq(y.residual, STORED_RENT, 'preview: ₹3,000 of loss left in the opening row')
+  assertEq(y.netProfit, -(PRIOR_RENT + STORED_RENT), 'preview: the year’s loss under today’s rule')
+  await h.shot('08-recheck-preview')
+  await h.click('btn-year-end-repair')
+  const repairDialog = h.page.getByRole('dialog')
+  await repairDialog.waitFor()
+  assert((await repairDialog.textContent()).includes('to the Bin and post corrected ones'), 'the confirm says what Repair does')
+  await repairDialog.getByRole('button', { name: 'Repair' }).click()
+  await h.page.waitForSelector('[data-testid="year-end-recheck-ok"]', { timeout: 15000 })
+  assertEq(await tbRow(-5), 0, 'after the repair: no P&L opening row')
+  assertEq(await tbRow(retained.id), PRIOR_RENT + STORED_RENT, 'Retained Earnings carries the whole loss')
+  assertEq(await tbRow(rent.id), RENT_CUR, 'Rent this FY unchanged by the repair')
+  assertEq((await h.invoke('company:lock:get')).date, lockBeforeRepair, 'the lock is where it was')
+  assert(!(await h.invoke('yearEnd:repairPreview', {})).years.some((x) => x.needsRepair), 'a second check finds nothing')
+  await tbTies('after the guided re-close')
+  await h.shot('08-recheck-repaired')
 })

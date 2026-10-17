@@ -308,6 +308,20 @@ what you typed, and a **Back to simple** button.
 
 ### For accountants (figures that changed)
 
+- **Repair a year closed on 0.4.0 — figures change only when you run it.** Year-end → **Check
+  earlier closes** compares every closed year's closing entry with the one Total posts today
+  (the year's ledger profit, `pnlLedgerAmounts`; stock profit stays a balance-sheet line) and
+  shows, per year, what the entry left in the trial balance's "Profit & Loss A/c (opening)" row
+  and the exact lines a corrected entry would post. A 0.4.0 close moved each income / expense
+  ledger's movements for the year but not their stored opening balances in the books' first
+  year, so those openings sat in the "(opening)" row for ever and Retained Earnings was short by
+  them. **Repair** (owner) moves each differing closing entry to the Bin and posts the corrected
+  one on the same 31 March, oldest year first, in one step, then puts the lock date back where it
+  was; a later year can't be repaired before an earlier one. Afterwards the "(opening)" row is
+  gone (for closed years) and Retained Earnings carries the difference; each year's own profit,
+  this year's figures, Home and Assistants are unchanged except that row. A correct close is
+  reported as matching and Repair does nothing. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+
 Read these before filing from the next release.
 
 - **GSTR-1, GSTR-3B, GSTR-9, HSN, e-invoice and interest notes now take the rate the posted tax
@@ -614,6 +628,17 @@ Read these before filing from the next release.
   bill refs settle by name, so a newer namesake alone is refused, `simple_bill_older_first`);
   `allocateBillsWithCredits` adds `creditNames` (stripped from `allocateBills` /
   `partyAllocation`, figures unchanged) and simple:post's taken names include them. No migration.
+- Guided re-close: `services/yearEndRepair.ts` (`repairPreview`, `repairCloses`), pure diff in
+  `shared/yearEnd.ts` (`expectedCloseNets`, `diffCloseNets`, `CloseRepairPreview`). New channels
+  `yearEnd:repairPreview` (accountant+, read, `canSeeProfit`) and `yearEnd:repair` (owner,
+  Zod-strict `{ fingerprint, fyStartYears? }` — the preview's SHA-256; `fyStartYears` must be the
+  oldest years needing repair), audited `year_end` / `voucher` / `company` (lock) / `ledger`.
+  The old journal goes through `deleteVoucher`, the corrected one through `postClose` (new
+  optional `transferLedgerId`, so a renamed Retained Earnings stays the one ledger), all in one
+  transaction that re-checks the result. No migration. Tests: `yearEndRepair.dbtest.ts` (a
+  hand-built 0.4.0 journal from `git show v0.4.0:src/main/services/yearEnd.ts`),
+  `__tests__/yearEndRecheck.test.tsx`, e2e 67 step 8. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+
 - **Electron hardening (D7)** (to-do §4 Security), [#161](https://github.com/IrminFlow/total/pull/161): every IPC
   call is checked against its sender before anything else (`main/ipcSender.ts`, in `handle()`): only
   the main frame (`senderFrame` is the sender's `mainFrame`, no parent) of the app's own renderer

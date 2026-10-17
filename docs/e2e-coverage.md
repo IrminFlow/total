@@ -52,6 +52,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 3.8 | Audit trail / edit log, chain verification | 30 | |
 | — | GSTR-1 / 3B | 06, 46 | |
 | — | Year-end close, closing journal immutable, lock date, reopen through the bin | 08, 67 (gap filled) | |
+| — | Guided re-close of earlier closes (0.4.0 residual): Check earlier closes → Repair | 67 (step 8) | the residual is made with a stored P&L opening the close never carried — a real 0.4.0 journal (flag set by migration 018) can't be posted over IPC; `yearEndRepair.dbtest.ts` hand-builds one |
 
 ## Phase 4 — Banking, receivables, cash
 
