@@ -75,9 +75,17 @@ export function fullCounterpart(screen: Screen): Screen | null {
       }
     case 'simple-taxes':
       return screen.period ? { name: 'gstr3b', month: screen.period } : { name: 'gstr3b' }
-    // People: the party masters; its Bills to pay tab, the payables Outstandings.
+    // People: the Outstandings of the side the list shows (Bills to pay and the supplier filters:
+    // payable) — `backTo` brings "Back to simple" to People again, not the Reports page.
     case 'simple-people':
-      return screen.tab === 'bills' ? { name: 'outstandings', side: 'payable' } : { name: 'masters', tab: 'ledgers', parties: true }
+      return {
+        name: 'outstandings',
+        side: screen.tab === 'bills' || screen.filter === 'suppliers' || screen.filter === 'youOwe' ? 'payable' : 'receivable',
+        backTo: 'simple-people'
+      }
+    // A person's page: that ledger's statement (Back to simple: the same person).
+    case 'simple-person':
+      return { name: 'ledger-statement', ledgerId: screen.id }
     // The Reports page: the Trial balance (its "For your CA" group's first report), whose Back
     // to simple lands on this page again.
     case 'simple-section':
@@ -171,7 +179,13 @@ export function simpleTargetFor(screen: Screen, facts: HandoffFacts | null): Scr
       return screen.itemId != null ? { name: 'simple-stock', itemId: screen.itemId } : { name: 'simple-stock' }
     case 'stock-summary':
       return { name: 'simple-stock' }
+    case 'company-info':
+      return screen.backTo === 'simple-taxes' ? { name: 'simple-taxes' } : section(screen)
+    case 'registers':
+      // Reports → "By month" (WP 9.9) — whose Accountant view is the Registers screen.
+      return reportEntry('by-month') ?? section(screen)
     case 'outstandings':
+      if (screen.backTo === 'simple-people') return screen.side === 'payable' ? { name: 'simple-people', tab: 'bills' } : { name: 'simple-people' }
       // WP 9.9: the same list in plain words — Reports → "Who owes me" / "Whom I owe" (whose
       // Accountant view is this screen); before it, People.
       return (
@@ -217,7 +231,9 @@ export function backToSimpleClears(screen: Screen, target: Screen): Name[] {
   if (screen.name === 'stock-summary' || screen.name === 'stock-movements') out.add('simple-stock')
   if (screen.name === 'banking') out.add('simple-bank')
   if (screen.name === 'registers') out.add(alwaysKey({ name: 'simple-reports', report: 'by-month' }))
-  if (screen.name === 'outstandings' && screen.side === 'payable') out.add('simple-people')
+  if (screen.name === 'outstandings' && (screen.side === 'payable' || screen.backTo === 'simple-people')) out.add('simple-people')
+  if (screen.name === 'ledger-statement') out.add('simple-person')
+  if (screen.name === 'company-info' && screen.backTo === 'simple-taxes') out.add('simple-taxes')
   return [...out]
 }
 

@@ -6,7 +6,7 @@ import { byMonthBarWhy, byMonthTotalsWhy, byMonthWhy } from '@shared/simple/expl
 import { monthEnd } from '@shared/dashboard'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
-import { useSession } from '../../state/stores'
+import { useSession, type Screen } from '../../state/stores'
 import { Page, SkeletonTiles } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { LoadError, ReportHeader, WhyLink, cardCls, money } from './parts'
@@ -24,13 +24,25 @@ const pct = (paise: number, max: number): number => (max <= 0 || paise <= 0 ? 0 
  * registers' taxable values (simple:reports:byMonth), as bars and as a table, with the "Why?"
  * sentence. The Accountant view is the Registers screen.
  */
+/** The Registers for the month the sentence names (the busiest one), else the 12 months shown. */
+function registersOf(b: SimpleByMonth): Screen {
+  if (b.totals.sales === 0 && b.totals.purchases === 0) return { ...REGISTERS, from: b.from, to: b.to }
+  const best = b.months.reduce((a, m) => (m.sales > a.sales ? m : a), b.months[0]!)
+  return monthRegisters(best.month)
+}
+
 export function ByMonth(): React.JSX.Element {
   const t = useT()
   const today = useSession((s) => s.workingDate)
   const q = useQuery({ queryKey: ['simpleReports', 'byMonth', today], queryFn: () => api.simpleReports.byMonth(today) }) // i18n-technical
   return (
     <Page data-testid="simple-report-by-month">
-      <ReportHeader testId="by-month" title={t('simple.reports.byMonth')} subtitle={t('simple.reports.byMonth.subtitle')} accountant={{ screen: REGISTERS, hint: t('simple.reports.byMonth.accountant') }} />
+      <ReportHeader
+        testId="by-month"
+        title={t('simple.reports.byMonth')}
+        subtitle={t('simple.reports.byMonth.subtitle')}
+        accountant={{ screen: q.data ? registersOf(q.data) : REGISTERS, hint: t('simple.reports.byMonth.accountant') }}
+      />
       {q.isError && <LoadError testId="by-month" text={t('simple.reports.loadError')} onRetry={() => void q.refetch()} />}
       {!q.data && !q.isError && <SkeletonTiles count={2} />}
       {q.data && <Body b={q.data} />}

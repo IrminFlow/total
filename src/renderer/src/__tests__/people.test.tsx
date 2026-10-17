@@ -172,6 +172,9 @@ describe('a person’s page', () => {
     await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'ledger-statement', ledgerId: 10 }))
     expect(screen.queryByTestId('btn-person-money-out')).toBeNull()
     expect(bannedWordsIn(visibleText())).toEqual([])
+    // WP 9.10: the Accountant view is the ledger's statement (Back to simple lands on this person).
+    fireEvent.click(screen.getByTestId('btn-person-accountant-view'))
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'ledger-statement', ledgerId: 10 }))
   })
 
   it('WP 10.8: a customer who owes but has nothing late is told why there is no reminder', async () => {

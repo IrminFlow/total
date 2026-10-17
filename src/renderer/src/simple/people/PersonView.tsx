@@ -7,6 +7,8 @@ import { balanceWords, billTiming, parseCreditDays, personErrors, type PersonBil
 import { api } from '../../lib/client'
 import { receivablesApi } from '../../lib/receivablesClient'
 import { openLedgerEdit } from '../../lib/drill'
+import { useAccountantView } from '../../lib/handoff'
+import { AccountantViewButton } from '../AccountantViewButton'
 import { useLanguage, useT } from '../../lib/i18n'
 import { useNav, useSession, useToasts } from '../../state/stores'
 import { Button, Field, Page, TextInput, useFormErrors } from '../../components/ui'
@@ -62,6 +64,7 @@ function Person({ p }: { p: PersonData }): React.JSX.Element {
   const t = useT()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed tables above
   const nav = useNav()
+  const openFull = useAccountantView({ name: 'simple-person', id: p.ledgerId }) // i18n-technical: screen name
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { from, user } = useSession()
@@ -156,6 +159,7 @@ function Person({ p }: { p: PersonData }): React.JSX.Element {
               {lbl(KIND_TEXT[p.side])} · {p.creditDays != null ? t('simple.people.terms', { days: p.creditDays }) : t('simple.people.noTerms')}
             </p>
           </div>
+          <AccountantViewButton testId="btn-person-accountant-view" title={t('simple.shell.accountantViewHint')} onOpen={(always) => void openFull({ intent: null, always })} />
           {p.onHold && (
             <Pill tone="amber" testId="person-hold">
               {p.holdReason ? t('simple.people.hold.on', { reason: p.holdReason }) : t('simple.people.chip.hold')}
