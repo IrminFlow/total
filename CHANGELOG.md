@@ -348,8 +348,11 @@ Read these before filing from the next release.
   rewrites a return or a print already made. **Bills saved before this release are not frozen:**
   they keep following the masters, exactly as before, until they are opened and saved again. Not
   covered yet: the party's ITC eligibility, advances (11A / 11B), RCM self-invoices and ITC
-  reversal still read the masters. A corrected supplier GSTIN reaches GSTR-2B matching for earlier
-  bills only once they are saved again.
+  reversal still read the masters. GSTR-2B matching keeps reading the supplier's LIVE ledger
+  GSTIN (a GSTIN typo fixed on the ledger heals every earlier bill's match at once); only the
+  returns, e-documents and prints use the stored facts. Altering a bill after its party changed
+  GSTIN, state or SEZ / export type (or a line's master HSN / rate moved) re-freezes it on today's
+  facts and says so in a warning — nothing is changed silently.
 - **GSTR-1, GSTR-3B, GSTR-9, HSN, e-invoice and interest notes now take the rate the posted tax
   implies** for "amount only" (ledger-line) sales, credit notes and outward debit notes whose
   Sales ledger has no GST rate. Before, such a document was reported as nil-rated even though Output
@@ -707,7 +710,16 @@ Read these before filing from the next release.
   carry `taxFacts`. `taxFacts.dbtest.ts` proves a saved invoice's GSTR-1 / 3B / 9 HSN / e-invoice
   JSON / print unchanged after its item, ledger and party masters change, and a NULL-snapshot voucher
   still following them; `gstPostedRateParity`, `reportEquality`, `printLocale`, `booksFidelity` and
-  `voucherEdit` pass unchanged.
+  `voucherEdit` pass unchanged. Review: `extractPurchaseDocs` (GSTR-2B matching only) reads the
+  live ledger GSTIN, not the snapshot; the plain voucher print (`printTemplates.ts` — purchases,
+  receipts, payments, journals) now shows the voucher's snapshotted party GSTIN too (it read the
+  ledger live; the twin corpus caught it); `SaveVoucherWarnings.taxFactsChanged` (`taxFactsDiff`, trade
+  kinds only, on an update of a snapshotted voucher) names the party / line facts that moved; the
+  dbtest adds a twin corpus (two rates + cess + discount, posted-rate rule on a rate-less ledger
+  with and without tax, SEZ WOP, export WP, POS override, a party without a state, RCM item /
+  amount purchases — 3.1(d) = ISRC —, booked input IGST, a credit note) read with the snapshot,
+  with it cleared on the same masters, after the masters moved and with the snapshot written back
+  (A = B = E, D differs) for a regular, a composition and an unregistered company.
 - **Electron hardening (D7)** (to-do §4 Security), [#161](https://github.com/IrminFlow/total/pull/161): every IPC
   call is checked against its sender before anything else (`main/ipcSender.ts`, in `handle()`): only
   the main frame (`senderFrame` is the sender's `mainFrame`, no parent) of the app's own renderer

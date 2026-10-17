@@ -716,7 +716,13 @@ interface PurchaseVoucherRow {
  */
 export function extractPurchaseDocs(db: DB, from: string, to: string): PurchaseDoc[] {
   const outwardDbn = outwardDebitNoteIds(db, from, to)
-  const scanned = (db
+  // To-do §4 (review of #172): these rows feed GSTR-2B MATCHING only (recon2b, the 2B mismatch
+  // assistant, simple Home's "booked, not yet confirmed"), and matching is against the portal's
+  // truth — so the supplier's GSTIN is read LIVE from the ledger, never from the voucher's tax-fact
+  // snapshot: a GSTIN typo fixed on the ledger heals every earlier bill's match at once (the
+  // `gstin_differs` row says "fix the supplier ledger"). Returns, prints and e-documents keep the
+  // snapshot (extractOutwardDocs / extractEdocInvoices / rcmInwardByVoucher / bookedItcByVoucher).
+  const vouchers = (db
     .prepare(
       `SELECT v.id, v.date, v.number, v.reference, v.party_ledger_id AS partyLedgerId, vt.kind,
               p.name AS partyName, p.gstin AS partyGstin
@@ -728,9 +734,6 @@ export function extractPurchaseDocs(db: DB, from: string, to: string): PurchaseD
     )
     .all(from, to) as PurchaseVoucherRow[])
     .filter((v) => v.kind !== 'debit_note' || !outwardDbn.has(v.id))
-  // To-do §4: a voucher's own snapshot of the party's GSTIN wins (services/taxFacts.ts).
-  const purchaseSnaps = partySnapshots(db, scanned.map((v) => v.id))
-  const vouchers = scanned.map((v) => withPartySnap(v, purchaseSnaps.get(v.id)))
 
   const purchaseGroupIds = descendantIdsByName(db, ['Purchase Accounts', 'Direct Expenses', 'Indirect Expenses'])
 

@@ -42,6 +42,7 @@ import { htmlToPdf, writeExportPdf } from './pdf'
 import { plexFontFaceCss } from './printFonts'
 import type { PageLabel } from '@shared/print/labels'
 import { printLocale } from './printLocale'
+import { hasTaxSnapshots } from './taxFacts'
 import { companyExportsDir } from '../paths'
 
 /**
@@ -341,6 +342,12 @@ export function loadPrintDocument(db: DB, company: CompanyInfo, voucherId: numbe
   const party = partyId
     ? (db.prepare('SELECT name, address, gstin FROM ledgers WHERE id = ?').get(partyId) as { name: string; address: string | null; gstin: string | null } | undefined)
     : undefined
+  // To-do §4 (review of #172): the voucher's own party, as the bill was saved — its tax-fact
+  // snapshot holds the GSTIN of that day; a counter-party derived from the lines stays live.
+  const snap = head.partyId && hasTaxSnapshots(db)
+    ? (db.prepare('SELECT snap_tax_facts AS on_, snap_party_gstin AS gstin FROM vouchers WHERE id = ?').get(voucherId) as { on_: number | null; gstin: string | null } | undefined)
+    : undefined
+  const partyGstin = snap?.on_ === 1 ? snap.gstin : party?.gstin ?? null
   return {
     shape: 'voucher',
     kind,
@@ -350,7 +357,7 @@ export function loadPrintDocument(db: DB, company: CompanyInfo, voucherId: numbe
       date: head.date,
       partyName: party?.name ?? null,
       partyAddress: party?.address ?? null,
-      partyGstin: party?.gstin ?? null,
+      partyGstin,
       lines: lines.map(({ ledgerName, drCr, amount }) => ({ ledgerName, drCr, amount })),
       narration: head.narration,
       reference: head.reference,
