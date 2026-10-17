@@ -117,6 +117,24 @@ describe('the full → simple table', () => {
     expect(simpleTargetFor({ name: 'daybook' }, null)).toEqual({ name: 'simple-section', section: 'money' })
   })
 
+  it('WP 9.10 review: every Accountant-view target of People / Reports / Taxes goes back to the simple screen it came from', () => {
+    const PARTY = { ledger: { id: 7, isParty: true } }
+    const pairs: [Screen, Screen, typeof PARTY | null][] = [
+      [{ name: 'simple-people' }, { name: 'outstandings', side: 'receivable', backTo: 'simple-people' }, null],
+      [{ name: 'simple-people', tab: 'bills' }, { name: 'outstandings', side: 'payable', backTo: 'simple-people' }, null],
+      [{ name: 'simple-people', filter: 'suppliers' }, { name: 'outstandings', side: 'payable', backTo: 'simple-people', backFilter: 'suppliers' }, null],
+      [{ name: 'simple-people', filter: 'late' }, { name: 'outstandings', side: 'receivable', backTo: 'simple-people', backFilter: 'late' }, null],
+      [{ name: 'simple-person', id: 7 }, { name: 'ledger-statement', ledgerId: 7 }, PARTY],
+      [{ name: 'simple-reports', report: 'doing' }, { name: 'profit-loss', from: '2026-05-01', to: '2026-05-31' }, null],
+      [{ name: 'simple-reports', report: 'cash' }, { name: 'cash-forecast' }, null],
+      [{ name: 'simple-reports', report: 'owed', side: 'payable' }, { name: 'outstandings', side: 'payable' }, null],
+      [{ name: 'simple-reports', report: 'by-month' }, { name: 'registers', tab: 'sales', from: '2026-05-01', to: '2026-05-31' }, null],
+      [{ name: 'simple-taxes' }, { name: 'gstr3b', month: '2026-05' }, null],
+      [{ name: 'simple-taxes' }, { name: 'company-info', backTo: 'simple-taxes' }, null]
+    ]
+    for (const [simple, full, facts] of pairs) expect(simpleTargetFor(full, facts), JSON.stringify(full)).toEqual(simple.name === 'simple-reports' && simple.report === 'owed' ? { ...simple } : simple)
+  })
+
   it('what is asked of main, and which remembered choices Back to simple clears', () => {
     expect(factsQuery({ name: 'voucher-entry', kindHint: 'sales' }, null)).toBeNull()
     expect(factsQuery({ name: 'voucher-entry', kindHint: 'sales' }, 31)).toEqual({ voucherId: 31 })
@@ -138,8 +156,14 @@ describe('the full → simple table', () => {
     expect(fullCounterpart({ name: 'simple-return-purchase' })).toEqual({ name: 'voucher-entry', kindHint: 'debit_note' })
     expect(fullCounterpart({ name: 'simple-stock-count' })).toEqual({ name: 'voucher-entry', kindHint: 'physical_stock' })
     expect(fullCounterpart({ name: 'simple-made-goods' })).toEqual({ name: 'manufacture' })
-    expect(fullCounterpart({ name: 'simple-people' })).toEqual({ name: 'masters', tab: 'ledgers', parties: true })
-    expect(fullCounterpart({ name: 'simple-people', tab: 'bills' })).toEqual({ name: 'outstandings', side: 'payable' })
+    expect(fullCounterpart({ name: 'simple-people' })).toEqual({ name: 'outstandings', side: 'receivable', backTo: 'simple-people' })
+    expect(fullCounterpart({ name: 'simple-people', filter: 'suppliers' })).toEqual({ name: 'outstandings', side: 'payable', backTo: 'simple-people', backFilter: 'suppliers' })
+    expect(fullCounterpart({ name: 'simple-people', filter: 'late' })).toEqual({ name: 'outstandings', side: 'receivable', backTo: 'simple-people', backFilter: 'late' })
+    expect(fullCounterpart({ name: 'simple-people', tab: 'bills', filter: 'late' })).toEqual({ name: 'outstandings', side: 'payable', backTo: 'simple-people' })
+    // A non-party ledger's statement goes back to a section page: the person's remembered choice stays.
+    expect(backToSimpleClears({ name: 'ledger-statement', ledgerId: 3 }, { name: 'simple-section', section: 'money' })).not.toContain('simple-person')
+    expect(fullCounterpart({ name: 'simple-people', tab: 'bills' })).toEqual({ name: 'outstandings', side: 'payable', backTo: 'simple-people' })
+    expect(fullCounterpart({ name: 'simple-person', id: 7 })).toEqual({ name: 'ledger-statement', ledgerId: 7 })
     expect(fullCounterpart({ name: 'simple-section', section: 'reports' })).toEqual({ name: 'trial-balance' })
     expect(fullCounterpart({ name: 'simple-section', section: 'sell' })).toBeNull()
     expect(fullCounterpart({ name: 'simple-reports', report: 'owed', side: 'payable' })).toEqual({ name: 'outstandings', side: 'payable' })
@@ -486,12 +510,13 @@ describe('the remembered choice', () => {
     const wrapper = ({ children }: { children: React.ReactNode }): React.JSX.Element => withClient(<>{children}</>)
     const p = renderHook(() => useAccountantView(people), { wrapper })
     await act(async () => p.result.current({ intent: null }))
-    expect(top()).toEqual({ name: 'masters', tab: 'ledgers', parties: true })
+    expect(top()).toEqual({ name: 'outstandings', side: 'receivable', backTo: 'simple-people' })
     expect(simpleTargetFor(top(), null)).toEqual({ name: 'simple-people' })
     act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'simple-people', tab: 'bills' }] }))
     const b = renderHook(() => useAccountantView({ name: 'simple-people', tab: 'bills' }), { wrapper })
     await act(async () => b.result.current({ intent: null, always: true }))
-    expect(top()).toEqual({ name: 'outstandings', side: 'payable' })
+    expect(top()).toEqual({ name: 'outstandings', side: 'payable', backTo: 'simple-people' })
+    expect(simpleTargetFor(top(), null)).toEqual({ name: 'simple-people', tab: 'bills' })
     expect(localStorage.getItem(KEY('simple-people'))).toBe('accountant')
     expect(backToSimpleClears(top(), simpleTargetFor(top(), null))).toContain('simple-people')
 

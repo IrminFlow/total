@@ -7,7 +7,7 @@ import { translator } from '../i18n'
 import { bannedWordsIn } from './bannedWords'
 import {
   balanceWords, billsToPayTotals, billTiming, matchesFilter, monthEndOf, parseCreditDays, personErrors, reminderMessage, reminderSms, REMINDER_BILL_LINES,
-  REMINDER_LOG_CHANNEL, sortBillsToPay, weekEndOf, whatsappLink, whatsappNumber, type PersonRow
+  REMINDER_LOG_CHANNEL, sortBillsToPay, upcomingBills, weekEndOf, whatsappLink, whatsappNumber, type PersonRow
 } from './people'
 
 const t = translator('en')
@@ -74,6 +74,49 @@ describe('reminder message', () => {
     const sms = reminderSms(FACTS)
     expect(sms).toBe('Hello Ramesh, This is a friendly reminder from Sharma Traders: ₹1,500.50 is now past its due date. If you have already paid, thank you — please ignore this message. Sharma Traders')
     expect(sms).not.toContain('\n')
+  })
+
+  it('the polite pre-due note: what is due and when, thanks, in all three languages and as SMS', () => {
+    const f = {
+      company: 'Sharma Traders',
+      party: 'Ramesh',
+      bucket: 'gentle' as const,
+      tone: 'before_due' as const,
+      bills: [
+        { name: '7', date: '2026-10-04', dueDate: '2026-10-17', pending: 120_000, overdueDays: 0 },
+        { name: '8', date: '2026-10-09', dueDate: '2026-10-21', pending: 30_050, overdueDays: 0 }
+      ]
+    }
+    expect(reminderMessage(f)).toBe(
+      [
+        'Hello Ramesh,',
+        '',
+        'A friendly note from Sharma Traders: ₹1,500.50 falls due on 17 Oct 2026. Thank you!',
+        '',
+        '• Bill 7, due 17 Oct 2026: ₹1,200.00',
+        '• Bill 8, due 21 Oct 2026: ₹300.50',
+        '',
+        'If you have already paid, thank you — please ignore this message.',
+        'Sharma Traders'
+      ].join('\n')
+    )
+    const hi = reminderMessage(f, 'hi')
+    expect(hi).toContain('Sharma Traders की ओर से एक विनम्र सूचना: ₹1,500.50 की भुगतान तारीख 17 अक्तूबर 2026 है। धन्यवाद!')
+    expect(hi).toContain('• बिल 7, भुगतान की तारीख 17 अक्तूबर 2026: ₹1,200.00')
+    const hg = reminderMessage(f, 'hinglish')
+    expect(hg).toContain('Sharma Traders ki taraf se ek friendly reminder: ₹1,500.50 ki payment ki date 17 Oct 2026 hai. Dhanyavaad!')
+    expect(hg).toContain('• Bill 8, due date 21 Oct 2026: ₹300.50')
+    const sms = reminderSms(f)
+    expect(sms).toBe('Hello Ramesh, A friendly note from Sharma Traders: ₹1,500.50 falls due on 17 Oct 2026. Thank you! If you have already paid, thank you — please ignore this message. Sharma Traders')
+    for (const text of [reminderMessage(f), hi, hg, sms]) expect(bannedWordsIn(text)).toEqual([])
+    // The late message is unchanged by the new option.
+    expect(reminderMessage({ ...FACTS, tone: 'late' })).toBe(reminderMessage(FACTS))
+  })
+
+  it('upcomingBills: due today to 7 days ahead, not late, soonest due first', () => {
+    const b = (name: string, dueDate: string | null, overdueDays = 0, pending = 100) => ({ name, dueDate, overdueDays, pending })
+    const got = upcomingBills([b('a', '2026-10-21'), b('late', '2026-10-10', 4), b('far', '2026-10-22'), b('today', '2026-10-14'), b('none', null), b('paid', '2026-10-15', 0, 0), b('last', '2026-10-21')], TODAY)
+    expect(got.map((x) => x.name)).toEqual(['today', 'a', 'last'])
   })
 
   it('logs WhatsApp / SMS as phone and a copy as other (reminder_log has no WhatsApp channel)', () => {

@@ -186,6 +186,36 @@ describe('writes', () => {
     expect(() => personReminded(db, L('Sales'), 'sms', TODAY)).toThrow(expect.objectContaining({ code: 'simple_people_not_party' }))
   })
 
+  it('a gentle pre-due reminder: bills due within 7 days only; logged like the late one, tone in the audit row', () => {
+    // Ramesh's open bills are late (16 Jun) or due 25 Aug — 11 days away: nothing to offer.
+    expect(personView(db, INFO, L('Ramesh'), TODAY)!.upcoming).toBeNull()
+    expect(() => personReminded(db, L('Ramesh'), 'copied', TODAY, 'before_due')).toThrow(expect.objectContaining({ code: 'simple_people_nothing_late' }))
+    // Meena: a bill of 10 Aug on 7 days to pay is due 17 Aug (3 days), a bill of 12 Aug due 19 Aug
+    // (5 days), one of 14 Aug due 21 Aug (7 days — the last day counted) and one of 1 Aug already late.
+    ledger('Meena', 'Sundry Debtors', { creditDays: 7 })
+    for (const [date, amount] of [['2025-08-01', '100'], ['2025-08-10', '200'], ['2025-08-12', '300'], ['2025-08-14', '400']] as const) {
+      post({ kind: 'sale', date, customerId: L('Meena'), amount: { amount }, payment: { how: 'credit' } })
+    }
+    const meena = personView(db, INFO, L('Meena'), TODAY)!
+    expect(meena.upcoming).toMatchObject({ tone: 'before_due', bucket: 'gentle', amount: 90_000, lastSent: null, allowed: true })
+    expect(meena.upcoming!.bills.map((b) => b.dueDate)).toEqual(['2025-08-17', '2025-08-19', '2025-08-21'])
+    // The late button is its own: only the 1 Aug bill counts (due 8 Aug).
+    expect(meena.reminder).toMatchObject({ amount: 10_000 })
+    const before = count("SELECT COUNT(*) n FROM audit_log WHERE entity = 'reminder'")
+    const { logId } = personReminded(db, L('Meena'), 'sms', TODAY, 'before_due')
+    expect(reminderLog(db, TODAY, TODAY, L('Meena'))[0]).toMatchObject({ id: logId, bucket: 'gentle', amount: 90_000, channel: 'sms', days: 0 })
+    const audit = JSON.parse((db.prepare("SELECT after_json AS a FROM audit_log WHERE entity = 'reminder' ORDER BY id DESC LIMIT 1").get() as { a: string }).a)
+    expect(audit).toMatchObject({ via: 'sms', tone: 'before_due', forced: false, bucket: 'gentle', amount_paise: 90_000, oldest_bill: meena.upcoming!.bills[0]!.name, max_overdue_days: 0 })
+    expect(count("SELECT COUNT(*) n FROM audit_log WHERE entity = 'reminder'")).toBe(before + 1)
+    // The cadence note applies to both (one log): a second send today is flagged.
+    expect(personView(db, INFO, L('Meena'), TODAY)!.upcoming).toMatchObject({ lastSent: TODAY, allowed: false })
+    personReminded(db, L('Meena'), 'copied', TODAY, 'before_due')
+    expect(JSON.parse((db.prepare("SELECT after_json AS a FROM audit_log WHERE entity = 'reminder' ORDER BY id DESC LIMIT 1").get() as { a: string }).a)).toMatchObject({ tone: 'before_due', forced: true })
+    // A late reminder still says tone: late.
+    personReminded(db, L('Ramesh'), 'copied', TODAY)
+    expect(JSON.parse((db.prepare("SELECT after_json AS a FROM audit_log WHERE entity = 'reminder' ORDER BY id DESC LIMIT 1").get() as { a: string }).a)).toMatchObject({ tone: 'late' })
+  })
+
   it('phone / WhatsApp / days to pay: one audited ledger update, the rest of the account unchanged', () => {
     const id = L('Ramesh')
     const before = getLedger(db, id)!

@@ -54,7 +54,7 @@ export function BusinessDoing(): React.JSX.Element {
         testId="doing"
         title={t('simple.reports.howAmIDoing')}
         subtitle={d ? t('simple.reports.doing.subtitle', { from: toPlainDate(d.span.from, t.lang), to: toPlainDate(d.span.to, t.lang) }) : t('common.loading')}
-        accountant={{ screen: PNL, hint: t('simple.reports.doing.accountant') }}
+        accountant={{ screen: d ? { ...PNL, from: d.span.from, to: d.span.to } : PNL, hint: t('simple.reports.doing.accountant') }}
       />
       <div className="mb-4 flex flex-wrap items-end gap-3">
         <Choice label={t('simple.reports.period.label')} value={period} options={options} onChange={setPeriod} testId="doing-period" />

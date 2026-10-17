@@ -4,7 +4,7 @@ import { gstReturnMonth, type SimpleTaxes } from '@shared/simple/taxes'
 import { collectedWhy, compositionDueWhy, creditLeftWhy, creditStatus, dueWhy, onPurchasesWhy, shortDate, taxesPeriodLabel, toPayPartsWhy } from '@shared/simple/explain'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
-import { useNav, useSession } from '../../state/stores'
+import { useNav, useSession, type Screen } from '../../state/stores'
 import { Page, Select, SkeletonTiles } from '../../components/ui'
 import { FigureTile, LoadError, ReportHeader, WhyLink, cardCls, money } from '../reports/parts'
 import { GstSteps } from './GstSteps'
@@ -33,7 +33,14 @@ export function TaxesScreen({ period }: { period?: string }): React.JSX.Element 
   const nav = useNav()
   const q = useQuery({ queryKey: ['simpleTaxes', period ?? null, today], queryFn: () => api.simpleTaxes.get(period, today) }) // i18n-technical
   const x = q.data
-  const accountant = x?.kind === 'regular' ? { screen: gstr3bScreen(gstReturnMonth(x.period)), hint: t('simple.taxes.accountant3b') } : undefined
+  // WP 9.10: the return of the shown period; a business with no GST return to file has its
+  // Company details (where the registration is set) — Back to simple lands here again.
+  const accountant =
+    x?.kind === 'regular'
+      ? { screen: gstr3bScreen(gstReturnMonth(x.period)), hint: t('simple.taxes.accountant3b') }
+      : x
+        ? { screen: { name: 'company-info', backTo: 'simple-taxes' } as Screen, hint: t('simple.shell.accountantViewHint') } // i18n-technical
+        : undefined
   return (
     <Page data-testid="simple-taxes" data-kind={x?.kind}>
       <ReportHeader testId="taxes" title={t('simple.taxes.title')} subtitle={t('simple.taxes.subtitle')} accountant={accountant} />

@@ -7,6 +7,8 @@ import { balanceWords, billTiming, parseCreditDays, personErrors, type PersonBil
 import { api } from '../../lib/client'
 import { receivablesApi } from '../../lib/receivablesClient'
 import { openLedgerEdit } from '../../lib/drill'
+import { useAccountantView } from '../../lib/handoff'
+import { AccountantViewButton } from '../AccountantViewButton'
 import { useLanguage, useT } from '../../lib/i18n'
 import { useNav, useSession, useToasts } from '../../state/stores'
 import { Button, Field, Page, TextInput, useFormErrors } from '../../components/ui'
@@ -19,9 +21,10 @@ import { printFailureText } from '../printFailure'
 import { useCapabilityRefused } from '../../lib/capabilities'
 
 type ContactField = 'phone' | 'whatsapp' | 'creditDays'
-type Panel = 'reminder' | 'hold'
+type Panel = 'reminder' | 'upcoming' | 'hold'
 const F = { phone: 'phone', whatsapp: 'whatsapp', creditDays: 'creditDays' } as const satisfies Record<ContactField, ContactField> // i18n-technical: form field paths
 const REMINDER: Panel = 'reminder' // i18n-technical
+const UPCOMING: Panel = 'upcoming' // i18n-technical
 const HOLD: Panel = 'hold' // i18n-technical
 const NO_MAX = 'none' // i18n-technical: DataTable maxHeight
 const KIND_TEXT: Record<PersonData['side'], MessageKey> = { customer: 'simple.people.kind.customer', supplier: 'simple.people.kind.supplier' }
@@ -62,6 +65,7 @@ function Person({ p }: { p: PersonData }): React.JSX.Element {
   const t = useT()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed tables above
   const nav = useNav()
+  const openFull = useAccountantView({ name: 'simple-person', id: p.ledgerId }) // i18n-technical: screen name
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { from, user } = useSession()
@@ -156,6 +160,7 @@ function Person({ p }: { p: PersonData }): React.JSX.Element {
               {lbl(KIND_TEXT[p.side])} · {p.creditDays != null ? t('simple.people.terms', { days: p.creditDays }) : t('simple.people.noTerms')}
             </p>
           </div>
+          <AccountantViewButton testId="btn-person-accountant-view" title={t('simple.shell.accountantViewHint')} onOpen={(always) => void openFull({ intent: null, always })} />
           {p.onHold && (
             <Pill tone="amber" testId="person-hold">
               {p.holdReason ? t('simple.people.hold.on', { reason: p.holdReason }) : t('simple.people.chip.hold')}
@@ -197,6 +202,12 @@ function Person({ p }: { p: PersonData }): React.JSX.Element {
               {t('simple.people.remind')}
             </Button>
           )}
+          {/* A polite note before a bill falls due (within 7 days) — never for a late one. */}
+          {canEdit && customer && p.upcoming && (
+            <Button data-testid="btn-person-remind-before" onClick={() => toggle(UPCOMING)}>
+              {t('simple.people.remindBefore')}
+            </Button>
+          )}
           {/* Everyone, viewers too: the statement holds nothing the page doesn't already show — but
               it is a file of the books, so not for a user the owner turned canExport off for. */}
           {!exportRefused && (
@@ -220,7 +231,7 @@ function Person({ p }: { p: PersonData }): React.JSX.Element {
         </div>
         {/* WP 10.8: a customer who owes money but has nothing late sees why there is no reminder
             (the beginner study: every udhaar customer's page simply had no Remind button). */}
-        {canEdit && customer && !p.reminder && p.bills.length > 0 && (
+        {canEdit && customer && !p.reminder && !p.upcoming && p.bills.length > 0 && (
           <p className="mt-3 text-detail text-muted" data-testid="person-nothing-late">
             {t('simple.people.reminder.nothingLate')}
           </p>
@@ -236,6 +247,7 @@ function Person({ p }: { p: PersonData }): React.JSX.Element {
       </section>
 
       {panel === REMINDER && p.reminder && <ReminderPanel person={p} reminder={p.reminder} startLang={reminderLang} onSent={refresh} />}
+      {panel === UPCOMING && p.upcoming && <ReminderPanel person={p} reminder={p.upcoming} startLang={reminderLang} onSent={refresh} />}
       {panel === HOLD && <HoldPanel person={p} onDone={() => { setPanel(null); refresh() }} />}
 
       <section className="mt-4 rounded-lg border border-line bg-panel shadow-elev-1">

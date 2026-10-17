@@ -151,7 +151,7 @@ export type Screen =
   | { name: 'itc-reversal' }
   | { name: 'edocs'; tab?: 'documents' | 'self-invoices' }
   | { name: 'registers'; tab?: 'sales' | 'purchase' | 'items'; from?: string; to?: string }
-  | { name: 'outstandings'; side?: 'receivable' | 'payable' }
+  | { name: 'outstandings'; side?: 'receivable' | 'payable'; backTo?: 'simple-people'; backFilter?: PeopleFilter }
   // WP 4.2: credit control, reminders, interest on overdue bills, collection reports.
   | { name: 'receivables'; tab?: 'control' | 'reminders' | 'interest' | 'collections' }
   // WP 4.3: payables — planning, batch payments, runs, MSME, supplier reconciliation.
@@ -200,7 +200,7 @@ export type Screen =
   | { name: 'cash-forecast' }
   | { name: 'loans'; loanId?: number }
   | { name: 'forex' }
-  | { name: 'company-info' }
+  | { name: 'company-info'; backTo?: 'simple-taxes' }
   | { name: 'year-end' }
   | { name: 'fixed-assets'; tab?: 'register' | 'depreciation' | 'schedule' | 'income-tax' | 'setup' }
   | { name: 'audit-trail'; voucherId?: number }

@@ -43,7 +43,9 @@ export function ReminderPanel({ person, reminder, startLang, onSent }: { person:
   if (ready && lang !== chosen) setLang(chosen)
   const loading = !ready && chosen !== lang
   const [note, setNote] = useState<string | null>(null)
-  const facts = useMemo(() => ({ company: person.company, party: person.name, bucket: reminder.bucket, bills: reminder.bills }), [person, reminder])
+  const tone = reminder.tone ?? 'late' // i18n-technical
+  const before = tone === 'before_due'
+  const facts = useMemo(() => ({ company: person.company, party: person.name, bucket: reminder.bucket, bills: reminder.bills, tone }), [person, reminder, tone])
   const text = useMemo(() => reminderMessage(facts, lang), [facts, lang])
   const sms = useMemo(() => reminderSms(facts, lang), [facts, lang])
   const number = person.whatsapp ?? person.phone
@@ -66,7 +68,7 @@ export function ReminderPanel({ person, reminder, startLang, onSent }: { person:
     }
     setLoggedOnce(true)
     try {
-      await api.simplePeople.reminded(person.ledgerId, via, person.today)
+      await api.simplePeople.reminded(person.ledgerId, via, person.today, tone)
       setNote(said)
       onSent()
     } catch (e) {
@@ -96,11 +98,11 @@ export function ReminderPanel({ person, reminder, startLang, onSent }: { person:
   }
 
   return (
-    <section className="mt-4 rounded-lg border border-line bg-panel p-panel shadow-elev-1" data-testid="person-reminder" data-bucket={reminder.bucket}>
+    <section className="mt-4 rounded-lg border border-line bg-panel p-panel shadow-elev-1" data-testid="person-reminder" data-bucket={reminder.bucket} data-tone={tone}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-subtitle font-semibold text-ink">{t('simple.people.reminder.title', { name: person.name })}</h2>
-          <p className="mt-0.5 text-detail text-muted">{lbl(STEP_TEXT[reminder.bucket])}</p>
+          <h2 className="text-subtitle font-semibold text-ink">{before ? t('simple.people.reminder.titleBefore', { name: person.name }) : t('simple.people.reminder.title', { name: person.name })}</h2>
+          <p className="mt-0.5 text-detail text-muted">{before ? t('simple.people.reminder.step.beforeDue') : lbl(STEP_TEXT[reminder.bucket])}</p>
         </div>
         <Segmented
           label={t('simple.people.reminder.language')}

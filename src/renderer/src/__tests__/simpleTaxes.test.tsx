@@ -196,6 +196,9 @@ describe('Taxes — not regular (WP 9.9)', () => {
     expect(screen.getByTestId('taxes-tds').textContent).toContain('Sep 2026: ₹600.00 still to pay, due 7 Oct — late')
     expect(screen.queryByTestId('taxes-figures')).toBeNull()
     expect(bannedWordsIn(visibleText())).toEqual([])
+    // WP 9.10: no return to open — the Company details, where the registration is set.
+    fireEvent.click(screen.getByTestId('taxes-accountant-view'))
+    await waitFor(() => expect(lastScreen()).toEqual({ name: 'company-info', backTo: 'simple-taxes' }))
   })
 
   it('composition: the CMP-08 and GSTR-4 dates, no figures', async () => {

@@ -172,6 +172,9 @@ describe('a person’s page', () => {
     await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'ledger-statement', ledgerId: 10 }))
     expect(screen.queryByTestId('btn-person-money-out')).toBeNull()
     expect(bannedWordsIn(visibleText())).toEqual([])
+    // WP 9.10: the Accountant view is the ledger's statement (Back to simple lands on this person).
+    fireEvent.click(screen.getByTestId('btn-person-accountant-view'))
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'ledger-statement', ledgerId: 10 }))
   })
 
   it('WP 10.8: a customer who owes but has nothing late is told why there is no reminder', async () => {
@@ -240,6 +243,31 @@ describe('a person’s page', () => {
     expect(screen.getByTestId('reminder-note').textContent).toContain('WhatsApp')
     expect(calls('simple:people:reminded')).toHaveLength(1)
     open.mockRestore()
+  })
+
+  it('a gentle reminder before a bill falls due: offered only when something is due within 7 days; same channels, logged with its tone', async () => {
+    // Ramesh's bill 2 falls due on the 25th (11 days off): nothing to offer, and the late button stays.
+    renderUi(<PersonView id={10} />)
+    await screen.findByTestId('btn-person-remind')
+    expect(screen.queryByTestId('btn-person-remind-before')).toBeNull()
+    cleanup()
+    const due = { name: '2', voucherId: 102, date: '2026-10-10', dueDate: '2026-10-17', amount: 50_000, pending: 50_000, overdueDays: 0 }
+    rameshNow = {
+      ...RAMESH,
+      bills: [RAMESH.bills[0]!, due],
+      upcoming: { tone: 'before_due', bucket: 'gentle', bills: [due], amount: 50_000, lastSent: null, allowed: true, nextAllowed: null }
+    }
+    renderUi(<PersonView id={10} />)
+    fireEvent.click(await screen.findByTestId('btn-person-remind-before'))
+    expect(screen.getByTestId('person-reminder').getAttribute('data-tone')).toBe('before_due')
+    const text = (screen.getByTestId('reminder-text') as HTMLTextAreaElement).value
+    expect(text).toContain('A friendly note from Sharma Traders: ₹500.00 falls due on 17 Oct 2026. Thank you!')
+    expect(text).toContain('• Bill 2, due 17 Oct 2026: ₹500.00')
+    expect(bannedWordsIn(text)).toEqual([])
+    fireEvent.click(screen.getByTestId('btn-reminder-sms'))
+    await waitFor(() => expect(calls('simple:people:reminded')).toEqual([{ id: 10, via: 'sms', tone: 'before_due', today: TODAY }]))
+    fireEvent.click(screen.getByTestId('reminder-lang-hinglish'))
+    expect((screen.getByTestId('reminder-text') as HTMLTextAreaElement).value).toContain('ki payment ki date 17 Oct 2026 hai. Dhanyavaad!')
   })
 
   it('inside the "don\'t remind again" window the first send asks first; Not now sends nothing, Send again goes ahead', async () => {

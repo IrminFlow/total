@@ -16,7 +16,7 @@ import type { HandoffEntry, HandoffFacts, IntentFormResult } from '@shared/simpl
 import type { CarryFlow, CarryForms, CarryResult } from '@shared/simple/carryBack'
 import type { BankAcceptItem, BankAcceptResult, BankSetup, BankView } from '@shared/simple/bank'
 import type { MoneyEntryView, MoneyOpenBill, MoneyRow, MoneySetup } from '@shared/simple/money'
-import type { BillsToPay, PeopleList, PersonUpdate, PersonView, ReminderVia } from '@shared/simple/people'
+import type { BillsToPay, PeopleList, PersonUpdate, PersonView, ReminderTone, ReminderVia } from '@shared/simple/people'
 import type { SaleRow, SaleView, SellSetup } from '@shared/simple/sell'
 import type { ReturnBill, ReturnBillRow, ReturnSide as SimpleReturnSide } from '@shared/simple/returns'
 import type { BuySetup, PurchaseRow, PurchaseView } from '@shared/simple/buy'
@@ -780,7 +780,8 @@ export const api = {
     /** Phone / WhatsApp ('' = none) / days to pay (null = none) — the full app's account write. */
     update: (patch: PersonUpdate) => call<{ ledgerId: number; phone: string | null; whatsapp: string | null; creditDays: number | null }>('simple:people:update', patch),
     /** Log a reminder sent from a person's page (reminder_log). */
-    reminded: (id: number, via: ReminderVia, today?: string) => call<{ logId: number }>('simple:people:reminded', { id, via, ...(today ? { today } : {}) })
+    reminded: (id: number, via: ReminderVia, today?: string, tone?: ReminderTone) =>
+      call<{ logId: number }>('simple:people:reminded', { id, via, ...(tone && tone !== 'late' ? { tone } : {}), ...(today ? { today } : {}) })
   },
   /** WP 9.3: the simple Buy screens' reads (writing goes through api.simple.post). */
   buy: {

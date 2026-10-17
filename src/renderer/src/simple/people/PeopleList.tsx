@@ -47,7 +47,9 @@ export function PeopleList({ tab = 'people', filter: startFilter = 'all' }: { ta
   const t = useT()
   const nav = useNav()
   const workingDate = useSession((s) => s.workingDate)
-  const openFull = useAccountantView({ name: 'simple-people', tab }) // i18n-technical: screen name
+  const [filter, setFilter] = useState<PeopleFilter>(startFilter)
+  // The Outstandings of the side the list shows (Bills to pay: what you owe).
+  const openFull = useAccountantView({ name: 'simple-people', tab, filter }) // i18n-technical: screen name
   const tabs: { id: Tab; label: string }[] = [
     { id: 'people', label: t('simple.people.tab.people') }, // i18n-technical: tab id
     { id: 'bills', label: t('simple.people.billsToPay') } // i18n-technical: tab id
@@ -70,19 +72,18 @@ export function PeopleList({ tab = 'people', filter: startFilter = 'all' }: { ta
         active={tab}
         onSelect={(id) => nav.replace({ name: 'simple-people', tab: id })} // i18n-technical
       />
-      {tab === 'bills' ? <BillsToPay /> : <People startFilter={startFilter} />}
+      {tab === 'bills' ? <BillsToPay /> : <People filter={filter} setFilter={setFilter} />}
     </Page>
   )
 }
 
-function People({ startFilter }: { startFilter: PeopleFilter }): React.JSX.Element {
+function People({ filter, setFilter }: { filter: PeopleFilter; setFilter: (f: PeopleFilter) => void }): React.JSX.Element {
   const t = useT()
   const lbl = (k: MessageKey): string => t(k) // i18n-technical: keys from the typed tables above
   const nav = useNav()
   const queryClient = useQueryClient()
   const workingDate = useSession((s) => s.workingDate)
   const canEdit = useSession((s) => s.user == null || s.user.role !== 'viewer') // i18n-technical
-  const [filter, setFilter] = useState<PeopleFilter>(startFilter)
   const [creating, setCreating] = useState(false)
   const groups = useGroups()
   const { data, isLoading } = useQuery({ queryKey: ['simplePeople', workingDate], queryFn: () => api.simplePeople.list(workingDate) }) // i18n-technical

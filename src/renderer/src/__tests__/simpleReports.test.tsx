@@ -113,7 +113,8 @@ describe('How is my business doing (WP 9.9)', () => {
     expect(screen.getByTestId('doing-receivable').textContent).toBe('₹8,000.00')
     expect(bannedWordsIn(visibleText())).toEqual([])
     fireEvent.click(screen.getByTestId('doing-accountant-view'))
-    await waitFor(() => expect(lastScreen()).toEqual({ name: 'profit-loss' }))
+    // The span the page shows goes with it.
+    await waitFor(() => expect(lastScreen()).toEqual({ name: 'profit-loss', from: '2026-10-01', to: '2026-10-13' }))
   })
 
   it('the period picker: last month, this year; dates you pick — an error sits under "to"', async () => {
@@ -178,6 +179,7 @@ describe('Cash, who owes whom, by month (WP 9.9)', () => {
     expect(screen.getByTestId('by-month-sentence').textContent).toBe('Sales over the 12 months: ₹70,000.00; purchases: ₹40,000.00. The best month for sales was Sep 2026 (₹70,000.00).')
     expect(bannedWordsIn(visibleText())).toEqual([])
     fireEvent.click(screen.getByTestId('by-month-accountant-view'))
-    await waitFor(() => expect(lastScreen()).toEqual({ name: 'registers', tab: 'sales' }))
+    // The busiest month (the one the sentence names).
+    await waitFor(() => expect(lastScreen()).toEqual({ name: 'registers', tab: 'sales', from: '2026-09-01', to: '2026-09-30' }))
   })
 })
