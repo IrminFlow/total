@@ -534,7 +534,8 @@ Read these before filing from the next release.
   origin/main; `migrationVoucherFts.dbtest.ts` checks FTS5's integrity-check after save / edit / bin
   / restore / purge and in a backup copy). Id lists are literal SQL lists and a narrow lookup
   drives the query from its indexes (`Driving`). ~2.6 MB on the 100k seed; out of the books export.
-  Numbers in `docs/perf-budgets.md`.
+  Numbers in `docs/perf-budgets.md`. `perf/bench.ts runPerf` yields to the event loop before each timed call, so a
+  budgets run past 60 s no longer ends in vitest's unhandled `Timeout calling "onTaskUpdate"`.
 - New banking channels `cheques:backfillPreview` (accountant+, read) and `cheques:backfill`
   (owner, Zod-strict `{ bankLedgerId?, includeOutside?, voucherIds? }`, audited `cheque`) in
   `services/cheques.ts`; the number reader is `chequeNumberOf` in `shared/chequeRegister.ts`

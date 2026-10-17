@@ -224,6 +224,7 @@ export interface PerfResult {
 }
 
 const now = (): number => performance.now()
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
 /** Run the cases: one cold call, then `repeat` more; the median of those is checked. */
 export async function runPerf(ctx: PerfContext, vouchers: number, opts: { cases?: readonly PerfCase[]; repeat?: number; onResult?: (r: PerfResult) => void } = {}): Promise<PerfResult[]> {
@@ -232,6 +233,11 @@ export async function runPerf(ctx: PerfContext, vouchers: number, opts: { cases?
   for (const c of opts.cases ?? PERF_CASES) {
     const times: number[] = []
     for (let k = 0; k <= repeat; k++) {
+      // Most cases are synchronous, so without this the whole table is ONE event-loop task: under
+      // vitest (budgets.dbtest) its worker could not answer the runner's RPC for the length of the
+      // run, and past 60 s that is an unhandled "Timeout calling onTaskUpdate" (CI, PR #153).
+      // Outside the timed region — the figures don't change.
+      await yieldToEventLoop()
       const t0 = now()
       await c.run(ctx)
       times.push(now() - t0)

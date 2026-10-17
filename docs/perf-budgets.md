@@ -429,7 +429,17 @@ Size on the 100k Perf Traders seed (15k narrations, 13k references): `voucher_ft
 used) — the file grows from 308.7 to 311.3 MB. Backups, VACUUM INTO and the encrypted copy carry it as
 ordinary pages; the books export leaves it out (it is derived), and `canonicalDump` skips it. The
 one-time migration on the 100k seed: 3.5 s on a quiet machine (4.6 s / 16 s under load), most of
-it the full ANALYZE that follows any migration; later opens ~40 ms.
+it the full ANALYZE that follows any migration; later opens ~40 ms. Measured apart (load ~10): the
+migration's own SQL (view, table, triggers, `'rebuild'`) 74 ms, a `'rebuild'` alone 78–426 ms,
+the ANALYZE after it 0.9 s — so the upgrade has no budget case of its own: it runs once per file,
+inside the open that already pays for the pre-upgrade copy and the ANALYZE.
+
+`budgets.dbtest` runs the whole table inside one vitest test, and most cases are synchronous:
+`runPerf` yields to the event loop before each timed call (outside the timing), or a run longer
+than 60 s leaves the vitest worker unable to answer its runner — an unhandled
+`Timeout calling "onTaskUpdate"` that fails CI though every budget passed (PR #153: main's run
+took 55.8 s, this branch's 66 s on a slower runner; reproduced locally without the yield, gone
+with it).
 
 100k Perf Traders, `search()` best of 9 runs × 3 interleaved rounds (min), origin/main vs this
 branch on two copies of the same seed. **The machine was loaded (load average 40–50 from other
