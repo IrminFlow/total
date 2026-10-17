@@ -531,7 +531,11 @@ Read: the stream is time-neutral to slightly faster per pass and holds a fractio
 the one-pass memo removes a whole pass from `dashboard:all` and a `line_links` read from the
 Balance sheet. The Balance sheet's second pass is to the day before the books begin (no lines).
 
-500k: see the next table (measured on the same branch after the 100k run).
+500k was not re-measured: the 500k seed reached 80,000 vouchers in 25 minutes on the swapping
+laptop (a 2–3 hour seed) and was stopped. What carries over by construction: the pass no longer
+holds the lines (~660k at 500k, ~240 MB of row + movement objects before), so its memory no longer
+grows with the books — on an 8 GB machine that was the swap the 500k figures above were bound by —
+and `dashboard:all` walks the stock once instead of twice.
 
 ## Deferred
 
