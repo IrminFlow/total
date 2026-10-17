@@ -9,6 +9,10 @@
 //   3. ⌘K in a simple company lists the simple screens: "Make a bill" + ↵ opens it.
 //   4. "Always open the full app for this" remembers the choice: Make a bill then opens the full
 //      sales editor; "Back to simple" clears it.
+//   5. Back the other way, unsaved: a half-filled bill → Accountant view → the quantity, the note
+//      and the entry number changed in the full editor → "Back to simple" (no discard question)
+//      → Make a bill shows the new quantity, note and total, and a note names the entry number as
+//      what could not come back; nothing saved until Save there, which saves the bill as carried.
 // Light + dark screenshots; WP910_SHOTS=<dir> copies them for the visual review.
 import * as fs from 'node:fs'
 import * as path from 'node:path'
@@ -199,6 +203,44 @@ await scenario('62-handoff', async (h) => {
   await h.click('btn-back-to-simple')
   await h.waitScreen('simple-sell')
   assertEq((await overrides()).length, 0, 'and Back to simple clears it again')
+
+  // ---------- 5. the editor's changes carried back ----------
+  await pick('picker-sell-customer', 'Mehta')
+  await pick('picker-sell-item-0', 'Steel bolt')
+  await fill('input-sell-qty-0', '3')
+  await h.click('sell-paid-credit')
+  await page.waitForFunction(() => document.querySelector('[data-testid="sell-total"]')?.getAttribute('data-paise') === '88500', null, { timeout: 10000 })
+  await h.click('btn-sell-accountant-view')
+  await h.waitScreen('voucher-entry')
+  await attached(h, '[data-testid="handoff-banner"]')
+  await attached(h, '[data-testid="rows-invoice-lines"]')
+  await page.keyboard.press('Escape') // the party picker's list
+  const inputs = page.locator('[data-testid="rows-invoice-lines"] input')
+  const values = await inputs.evaluateAll((els) => els.map((e) => e.value))
+  const qtyAt = values.indexOf('3')
+  assert(qtyAt >= 0, `the quantity is in the editor (${values.join(' | ')})`)
+  await inputs.nth(qtyAt).fill('5')
+  await inputs.nth(qtyAt).blur()
+  await fill('input-invoice-narration', 'Carried back from the full app')
+  await fill('invoice-number', 'GT-777')
+  await shoot('07-editor-changed', ['light'])
+  await h.click('btn-back-to-simple')
+  await h.waitScreen('simple-sell')
+  assertEq(await page.inputValue('[data-testid="input-sell-qty-0"]'), '5', 'the quantity changed in the full editor came back')
+  assertEq(await page.inputValue('[data-testid="input-sell-note"]'), 'Carried back from the full app', 'and the note')
+  assert((await page.inputValue('[data-testid="picker-sell-customer"]')).includes('Mehta'), 'the customer is still there')
+  await page.waitForFunction(() => document.querySelector('[data-testid="sell-total"]')?.getAttribute('data-paise') === '147500', null, { timeout: 10000 })
+  await attached(h, '[data-testid="carried-back-note"]')
+  assert((await text('carried-back-note')).includes('the entry number'), `the note names what could not come (${await text('carried-back-note')})`)
+  await noBanned('the bill carried back')
+  assertEq((await h.invoke('simple:sales', { from: '2000-01-01', to: '2100-12-31' })).length, 1, 'nothing more was saved')
+  await shoot('08-carried-back')
+  // Saved from the simple form: the bill as carried back (₹1,475.00, with the note).
+  await h.click('btn-sell-save')
+  await attached(h, '[data-testid="save-card"]')
+  const after = await h.invoke('simple:sales', { from: '2000-01-01', to: '2100-12-31' })
+  assertEq(after.length, 2, 'the carried-back bill saved from the simple form')
+  assertEq(after.map((b) => b.total).sort((a, b) => a - b).join(), '88500,147500', 'at the quantity changed in the full editor')
 
   h.assertNoConsoleErrors()
 })
