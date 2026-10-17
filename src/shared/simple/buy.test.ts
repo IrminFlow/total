@@ -9,7 +9,7 @@ import { computeInvoice, emptyInvoiceState } from '../voucherEdit'
 import { mapIntent, normaliseIntent, type IntentContext, type IntentFacts, type IntentLedger } from './intents'
 import { bannedWordsIn } from './bannedWords'
 import {
-  buyFormErrors, buyGst, buyIntentLines, buyLineRateMissing, buyTotals, emptyBuyForm, purchaseIntentFrom, purchasePreviewLine, purchaseStatus, switchBuyBasis,
+  buyFormErrors, buyGst, buyIntentFrom, isCashExpense, buyIntentLines, buyLineRateMissing, buyTotals, emptyBuyForm, purchaseIntentFrom, purchasePreviewLine, purchaseStatus, switchBuyBasis,
   type BuyContext, type BuyForm
 } from './buy'
 import { switchBasisRemembering } from './sell'
@@ -216,6 +216,47 @@ describe('the purchase intent', () => {
     expect(m.entries.map((e) => e.kind)).toEqual(['purchase', 'payment'])
     expect(m.entries[1]!.payload.billRefs).toEqual([{ kind: 'against', name: 'BS/9', amount: 50_000, dueDate: null }])
     expect(m.facts).toMatchObject({ total: 118_000, paid: 50_000, due: 68_000, how: 'upi', dueDate: '2026-11-12' })
+  })
+})
+
+describe('to-do §4: a cash expense needs no supplier', () => {
+  const noSupplier = (patch: Partial<BuyForm>): BuyForm => form({ supplierId: null, mode: 'expense', categoryId: 22, amount: 5_000, ...patch })
+  it('paid in full, no GST claimed: Money out’s money_out on that expense account', () => {
+    const c = ctxFor()
+    const f = noSupplier({ paid: 'cash', gstOnBill: false, billNo: 'ignored', note: 'Tea' })
+    expect(isCashExpense(f, c)).toBe(true)
+    expect(buyFormErrors(f, c)).toEqual({})
+    const i = buyIntentFrom(f, c, DEFAULTS)
+    expect(i).toEqual({ kind: 'money_out', date: DATE, amount: 5_000, from: { how: 'cash', accountId: 30 }, payeeId: 22, narration: 'Tea' })
+    const m = mapIntent(normaliseIntent({ clientId: 'test-client-1', ...i }, DATE), intentCtx(c))
+    expect(m.entries.map((e) => e.kind)).toEqual(['payment'])
+    expect(m.entries[0]!.payload.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[22, 'dr', 5_000], [30, 'cr', 5_000]])
+  })
+  it('just an amount goes to the default purchase account; a bank way uses its account', () => {
+    const i = buyIntentFrom(noSupplier({ mode: 'amount', categoryId: null, paid: 'bank', gstOnBill: false }), ctxFor(), DEFAULTS)
+    expect(i).toMatchObject({ kind: 'money_out', payeeId: 20, from: { how: 'bank', accountId: 31 } })
+  })
+  it('a company that can’t claim: typed with GST = the amount; before GST = the folded total', () => {
+    const c = ctxFor('unregistered')
+    expect(buyIntentFrom(noSupplier({ paid: 'cash', ratesIncludeGst: true, categoryId: 21, amount: 11_800 }), c, DEFAULTS)).toMatchObject({ kind: 'money_out', amount: 11_800 })
+    expect(buyIntentFrom(noSupplier({ paid: 'cash', ratesIncludeGst: false, categoryId: 21, amount: 10_000, gstRate: 18 }), c, DEFAULTS)).toMatchObject({ kind: 'money_out', amount: 11_800 })
+  })
+  it('not yet / partly: the supplier is asked, in plain words', () => {
+    const c = ctxFor()
+    expect(buyFormErrors(noSupplier({ paid: 'credit', gstOnBill: false }), c).party).toBe('simple.buy.err.supplierOwe')
+    expect(buyFormErrors(noSupplier({ paid: 'part', partAmount: 100, gstOnBill: false }), c).party).toBe('simple.buy.err.supplierOwe')
+    expect(buyFormErrors(noSupplier({ paid: 'part', partAmount: 100, gstOnBill: false }), c).party).not.toBe('simple.buy.err.supplier')
+    expect(t('simple.buy.err.supplierOwe')).toBe('Who do you owe? Add the supplier, or pay it now.')
+  })
+  it('a GST bill to claim, or products: the supplier stays required', () => {
+    const c = ctxFor()
+    expect(isCashExpense(noSupplier({ paid: 'cash', gstOnBill: true, gstRate: 18 }), c)).toBe(false)
+    expect(buyFormErrors(noSupplier({ paid: 'cash', gstOnBill: true, gstRate: 18 }), c).party).toBe('simple.buy.err.supplierGst')
+    expect(buyFormErrors(form({ supplierId: null, paid: 'cash', lines: [line(1, 1, '1', 100)] }), c).party).toBe('simple.buy.err.supplier')
+  })
+  it('the preview line', () => {
+    const f = { kind: 'money_out', total: 5_000, moneyAccount: 'Cash', toName: 'Rent', paid: 5_000, how: 'cash' } as IntentFacts
+    expect(purchasePreviewLine(f, t)).toBe('Paid ₹50.00 for Rent from Cash.')
   })
 })
 

@@ -153,6 +153,8 @@ function carry(input: CarryInput, ctx: CarryContext, dropped: Dropped): CarryFor
     case 'simple-sell':
       return current.form === 'invoice' ? sellItems(input as CarryInput<'simple-sell'>, ctx, dropped) : sellAmount(input as CarryInput<'simple-sell'>, ctx, dropped)
     case 'simple-buy':
+      // A cash expense with no supplier is Money out's payment (buyIntentFrom's `money_out`).
+      if (original.kind === 'payment') return buyCash(input as CarryInput<'simple-buy'>, ctx, dropped)
       return current.form === 'invoice' ? buyItems(input as CarryInput<'simple-buy'>, ctx, dropped) : buyAmount(input as CarryInput<'simple-buy'>, ctx, dropped)
     case 'simple-money-in':
       return moneyIn(input as CarryInput<'simple-money-in'>, ctx, dropped)
@@ -472,6 +474,39 @@ function buyAmount(input: CarryInput<'simple-buy'>, ctx: CarryContext, dropped: 
   const form: BuyForm = untouched ? head : { ...head, amount: now.taxable, ...(g === 'none' ? {} : { ratesIncludeGst: true }) }
   dropped.add('rounding', now.total !== buyTotals(form, bctx).total)
   return form
+}
+
+/** Record a purchase's cash expense (no supplier, paid in full now): the payment the hand-off
+ *  opened, read as Money out reads one — the expense account, the cash / bank it left, the amount. */
+function buyCash(input: CarryInput<'simple-buy'>, ctx: CarryContext, dropped: Dropped): BuyForm {
+  const o = (input.original as Acc).state
+  const c = (input.current as Acc).state
+  const base = input.base
+  accountingExtras(refAcc(dropped), c, dropped, { instrument: false })
+  const was = moneyRows(o, ctx, 'cr')
+  const now = moneyRows(c, ctx, 'cr')
+  dropped.add('extraLines', now.extra)
+  if (!now.otherRow) return refuse('lines')
+  const other = now.otherRow.ledgerId
+  // Only an expense account is a cash expense here (a supplier / anything else is Money out's).
+  if (ctx.ledgers.get(other)?.cls !== 'expense') return refuse('party')
+  dropped.add('billRefs', c.billRefs.length > 0)
+  const baseHow: MoneyHow = base.paid === 'credit' || base.paid === 'part' ? 'cash' : base.paid
+  const how = howOf({ how: baseHow, accountId: base.accountId }, was.accountRow.ledgerId, now.accountRow.ledgerId, ctx)
+  const mode = other === was.otherRow?.ledgerId ? base.mode : other === ctx.defaults.purchaseId ? 'amount' : 'expense'
+  const amount = now.accountRow.amount
+  // An amount changed in the editor is what was paid (the whole of it is the cost).
+  const untouched = amount === was.accountRow.amount
+  return {
+    ...base,
+    date: c.date,
+    paid: how.how,
+    accountId: how.accountId,
+    mode,
+    categoryId: mode === 'expense' ? other : base.categoryId,
+    note: c.narration,
+    ...(untouched ? {} : { amount, ratesIncludeGst: true })
+  }
 }
 
 function billNoFrom(o: AccountingFormState, c: AccountingFormState, fallback: string): string {

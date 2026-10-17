@@ -230,6 +230,24 @@ describe('Record a purchase (WP 9.3)', () => {
     expect((await screen.findByTestId('field-error-account')).textContent).toContain('Pick what the money was spent on')
   })
 
+  it('to-do §4: a cash expense needs no supplier — paid now it is Money out’s entry; not yet / partly asks the supplier', async () => {
+    act(() => useSession.setState({ info: info('unregistered') }))
+    renderUi()
+    await ready()
+    click('buy-mode-amount')
+    typeIn('input-buy-amount', '250')
+    click('buy-paid-credit')
+    click('btn-buy-save')
+    expect((await screen.findByTestId('field-error-party')).textContent).toContain('Who do you owe? Add the supplier, or pay it now.')
+    expect(calls('simple:post')).toHaveLength(0)
+    click('buy-paid-cash')
+    await waitFor(() => expect(screen.queryByTestId('field-error-party')).toBeNull())
+    click('btn-buy-save')
+    await screen.findByTestId('save-card')
+    expect(calls('simple:post')[0]).toMatchObject({ intent: { kind: 'money_out', amount: 25_000, from: { how: 'cash', accountId: 30 } } })
+    expect(bannedWordsIn(visibleText())).toEqual([])
+  })
+
   it('a business that can’t claim GST is never asked; prices are what was paid; GST nowhere as a claim', async () => {
     act(() => useSession.setState({ info: info('unregistered') }))
     renderUi()
