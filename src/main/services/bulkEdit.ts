@@ -26,6 +26,7 @@ import {
 import { voucherToPayload, type VoucherPayload } from '@shared/voucherEdit'
 import type { LedgerInput, StockItemInput } from '@shared/schemas'
 import { getVoucher, saveVoucher, voucherNumberExists } from './vouchers'
+import { readTaxFacts, taxFactsFrom } from './taxFacts'
 import { getLedger, getStockItem, updateLedger, updateStockItem } from './masters'
 import { currentAuditUserName, writeAudit } from './audit'
 
@@ -130,11 +131,14 @@ function planVoucher(db: DB, req: Extract<BulkRequest, { target: 'voucher' }>, i
       renumberedFrom = v.number
     }
   }
-  return execute(db, 'voucher', id, label, before, outcome, (p) => {
+  // To-do §4: the before-image keeps the voucher's tax-fact snapshot, so an undo restores it exactly.
+  const beforeFacts = readTaxFacts(db, id)
+  const planned = execute(db, 'voucher', id, label, before, outcome, (p) => {
     const saved = saveVoucher(db, p, id)
     if (saved.duplicateNumber) throw new Error(`Number ${saved.number} is already used by another voucher of this type`)
     return [...saveWarnings(saved.warnings), ...(renumberedFrom !== null && renumberedFrom !== saved.number ? [`Renumbered ${renumberedFrom} → ${saved.number}`] : [])]
   })
+  return planned.beforeImage !== null && beforeFacts ? { ...planned, beforeImage: { ...(planned.beforeImage as object), taxFacts: beforeFacts } } : planned
 }
 
 /** saveVoucher's non-blocking warnings, as the batch result's lines. */
@@ -365,7 +369,11 @@ export function undoBulk(db: DB, batchId: number): BulkUndoResult {
       if (!reason) {
         const before = JSON.parse(r.beforeJson!) as unknown
         reason = inSavepoint(db, () => {
-          if (r.entity === 'voucher') saveVoucher(db, before as VoucherPayload, r.id, { historicImport: true }) // restore exactly (WP 8.0)
+          if (r.entity === 'voucher') {
+            // Restore exactly (WP 8.0), the tax-fact snapshot included (to-do §4; an older image has none).
+            const { taxFacts, ...payload } = before as VoucherPayload & { taxFacts?: unknown }
+            saveVoucher(db, payload as VoucherPayload, r.id, { historicImport: true, taxFacts: taxFactsFrom(taxFacts) })
+          }
           else if (r.entity === 'ledger') updateLedger(db, r.id, before as LedgerInput)
           else updateStockItem(db, r.id, before as StockItemInput)
         })
