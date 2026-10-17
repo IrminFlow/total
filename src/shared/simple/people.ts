@@ -74,8 +74,27 @@ export interface PeopleList {
   totals: PeopleTotals
 }
 
-/** The reminder facts of a customer with late bills (WP 4.2's reminder candidate). */
+/** `late` = the reminder for bills past their due date (WP 4.2's letter); `before_due` = the polite
+ *  note before a bill that falls due within `UPCOMING_DAYS` days. */
+export type ReminderTone = 'late' | 'before_due'
+export const REMINDER_TONES = ['late', 'before_due'] as const
+/** How far ahead a bill's due date may be for the polite pre-due note. */
+export const UPCOMING_DAYS = 7
+
+/** The bills a polite pre-due note is for: not late, due from `today` to `today + 7`, oldest due
+ *  date first. Pure. */
+export function upcomingBills<T extends Pick<PersonBill, 'dueDate' | 'pending' | 'overdueDays'>>(bills: readonly T[], today: string): T[] {
+  const last = addDaysIso(today, UPCOMING_DAYS)
+  return bills
+    .filter((b) => b.pending > 0 && b.overdueDays <= 0 && b.dueDate != null && b.dueDate >= today && b.dueDate <= last)
+    .sort((a, b) => a.dueDate!.localeCompare(b.dueDate!))
+}
+
+/** The reminder facts of a customer with late bills (WP 4.2's reminder candidate) — or, with
+ *  `tone: 'before_due'`, of bills due within the next 7 days (bucket 'gentle' in the log). */
 export interface PersonReminder {
+  /** Absent = 'late'. */
+  tone?: ReminderTone
   bucket: ReminderBucket
   /** The late bills the message lists (oldest first) and their total. */
   bills: PersonBill[]
@@ -92,6 +111,9 @@ export interface PersonView extends PersonRow {
   /** Open bills, oldest first. */
   bills: PersonBill[]
   reminder: PersonReminder | null
+  /** A polite note for bills due within the next 7 days (none late ones count) — null when
+   *  nothing falls due then. */
+  upcoming?: PersonReminder | null
   holdReason: string | null
   company: string
   today: string
@@ -140,7 +162,7 @@ export const personUpdateSchema = z
   })
   .strict()
 export type PersonUpdate = z.input<typeof personUpdateSchema>
-export const personRemindedSchema = z.object({ id, via: z.enum(REMINDER_VIA), today: isoDate.optional() }).strict()
+export const personRemindedSchema = z.object({ id, via: z.enum(REMINDER_VIA), tone: z.enum(REMINDER_TONES).optional(), today: isoDate.optional() }).strict()
 
 // ---------------------------------------------------------------- the list
 
@@ -245,7 +267,9 @@ export interface ReminderMessageFacts {
   party: string
   bucket: ReminderBucket
   /** The late bills (oldest first). */
-  bills: readonly Pick<PersonBill, 'name' | 'date' | 'pending' | 'overdueDays'>[]
+  bills: readonly (Pick<PersonBill, 'name' | 'date' | 'pending' | 'overdueDays'> & { dueDate?: string | null })[]
+  /** Absent = 'late'. */
+  tone?: ReminderTone
 }
 
 const BODY: Record<ReminderBucket, MessageKey> = {
@@ -259,11 +283,20 @@ function reminderParts(f: ReminderMessageFacts, lang: Language): { hello: string
   const amount = f.bills.reduce((s, b) => s + b.pending, 0)
   const days = f.bills.reduce((m, b) => Math.max(m, b.overdueDays), 0)
   const shown = f.bills.slice(0, REMINDER_BILL_LINES)
-  const lines = shown.map((b) => t('simple.people.msg.bill', { bill: b.name, date: toPlainDate(b.date, t.lang), amount: money(b.pending) }))
+  const before = f.tone === 'before_due'
+  const lines = shown.map((b) =>
+    before && b.dueDate
+      ? t('simple.people.msg.billDue', { bill: b.name, date: toPlainDate(b.dueDate, t.lang), amount: money(b.pending) })
+      : t('simple.people.msg.bill', { bill: b.name, date: toPlainDate(b.date, t.lang), amount: money(b.pending) })
+  )
   if (f.bills.length > shown.length) lines.push(t('simple.people.msg.more', { count: f.bills.length - shown.length }))
+  // The polite note names the soonest due date (every bill's own is in the list).
+  const soonest = f.bills.map((b) => b.dueDate).filter((d): d is string => !!d).sort()[0]
   return {
     hello: t('simple.people.msg.hello', { party: f.party }),
-    body: t(BODY[f.bucket], { company: f.company, amount: money(amount), days }),
+    body: before
+      ? t('simple.people.msg.beforeDue', { company: f.company, amount: money(amount), date: soonest ? toPlainDate(soonest, t.lang) : '' })
+      : t(BODY[f.bucket], { company: f.company, amount: money(amount), days }),
     lines,
     thanks: t('simple.people.msg.thanks'),
     sign: f.company

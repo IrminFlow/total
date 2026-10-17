@@ -25,8 +25,8 @@ import { reminderBucketFor, reminderCadence } from '@shared/receivables/reminder
 import { AppError } from '@shared/errors'
 import { isPhoneNumber } from '@shared/simple/accountKinds'
 import {
-  billsToPayTotals, REMINDER_LOG_CHANNEL, sortBillsToPay,
-  type BillsToPay, type PeopleList, type PersonBill, type PersonReminder, type PersonRow, type PersonSide, type PersonUpdate, type PersonView, type ReminderVia
+  billsToPayTotals, REMINDER_LOG_CHANNEL, sortBillsToPay, upcomingBills,
+  type BillsToPay, type PeopleList, type PersonBill, type PersonReminder, type PersonRow, type PersonSide, type PersonUpdate, type PersonView, type ReminderTone, type ReminderVia
 } from '@shared/simple/people'
 import { outstandingsWithAdvances } from './analysis'
 import { getLedger, listGroups, updateLedger } from './masters'
@@ -143,6 +143,26 @@ function reminderOf(db: DB, ledgerId: number, bills: PersonBill[], today: string
   }
 }
 
+/** The polite pre-due note's facts: the customer's bills falling due within the next 7 days (none
+ *  of them late), with the same last-sent / cadence rule as the late reminder (reminder_log is
+ *  one log). null = nothing falls due then. */
+function upcomingOf(db: DB, ledgerId: number, bills: PersonBill[], today: string): PersonReminder | null {
+  const due = upcomingBills(bills, today)
+  if (!due.length) return null
+  const cfg = getReceivablesConfig(db)
+  const last = reminderLog(db, '0000-01-01', '9999-12-31', ledgerId)[0] ?? null
+  const cadence = reminderCadence(last?.date ?? null, today, cfg.minDaysBetweenReminders)
+  return {
+    tone: 'before_due',
+    bucket: 'gentle',
+    bills: due,
+    amount: due.reduce((s, b) => s + b.pending, 0),
+    lastSent: last?.date ?? null,
+    allowed: cadence.allowed,
+    nextAllowed: cadence.nextAllowed
+  }
+}
+
 export function personView(db: DB, company: CompanyInfo, id: number, today: string): PersonView | null {
   const l = partyLedgers(db).find((p) => p.id === id)
   if (!l) return null
@@ -154,6 +174,7 @@ export function personView(db: DB, company: CompanyInfo, id: number, today: stri
     email: l.email,
     bills,
     reminder: l.side === 'customer' ? reminderOf(db, id, bills, today) : null,
+    upcoming: l.side === 'customer' ? upcomingOf(db, id, bills, today) : null,
     holdReason: l.hold ? l.holdReason : null,
     company: company.name,
     today
@@ -186,20 +207,22 @@ export function updatePerson(db: DB, patch: PersonUpdate): { ledgerId: number; p
 }
 
 /** A reminder sent from the People screen — logged like the letter (no document). */
-export function personReminded(db: DB, id: number, via: ReminderVia, today: string): { logId: number } {
+export function personReminded(db: DB, id: number, via: ReminderVia, today: string, tone: ReminderTone = 'late'): { logId: number } {
   const l = partyOrThrow(db, id)
   if (l.side !== 'customer') throw new AppError('simple_people_nothing_late', 'Nothing is late for this person')
   const bills = openBillsOf(allocation(db, 'customer', today).rows.get(id))
-  const r = reminderOf(db, id, bills, today)
-  if (!r) throw new AppError('simple_people_nothing_late', 'Nothing is late for this person')
-  const oldest = [...r.bills].sort((a, b) => b.overdueDays - a.overdueDays)[0]!
+  // A bill due within 7 days is a polite note ('gentle' in the log, tone in the audit row only);
+  // nothing due then — or nothing late for the late one — is refused.
+  const r = tone === 'before_due' ? upcomingOf(db, id, bills, today) : reminderOf(db, id, bills, today)
+  if (!r) throw new AppError('simple_people_nothing_late', tone === 'before_due' ? 'Nothing falls due in the next 7 days' : 'Nothing is late for this person')
+  const oldest = tone === 'before_due' ? r.bills[0]! : [...r.bills].sort((a, b) => b.overdueDays - a.overdueDays)[0]!
   const logId = logReminder(
     db,
     {
       party_ledger_id: id, bucket: r.bucket, date: today, amount_paise: r.amount, oldest_bill: oldest.name, max_overdue_days: oldest.overdueDays,
       document_path: null, channel: REMINDER_LOG_CHANNEL[via]
     },
-    { via, forced: !r.allowed, from: 'simple-people' }
+    { via, forced: !r.allowed, from: 'simple-people', tone }
   )
   return { logId }
 }

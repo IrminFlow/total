@@ -920,8 +920,8 @@ export function registerIpc(): void {
   }, 'viewer')
   handle('simple:people:update', (payload) => simplePeople.updatePerson(requireCompany().db, personUpdateSchema.parse(payload)))
   handle('simple:people:reminded', (payload) => {
-    const { id, via, today } = personRemindedSchema.parse(payload)
-    return simplePeople.personReminded(requireCompany().db, id, via, homeAsOn(today, todayISO()))
+    const { id, via, tone, today } = personRemindedSchema.parse(payload)
+    return simplePeople.personReminded(requireCompany().db, id, via, homeAsOn(today, todayISO()), tone)
   })
 
   // WP 9.5: the simple return screens' reads (services/simpleReturns.ts) — the recent bills with
