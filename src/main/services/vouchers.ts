@@ -953,13 +953,17 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
 }
 
 /** Move a voucher to the bin (soft delete). Report queries exclude it; restoreVoucher undoes this. */
-export function deleteVoucher(db: DB, id: number): void {
+export function deleteVoucher(db: DB, id: number, opts: { importUndo?: boolean } = {}): void {
   const before = getVoucher(db, id)
   if (!before) throw new AppError('voucher_not_found', 'Voucher not found')
   const lock = getLockDate(db)
   if (lock && before.date <= lock) throw lockedError(lock)
   // GST correction workflow: binning doesn't cancel an IRN on the IRP — refused while it is live.
-  if (before.irn && liveIrnOf(db, id)) throw new AppError('irn_live', IRN_LIVE_BIN)
+  // Except an import undo (dataImport.undoImport) of a voucher the import itself created, untouched
+  // since: its IRN came in with the file (the source books' e-invoice) — the undo takes back what
+  // the import added; no IRN generated in these books is orphaned (generateIrn audits an update,
+  // which the undo reads as "edited after the import" and leaves alone).
+  if (before.irn && !opts.importUndo && liveIrnOf(db, id)) throw new AppError('irn_live', IRN_LIVE_BIN)
   db.transaction(() => {
     // WP 2.5: refused while a live document draws on its lines (or it re-prices a frozen GRN).
     assertBinnable(db, id)

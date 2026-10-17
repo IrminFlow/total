@@ -369,6 +369,39 @@ describe('voucher editor round-trip (WP 1.4): load → save unchanged stores ide
     expectRoundTrip(db, id, 'invoice')
   })
 
+  it('a sale with a LIVE e-invoice IRN still round-trips unchanged (the IRN freeze sees no change) — invoice, accounting and TCS forms', () => {
+    // GST correction workflow (PR #164): saveVoucher refuses irn_frozen only when the e-invoiced
+    // facts change; an editor load → save with no edit must still go through.
+    const live = (id: number): void => {
+      db.prepare("UPDATE vouchers SET irn = ?, irn_ack_no = '1', irn_ack_date = '2025-05-10 10:00:00' WHERE id = ?").run('e'.repeat(64), id)
+    }
+    const inv = invoiceFrom('sales', {
+      partyId: x.buyerKa, accountId: x.sales, billName: 'IRN-1', billDueDate: '2025-06-01', vehicleNo: 'MH01AB1234', narration: 'irn', posOverride: '29',
+      rows: [{ itemId: x.widget, qtyText: '2', rate: 70000, discount: 5000, godownId: x.godownA, batchId: x.batch }]
+    })
+    live(inv)
+    expectRoundTrip(db, inv, 'invoice')
+    const hand = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'sales'), date: '2025-05-12', number: 'S-IRN', partyLedgerId: x.buyer,
+      lines: [
+        { ledgerId: x.buyer, drCr: 'dr', amount: 128000 },
+        { ledgerId: x.sales, drCr: 'cr', amount: 100000, costAllocations: [{ costCentreId: x.ccA, amount: 100000 }] },
+        { ledgerId: x.freight, drCr: 'cr', amount: 10000 },
+        { ledgerId: x.cgst, drCr: 'cr', amount: 9000 },
+        { ledgerId: x.sgst, drCr: 'cr', amount: 9000 }
+      ],
+      inventory: [{ stockItemId: x.widget, godownId: x.godownB, batchId: x.batch, qtyMilli: 2000, ratePaise: 55000, discountPaise: 10000, amount: 100000, direction: 'out' }],
+      billRefs: [{ kind: 'new', name: 'S-IRN', amount: 128000, dueDate: '2025-06-12' }]
+    }).id
+    live(hand)
+    expectRoundTrip(db, hand, 'accounting')
+    // The TCS sale above (its collection is the payable's last line).
+    const tcsSale = (db.prepare("SELECT voucher_id AS id FROM bill_refs WHERE name = 'SCR-1' AND kind = 'new'").get() as { id: number }).id
+    expect(getVoucher(db, tcsSale)!.tcs).toMatchObject({ tcsAmount: 118000 })
+    live(tcsSale)
+    expectRoundTrip(db, tcsSale, 'invoice')
+  })
+
   it('receipt with TCS on top (accounting form): bank debit includes the TCS, round-trips', () => {
     const scrap = listSections(db, 'tcs').find((s) => s.code === '206C(1) SCRAP')!.id
     const buyer = ledger(db, 'Advance Buyer', 'Sundry Debtors', { stateCode: '27' })

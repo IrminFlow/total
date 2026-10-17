@@ -1549,7 +1549,8 @@ export function undoImport(db: DB, batchId: number): UndoResult {
             case 'voucher': {
               const v = db.prepare('SELECT deleted_at FROM vouchers WHERE id = ?').get(it.entity_id) as { deleted_at: string | null } | undefined
               if (v && !v.deleted_at) {
-                deleteVoucher(db, it.entity_id)
+                // A live IRN that came in with the file goes back out with it (PR #164 review).
+                deleteVoucher(db, it.entity_id, { importUndo: true })
                 res.binned++
               }
               return
