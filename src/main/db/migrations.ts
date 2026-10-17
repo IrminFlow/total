@@ -3450,7 +3450,7 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX IF NOT EXISTS idx_inv_voucher_cover ON inventory_lines(voucher_id, moves_stock, line_order, stock_item_id, godown_id, qty_milli, amount, direction, is_absolute);
   CREATE INDEX IF NOT EXISTS idx_bill_refs_party_cover ON bill_refs(party_ledger_id, voucher_id, kind, name, amount, due_date);
   `,
-  // WP 7.2 (last — after WP 7.1's performance indexes; number by position) —
+  // WP 7.2 (after WP 7.1's performance indexes, before the voucher text index; number by position) —
   // security. `backup_runs`: one row per automatic restore check of a backup (the file restored
   // into a scratch folder, migrated, its audit chain verified and its entries checked to balance —
   // services/backupVerify.ts); Home and Settings → Backups read the newest. `users.capabilities_json`:
@@ -3470,7 +3470,7 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX idx_backup_runs_checked ON backup_runs(checked_at);
   ALTER TABLE users ADD COLUMN capabilities_json TEXT;
   `,
-  // PR #148 (last — after WP 7.2's security; number by position) — reminder_log's channel CHECK
+  // PR #148 (after WP 7.2's security, before the voucher text index; number by position) — reminder_log's channel CHECK
   // gains 'whatsapp' and 'sms': the simple People screen (WP 9.8) logged a WhatsApp / SMS
   // reminder as 'phone' because the WP 4.2 list had no such channel (REMINDER_LOG_CHANNEL). Table
   // rebuild for the CHECK — every row kept with its id and the id high-water mark (nothing
@@ -3503,5 +3503,42 @@ export const MIGRATIONS: string[] = [
     SELECT 'reminder_log', 0 WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'reminder_log');
   UPDATE sqlite_sequence SET seq = MAX(seq, COALESCE((SELECT seq FROM m_rl_seq), 0)) WHERE name = 'reminder_log';
   DROP TABLE m_rl_seq;
+  `,
+  // To-do §4 (last — after PR #148's reminder channels; number by position) — the voucher text index for
+  // books search (services/search.ts). An EXTERNAL-CONTENT FTS5 table (it holds only the index;
+  // the text stays in vouchers) over number, narration and reference with the trigram tokenizer,
+  // so a MATCH finds the same SUBSTRINGS the search's `LIKE '%…%'` finds — a superset, since
+  // trigram folds case beyond ASCII: search.ts narrows the vouchers with it and then applies the
+  // same LIKE, so the results are row for row what they were. Its content is the view of the
+  // vouchers IN THE BOOKS (not binned), so FTS5's own 'rebuild' and 'integrity-check' agree with
+  // the triggers: a binned voucher leaves the index and a restored one comes back. The triggers
+  // keep it in step with every write; the 'rebuild' builds it for the vouchers already there (an
+  // old file or backup gets it when it is opened and migrated). Party names are not copied in:
+  // search matches parties by ledger id through the indexes, so a rename never touches it. A
+  // future rebuild of `vouchers` must recreate the view and the three triggers and run the
+  // 'rebuild' again (dropping a table drops its triggers). `detail = 'full'` keeps the trigram
+  // positions a substring (a phrase of trigrams) needs; `columnsize = 0` drops the per-row sizes,
+  // which only bm25 ranking reads (search ranks by its own tiers).
+  `
+  CREATE VIEW voucher_fts_source AS SELECT id, number, narration, reference FROM vouchers WHERE deleted_at IS NULL;
+  CREATE VIRTUAL TABLE voucher_fts USING fts5(
+    number, narration, reference,
+    content = 'voucher_fts_source', content_rowid = 'id',
+    tokenize = 'trigram', detail = 'full', columnsize = 0
+  );
+  CREATE TRIGGER voucher_fts_insert AFTER INSERT ON vouchers WHEN NEW.deleted_at IS NULL BEGIN
+    INSERT INTO voucher_fts (rowid, number, narration, reference) VALUES (NEW.id, NEW.number, NEW.narration, NEW.reference);
+  END;
+  CREATE TRIGGER voucher_fts_delete AFTER DELETE ON vouchers WHEN OLD.deleted_at IS NULL BEGIN
+    INSERT INTO voucher_fts (voucher_fts, rowid, number, narration, reference) VALUES ('delete', OLD.id, OLD.number, OLD.narration, OLD.reference);
+  END;
+  -- ONE update trigger, delete then insert in this order: SQLite gives no order between two
+  -- triggers on the same event (it runs the newer first), and an insert followed by the old row's
+  -- delete would drop the voucher from the index.
+  CREATE TRIGGER voucher_fts_update AFTER UPDATE OF number, narration, reference, deleted_at ON vouchers BEGIN
+    INSERT INTO voucher_fts (voucher_fts, rowid, number, narration, reference) SELECT 'delete', OLD.id, OLD.number, OLD.narration, OLD.reference WHERE OLD.deleted_at IS NULL;
+    INSERT INTO voucher_fts (rowid, number, narration, reference) SELECT NEW.id, NEW.number, NEW.narration, NEW.reference WHERE NEW.deleted_at IS NULL;
+  END;
+  INSERT INTO voucher_fts (voucher_fts) VALUES ('rebuild');
   `
 ]

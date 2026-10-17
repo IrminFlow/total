@@ -30,8 +30,10 @@ import { NOT_DELETED } from './vouchers'
 /**
  * Books search (⌘K palette + the Search results screen).
  *
- * Plain SQL — `LIKE` substring matches and comparisons over the live tables; no FTS shadow
- * tables, no denormalised copies. Every voucher query filters soft-deleted rows (NOT_DELETED).
+ * Plain SQL — `LIKE` substring matches and comparisons over the live tables; a voucher's own text
+ * (number / narration / reference) is first narrowed through the trigram index `voucher_fts`
+ * (see voucherTextClause), then matched by the same LIKE, so the rows are the plain scan's.
+ * Every voucher query filters soft-deleted rows (NOT_DELETED).
  * Optional and post-dated vouchers ARE searched — a user looking for a voucher they entered
  * expects to find it — and come back flagged (isOptional / postDated) so the UI can badge them.
  *
@@ -333,19 +335,89 @@ function amountClause(a: AmountRange): { sql: string; params: unknown[] } {
   }
 }
 
+/** Integer ids as a literal SQL list — so the planner sees how many there are (a `json_each`
+ *  list looks the same size whatever it holds). The ids come from the DB, never from the user. */
+const idList = (ids: number[]): string => ids.map((n) => String(Math.trunc(n))).join(',')
+
+/** `+` keeps SQLite from using an index for the column after it (a broad lookup, see Driving):
+ *  it changes the plan only, never the rows. */
+const ix = (drive: boolean): string => (drive ? '' : '+')
+
 /** The voucher's party is one of `ids`, or any of its lines posts to one of them. */
-function partyOrLine(ids: number[]): { sql: string; params: unknown[] } {
+function partyOrLine(ids: number[], drive = false): { sql: string; params: unknown[] } {
   if (ids.length === 0) return { sql: '0', params: [] }
-  const j = json(ids)
+  const lit = idList(ids)
   return {
-    sql: `(v.party_ledger_id ${IN_JSON} OR v.id IN (SELECT voucher_id FROM voucher_lines WHERE ledger_id ${IN_JSON}))`,
-    params: [j, j]
+    sql: `(${ix(drive)}v.party_ledger_id IN (${lit}) OR ${ix(drive)}v.id IN (SELECT voucher_id FROM voucher_lines WHERE ledger_id IN (${lit})))`,
+    params: []
   }
 }
 
-function itemLine(ids: number[]): { sql: string; params: unknown[] } {
+function itemLine(ids: number[], drive = false): { sql: string; params: unknown[] } {
   if (ids.length === 0) return { sql: '0', params: [] }
-  return { sql: `v.id IN (SELECT voucher_id FROM inventory_lines WHERE stock_item_id ${IN_JSON})`, params: [json(ids)] }
+  return { sql: `${ix(drive)}v.id IN (SELECT voucher_id FROM inventory_lines WHERE stock_item_id IN (${idList(ids)}))`, params: [] }
+}
+
+/** Shortest term the trigram index can look up (shorter ones scan, as before the index). A term
+ *  holding a NUL also scans: FTS5's query parser stops at it ("unterminated string"). */
+const FTS_MIN_CHARS = 3
+const indexable = (term: string): boolean => [...term].length >= FTS_MIN_CHARS && !term.includes('\u0000')
+
+/** The term as one FTS5 string (a phrase of its trigrams); quotes doubled, nothing else special. */
+const ftsPhrase = (term: string): string => '"' + term.split('"').join('""') + '"'
+const FTS_IDS = 'SELECT rowid FROM voucher_fts WHERE voucher_fts MATCH ?'
+
+/**
+ * A term's match on the voucher's own text — number, narration or reference containing it
+ * (`LIKE '%term%'`, ASCII-case-insensitive, exactly as before the index). From 3 characters the
+ * trigram index (`voucher_fts`, the "voucher text index" migration) first narrows the vouchers to
+ * those whose text contains the term with Unicode case folding — always a superset of the LIKE
+ * matches — and the same LIKE then decides, so the rows are identical to the plain scan's.
+ * Binned vouchers are not in the index (NOT_DELETED filters them anyway).
+ */
+function voucherTextClause(term: string, drive: boolean): { sql: string; params: unknown[] } {
+  const like = contains(term)
+  const likeSql = `(v.number LIKE ? ${ESC} OR v.narration LIKE ? ${ESC} OR v.reference LIKE ? ${ESC})`
+  if (!indexable(term)) return { sql: likeSql, params: [like, like, like] }
+  return { sql: `(${ix(drive)}v.id IN (${FTS_IDS}) AND ${likeSql})`, params: [ftsPhrase(term), like, like, like] }
+}
+
+/**
+ * Whether a lookup may DRIVE the voucher query from its indexes. A narrow one (up to `cap`
+ * vouchers / lines) lets a term's OR become an index union — a selective word or number no
+ * longer reads every voucher; a broad one ("Cus" matching every customer, "Item" every item) is
+ * checked row by row in the scan, as before the index, because unioning tens of thousands of ids
+ * is slower than reading the table. The counts stop at the cap, so deciding reads at most a few
+ * thousand index entries per lookup. The cap is a twentieth of the books, at least 2,000
+ * (measured on the 100k Perf Traders seed — docs/perf-budgets.md).
+ */
+class Driving {
+  readonly cap: number
+  private readonly db: DB
+  constructor(db: DB) {
+    this.db = db
+    const maxId = (db.prepare('SELECT MAX(id) AS n FROM vouchers').get() as { n: number | null }).n ?? 0
+    this.cap = Math.max(2000, Math.floor(maxId / 20))
+  }
+  private count(sql: string, params: unknown[] = []): number {
+    return (this.db.prepare(`SELECT COUNT(*) AS n FROM (${sql} LIMIT ${this.cap + 1})`).get(...params) as { n: number }).n
+  }
+  /** Vouchers whose text the index finds for the term (an unindexable term counts as broad). */
+  text(term: string, column?: 'number'): number {
+    if (!indexable(term)) return this.cap + 1
+    return this.count(FTS_IDS, [column ? `${column} : ${ftsPhrase(term)}` : ftsPhrase(term)])
+  }
+  ledgers(ids: number[]): number {
+    if (!ids.length) return 0
+    const lit = idList(ids)
+    return this.count(`SELECT 1 FROM voucher_lines WHERE ledger_id IN (${lit})`) + this.count(`SELECT 1 FROM vouchers WHERE party_ledger_id IN (${lit})`)
+  }
+  items(ids: number[]): number {
+    return ids.length ? this.count(`SELECT 1 FROM inventory_lines WHERE stock_item_id IN (${idList(ids)})`) : 0
+  }
+  narrow(...counts: number[]): boolean {
+    return counts.reduce((a, b) => a + b, 0) <= this.cap
+  }
 }
 
 interface VoucherDetailRow {
@@ -364,22 +436,22 @@ function searchVouchers(db: DB, q: ParsedQuery, limit: number, offset: number, g
 
   const w = new Where()
   w.add(NOT_DELETED)
-  const termLedgers = new Map<string, Set<number>>()
+  const driving = new Driving(db)
   for (const t of q.terms) {
     const any = new AnyOf()
     const like = contains(t.text)
-    any.add(`v.number LIKE ? ${ESC}`, like)
-    any.add(`v.narration LIKE ? ${ESC}`, like)
-    any.add(`v.reference LIKE ? ${ESC}`, like)
     const lids = ledgerIdsWhere(`name LIKE ? ${ESC}`, like)
-    termLedgers.set(t.text, new Set(lids))
+    const iids = itemIdsWhere(`name LIKE ? ${ESC}`, like)
+    // A term below 3 characters keeps its LIKE scan, so its OR can never be an index union.
+    const drive = indexable(t.text) && driving.narrow(driving.text(t.text), driving.ledgers(lids), driving.items(iids))
+    const text = voucherTextClause(t.text, drive)
+    any.add(text.sql, ...text.params)
     if (lids.length) {
-      const c = partyOrLine(lids)
+      const c = partyOrLine(lids, drive)
       any.add(c.sql, ...c.params)
     }
-    const iids = itemIdsWhere(`name LIKE ? ${ESC}`, like)
     if (iids.length) {
-      const c = itemLine(iids)
+      const c = itemLine(iids, drive)
       any.add(c.sql, ...c.params)
     }
     if (t.amount != null) {
@@ -403,17 +475,24 @@ function searchVouchers(db: DB, q: ParsedQuery, limit: number, offset: number, g
       .map((vt) => vt.id)
     w.add(`v.voucher_type_id ${IN_JSON}`, json(ids))
   }
-  for (const n of q.numbers) w.add(`v.number LIKE ? ${ESC}`, contains(n))
+  for (const n of q.numbers) {
+    if (!indexable(n)) w.add(`v.number LIKE ? ${ESC}`, contains(n))
+    else {
+      const drive = driving.narrow(driving.text(n, 'number'))
+      w.add(`(${ix(drive)}v.id IN (${FTS_IDS}) AND v.number LIKE ? ${ESC})`, `number : ${ftsPhrase(n)}`, contains(n))
+    }
+  }
+  const byLedgers = (ids: number[]): { sql: string; params: unknown[] } => partyOrLine(ids, driving.narrow(driving.ledgers(ids)))
   for (const g of q.gstins) {
-    const c = partyOrLine(ledgerIdsWhere(`gstin LIKE ? ${ESC}`, contains(g)))
+    const c = byLedgers(ledgerIdsWhere(`gstin LIKE ? ${ESC}`, contains(g)))
     w.add(c.sql, ...c.params)
   }
   for (const pn of q.pans) {
-    const c = partyOrLine(ledgerIdsWhere(`pan LIKE ? ${ESC}`, contains(pn)))
+    const c = byLedgers(ledgerIdsWhere(`pan LIKE ? ${ESC}`, contains(pn)))
     w.add(c.sql, ...c.params)
   }
   for (const pt of q.parties) {
-    const c = partyOrLine(ledgerIdsWhere(`name LIKE ? ${ESC}`, contains(pt)))
+    const c = byLedgers(ledgerIdsWhere(`name LIKE ? ${ESC}`, contains(pt)))
     w.add(c.sql, ...c.params)
   }
   for (const h of q.hsns) {
@@ -426,7 +505,7 @@ function searchVouchers(db: DB, q: ParsedQuery, limit: number, offset: number, g
     const lids = ids.length
       ? (db.prepare(`SELECT id FROM ledgers WHERE group_id ${IN_JSON}`).all(json(ids)) as { id: number }[]).map((r) => r.id)
       : []
-    const c = partyOrLine(lids)
+    const c = byLedgers(lids)
     w.add(c.sql, ...c.params)
   }
 

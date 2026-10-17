@@ -1,13 +1,16 @@
 // Test-only: a canonical dump of every books table of a company (WP 6.3 Books fidelity tests).
 import type { DB } from '../db/connection'
 
-/** Tables that are not books data, or legitimately differ between two companies. */
+/** Tables that are not books data, or legitimately differ between two companies. The voucher
+ *  text index (voucher_fts + its shadow tables) is derived from vouchers — never exported, rebuilt
+ *  by the triggers on import — and its b-tree pages depend on write order. */
 const NOT_COMPARED = new Set(['audit_log', 'migrations', 'meta', 'sqlite_sequence', 'import_templates', 'import_batches', 'import_batch_items', 'simple_posts'])
+const isDerived = (t: string): boolean => t === 'voucher_fts' || t.startsWith('voucher_fts_')
 const SKIP_COLUMN = (c: string): boolean => c === 'id' || c.endsWith('_at') || c === 'row_hash' || c === 'prev_hash'
 
 /** Every table as a sorted list of canonical rows. */
 export function canonicalDump(db: DB): Record<string, string[]> {
-  const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((t) => t.name).filter((t) => !NOT_COMPARED.has(t) && !t.startsWith('sqlite_'))
+  const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((t) => t.name).filter((t) => !NOT_COMPARED.has(t) && !isDerived(t) && !t.startsWith('sqlite_'))
   const fks = new Map<string, Map<string, { table: string; to: string }>>()
   for (const t of tables) {
     fks.set(t, new Map((db.prepare(`PRAGMA foreign_key_list(${t})`).all() as { from: string; table: string; to: string | null }[]).map((f) => [f.from, { table: f.table, to: f.to ?? 'id' }])))

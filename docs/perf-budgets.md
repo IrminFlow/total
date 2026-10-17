@@ -71,10 +71,11 @@ Why the budgets differ from the proposal (100k ≤ 1 s per report, ≤ 300 ms sa
   ~130k stock lines into the pass), the Outstandings allocation on both sides (~280 ms) and three
   P&L periods; 0.83 s before WP 7.1, ~0.58 s after. Below that needs a cheaper valuation input
   (deferred), not more indexes.
-- **Search 600 ms at 500k** (proposed 200 ms): a voucher search is `LIKE '%…%'` over every voucher's
-  number, narration and reference — linear in the books. WP 7.1 halved it (one scan instead of a
-  count scan + a page scan); 200 ms at 500k needs a full-text index (deferred: a new FTS table and
-  triggers are outside "CREATE INDEX only").
+- **Search 600 ms at 500k** (proposed 200 ms): a voucher search was `LIKE '%…%'` over every
+  voucher's number, narration and reference — linear in the books. WP 7.1 halved it (one scan
+  instead of a count scan + a page scan); the voucher text index (below) makes a selective word or
+  number an index lookup, but a term that matches most of the books (every customer, every item)
+  still reads and sorts most vouchers, so the 500k budget stays 600 ms.
 - **500k on this laptop**: an 8 GB machine with ~4–6 GB of swap in use by other work cannot keep the
   1.4 GB file in the OS cache, so the 500k figures below are IO- and memory-bound and vary by 2×
   between runs. They are recorded as measured; the 3 s budgets are the target for a machine that can
@@ -399,12 +400,79 @@ stopped weekly check reports and stamps nothing. The open's audit order is uncha
 backup's row is written before the housekeeping rows (both checks are awaited before them); the
 weekly check writes only its meta stamp.
 
+## Voucher text index (to-do §4)
+
+Migration "voucher text index" (last) adds `voucher_fts`, an **external-content FTS5 table** with
+the **trigram** tokenizer over each voucher's number, narration and reference. Its content is the
+view `voucher_fts_source` (vouchers not in the bin), three triggers on `vouchers` keep it in step
+(insert; delete; one update trigger — delete the old row, then insert the new one), and the
+migration's `'rebuild'` indexes the vouchers already there, so an old file or a restored backup is
+indexed the first time it is opened (the usual pre-upgrade copy is taken first). Party names are
+not copied into it — search finds parties by ledger id through the existing indexes — so renaming
+a ledger never touches the index.
+
+Why trigram, not unicode61 with prefix queries: the search has always matched SUBSTRINGS
+(`LIKE '%term%'`: "4242" finds V-14242, "ill 4" finds "Bill 41"); a token-prefix index cannot
+return those rows, so the results would change. A trigram MATCH finds every voucher whose text
+contains the term with Unicode case folding — a superset of the ASCII-case-insensitive LIKE — and
+search.ts then applies the SAME LIKE, so the rows, their order and every returned field are
+exactly what they were (`searchFts.dbtest.ts`: 51 queries on the demo company and a 10k Perf
+Traders seed with Devanagari, accented and partial-number narrations and binned vouchers, compared
+with ids / totals / row hashes generated from origin/main's search). Terms under 3 characters
+cannot use a trigram index and scan as before. A term's ledgers / items are now literal id lists
+(the planner sees their size) and `Driving` (bounded counts, cap = max(2,000, vouchers / 20))
+lets a NARROW term drive the query from the indexes, while a broad one (`+` before the column) is
+checked row by row in the scan, as before.
+
+Size on the 100k Perf Traders seed (15k narrations, 13k references): `voucher_fts_data` 2.6 MB +
+16 KB (`detail = 'full'` for phrase positions, `columnsize = 0` — no per-row sizes, bm25 is not
+used) — the file grows from 308.7 to 311.3 MB. Backups, VACUUM INTO and the encrypted copy carry it as
+ordinary pages; the books export leaves it out (it is derived), and `canonicalDump` skips it. The
+one-time migration on the 100k seed: 3.5 s on a quiet machine (4.6 s / 16 s under load), most of
+it the full ANALYZE that follows any migration; later opens ~40 ms. Measured apart (load ~10): the
+migration's own SQL (view, table, triggers, `'rebuild'`) 74 ms, a `'rebuild'` alone 78–426 ms,
+the ANALYZE after it 0.9 s — so the upgrade has no budget case of its own: it runs once per file,
+inside the open that already pays for the pre-upgrade copy and the ANALYZE.
+
+`budgets.dbtest` runs the whole table inside one vitest test, and most cases are synchronous:
+`runPerf` yields to the event loop before each timed call (outside the timing), or a run longer
+than 60 s leaves the vitest worker unable to answer its runner — an unhandled
+`Timeout calling "onTaskUpdate"` that fails CI though every budget passed (PR #153: main's run
+took 55.8 s, this branch's 66 s on a slower runner; reproduced locally without the yield, gone
+with it).
+
+100k Perf Traders, `search()` best of 9 runs × 3 interleaved rounds (min), origin/main vs this
+branch on two copies of the same seed. **The machine was loaded (load average 40–50 from other
+work)**, so read the ratios, not the absolute figures; on a quiet run before the change the four
+budgeted cases measured 74 / 81 / 61 / 72 ms (`npm run perf -- --only searchParty,searchItem,searchVoucher,palette`).
+
+| Query | What it hits | Before ms | After ms |
+|---|---|---:|---:|
+| `Customer 1253` (perf case searchParty / palette) | 75 vouchers | 92 | 62 |
+| `Item 001` (searchItem) | item lines | 105 | 85 |
+| `6076` (searchVoucher, last sale number) | number + amount | 83 | 73 |
+| `Cus` | 58,051 vouchers | 98 | 102 |
+| `SAL` | 35,273 vouchers | 73 | 69 |
+| `Item 12` | 9,030 (12 is too short for the index) | 120 | 129 |
+| `Expense` | 9,087 narrations | 29 | 32 |
+| `Adjustment 77` | 147 | 55 | 36 |
+| `goods returned` | 4,728 | 20 | 15 |
+| `1/25` | 519 | 14 | 2.0 |
+| `bill 4` | none | 12 | 1.6 |
+| `xyzzy` | none | 12 | 0.7 |
+| `no:1/25` | numbers only | 8.0 | 0.3 |
+
+500k was not re-measured for this change (the 1.4 GB seed and a loaded machine); a selective text
+query is now an index lookup at any size, a broad one is still linear — the 600 ms budget stands.
+`reportEquality` hashes search pages too (`search:<query>:<offset>`); they are unchanged and pass.
+
 ## Deferred
 
 - 500k within 3 s for the pass-heavy screens: stream the movement load into `runInventoryPass`
   (two arrays of ~660k objects at 500k today) and share one pass / one Outstandings run across a
   round trip; measure on a machine that can cache the file.
-- Full-text search (FTS5 table + triggers) for voucher text — a schema change beyond CREATE INDEX.
+- ~~Full-text search (FTS5 table + triggers) for voucher text~~ — done, see "Voucher text index".
+  Left: a term that matches most of the books is still a scan + sort; 500k not re-measured.
 - Launch ≤ 2 s: the Gateway's four reads are one round trip and the backup restore check waits
   for Home (PR #131), screens are lazy (PR #135), the restore check runs in a worker thread
   (PR #136), the hi / hinglish catalogues are lazy (PR #143) and so are the hi / hinglish help

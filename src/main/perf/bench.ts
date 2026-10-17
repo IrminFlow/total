@@ -69,8 +69,9 @@ export interface PerfCase {
 // docs/perf-budgets.md says why each figure is what it is (measured on the laptop, WP 7.1).
 const REPORT = { k100: 1000, k500: 3000 }
 const SAVE = { k100: 300, k500: 300 }
-// A voucher search reads every voucher's number / narration / reference (LIKE '%…%'): linear in the
-// books until a full-text index exists (deferred) — 200 ms at 100k, 600 ms at 500k.
+// A voucher search by a selective word / number goes through the trigram text index (voucher_fts);
+// one that matches most of the books (every customer, every item) still reads every voucher and
+// sorts the matches — 200 ms at 100k, 600 ms at 500k (docs/perf-budgets.md, "Voucher text index").
 const SEARCH = { k100: 200, k500: 600 }
 
 const HEADER = {
@@ -223,6 +224,7 @@ export interface PerfResult {
 }
 
 const now = (): number => performance.now()
+const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
 
 /** Run the cases: one cold call, then `repeat` more; the median of those is checked. */
 export async function runPerf(ctx: PerfContext, vouchers: number, opts: { cases?: readonly PerfCase[]; repeat?: number; onResult?: (r: PerfResult) => void } = {}): Promise<PerfResult[]> {
@@ -231,6 +233,11 @@ export async function runPerf(ctx: PerfContext, vouchers: number, opts: { cases?
   for (const c of opts.cases ?? PERF_CASES) {
     const times: number[] = []
     for (let k = 0; k <= repeat; k++) {
+      // Most cases are synchronous, so without this the whole table is ONE event-loop task: under
+      // vitest (budgets.dbtest) its worker could not answer the runner's RPC for the length of the
+      // run, and past 60 s that is an unhandled "Timeout calling onTaskUpdate" (CI, PR #153).
+      // Outside the timed region — the figures don't change.
+      await yieldToEventLoop()
       const t0 = now()
       await c.run(ctx)
       times.push(now() - t0)

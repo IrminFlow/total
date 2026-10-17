@@ -8,11 +8,12 @@ import { migrate, schemaVersion } from './migrate'
 import { freshPartialDb, TEST_INFO } from './testdb'
 import { seedCompany } from './seed'
 
-const M = MIGRATIONS.length - 1
+// Found by its content, never by position: the voucher text index is appended after it.
+const M = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE reminder_log_new'))
 
 describe('reminder_log whatsapp / sms migration', () => {
-  it('is the last migration, a rebuild with foreign keys off', () => {
-    expect(MIGRATIONS[M]).toContain('CREATE TABLE reminder_log_new')
+  it('comes right before the voucher text index, a rebuild with foreign keys off', () => {
+    expect(M).toBe(MIGRATIONS.findIndex((sql) => sql.includes('CREATE VIRTUAL TABLE voucher_fts')) - 1)
     expect(MIGRATIONS[M]!.startsWith('-- @foreign-keys-off')).toBe(true)
   })
 
