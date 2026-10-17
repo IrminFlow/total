@@ -171,3 +171,25 @@ with today (backup age, stale locks, sweeps) go through `fileTimeMs`, so nothing
 scenario must not end with unsaved answers on screen (it fails; `{ allowUnsavedOnClose: true }` if
 it means to). E.g. `TOTAL_E2E_TODAY=2027-04-05 node scripts/run-e2e.mjs 32 33 57 59`
 (1 April – mid May is where a relative bill used to fall into the previous financial year).
+
+## "The app did not close within 20 s — killing it"
+
+This harness line (`Harness.close`, after #128) is not a scenario problem and not specific to one
+scenario — it has been seen after 48, 58, 59, 62, 69, 70 and 71, always in runs where the machine
+was saturated (other agents' builds and tests; the scenarios themselves ran 3–4× their usual time).
+Traced in the #148 review by reproducing it with a bare launch → demo company → close loop under
+16 CPU-bound processes on the 8-core laptop, with `before-quit` / `will-quit` / `quit` / `exit`
+listeners and a `sample` of the main process 6 s into the close:
+
+- the app's own quit path finishes in ~150 ms every time, hung or not — `before-quit` (the quit
+  backup, `closeCurrentCompany`) → window closed → `will-quit` → `process.on('exit')`;
+- the main process then stays up inside Electron / Chromium's native teardown: its main thread is
+  blocked in `mach_msg` (the browser shutdown waiting on another process), in `v8::Isolate::Dispose`,
+  or in `exit()`'s static destructors messaging a system daemon (PowerLog) — no app code, no SQLite
+  frame on any thread;
+- it happens just as often with no backup check (or any worker) running at quit, so it is not the
+  restore check / quick_check worker or `simple:homeAttention`.
+
+On an idle machine the same loop closes in 0.2–0.8 s (59 alone: 0.3–0.7 s, three runs). The 20 s
+kill only bounds the wait; the scenario's result line is already decided, so nothing is lost. If the
+line shows up on an idle machine, sample the main process (`sample <pid> 2`) while the harness waits.
