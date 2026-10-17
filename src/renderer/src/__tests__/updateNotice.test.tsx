@@ -208,6 +208,31 @@ describe('who may change the update setting (the AI-key rule, asked before the c
     expect(screen.queryByTestId('btn-update-download')).toBeNull()
   })
 
+  it('company-select screen (no company, no sign-in): main asks for the confirmation the verdict did not foresee -> ask, then retry', async () => {
+    // canSet unreadable / not answered yet: the local fallback allows the click; main refuses with the confirm code.
+    let refused = 0
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload?: { action?: string; confirmNoUsers?: boolean }) => {
+      if (channel === 'app:updates:act' && !payload?.confirmNoUsers) {
+        refused++
+        return { ok: false, error: 'Confirm to continue.', code: 'updates_confirm_no_users' }
+      }
+      return base(channel, payload)
+    })
+    view.notice = available
+    render(wrap(<><UpdateNotice /><DialogHost /></>))
+    fireEvent.click(await screen.findByTestId('btn-update-download'))
+    fireEvent.click(await screen.findByText(CATALOGUES.en['simple.updates.confirmButton']!))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('app:updates:act', { action: 'download', confirmNoUsers: true }))
+    expect(refused).toBe(1)
+    // Cancel: nothing more is sent.
+    invoke.mockClear()
+    fireEvent.click(screen.getByTestId('btn-update-skip'))
+    fireEvent.click(await screen.findByText('Cancel'))
+    await act(async () => {})
+    expect(invoke).not.toHaveBeenCalledWith('app:updates:act', { action: 'skip', confirmNoUsers: true })
+  })
+
   it('accountant About: confirms in plain English, and explains when another company has users', async () => {
     gate = { allowed: true, reason: 'needs_confirmation' }
     const first = render(wrap(<><AboutSection /><DialogHost /></>))

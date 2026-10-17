@@ -383,6 +383,13 @@ function companyHasUsers(dbPath: string): boolean {
   }
 }
 
+/** Whether any company in the data root other than the open one (every company when none is open —
+ *  the company-select screen) has active users. ONE helper for every app-wide setting guarded by the
+ *  AI-key rule: the shared AI key (ai:key:set) and the update setting (app:updates:set / act). */
+function otherCompanyHasUsers(): boolean {
+  return readRegistry().companies.some((co) => co.slug !== current?.slug && companyHasUsers(companyDbPath(co.slug)))
+}
+
 /** App-level, append-only record of API key changes (WP 5.1) — beside secrets.json, outside
  *  every company (the key is shared by all of them). */
 function appendAiKeyAudit(entry: AppKeyAuditEntry): void {
@@ -617,7 +624,7 @@ export function registerIpc(): void {
     roleNow: () => (sessionUser ? sessionUser.role : current?.usersExist ? null : 'owner'),
     canSeeProfit: canSeeProfitNow,
     secrets: () => appSecretStore(),
-    anyCompanyHasUsers: () => readRegistry().companies.some((co) => co.slug !== current?.slug && companyHasUsers(companyDbPath(co.slug))),
+    anyCompanyHasUsers: otherCompanyHasUsers,
     appAudit: (entry) => appendAiKeyAudit(entry),
     emit: (e: AiEvent) => {
       for (const w of BrowserWindow.getAllWindows()) if (!w.isDestroyed()) w.webContents.send('total:ai:event', e)
@@ -3517,7 +3524,7 @@ export function registerIpc(): void {
     return updatesCanSet({
       companyHasUsers: usersExist,
       isOwner: sessionUser?.role === 'owner',
-      anyOtherCompanyHasUsers: !usersExist && readRegistry().companies.some((co) => co.slug !== current?.slug && companyHasUsers(companyDbPath(co.slug)))
+      anyOtherCompanyHasUsers: !usersExist && otherCompanyHasUsers()
     })
   }
   // The AI-key rule: no users here -> refused while another company has users, else only with an explicit confirmation.

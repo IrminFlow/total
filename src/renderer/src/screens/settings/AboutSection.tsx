@@ -8,7 +8,7 @@ import { toDisplayDate, todayISO } from '@shared/dates'
 import { TotalLogo } from '../../components/TotalLogo'
 import { dataFolder } from '../../lib/platform'
 import { DataFolderSetting } from '../../simple/DataFolderSetting'
-import { useUpdatesCanSet } from '../../lib/updatesGate'
+import { runUpdatesWrite, useUpdatesCanSet } from '../../lib/updatesGate'
 import { confirmDialog } from '../../lib/dialogs'
 
 const PLATFORM_LABELS: Record<string, string> = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }
@@ -95,18 +95,15 @@ function AutoCheckRow(): React.JSX.Element {
   const { data } = useQuery({ queryKey: ['appUpdates'], queryFn: api.app.updates })
   const [busy, setBusy] = useState(false)
   const toggle = async (next: boolean): Promise<void> => {
-    let confirmed = false
-    if (gate.reason === 'needs_confirmation') {
-      confirmed = await confirmDialog({
+    const ask = (): Promise<boolean> =>
+      confirmDialog({
         title: 'Update setting',
         message: 'No company on this computer has sign-ins yet, so anyone using it can change how Total updates. Continue?',
         confirmLabel: 'Continue'
       })
-      if (!confirmed) return
-    }
     setBusy(true)
     try {
-      await api.app.setAutoCheck(next, confirmed)
+      await runUpdatesWrite(gate, ask, (confirmed) => api.app.setAutoCheck(next, confirmed))
       await queryClient.invalidateQueries({ queryKey: ['appUpdates'] })
     } catch (err) {
       toast.push('error', (err as Error).message)

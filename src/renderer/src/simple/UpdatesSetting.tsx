@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useT } from '../lib/i18n'
-import { useUpdatesCanSet, UPDATES_CAN_SET_KEY } from '../lib/updatesGate'
+import { runUpdatesWrite, useUpdatesCanSet, UPDATES_CAN_SET_KEY } from '../lib/updatesGate'
 import { confirmDialog } from '../lib/dialogs'
 import { useToasts } from '../state/stores'
 import { Button } from '../components/ui'
@@ -25,14 +25,11 @@ export function UpdatesSetting(): React.JSX.Element {
   const autoCheck = data?.settings.autoCheck ?? true
 
   const toggle = async (next: boolean): Promise<void> => {
-    let confirmed = false
-    if (gate.reason === 'needs_confirmation') {
-      confirmed = await confirmDialog({ title: t('simple.updates.confirmTitle'), message: t('simple.updates.confirmBody'), confirmLabel: t('simple.updates.confirmButton') })
-      if (!confirmed) return
-    }
+    const ask = (): Promise<boolean> =>
+      confirmDialog({ title: t('simple.updates.confirmTitle'), message: t('simple.updates.confirmBody'), confirmLabel: t('simple.updates.confirmButton') })
     setBusy(true)
     try {
-      await api.app.setAutoCheck(next, confirmed)
+      await runUpdatesWrite(gate, ask, (confirmed) => api.app.setAutoCheck(next, confirmed))
       await queryClient.invalidateQueries({ queryKey: UPDATES_KEY })
       await queryClient.invalidateQueries({ queryKey: UPDATES_CAN_SET_KEY })
     } catch (err) {

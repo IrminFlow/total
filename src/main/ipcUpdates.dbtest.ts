@@ -69,6 +69,9 @@ describe('app:updates:*', () => {
     }
     const audit = (): string[] => readFileSync(join(root, 'app-settings-audit.jsonl'), 'utf8').trim().split('\n')
     expect(ipc.CHANNEL_ROLES.get('app:updates:canSet')).toBe('viewer')
+    // No company open (the notice on the company-select screen), no company anywhere: the data-root rule.
+    expect(await ok('app:updates:canSet')).toEqual({ allowed: true, reason: 'needs_confirmation' })
+    expect((await call('app:updates:act', { action: 'skip' })).ok).toBe(false)
 
     const plain = await ok<{ slug: string }>('company:create', co('No Users Co'))
     const team = await ok<{ slug: string }>('company:create', co('Team Co'))
@@ -112,5 +115,13 @@ describe('app:updates:*', () => {
     }
     expect(audit().length).toBe(n)
     expect((await call('app:updates:canSet', { extra: 1 })).ok).toBe(false)
+
+    // Back on the company-select screen (no company open): every company counts, so Team Co's users refuse it.
+    await ok('company:close')
+    expect(await ok('app:updates:canSet')).toEqual({ allowed: false, reason: 'other_company_has_users' })
+    const closed = await call('app:updates:act', { action: 'skip', confirmNoUsers: true })
+    expect(closed.ok).toBe(false)
+    expect(closed.error).toMatch(/Another company on this computer has users/)
+    expect(audit().length).toBe(n)
   })
 })

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api, onUpdateEvent } from '../lib/client'
 import { useT } from '../lib/i18n'
 import { useToasts } from '../state/stores'
-import { useUpdatesCanSet } from '../lib/updatesGate'
+import { runUpdatesWrite, useUpdatesCanSet } from '../lib/updatesGate'
 import { confirmDialog } from '../lib/dialogs'
 import { Button } from '../components/ui'
 import type { UpdateAction, UpdateNotice as Notice } from '@shared/updates'
@@ -64,14 +64,11 @@ export function UpdateNotice(): React.JSX.Element | null {
   }
 
   const act = async (action: UpdateAction): Promise<void> => {
-    let confirmed = false
-    if (gate.reason === 'needs_confirmation') {
-      confirmed = await confirmDialog({ title: t('simple.updates.confirmTitle'), message: t('simple.updates.confirmBody'), confirmLabel: t('simple.updates.confirmButton') })
-      if (!confirmed) return
-    }
+    const ask = (): Promise<boolean> =>
+      confirmDialog({ title: t('simple.updates.confirmTitle'), message: t('simple.updates.confirmBody'), confirmLabel: t('simple.updates.confirmButton') })
     setBusy(true)
     try {
-      await api.app.updateAction(action, confirmed)
+      await runUpdatesWrite(gate, ask, (confirmed) => api.app.updateAction(action, confirmed))
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
