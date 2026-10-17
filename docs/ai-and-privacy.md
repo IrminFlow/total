@@ -59,6 +59,10 @@ Code: `src/main/updater.ts`, started from `src/main/index.ts`. Only the packaged
 2. After a download finishes, a second notice offers "Restart to update", "Install when I quit" or
    "Later". The update is installed only on your action: restarting, or quitting after you chose
    "Install when I quit". After "Later" nothing is installed when you quit.
+   Changing the setting or answering a notice follows the shared-API-key rule: in a business with
+   users only the owner may; in a business without users it is refused while any other business on
+   this computer has users, and otherwise needs an explicit confirmation. Every change is appended
+   to `app-settings-audit.jsonl`.
 3. If electron-updater reports an error (the usual case for today's unsigned macOS builds), a
    one-time fallback asks `https://devjindal.tech/api/latest` (`SITE_URL` in
    `src/shared/product.ts`) for the newest version, and if the site does not answer,

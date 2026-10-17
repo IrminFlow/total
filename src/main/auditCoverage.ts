@@ -109,6 +109,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'simple:homeAttention': QUERY,
   'app:info': QUERY,
   'app:updates:get': QUERY,
+  'app:updates:canSet': QUERY,
   'app:updates:set': r('app-level setting in <dataRoot>/app-settings.json (append-only app-settings-audit.jsonl), outside every company; writes no company audit row'),
   'app:dataRoot:get': QUERY,
   'app:dataRoot:pick': QUERY,

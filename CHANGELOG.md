@@ -25,6 +25,8 @@ Phase 10 simple-mode work (Ask Total, "Why?", help, Hindi, keyboard and accessib
 helper, the beginner-study fixes), the Phase 7 work (performance, security, Windows, end-to-end
 tests, documentation) and several correctness fixes.
 
+- Changing how Total updates (the automatic check, Download now, Skip this version) now follows the same rule as the shared AI key: only the owner when a business has sign-ins; in a business with none it is refused while another business on this computer has sign-ins, and otherwise asks you to confirm first. The settings say so before you click.
+
 ### For shop owners (simple mode)
 
 Every simple screen below also has an **Accountant view** button that opens the full editor with

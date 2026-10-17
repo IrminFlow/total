@@ -37,7 +37,7 @@ import { readRegistry, removeCompany, touchLastOpened, upsertCompany } from './r
 import { companyAttachmentsDir, companyBackupAttachmentsDir, companyBackupsDir, companyDbPath, companyDir, companyExportsDir, dataRoot, ensureCompanyTree, slugify } from './paths'
 import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive, setAutoCheck, updateAction, updatesView } from './updater'
-import { UPDATE_ACTIONS } from '@shared/updates'
+import { UPDATE_ACTIONS, updatesCanSet, type UpdatesCanSet } from '@shared/updates'
 import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
@@ -3512,13 +3512,38 @@ export function registerIpc(): void {
   // Update consent: app-level (the setting and the notice belong to the whole app, not a company),
   // so changing it or answering a notice is owner-only wherever the open company has users.
   handle('app:updates:get', () => updatesView(), 'viewer')
+  const updatesVerdict = (): UpdatesCanSet => {
+    const usersExist = !!current?.usersExist
+    return updatesCanSet({
+      companyHasUsers: usersExist,
+      isOwner: sessionUser?.role === 'owner',
+      anyOtherCompanyHasUsers: !usersExist && readRegistry().companies.some((co) => co.slug !== current?.slug && companyHasUsers(companyDbPath(co.slug)))
+    })
+  }
+  // The AI-key rule: no users here -> refused while another company has users, else only with an explicit confirmation.
+  const guardUpdates = (confirmNoUsers: boolean): string | null => {
+    const v = updatesVerdict()
+    if (v.reason === 'other_company_has_users') throw new AppError('updates_other_company_has_users', 'Another company on this computer has users — open it and sign in as its owner to change the update setting.')
+    if (!v.allowed) throw new AppError('updates_owner_only', 'Only the owner can change this.')
+    if (v.reason === 'needs_confirmation') {
+      if (!confirmNoUsers) throw new AppError('updates_confirm_no_users', 'No company on this computer has users, so anyone using it can change the update setting. Confirm to continue.')
+      return 'no sign-ins (confirmed)'
+    }
+    return null
+  }
+  handle('app:updates:canSet', (p) => {
+    z.object({}).strict().default({}).parse(p ?? {})
+    return updatesVerdict()
+  }, 'viewer')
   handle('app:updates:set', (p) => {
-    const { autoCheck } = z.object({ autoCheck: z.boolean() }).strict().parse(p)
-    return setAutoCheck(autoCheck, sessionUser?.name ?? null)
+    const { autoCheck, confirmNoUsers } = z.object({ autoCheck: z.boolean(), confirmNoUsers: z.boolean().default(false) }).strict().parse(p)
+    const mode = guardUpdates(confirmNoUsers)
+    return setAutoCheck(autoCheck, sessionUser?.name ?? mode)
   }, 'owner')
   handle('app:updates:act', (p) => {
-    const { action } = z.object({ action: z.enum(UPDATE_ACTIONS) }).strict().parse(p)
-    return updateAction(action, sessionUser?.name ?? null)
+    const { action, confirmNoUsers } = z.object({ action: z.enum(UPDATE_ACTIONS), confirmNoUsers: z.boolean().default(false) }).strict().parse(p)
+    const mode = guardUpdates(confirmNoUsers)
+    return updateAction(action, sessionUser?.name ?? mode)
   }, 'owner')
   // WP 10.3: a help article's link to the GST portal / CBIC — the allow-list again here, so the
   // renderer can never open anything else through it.

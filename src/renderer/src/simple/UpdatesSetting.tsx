@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useT } from '../lib/i18n'
-import { useCanSetMode } from '../lib/mode'
+import { useUpdatesCanSet, UPDATES_CAN_SET_KEY } from '../lib/updatesGate'
+import { confirmDialog } from '../lib/dialogs'
 import { useToasts } from '../state/stores'
 import { Button } from '../components/ui'
 
@@ -17,16 +18,23 @@ export function UpdatesSetting(): React.JSX.Element {
   const t = useT()
   const toast = useToasts()
   const queryClient = useQueryClient()
-  const canSet = useCanSetMode()
+  const gate = useUpdatesCanSet()
+  const canSet = gate.allowed
   const { data } = useQuery({ queryKey: UPDATES_KEY, queryFn: api.app.updates })
   const [busy, setBusy] = useState(false)
   const autoCheck = data?.settings.autoCheck ?? true
 
   const toggle = async (next: boolean): Promise<void> => {
+    let confirmed = false
+    if (gate.reason === 'needs_confirmation') {
+      confirmed = await confirmDialog({ title: t('simple.updates.confirmTitle'), message: t('simple.updates.confirmBody'), confirmLabel: t('simple.updates.confirmButton') })
+      if (!confirmed) return
+    }
     setBusy(true)
     try {
-      await api.app.setAutoCheck(next)
+      await api.app.setAutoCheck(next, confirmed)
       await queryClient.invalidateQueries({ queryKey: UPDATES_KEY })
+      await queryClient.invalidateQueries({ queryKey: UPDATES_CAN_SET_KEY })
     } catch (err) {
       toast.push('error', (err as Error).message)
     } finally {
@@ -64,7 +72,12 @@ export function UpdatesSetting(): React.JSX.Element {
         <span>
           <span className="block text-detail text-ink">{t('simple.updates.auto')}</span>
           <span className="block text-hint text-muted">{t('simple.updates.autoHint')}</span>
-          {!canSet && <span className="block text-hint text-muted">{t('simple.updates.ownerOnly')}</span>}
+          {!canSet && (
+            <span className="block text-hint text-muted" data-testid="updates-why-not">
+              {gate.reason === 'other_company_has_users' ? t('simple.updates.otherCompany') : t('simple.updates.ownerOnly')}
+            </span>
+          )}
+          {gate.reason === 'needs_confirmation' && <span className="block text-hint text-muted">{t('simple.updates.noSignIns')}</span>}
         </span>
       </label>
       <div className="mt-2">
