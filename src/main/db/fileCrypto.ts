@@ -14,7 +14,7 @@
 //
 // Pure (crypto + fs, no database, no Electron): the key is passed in; it never leaves main.
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes } from 'crypto'
-import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readdirSync, readSync, renameSync, rmSync, writeSync } from 'fs'
+import { constants as fsConstants, closeSync, copyFileSync, existsSync, fsyncSync, lstatSync, openSync, readdirSync, readSync, renameSync, rmSync, writeSync } from 'fs'
 import { join } from 'path'
 
 export const FILE_MAGIC = Buffer.from('TLF1', 'latin1')
@@ -40,6 +40,16 @@ export function fileSubkey(dataKey: Buffer, sha: string): Buffer {
   return Buffer.from(hkdfSync('sha256', dataKey, Buffer.alloc(0), Buffer.from(INFO_PREFIX + sha, 'utf8'), 32))
 }
 
+/** Hand the per-file subkey to `use` (a cipher copies its key), then wipe it. */
+function withSubkey<T>(dataKey: Buffer, sha: string, use: (k: Buffer) => T): T {
+  const k = fileSubkey(dataKey, sha)
+  try {
+    return use(k)
+  } finally {
+    k.fill(0)
+  }
+}
+
 /** Whether the first bytes carry the encrypted-file header (magic, and room for nonce + tag). */
 export function hasFileHeader(head: Uint8Array): boolean {
   return head.length >= FILE_HEADER_BYTES && Buffer.from(head.subarray(0, FILE_MAGIC.length)).equals(FILE_MAGIC)
@@ -51,7 +61,7 @@ const aad = (nonce: Buffer): Buffer => Buffer.concat([FILE_MAGIC, nonce])
 export function encryptBytes(plain: Uint8Array, dataKey: Buffer, sha: string): Buffer {
   if (sha256Hex(plain) !== sha) throw new FileCryptoError('The bytes do not match their hash')
   const nonce = randomBytes(NONCE_BYTES)
-  const c = createCipheriv('aes-256-gcm', fileSubkey(dataKey, sha), nonce)
+  const c = withSubkey(dataKey, sha, (k) => createCipheriv('aes-256-gcm', k, nonce))
   c.setAAD(aad(nonce))
   const body = Buffer.concat([c.update(plain), c.final()])
   return Buffer.concat([FILE_MAGIC, nonce, c.getAuthTag(), body])
@@ -66,7 +76,7 @@ export function decryptBytes(blob: Uint8Array, dataKey: Buffer, sha: string): Bu
   const tag = b.subarray(4 + NONCE_BYTES, FILE_HEADER_BYTES)
   let plain: Buffer
   try {
-    const d = createDecipheriv('aes-256-gcm', fileSubkey(dataKey, sha), nonce)
+    const d = withSubkey(dataKey, sha, (k) => createDecipheriv('aes-256-gcm', k, nonce))
     d.setAAD(aad(Buffer.from(nonce)))
     d.setAuthTag(tag)
     plain = Buffer.concat([d.update(b.subarray(FILE_HEADER_BYTES)), d.final()])
@@ -122,7 +132,7 @@ function decryptStream(src: string, dataKey: Buffer, sha: string, sink: (b: Buff
     const head = Buffer.alloc(FILE_HEADER_BYTES)
     if (readSync(inFd, head, 0, head.length, 0) !== head.length || !hasFileHeader(head)) throw new FileCryptoError('Not an encrypted file')
     const nonce = Buffer.from(head.subarray(4, 4 + NONCE_BYTES))
-    const d = createDecipheriv('aes-256-gcm', fileSubkey(dataKey, sha), nonce)
+    const d = withSubkey(dataKey, sha, (k) => createDecipheriv('aes-256-gcm', k, nonce))
     d.setAAD(aad(nonce))
     d.setAuthTag(head.subarray(4 + NONCE_BYTES))
     const h = createHash('sha256')
@@ -173,7 +183,7 @@ export function encryptFileTo(src: string, dest: string, dataKey: Buffer, sha: s
   let outFd: number | null = null
   try {
     const nonce = randomBytes(NONCE_BYTES)
-    const c = createCipheriv('aes-256-gcm', fileSubkey(dataKey, sha), nonce)
+    const c = withSubkey(dataKey, sha, (k) => createCipheriv('aes-256-gcm', k, nonce))
     c.setAAD(aad(nonce))
     const h = createHash('sha256')
     outFd = openSync(dest, 'wx', 0o600)
@@ -255,7 +265,9 @@ export function copyStoredPlain(src: string, dest: string, sha: string, key: Buf
 }
 
 /** Copy a stored file into `dest` in the form `destKey` asks for (null = plaintext), reading it
- *  with `srcKey` when it is encrypted. Hash-checked either way. */
+ *  with `srcKey` when it is encrypted. Hash-checked either way. Encrypted → encrypted under the
+ *  SAME key (a backup copy of a locked business's file) copies the ciphertext as it is, once it is
+ *  known to open — never a plaintext scratch on disk; another key re-encrypts via one. */
 export function copyStoredAs(src: string, dest: string, sha: string, srcKey: Buffer | null, destKey: Buffer | null, opts: { fsync?: boolean } = {}): void {
   const form = storedForm(src, sha)
   if (form === 'plain' && !destKey) {
@@ -267,9 +279,12 @@ export function copyStoredAs(src: string, dest: string, sha: string, srcKey: Buf
     if (!srcKey) throw new FileCryptoError('This file is locked with the business’s passphrase — unlock the business first')
     decryptFileTo(src, dest, srcKey, sha, opts)
     return
+  } else if (!srcKey) {
+    throw new FileCryptoError('This file is locked with the business’s passphrase — unlock the business first')
+  } else if (srcKey.equals(destKey)) {
+    decryptStream(src, srcKey, sha, () => {})
+    copyFileSync(src, dest, fsConstants.COPYFILE_EXCL)
   } else {
-    // Encrypted → encrypted: re-encrypted under the target key (a fresh nonce), via a scratch plaintext.
-    if (!srcKey) throw new FileCryptoError('This file is locked with the business’s passphrase — unlock the business first')
     const mid = `${dest}.plain-${randomBytes(4).toString('hex')}`
     try {
       decryptFileTo(src, mid, srcKey, sha)

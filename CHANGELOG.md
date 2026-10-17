@@ -464,7 +464,10 @@ Read these before filing from the next release.
   `db/encryption.ts`). `services/dbEncryption.ts` gained `companyFileStores`, `convertCompanyFiles`,
   `markFileConversion` / `resumeFileConversion` (marker `.files-converting`, resumed on every open);
   `security:passphrase:on` / `off` return `filesConverted` / `filesFailed` (additive).
-  `attachments.addAttachmentBytes` (capture → attachment reads the decrypted bytes). No migration.
+  `attachments.addAttachmentBytes` (capture → attachment reads the decrypted bytes). Review:
+  `security:passphrase:on` reuses a leftover key file's key when the passphrase opens it and refuses
+  `security_files_pending` while a file still waits on one it does not; a same-key backup copy is the
+  ciphertext as is. No migration.
   [#152](https://github.com/IrminFlow/total/pull/152)
 - `receivables:statementPdf` is a viewer read, governed by `canExport` (in `EXPORT_CHANNELS`, like
   `report:pdf`). New viewer read `gst:einvoicing`

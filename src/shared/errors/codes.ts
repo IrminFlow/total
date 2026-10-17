@@ -215,6 +215,7 @@ export const ERROR_MAP = {
   passphrase_mismatch: e('errors.security.passphrasesDiffer', 'confirm'),
   security_already_locked: e('errors.security.alreadyLocked'),
   security_not_locked: e('errors.security.notLocked'),
+  security_files_pending: e('errors.security.filesPending', 'passphrase'),
   security_verify_failed: e('errors.security.verifyFailed'),
   // Settings → "Where Total keeps your books" (services/dataRootMove.ts, ipcDataRoot.ts).
   data_folder_same: e('errors.dataFolder.same'),

@@ -112,7 +112,13 @@ C was rejected because of its asynchronous API.
     before the swap re-encrypts what was decrypted. Leftover `*.tlf-converting` / scratch files are
     swept with the other leftovers before the open. A file that cannot be converted (damaged) is
     left as it was and reported (`filesFailed`); taking the lock off keeps the key file while any
-    file is still encrypted.
+    file is still encrypted. Locking the business again (`security:passphrase:on`) uses that key
+    file's key again when the passphrase opens it — so the leftover files (and backups) open as
+    before — and refuses (`security_files_pending`) while a file still waits on a key the given
+    passphrase does not open: a new key would lose it for good.
+  - A backup copy of a stored file (`backups/attachments/`, same key) is the ciphertext copied as
+    it is once it is known to open — never a plaintext scratch beside it; only a copy to ANOTHER
+    key goes through one (removed at once, swept on the next open after a crash).
   - **Backups**: local backups copy files as stored (encrypted); the `.totalbak` export's plaintext
     snapshot carries the DECRYPTED files (it is protected by its own passphrase and imports
     anywhere); a restore writes each file in the live store's form — so a plaintext backup's files

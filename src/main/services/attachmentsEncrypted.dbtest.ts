@@ -288,6 +288,36 @@ describe('files under the passphrase lock', () => {
     expect(fc.storedForm(join(dir(slug), 'attachments', extra.sha256.slice(0, 2), extra.sha256), extra.sha256)).toBe('plain')
   })
 
+  it('lock on again after a lock-off that left a file encrypted: the old key is used again when the passphrase opens it; another passphrase is refused', async () => {
+    // What a lock-off with `filesFailed` leaves: the key file kept, the marker, one file still
+    // encrypted under the OLD key — staged here from a clean lock on / off.
+    await ok('security:passphrase:on', { passphrase: PASS, confirm: PASS })
+    const oldKey = Buffer.from(enc.keyForPath(dir(slug))!)
+    const envelope = readFileSync(join(dir(slug), 'company.key.json'))
+    const victim = storedFiles(slug)[0]!
+    expect((await ok<{ filesFailed: string[] }>('security:passphrase:off', { passphrase: PASS })).filesFailed).toEqual([])
+    const plain = readFileSync(victim.abs)
+    writeFileSync(victim.abs, fc.encryptBytes(plain, oldKey, victim.sha))
+    writeFileSync(join(dir(slug), 'company.key.json'), envelope)
+    writeFileSync(join(dir(slug), '.files-converting'), JSON.stringify({ to: 'plain' }))
+    // A new passphrase would mint a new key and lose that file for good: refused, nothing changed.
+    const refused = await call('security:passphrase:on', { passphrase: 'another one', confirm: 'another one' })
+    expect(refused).toMatchObject({ ok: false, code: 'security_files_pending', field: 'passphrase' })
+    expect(readFileSync(join(dir(slug), 'company.key.json')).equals(envelope)).toBe(true)
+    expect(enc.isEncryptedFile(join(dir(slug), 'company.db'))).toBe(false)
+    expect(fc.storedForm(victim.abs, victim.sha)).toBe('encrypted')
+    // The passphrase the file was locked with: its key is used again, the file opens, nothing pending.
+    const on = await ok<{ encrypted: boolean; filesFailed: string[] }>('security:passphrase:on', { passphrase: PASS, confirm: PASS })
+    expect(on).toMatchObject({ encrypted: true, filesFailed: [] })
+    expect(enc.keyForPath(dir(slug))!.equals(oldKey)).toBe(true)
+    expect(existsSync(join(dir(slug), '.files-converting'))).toBe(false)
+    expect(storedFiles(slug).every((f) => f.form === 'encrypted')).toBe(true)
+    expect(fc.readStoredBytes(victim.abs, victim.sha, oldKey).equals(plain)).toBe(true)
+    expect((await ok<{ filesFailed: string[]; backupsFailed: string[] }>('security:passphrase:off', { passphrase: PASS })).filesFailed).toEqual([])
+    expect(existsSync(join(dir(slug), 'company.key.json'))).toBe(false)
+    expect(storedFiles(slug).every((f) => f.form === 'plain')).toBe(true)
+  })
+
   it('a crash while the lock was coming off (files half decrypted, books still locked) is put back on the next open', async () => {
     await ok('security:passphrase:on', { passphrase: PASS, confirm: PASS })
     const k = enc.keyForPath(dir(slug))!

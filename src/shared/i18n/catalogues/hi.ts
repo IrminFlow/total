@@ -2739,6 +2739,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'errors.security.passphrasesDiffer': 'दोनों पासफ़्रेज़ एक जैसे नहीं हैं।',
   'errors.security.alreadyLocked': 'यह बिज़नेस पहले से पासफ़्रेज़ से लॉक है।',
   'errors.security.notLocked': 'यह बिज़नेस पासफ़्रेज़ से लॉक नहीं है।',
+  'errors.security.filesPending': 'कुछ फ़ाइलें अभी भी उस पासफ़्रेज़ से लॉक हैं जो इस बिज़नेस का पहले था। उसी पासफ़्रेज़ से लॉक करें, ताकि वे फिर खुलें।',
   'errors.security.verifyFailed': 'Total लॉक की हुई कॉपी को जाँच नहीं पाया, इसलिए कुछ नहीं बदला। आपका हिसाब पहले जैसा है।',
   'errors.upgrade.newer': 'यह बिज़नेस पिछली बार Total के नए संस्करण से खोला गया था। इसे खोलने के लिए Total अपडेट करें।',
   'errors.upgrade.copyFailed': 'हिसाब अपग्रेड करने से पहले Total सुरक्षित कॉपी नहीं बना सका; डिस्क में थोड़ी जगह खाली करें और फिर से कोशिश करें।',

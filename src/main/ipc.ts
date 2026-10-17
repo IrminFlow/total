@@ -8,10 +8,10 @@ import { decodeTextFile } from '@shared/textFiles'
 import { z } from 'zod'
 import { LANGUAGES } from '@shared/i18n'
 import { forgetFolderKey, isEncryptedFile, keyForPath, keyOfHandle, openDb, plainCopy, rekeyFile, removeDbFiles, rememberFolderKey } from './db/encryption'
-import { DEFAULT_SCRYPT, newDataKey, unwrapKeyAsync, wrapKeyAsync, type ScryptParams } from './db/keyEnvelope'
+import { DEFAULT_SCRYPT, WrongPassphraseError, newDataKey, unwrapKeyAsync, wrapKeyAsync, type ScryptParams } from './db/keyEnvelope'
 import { insecureTestCipherAllowed } from './services/secrets'
 import { assertNotThrottled, dropRememberedKey, hasRememberedKey, noteRightPassphrase, noteWrongPassphrase, readEnvelope, readEnvelopes, removeEnvelope, storeRememberedKey, unlockCompanyKey, unlockWithRememberedKey, writeEnvelope } from './services/companyKeys'
-import { commitConvertedCopy, convertBackups, convertCompanyFiles, markFileConversion, prepareConvertedCopy, removeLeftoverCopies, resumeFileConversion } from './services/dbEncryption'
+import { commitConvertedCopy, convertBackups, convertCompanyFiles, fileConversionPending, markFileConversion, prepareConvertedCopy, removeLeftoverCopies, resumeFileConversion } from './services/dbEncryption'
 import { checkBackupIfDue, latestBackupCheck, listBackupChecks, recordBackupCheck, verifyBackupFileAsync } from './services/backupVerify'
 import { AUTO_LOCK_CHOICES, IdleClock, getAutoLockMinutes, setAutoLockMinutes } from './services/sessionLock'
 import { capabilityAllows, channelCapabilities } from './capabilities'
@@ -3298,7 +3298,25 @@ export function registerIpc(): void {
     if (confirm !== passphrase) throw new AppError('passphrase_mismatch', 'The two passphrases are not the same', { field: 'confirm' })
     const c = requireCompany()
     if (c.encrypted) throw new AppError('security_already_locked', 'This business is already locked with a passphrase')
-    const key = newDataKey()
+    // Files review: a key file an earlier lock-off left behind (some backup or file could not be
+    // converted and is still encrypted under ITS key) is used again when this passphrase opens it
+    // — those leftovers then open as before once the lock is on. While a FILE is still waiting on
+    // that key (the `.files-converting` marker), a passphrase that does not open it is refused:
+    // a new key would lose the file for good (the user's own attachment, not a backup).
+    let key: Buffer | null = null
+    const leftover = readEnvelopes(companyDir(c.slug), c.slug, appSecretStore())
+    for (const env of leftover) {
+      try {
+        key = await unwrapKeyAsync(env, passphrase)
+        break
+      } catch (err) {
+        if (!(err instanceof WrongPassphraseError)) throw err
+      }
+    }
+    if (!key && leftover.length && fileConversionPending(companyDir(c.slug))) {
+      throw new AppError('security_files_pending', 'Some files are still locked with the passphrase this business had before (taking the lock off could not convert them). Lock it with that passphrase, so they open again', { field: 'passphrase' })
+    }
+    key ??= newDataKey()
     // A key remembered for an earlier lock of this business can never open the new file.
     dropRememberedKey(c.slug, appSecretStore())
     const env = await wrapKeyAsync(key, passphrase, scryptParams())

@@ -1,6 +1,6 @@
 // WP 7.2 follow-up — the encrypted file store's format (pure: crypto + fs, no database).
 import { afterAll, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { randomBytes } from 'crypto'
@@ -130,6 +130,16 @@ describe('fileCrypto', () => {
     copyStoredAs(join(d, 'enc'), join(d, 'plain'), sha, KEY, null)
     expect(readFileSync(join(d, 'plain')).equals(plain)).toBe(true)
     expect(() => copyStoredAs(join(d, 'enc'), join(d, 'nokey'), sha, null, null)).toThrow(/locked/)
+    // Review: the same key (a backup copy) copies the ciphertext as it is — byte-identical, no
+    // plaintext scratch beside it — and still refuses a file that does not open.
+    copyStoredAs(join(d, 'enc'), join(d, 'same'), sha, KEY, KEY, { fsync: true })
+    expect(readFileSync(join(d, 'same')).equals(readFileSync(join(d, 'enc')))).toBe(true)
+    expect(readdirSync(d).filter((f) => f.includes('.plain-'))).toEqual([])
+    const bad = readFileSync(join(d, 'enc'))
+    bad[bad.length - 1] = bad[bad.length - 1]! ^ 1
+    writeFileSync(join(d, 'bad'), bad)
+    expect(() => copyStoredAs(join(d, 'bad'), join(d, 'same2'), sha, KEY, KEY)).toThrow(FileCryptoError)
+    expect(existsSync(join(d, 'same2'))).toBe(false)
   })
 
   it('convertStore is resumable, reports failures and leaves them as they were', () => {
