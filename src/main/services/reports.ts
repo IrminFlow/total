@@ -15,6 +15,7 @@ import * as stockAnalysis from './stockAnalysis'
 import { balanceBasis, periodIncludesStoredPnl, resetsEachYear } from '@shared/yearOpening'
 import { booksFromYear } from './booksStart'
 import { fyOf } from '@shared/dates'
+import { impliedRateMicro } from '@shared/forex'
 
 // ---------- shared helpers ----------
 
@@ -445,6 +446,14 @@ function monthRange(from: string, to: string): string[] {
   return months
 }
 
+/** The foreign amount behind a ledger's stored opening (fx_ledger_currency.opening_fc), if any. */
+function foreignOpeningOf(db: DB, ledgerId: number): { currencyCode: string; fc: number } | null {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'fx_ledger_currency'").get()) return null
+  return (db
+    .prepare('SELECT currency_code AS currencyCode, opening_fc AS fc FROM fx_ledger_currency WHERE ledger_id = ? AND opening_fc IS NOT NULL')
+    .get(ledgerId) as { currencyCode: string; fc: number } | undefined) ?? null
+}
+
 export function ledgerStatement(db: DB, ledgerId: number, from: string, to: string, groupBy?: 'month'): LedgerStatement {
   const ledger = db
     .prepare(
@@ -542,6 +551,14 @@ export function ledgerStatement(db: DB, ledgerId: number, from: string, to: stri
 
   const result: LedgerStatement = {
     ledgerId, ledgerName: ledger.name, opening, rows, closing: running, totalDebit, totalCredit
+  }
+  // WP 4.4: a foreign-currency opening is shown in both currencies (only when there is one, so
+  // every other statement is unchanged).
+  if (basis.includeStored && ledger.opening_balance !== 0) {
+    const fx = foreignOpeningOf(db, ledgerId)
+    if (fx && fx.fc !== 0) {
+      result.foreignOpening = { currencyCode: fx.currencyCode, fc: fx.fc, inr: ledger.opening_balance, rateMicro: impliedRateMicro(fx.fc, ledger.opening_balance)! }
+    }
   }
 
   // Columnar monthly matrix (v0.3 #55): every month in the period, with the running closing

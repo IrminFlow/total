@@ -98,6 +98,8 @@ beforeEach(() => {
       case 'loan:get': return { ok: true, data: DETAIL }
       case 'loan:recordDisbursement': return { ok: true, data: DETAIL }
       case 'loan:postEmi': return { ok: true, data: { ...DETAIL.schedule[0], posted: true, voucherId: 500, voucherNumber: '12' } }
+      case 'fx:ledgerCurrencies': return { ok: true, data: [] }
+      case 'fx:setForeignOpening': return { ok: true, data: { ledgerId: 40, currencyCode: 'USD', fc: 1000_00, openingInr: 82_000_00, rateMicro: 82_000_000, rateDate: null, booksBegin: '2025-04-01' } }
       case 'fx:preview': return { ok: true, data: FX }
       case 'fx:rates': return { ok: true, data: [{ id: 1, date: TODAY, currencyCode: 'USD', rateMicro: 83_250_000, note: null }] }
       case 'fx:revaluations': return { ok: true, data: [] }
@@ -187,6 +189,23 @@ describe('loans', () => {
 })
 
 describe('forex', () => {
+  it('sets a foreign opening from the foreign amount and the books-begin rate', async () => {
+    renderUi(<ForexScreen />)
+    await screen.findByTestId('btn-forex-revalue')
+    fireEvent.click(document.querySelector('button[aria-haspopup="dialog"][data-testid$="-options"]')!)
+    fireEvent.click(await screen.findByTestId('btn-forex-designate'))
+    const picker = await screen.findByTestId('picker-forex-designate')
+    fireEvent.focus(picker)
+    fireEvent.change(picker, { target: { value: 'HDFC Cur' } })
+    await waitFor(() => expect(screen.getAllByRole('option').some((o) => o.textContent?.includes('HDFC Current'))).toBe(true))
+    fireEvent.keyDown(picker, { key: 'Enter' })
+    await waitFor(() => expect((picker as HTMLInputElement).value).toBe('HDFC Current'))
+    fireEvent.change(screen.getByTestId('input-forex-opening-fc'), { target: { value: '1000.00' } })
+    fireEvent.change(screen.getByTestId('input-forex-opening-rate'), { target: { value: '82' } })
+    fireEvent.click(screen.getByTestId('btn-forex-opening-set'))
+    await waitFor(() => expect(calls.find((c) => c.channel === 'fx:setForeignOpening')?.payload).toEqual({ ledgerId: 2, currencyCode: 'USD', fc: 1000_00, rateMicro: 82_000_000 }))
+  }, 20_000)
+
   it('lists the USD exposure with its unrealised gain and posts the revaluation with auto-reversal', async () => {
     renderUi(<ForexScreen />)
     const rows = await screen.findByTestId('rows-forex-exposures')

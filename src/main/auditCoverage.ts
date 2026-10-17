@@ -548,6 +548,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'fx:rateSave': a('fx_rate'),
   'fx:rateDelete': a('fx_rate'),
   'fx:setLedgerCurrency': a('fx_ledger_currency'),
+  // The rupee opening (ledger, opening bills cleared when they no longer fit) + the foreign amount.
+  'fx:setForeignOpening': a('fx_ledger_currency', 'ledger', 'opening_bills'),
   'fx:revalue': a('fx_revaluation', 'voucher'),
   'fx:reverse': a('fx_revaluation', 'voucher'),
   'fx:settle': a('fx_settlement', 'voucher'),

@@ -227,6 +227,20 @@ export const fxLedgerCurrencySchema = z.object({
   openingFc: z.number().int().safe().nullable().default(null)
 })
 
+/** A foreign-currency opening entered in its currency: the rupee opening (ledgers.opening_balance)
+ *  becomes fc × the rate on the books-begin day (`rateMicro`, else the closing rate stored for
+ *  that day or the latest before it). */
+export const fxForeignOpeningSchema = z.object({
+  ledgerId: id,
+  currencyCode,
+  /** Foreign amount (hundredths, dr-positive: negative = a credit opening). */
+  fc: z.number().int().safe().refine((v) => v !== 0, 'Enter the foreign amount'),
+  rateMicro: z.number().int().positive().safe().optional()
+})
+export type FxForeignOpeningInput = z.input<typeof fxForeignOpeningSchema>
+
+export interface FxForeignOpeningResult { ledgerId: number; currencyCode: string; fc: number; openingInr: number; rateMicro: number; rateDate: string | null; booksBegin: string }
+
 export interface FxOpenBill { name: string; voucherId: number | null; date: string; fcOpen: number; bookOpen: number }
 
 export const fxAsOfSchema = z.object({ asOf: isoDate })
