@@ -1,4 +1,4 @@
-// Shared a11y / layout checks for the E2E scenarios (12-theme-a11y, 63-keyboard-simple). Plain
+// Shared a11y / layout checks for the E2E scenarios (12-theme-a11y, 73-a11y-simple-shell, 63-keyboard-simple). Plain
 // DOM + computed styles, no axe dependency. The `*InPage` functions run inside the renderer
 // (page.evaluate), so they must stay self-contained.
 //

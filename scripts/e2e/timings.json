@@ -10,7 +10,7 @@
   "09-backup-restore": 1831,
   "10-roles-lock": 3831,
   "11-keyboard": 4320,
-  "12-theme-a11y": 76483,
+  "12-theme-a11y": 50000,
   "13-nic-masking": 3470,
   "14-search": 6600,
   "15-drilldown": 5013,
@@ -69,5 +69,6 @@
   "69-cost-centres-cashflow": 3631,
   "70-einvoice-gst-profile": 3054,
   "71-busy-import-bulk-masters": 7496,
-  "72-bank-formats-pdc": 11419
+  "72-bank-formats-pdc": 11419,
+  "73-a11y-simple-shell": 70000
 }

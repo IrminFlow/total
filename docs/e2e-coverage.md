@@ -124,7 +124,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 10.1 | Ask Total | 60 |
 | 10.2 | "Why?" sentences | 52, 61 |
 | 10.3 | Tour, empty states, help panel | 52, 63 |
-| 10.5 | Keyboard / a11y / window size, simple shell | 12, 63 |
+| 10.5 | Keyboard / a11y / window size, simple shell | 73 (was 12), 63 |
 | 10.6 | AI panel in plain words | 35 |
 | 10.8 | Beginner journey | 60 (extended by WP 10.8) |
 

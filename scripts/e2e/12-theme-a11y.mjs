@@ -13,14 +13,11 @@
 // 9 findings at 4.41 on light/report-builder — was the result table's refetch dim (opacity-70,
 // transition-opacity) caught mid-fade, not a token.
 //
-// WP 10.5: then the SIMPLE shell — the same company switched to simple mode, every simple
-// screen reachable from its sidebar (section pages + their simple entries) plus the Help and
-// Ask Total panels, in both themes at 1280×800 and 1024×700: contrast, names, labels, tabs,
-// aria-describedby, and the window-size / landmark checks (layoutInPage: the window itself never
-// scrolls, no button cut off or its label clipped, one banner / a navigation / one main, named
-// panels and dialogs that fit the window); focus indicators at 1280×800.
+// The SIMPLE-shell half of the sweep (WP 10.5) is 73-a11y-simple-shell: together they took ~2 min
+// on a quiet laptop and passed the runner's 5-minute cap on a loaded one (WP 7.4 flake audit,
+// 2026-10-17), so each now has its own budget.
 import { scenario, assert } from '../lib/harness.mjs'
-import { contrast, sweepInPage, snapshotFocusablesInPage, focusedIndicatorInPage, waitForSettled, sweepSimpleShell, layoutInPage, plantToastInPage } from '../lib/a11y.mjs'
+import { contrast, sweepInPage, snapshotFocusablesInPage, focusedIndicatorInPage, waitForSettled } from '../lib/a11y.mjs'
 
 await scenario('12-theme-a11y', async (h) => {
   await h.createDemoCompany()
@@ -137,49 +134,6 @@ await scenario('12-theme-a11y', async (h) => {
   assert(drawers >= 30, `swept the Options drawer on most screens in both themes (${drawers})`)
 
   await h.shot('03-sweep-done')
-
-  // ---------- WP 10.5: the simple shell, both themes, two window sizes ----------
-  await setTheme('light')
-  await h.setMode('simple')
-  const simpleFailures = []
-  let simpleSwept = 0
-  for (const theme of ['light', 'dark']) {
-    await setTheme(theme)
-    for (const [width, height] of [[1280, 800], [1024, 700]]) {
-      await h.page.setViewportSize({ width, height })
-      simpleSwept += await sweepSimpleShell(h, `simple/${theme}/${width}x${height}`, simpleFailures, { focus: width === 1280 })
-      await h.click('simple-nav-home')
-      await h.waitIdle()
-      await h.shot(`04-simple-${theme}-${width}`)
-    }
-  }
-  // to-do §4: toasts keep clear of the Save bar and of the docked Ask Total's question box —
-  // 1700×900 (the panel docks beside the screen ≥ 1600 px) and 1024×700 (overlay, the bar wraps).
-  for (const [width, height] of [[1700, 900], [1024, 700]]) {
-    await h.page.setViewportSize({ width, height })
-    await h.click('simple-nav-sell')
-    await h.click('simple-entry-make-bill')
-    await h.page.waitForSelector('[data-testid="save-bar"]', { timeout: 10000 })
-    await h.click('btn-assistant')
-    await h.page.waitForSelector('[data-testid="ask-panel"] textarea', { timeout: 5000 })
-    assert(await h.page.evaluate(plantToastInPage), 'the toast stack is mounted')
-    await waitForSettled(h.page)
-    const tag = `simple/toasts/${width}x${height}`
-    const docked = await h.page.evaluate(() => !document.querySelector('aside[data-docked]')?.hasAttribute('data-overlay'))
-    if (width === 1700) assert(docked, '1700 px: Ask Total docks beside the screen')
-    for (const p of await h.page.evaluate(layoutInPage)) simpleFailures.push(`${tag} layout: ${p}`)
-    await h.shot(`05-toast-clear-${width}`)
-    await h.page.evaluate(plantToastInPage, true)
-    await h.click('btn-assistant')
-    await h.page.waitForSelector('[data-testid="ask-panel"]', { state: 'detached', timeout: 5000 })
-    await h.click('simple-nav-home')
-    await h.waitIdle()
-  }
-  await h.page.setViewportSize({ width: 1440, height: 900 })
-  const simpleUnique = [...new Set(simpleFailures)]
-  if (simpleUnique.length) console.log(`[12-theme-a11y] simple shell: ${simpleUnique.length} findings:\n  ${simpleUnique.join('\n  ')}`)
-  assert(simpleUnique.length === 0, `simple-shell a11y sweep: ${simpleUnique.length} findings (see log above)`)
-  assert(simpleSwept >= 4 * 30, `swept the simple screens at both sizes in both themes (${simpleSwept})`)
 
   await setTheme('light') // leave the shared profile in the default theme for later scenarios
 })
