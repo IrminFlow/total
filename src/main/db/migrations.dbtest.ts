@@ -166,11 +166,14 @@ describe('migrate', () => {
     expect(empty.map((m) => m.n)).toEqual([])
   })
 
-  it('the reminder_log channel rebuild (PR #148) is the last migration (number by position)', () => {
-    const last = MIGRATIONS.at(-1)!
-    expect(last.startsWith('-- @foreign-keys-off')).toBe(true)
-    expect(last).toContain('CREATE TABLE reminder_log_new')
-    expect(last).toContain("'whatsapp', 'sms'")
+  // Found by content, never by position (number by position; later entries are appended).
+  it('the reminder_log channel rebuild (PR #148) comes right before the voucher text index, the last migration', () => {
+    const at = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE reminder_log_new'))
+    const rebuild = MIGRATIONS[at]!
+    expect(rebuild.startsWith('-- @foreign-keys-off')).toBe(true)
+    expect(rebuild).toContain("'whatsapp', 'sms'")
+    expect(MIGRATIONS.at(-1)).toContain('CREATE VIRTUAL TABLE voucher_fts')
+    expect(at).toBe(MIGRATIONS.length - 2)
   })
 
   it('applies every migration exactly once and records them all', () => {

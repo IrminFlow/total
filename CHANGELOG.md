@@ -526,7 +526,7 @@ Read these before filing from the next release.
 - **Export gate sweep covers every role.** `securityReview.dbtest` now scans every IPC handler under `src/main` that writes a file or audits an `export` (directly or through a helper in its file; viewer-role ones included, which the audit-coverage registry does not list), plus every channel whose name says file / print / export, and requires each in `EXPORT_CHANNELS`, `NOT_EXPORTS` or a listed read / input; review: the bank reconciliation PDF (`banking:brsPdf`, written with no gate and no audit row) is now a `canExport` channel with an export audit row, and report packs (`pack:runNow`, `pack:save`) are `canExport` channels; Form 16 / 16A / 27D, self-invoice, barcode-label prints and the template export are listed as non-exports with reasons. The data-folder-move locked case no longer sleeps 1.7 s, and the e-invoicing Company details test waits for the loaded switch (Windows flake). [#155](https://github.com/IrminFlow/total/pull/155)
 
 - **Voucher text index** (to-do §4), [#153](https://github.com/IrminFlow/total/pull/153): migration
-  "voucher text index" (last) — `voucher_fts`, an external-content FTS5 table (trigram tokenizer,
+  054 "voucher text index" (last, after #148's 053) — `voucher_fts`, an external-content FTS5 table (trigram tokenizer,
   `detail = 'full'`, `columnsize = 0`) over vouchers' number / narration / reference with the view
   `voucher_fts_source` (not binned) as content, three triggers on `vouchers` and a `'rebuild'` for
   existing files. `services/search.ts` narrows a term of 3+ characters through it and keeps the
@@ -589,7 +589,7 @@ Read these before filing from the next release.
   (`simple.taxes.step3.exportRefused`, en / hi / hinglish). Owners and users without flags see no
   change; main still refuses. Owner-only exports (encrypted backup, recovery copy) are unchanged.
   `exportGating.test.tsx`. [#148](https://github.com/IrminFlow/total/pull/148)
-- Migration 053 (last; `-- @foreign-keys-off` table rebuild, every row and id kept, the
+- Migration 053 (`-- @foreign-keys-off` table rebuild, every row and id kept, the
   AUTOINCREMENT high-water mark kept like migration 024 — a deleted reminder's id is never reissued, its audit row names it — index
   recreated): `reminder_log.channel` accepts `whatsapp` and `sms`. `REMINDER_LOG_CHANNELS` /
   `ReminderLogChannel` (shared/receivables/config.ts) type the log; the letter's
