@@ -231,6 +231,29 @@ describe('Ask Total on hand-worked books', () => {
     expect((await ask('Ramesh Traders paid me 2000')).entry?.prefill).toMatchObject({ screen: 'simple-money-in', party: ids.ramesh, amount: 200000 })
   })
 
+  it('"pay 5000 to <account>": by the account\'s class — own bank is a move, capital is drawings, income / loan are asked about, never an expense', async () => {
+    const groups = await ok<{ id: number; name: string }[]>('master:groups:list')
+    const g = (n: string): number => groups.find((x) => x.name === n)!.id
+    for (const [name, group] of [['HDFC Bank', 'Bank Accounts'], ['Proprietor Capital', 'Capital Account'], ['Term Loan', 'Secured Loans']] as const) {
+      await ok('master:ledgers:create', { name, groupId: g(group) })
+    }
+    const move = await ask('pay 5000 to HDFC Bank')
+    expect(move.entry).toBeUndefined()
+    expect(move.sentences.join(' ')).toContain('HDFC Bank is one of your own cash or bank accounts')
+    expect(move.links[0]?.target.screen).toBe('simple-move-money')
+    const owner = await ask('pay 5000 to Proprietor Capital')
+    expect(owner.entry?.prefill).toMatchObject({ screen: 'simple-money-out', who: 'owner', amount: 500000 })
+    const income = await ask('pay 5000 to Sales')
+    expect(income.entry).toBeUndefined()
+    expect(income.sentences.join(' ')).toContain('Sales is an income account')
+    const loan = await ask('pay 5000 to Term Loan')
+    expect(loan.entry).toBeUndefined()
+    expect(loan.sentences.join(' ')).toContain('Term Loan is a loan account')
+    // A real supplier and an expense account are unchanged.
+    expect((await ask('pay 5000 to Mohan')).entry?.prefill).toMatchObject({ who: 'supplier', party: ids.mohan })
+    expect((await ask('pay 5000 to Rent')).entry?.prefill).toMatchObject({ who: 'expense', payee: ids.rent })
+  })
+
   it('asking writes nothing — not even for an entry request', async () => {
     const audit = count('SELECT COUNT(*) AS n FROM audit_log')
     const vouchers = count('SELECT COUNT(*) AS n FROM vouchers')

@@ -13,7 +13,7 @@ import type { DB } from '../db/connection'
 import type { CompanyInfo, VoucherKind } from '@shared/domain'
 import type { AiVoucherDraftPayload } from '@shared/ai'
 import {
-  ASK_TOTAL_ORIGIN, type AssistAnswer, type AssistChoice, type AssistDraftResult, type AssistEntryOffer, type AssistEntrySlots, type AssistIntent, type AssistPrefill
+  ASK_TOTAL_ORIGIN, type AssistAnswer, type AssistChoice, type AssistDraftResult, type AssistEntryOffer, type AssistEntrySlots, type AssistIntent, type AssistLink, type AssistPrefill
 } from '@shared/assist'
 import type { MessageKey, Translate } from '@shared/i18n'
 import { gstRegistrationOf } from '@shared/gst/registration'
@@ -25,7 +25,7 @@ import { buyFormErrors, emptyBuyForm, purchaseIntentFrom, type BuyContext, type 
 import { money } from '@shared/simple/explain'
 import { formatQtyMilli } from '@shared/money'
 import { buyFromAsk, moneyInFromAsk, moneyOutFromAsk, sellFromAsk } from '@shared/simple/askPrefill'
-import { listLedgers, listStockItems, listVoucherTypes } from '../services/masters'
+import { descendantIdsByName, listLedgers, listStockItems, listVoucherTypes } from '../services/masters'
 import { moneyBills, moneySetup } from '../services/simpleMoney'
 import { sellSetup } from '../services/simpleSell'
 import { buySetup } from '../services/simpleBuy'
@@ -37,6 +37,7 @@ import { insertDraft, listDrafts } from '../ai/store'
 import { discardOlderAskDrafts } from './settle'
 import { EXPENSE_WORDS } from './classify'
 import { findItem, findLedger, type NameResult } from './names'
+import { ledgerClassifier } from '../ai/ledgerClass'
 import type { AskEnv, AskInput } from './answer'
 
 type EntryIntent = Extract<AssistIntent, { kind: 'entry' }>
@@ -59,6 +60,8 @@ interface Built {
   /** A plain reason the flow will ask about (a simple.* key's text), null = complete. */
   missing: string | null
   choice?: AssistChoice
+  /** The account named is not a supplier or an expense: say what it is and where that goes. */
+  redirect?: { sentence: string; link?: AssistLink }
   /** What the words were read as, before the preview's sentences. */
   readAs: string[]
 }
@@ -99,6 +102,25 @@ function firstError(errs: Partial<Record<string, MessageKey>>, t: Translate): st
   return k ? t(k as 'simple.money.err.amount') : null
 }
 
+/** What a non-party, non-expense account named in "pay 5000 to X" is, in the classes the simple
+ *  flows can act on: another cash / bank account (a MOVE), the owner's capital (drawings), income,
+ *  a loan, or anything else (no simple choice — asked about, never booked as an expense). */
+type OtherAccount = { kind: 'move' | 'owner' | 'income' | 'loan' | 'other'; id: number; name: string }
+
+function otherAccount(db: DB, said: string, today: string): OtherAccount | { choose: Extract<NameResult, { status: 'choose' }> } | null {
+  const found = findLedger(db, said, ['cash', 'bank', 'income', 'tax', 'other'], today)
+  if (found.status === 'none') return null
+  if (found.status === 'choose') return { choose: found }
+  const cls = ledgerClassifier(db).cls(found.id)
+  const group = (db.prepare('SELECT group_id AS g FROM ledgers WHERE id = ?').get(found.id) as { g: number }).g
+  const capital = descendantIdsByName(db, ['Capital Account'])
+  const reserves = descendantIdsByName(db, ['Reserves & Surplus'])
+  const loans = descendantIdsByName(db, ['Loans (Liability)', 'Loans & Advances (Asset)'])
+  const kind: OtherAccount['kind'] =
+    cls === 'cash' || cls === 'bank' ? 'move' : cls === 'income' ? 'income' : cls === 'other' && capital.has(group) && !reserves.has(group) ? 'owner' : cls === 'other' && loans.has(group) ? 'loan' : 'other'
+  return { kind, id: found.id, name: found.name }
+}
+
 function moneyOut(db: DB, company: CompanyInfo, s: AssistEntrySlots, input: AskInput, t: Translate): Built {
   const today = input.today
   const date = s.date ?? today
@@ -123,6 +145,19 @@ function moneyOut(db: DB, company: CompanyInfo, s: AssistEntrySlots, input: AskI
     } else {
       payeeId = categoryAccount(db, s.party, today)
       if (payeeId == null) {
+        const other = otherAccount(db, s.party, today)
+        if (other && 'choose' in other) return { prefill: { screen: 'simple-money-out', who: 'expense' }, intent: null, missing: null, choice: choose('party', t('assist.which', { name: s.party }), other.choose), readAs }
+        if (other?.kind === 'owner') {
+          who = 'owner'
+        } else if (other) {
+          const sentence = t(({ move: 'assist.entry.isMove', income: 'assist.entry.isIncome', loan: 'assist.entry.isLoan', other: 'assist.entry.isOther' } as const)[other.kind], { name: other.name })
+          return {
+            prefill: { screen: 'simple-money-out', who: 'expense' }, intent: null, missing: null, readAs,
+            redirect: { sentence, ...(other.kind === 'move' ? { link: { label: t('assist.link.moveMoney'), target: { screen: 'simple-move-money' } } } : {}) }
+          }
+        }
+      }
+      if (who !== 'owner' && payeeId == null) {
         who = 'supplier'
         // "Ramesh ko 5000 diya" where Ramesh is a customer: say so rather than "no supplier".
         const customer = findLedger(db, s.party, ['debtor'], today)
@@ -279,13 +314,16 @@ function purchase(db: DB, company: CompanyInfo, s: AssistEntrySlots, input: AskI
 let previewSeq = 0
 
 /** The offer for an entry request: the flow's prefill, its intent and the rehearsed sentences. */
-export function buildEntry(db: DB, company: CompanyInfo, slots: AssistEntrySlots, input: AskInput, env: AskEnv, t: Translate): { offer: AssistEntryOffer | null; choice?: AssistChoice; readAs: string[] } {
+export function buildEntry(
+  db: DB, company: CompanyInfo, slots: AssistEntrySlots, input: AskInput, env: AskEnv, t: Translate
+): { offer: AssistEntryOffer | null; choice?: AssistChoice; redirect?: Built['redirect']; readAs: string[] } {
   const built =
     slots.action === 'money_out' ? moneyOut(db, company, slots, input, t)
       : slots.action === 'money_in' ? moneyIn(db, slots, input, t)
         : slots.action === 'sale' ? sale(db, company, slots, input, t)
           : purchase(db, company, slots, input, t)
   if (built.choice) return { offer: null, choice: built.choice, readAs: built.readAs }
+  if (built.redirect) return { offer: null, redirect: built.redirect, readAs: built.readAs }
   let sentences: string[] = []
   let missing = built.missing
   let intent = built.intent
@@ -306,6 +344,7 @@ export function entryAnswer(db: DB, company: CompanyInfo, intent: EntryIntent, i
   const r = buildEntry(db, company, intent.entry, input, env, t)
   const base = { intent: 'entry' as const, answeredBy: 'total' as const, figures: [], links: [], understood: true }
   if (r.choice) return { ...base, sentences: [r.choice.question], choice: r.choice }
+  if (r.redirect) return { ...base, sentences: [r.redirect.sentence], links: r.redirect.link ? [r.redirect.link] : [] }
   const offer = r.offer!
   const screen = t(SCREEN_NAME[offer.prefill.screen])
   const sentences = [...r.readAs]
@@ -382,7 +421,7 @@ export function createAskDraft(
   const intent = classifyFn(input.text, input.today)
   if (intent.kind !== 'entry') throw new Error('That is not something to record — ask it as a question instead')
   const r = buildEntry(db, company, intent.entry, input, env, t)
-  if (!r.offer) throw new Error(r.choice?.question ?? 'Say which one you mean first')
+  if (!r.offer) throw new Error(r.choice?.question ?? r.redirect?.sentence ?? 'Say which one you mean first')
   const offer = r.offer
   const question = input.text.trim()
   const existing = listDrafts(db, 'open', undefined, ['assistant']).find(
