@@ -41,7 +41,7 @@ what you typed, and a **Back to simple** button.
 - **Opening a business no longer waits for the backup check; older backups are cleared only after
   the new one is checked OK.** The copy is still made before the business opens. If the check
   finds a problem, or Total closes before it ends, nothing older is removed and Home shows the
-  red backup card. [#175](https://github.com/IrminFlow/total/pull/PRNUM)
+  red backup card. [#175](https://github.com/IrminFlow/total/pull/175)
 - **Help covers the recent simple-mode features.** Recipes and labour, "Remember on this computer", moving the books folder, "Back to simple" keeping your changes, Bank's Skipped for now / Not this / GST on charges, Money out refunds and "Record a purchase instead", low-stock warnings, and quarterly GST files, in English, Hindi and Hinglish (five more articles now have a Hinglish version).
 - **Make a bill** (Sell). Pick a customer (or leave it empty for a cash customer), add products or
   just an amount, say how it was paid (cash, UPI, card, bank transfer, on credit, partly paid), and
@@ -728,7 +728,7 @@ Read these before filing from the next release.
   with it cleared on the same masters, after the masters moved and with the snapshot written back
   (A = B = E, D differs) for a regular, a composition and an unregistered company.
 - **company:open waits for the snapshot only** (to-do §4 Performance, PR #118 review),
-  [#175](https://github.com/IrminFlow/total/pull/PRNUM): the open backup is split
+  [#175](https://github.com/IrminFlow/total/pull/175): the open backup is split
   (`services/backupOpen.ts`): `snapshotOnOpen` (the copy, its attachments stashed, the audit row,
   listed in meta `backup.openUnverified`) is awaited; `settleOpenBackup` runs after the reply —
   the copy's quick_check in the check worker (tracked under the backup), then the prune of older
