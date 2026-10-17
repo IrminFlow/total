@@ -22,8 +22,9 @@ import { createFakeNic, istStamp, type FakeNic } from './nicFake.testutil'
 import {
   aesDecrypt, aesEncrypt, authenticate, cancelEwb, cancelIrn, decryptJson, encryptLoginPayload, extendEwb, generateEwbByIrn,
   generateIrn, getIrnDetails, maskNicCredentials, NIC_SECRET_MASK, NicError, nicBackoffMs, parseNicTimestamp, resetNicSession,
-  testNicConnection, writeNicCredentials, type NicDeps
+  testNicConnection, writeNicCredentials, nicRecord, signedCopyJson, type NicDeps
 } from './nic'
+import { loadPrintDocument } from './printTemplates'
 
 const GSTIN = '27AAPFU0939F1ZV'
 const COMPANY: CompanyInfo = { ...TEST_INFO, name: 'Demo Traders', gstin: GSTIN, address: '12 MG Road\nPune 411001' }
@@ -331,6 +332,18 @@ describe('IRN and e-way bill: payloads, persistence, cancel, extend', () => {
     await expect(generateIrn(b.db, SLUG, COMPANY, id, deps())).rejects.toThrow('This invoice already has an IRN')
     // Get IRN details round-trips.
     expect(await getIrnDetails(b.db, SLUG, COMPANY, r.irn, deps())).toMatchObject({ Irn: r.irn, Status: 'ACT', SignedQRCode: r.signedQrCode })
+    // The signed copies are stored as the IRP returned them ([GEN] SignedInvoice / SignedQRCode) …
+    expect(b.db.prepare('SELECT irn_signed_invoice AS si, irn_signed_qr AS sq FROM vouchers WHERE id = ?').get(id)).toEqual({ si: rec.signedInvoice, sq: rec.signedQr })
+    expect(JSON.parse(audit.a)).toMatchObject({ signedInvoice: true, signedQrCode: true })
+    expect(audit.a).not.toContain(rec.signedQr) // presence only in the audit row
+    // … read back (decoded, not verified) by nic:record …
+    const stored = nicRecord(b.db, id)
+    expect(stored).toMatchObject({ irn: r.irn, ackNo: rec.ackNo, ackDate: rec.ackDt, signedQrCode: rec.signedQr, signedInvoice: rec.signedInvoice })
+    expect((stored.signedQrData as { data: { Irn: string } }).data.Irn).toBe(r.irn)
+    expect(signedCopyJson(stored)).toEqual({ Irn: r.irn, AckNo: rec.ackNo, AckDt: rec.ackDt, SignedInvoice: rec.signedInvoice, SignedQRCode: rec.signedQr, DocNo: 'INV/26-27/0001', DocDt: '2026-08-15' })
+    // … and the print's QR is rendered from the signed string.
+    const printed = loadPrintDocument(b.db, COMPANY, id)
+    expect(printed.shape === 'invoice' && printed.einvoice).toMatchObject({ irn: r.irn, signedQr: rec.signedQr })
   })
 
   it('a lost response is recovered: NIC 2150 (duplicate) with the existing IRN in InfoDtls is adopted', async () => {
@@ -339,8 +352,23 @@ describe('IRN and e-way bill: payloads, persistence, cancel, extend', () => {
     const first = await generateIrn(b.db, SLUG, COMPANY, id, deps())
     b.db.prepare('UPDATE vouchers SET irn = NULL, irn_ack_no = NULL, irn_ack_date = NULL WHERE id = ?').run(id) // as if the reply never arrived
     const again = await generateIrn(b.db, SLUG, COMPANY, id, deps())
-    expect(again).toMatchObject({ irn: first.irn, ackNo: first.ackNo, ackDate: first.ackDate, recovered: true, signedQrCode: null })
+    // The duplicate answer carries no signed copies — they are fetched with Get IRN details ([GET]).
+    expect(again).toMatchObject({ irn: first.irn, ackNo: first.ackNo, ackDate: first.ackDate, recovered: true, signedQrCode: first.signedQrCode, signedInvoice: first.signedInvoice })
+    expect(fake.calls.at(-1)!.path).toBe(`/eicore/v1.03/Invoice/irn/${first.irn}`)
     expect(voucherRow(b.db, id).irn).toBe(first.irn)
+    expect(nicRecord(b.db, id).signedQrCode).toBe(first.signedQrCode)
+  })
+
+  it('an adopted duplicate older than 3 days keeps the IRN without signed copies (Get IRN refuses, 2283)', async () => {
+    const b = books()
+    const id = b2bInvoice(b)
+    const first = await generateIrn(b.db, SLUG, COMPANY, id, deps())
+    b.db.prepare('UPDATE vouchers SET irn = NULL, irn_ack_no = NULL, irn_ack_date = NULL, irn_signed_invoice = NULL, irn_signed_qr = NULL WHERE id = ?').run(id)
+    clock += 4 * 24 * 3600 * 1000
+    const again = await generateIrn(b.db, SLUG, COMPANY, id, deps())
+    expect(again).toMatchObject({ irn: first.irn, recovered: true, signedQrCode: null, signedInvoice: null })
+    expect(nicRecord(b.db, id)).toMatchObject({ irn: first.irn, signedQrCode: null })
+    expect(() => signedCopyJson(nicRecord(b.db, id))).toThrow(/No signed copy is stored/)
   })
 
   it('e-way bill by IRN: the transport payload, EWB no and valid-until stored; cancel EWB, cancel IRN, no re-use of the number', async () => {

@@ -2566,6 +2566,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.print.alloc.against': 'Bill {name} mein lage: {amount}',
   'simple.print.alloc.oldest': 'Sabse purane khule bills mein laga',
   'simple.print.verificationQr': 'Verification QR',
+  'simple.print.signedQr': 'e-Invoice QR (IRP dwara signed)',
   'simple.print.paymentRequest': 'Kripya baaki amount neeche diye bank account mein bhejein, saath mein bill number likhein.',
 
   'palette.placeholder': 'Command likhein, ya hisaab mein dhoondhein — naam, number, GSTIN, amount…',

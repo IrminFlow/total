@@ -108,7 +108,7 @@ function richCompany(): { db: DB; prevFy: number } {
     ...base, voucherTypeId: vt(db, 'delivery_note'), date: `${prevFy + 1}-05-07`, partyLedgerId: krishna, lines: [], trade: { purpose: 'supply' },
     inventory: [{ stockItemId: phone.id, godownId: null, qtyMilli: 1000, ratePaise: 70000, amount: 70000, direction: 'out', serials: ['SN-1'], source: { lineUid: so.lines[0]!.lineUid, linkType: 'fulfil' } }]
   })
-  saveVoucher(db, {
+  const krishnaInvoice = saveVoucher(db, {
     ...base, voucherTypeId: vt(db, 'sales'), date: `${prevFy + 1}-05-08`, partyLedgerId: krishna, vehicleNo: 'MH12AB1234', transportDistanceKm: 140,
     lines: [{ ledgerId: krishna, drCr: 'dr', amount: 70000, costAllocations: [] }, { ledgerId: L(db, 'Sales A/c'), drCr: 'cr', amount: 70000, costAllocations: [] }],
     inventory: [{ stockItemId: phone.id, godownId: null, qtyMilli: 1000, ratePaise: 72000, discountPaise: 2000, amount: 70000, direction: 'out', serials: ['SN-1'], source: { lineUid: getVoucher(db, dn.id)!.inventory[0]!.lineUid!, linkType: 'fulfil' } }],
@@ -120,6 +120,17 @@ function richCompany(): { db: DB; prevFy: number } {
     lines: [{ ledgerId: bank.id, drCr: 'dr', amount: 100000, costAllocations: [] }, { ledgerId: obCo.id, drCr: 'cr', amount: 100000, costAllocations: [] }],
     billRefs: [{ kind: 'against', name: 'OB-1', amount: 100000, dueDate: null }]
   })
+  // NIC follow-up: what the IRP / EWB system returned for the invoice (as the live client stores
+  // it) — signed copies, a recorded IRN cancel and the e-way bill's history — rides in the workbook.
+  db.prepare(
+    `UPDATE vouchers SET irn = ?, irn_ack_no = '112610000000042', irn_ack_date = '${prevFy + 1}-05-08 11:02:00',
+            irn_signed_invoice = 'eyJhbGciOiJSUzI1NiJ9.eyJkYXRhIjoiaW52In0.c2ln', irn_signed_qr = 'eyJhbGciOiJSUzI1NiJ9.eyJkYXRhIjoicXIifQ.c2ln',
+            irn_cancelled_at = '${prevFy + 1}-05-08 15:40:00', irn_cancel_reason = 'data_entry_mistake', irn_cancel_remark = 'Wrong rate',
+            ewb_date = NULL, ewb_history = ? WHERE id = ?`
+  ).run('f'.repeat(64), JSON.stringify([
+    { action: 'generate', ewbNo: '391000000101', at: `${prevFy + 1}-05-08 11:05:00`, validUpto: `${prevFy + 1}-05-09 23:59:00` },
+    { action: 'cancel', ewbNo: '391000000101', at: `08/05/${prevFy + 1} 03:30:00 PM`, reason: 'data_entry_mistake', remark: 'Wrong rate' }
+  ]), krishnaInvoice.id)
   setCreditHold(db, krishna, true, 'Cheque bounced')
   return { db, prevFy }
 }
@@ -154,6 +165,13 @@ describe('Books workbook fidelity', () => {
     const ob = (d: DB): unknown => outstandings(d, 'receivable', `${prevFy + 1}-06-30`).find((p) => p.name === 'Opening Bills Co')?.bills.map((x) => [x.number, x.pending])
     expect(ob(dst)).toEqual([['OB-1', 200000], ['Opening', 150000]])
     expect(ob(dst)).toEqual(ob(src))
+    // The NIC facts — the cancel timestamp too, which the canonical dump skips as an `_at` column.
+    const nicFacts = (d: DB): unknown => d.prepare(
+      `SELECT irn, irn_ack_no, irn_ack_date, irn_signed_invoice, irn_signed_qr, irn_cancelled_at, irn_cancel_reason, irn_cancel_remark, ewb_no, ewb_date, ewb_history
+         FROM vouchers WHERE irn IS NOT NULL ORDER BY date, number`
+    ).all()
+    expect(nicFacts(dst)).toEqual(nicFacts(src))
+    expect((nicFacts(dst) as { irn_cancelled_at: string }[])[0]!.irn_cancelled_at).toBe(`${prevFy + 1}-05-08 15:40:00`)
 
     // A second import changes nothing (Source IDs match; both receipts "1" are found in their own FY).
     const again = importBooks(dst, bytes, { duplicate: 'skip' })

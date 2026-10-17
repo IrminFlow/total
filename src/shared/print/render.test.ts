@@ -252,4 +252,20 @@ describe('renderDocument — template options', () => {
     const t = withColumns(CLASSIC_DEFAULT, (cols) => cols.map((c) => (c.key === 'item' ? { ...c, label: '<b>x</b>' } : c)))
     expect(renderDocument(t, doc(INV))).toContain('<th>&lt;b&gt;x&lt;/b&gt;</th>')
   })
+
+  // NIC follow-up: the IRP's SignedQRCode is the e-invoice QR — printed verbatim once stored.
+  it('prints the IRP-signed QR (the stored SignedQRCode) instead of the Verification QR, only with a live IRN', () => {
+    const irn = 'a'.repeat(64)
+    // A JWS of the size the IRP returns (~1 KB) still fits a QR.
+    const signedQr = `eyJhbGciOiJSUzI1NiJ9.${Buffer.from(JSON.stringify({ data: JSON.stringify({ Irn: irn, DocNo: 'SAMPLE-1', pad: 'x'.repeat(700) }), iss: 'NIC' })).toString('base64url')}.${'s'.repeat(342)}`
+    const t = printTemplateSchema.parse({ ...CLASSIC_DEFAULT, einvoice: { ...CLASSIC_DEFAULT.einvoice, showQr: true } })
+    const signed = renderDocument(t, { ...doc(INV), einvoice: { irn, ackNo: '1', ackDate: '2025-04-01', ewbNo: null, signedQr } })
+    expect(signed).toContain('e-Invoice QR (signed by the IRP)')
+    expect(signed).not.toContain('Verification QR')
+    const unsigned = renderDocument(t, { ...doc(INV), einvoice: { irn, ackNo: '1', ackDate: '2025-04-01', ewbNo: null } })
+    expect(unsigned).toContain('Verification QR')
+    expect(unsigned).not.toContain('signed by the IRP')
+    // No live IRN (cancelled = not passed): never the signed QR.
+    expect(renderDocument(t, { ...doc(INV), einvoice: { irn: null, ackNo: null, ackDate: null, ewbNo: null, signedQr } })).toContain('Verification QR')
+  })
 })

@@ -91,7 +91,8 @@ export function listSalesInvoices(db: DB, from: string, to: string, company?: Co
   const rows = db
     .prepare(
       `SELECT v.id AS voucherId, v.number, v.date, vt.kind AS kind, p.id AS partyLedgerId, p.name AS partyName, p.gstin AS partyGstin,
-              COALESCE(t.total, 0) AS total, v.vehicle_no AS vehicleNo, v.irn, v.ewb_no AS ewbNo,
+              COALESCE(t.total, 0) AS total, v.vehicle_no AS vehicleNo,
+              CASE WHEN v.irn_cancelled_at IS NULL THEN v.irn END AS irn, v.irn_cancelled_at AS irnCancelledAt, v.ewb_no AS ewbNo,
               EXISTS(SELECT 1 FROM inventory_lines il JOIN stock_items si ON si.id = il.stock_item_id
                      WHERE il.voucher_id = v.id AND si.hsn IS NOT NULL) AS hasHsn,
               EXISTS(SELECT 1 FROM inventory_lines il2 WHERE il2.voucher_id = v.id AND il2.qty_milli != 0) AS hasGoods
@@ -132,7 +133,7 @@ export function listSalesInvoices(db: DB, from: string, to: string, company?: Co
         return {
           voucherId: inv.voucherId!, number: inv.number, date: inv.date, docType: 'CHL' as const,
           partyLedgerId: inv.partyLedgerId ?? null, partyName: inv.partyName, partyGstin: inv.partyGstin,
-          total: inv.total, vehicleNo: inv.vehicleNo, hasHsn: inv.items.some((i) => !!i.hsn), irn: null, ewbNo: inv.ewbNo ?? null,
+          total: inv.total, vehicleNo: inv.vehicleNo, hasHsn: inv.items.some((i) => !!i.hsn), irn: null, irnCancelledAt: null, ewbNo: inv.ewbNo ?? null,
           outwardDbn: false,
           ewbReason: !goods ? 'No goods on the challan' : inv.total <= EWB_THRESHOLD_PAISE ? 'At or below ₹50,000 — per-bill export overrides' : null
         }
@@ -228,7 +229,8 @@ export function extractEdocInvoices(
       `SELECT v.id, v.number, v.date, vt.kind AS kind, v.reference, v.party_ledger_id AS partyLedgerId, v.ewb_no AS ewbNo,
               ${stockNotes ? 'tvd.purpose' : 'NULL'} AS purpose,
               v.transporter_id AS transporterId, v.vehicle_no AS vehicleNo,
-              v.transport_distance AS distanceKm, v.pos_override AS posOverride, v.irn,
+              v.transport_distance AS distanceKm, v.pos_override AS posOverride,
+              CASE WHEN v.irn_cancelled_at IS NULL THEN v.irn END AS irn,
               p.name AS partyName, p.gstin AS partyGstin, p.state_code AS partyState, p.address AS partyAddress,
               p.export_type AS partyExportType, COALESCE(p.rcm, 0) AS partyRcm,
               t.trans_mode, t.trans_distance, t.transporter_id AS tTransporterId, t.transporter_name,

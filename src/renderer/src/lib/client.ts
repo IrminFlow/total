@@ -6,6 +6,7 @@ import type {
 } from '@shared/domain'
 import type { UiMode, UiPatch, UiSettings } from '@shared/simple/uiMode'
 import type { Language } from '@shared/i18n'
+import type { NicRecord } from '@shared/gst/nicRecord'
 import type { QuickItemInput } from '@shared/schemas'
 import type { CaughtError, ErrorIssue, ErrorParams } from '@shared/errors'
 import type { SaveSummary } from '@shared/simple/saveCard'
@@ -1455,7 +1456,11 @@ export const api = {
     /** Auth handshake only (WP 3.5) — files nothing. */
     testConnection: () => call<{ ok: true; endpoint: string; sandbox: boolean; tokenExpiry: string }>('nic:testConnection'),
     generateIrn: (voucherId: number) => call<{ irn: string; ackNo: string; ackDate: string }>('nic:generateIrn', { voucherId }),
-    generateEwb: (voucherId: number) => call<{ ewbNo: string; validUpto: string }>('nic:generateEwb', { voucherId })
+    generateEwb: (voucherId: number) => call<{ ewbNo: string; validUpto: string }>('nic:generateEwb', { voucherId }),
+    /** The stored IRP / EWB answers for one voucher — read-only, no network. */
+    record: (voucherId: number) => call<NicRecord>('nic:record', { voucherId }),
+    /** Writes the signed invoice + signed QR JSON to the exports folder. */
+    signedCopyExport: (voucherId: number) => call<{ path: string }>('nic:signedCopyExport', { voucherId })
   },
   intel: {
     suggestLedgers: (kind: string, query: string) =>

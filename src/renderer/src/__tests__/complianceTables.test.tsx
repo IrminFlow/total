@@ -68,6 +68,7 @@ const edoc = (voucherId: number, number: string, date: string, docType: EdocList
   vehicleNo: null,
   hasHsn: true,
   irn: null,
+  irnCancelledAt: null,
   ewbNo: null,
   outwardDbn: false,
   ewbReason: null

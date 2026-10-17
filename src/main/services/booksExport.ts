@@ -59,8 +59,10 @@ export function buildBooksWorkbook(db: DB, info: CompanyInfo, appVersion: string
   /** Every non-null column outside `exclude`, foreign keys as names. Null when nothing is left. */
   const extras = (row: DbRow, exclude: string[]): string | null => {
     const out: DbRow = {}
+    // Timestamps are not carried — except facts that read as `_at`: a credit hold's date, and a
+    // cancelled IRN's CancelDate (without it a cancelled IRN would come back live).
     for (const [k, v] of Object.entries(row)) {
-      if (exclude.includes(k) || v === null || v === undefined || k.endsWith('_at') && k !== 'credit_hold_at') continue
+      if (exclude.includes(k) || v === null || v === undefined || k.endsWith('_at') && k !== 'credit_hold_at' && k !== 'irn_cancelled_at') continue
       out[k] = REFS[k] ? (REFS[k]!.get(v as number) ?? null) : v
     }
     return Object.keys(out).length ? JSON.stringify(out) : null

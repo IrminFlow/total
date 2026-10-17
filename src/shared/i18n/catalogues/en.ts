@@ -2678,6 +2678,7 @@ export const en = {
   'simple.print.alloc.against': 'Set against bill {name}: {amount}',
   'simple.print.alloc.oldest': 'Set against the oldest open bills',
   'simple.print.verificationQr': 'Verification QR',
+  'simple.print.signedQr': 'e-Invoice QR (signed by the IRP)',
   'simple.print.paymentRequest': 'Please pay the balance into the bank account below, with the bill numbers.',
 
   // ---------- command palette (shared chrome; wording unchanged from 0.10) ----------

@@ -13,6 +13,7 @@ import type { CompanyInfo } from '@shared/domain'
 import { nicCredentialsSchema, type NicCredentials } from '@shared/schemas'
 import { buildEInvoiceJson, buildEwbByIrnPayload, type EdocCompany } from '@shared/gst/edocs'
 import { einvoiceIssues } from '@shared/gst/einvoiceSchema'
+import type { EwbEvent, NicRecord } from '@shared/gst/nicRecord'
 import { outwardDebitNoteIds } from './gst'
 import { extractEdocInvoices, goodsMovedOnChallan, movedOnChallanReason } from './edocs'
 import { writeAudit } from './audit'
@@ -582,8 +583,9 @@ export interface IrnResult {
   irn: string
   ackNo: string
   ackDate: string
-  /** The NIC-signed JWTs from the response. NOT persisted — the vouchers table has no column for
-   *  them and WP 3.5 adds no migration; Get IRN returns them for 3 days ([GET]). */
+  /** The NIC-signed JWS strings from the response ([GEN] SignedInvoice / SignedQRCode), stored on
+   *  the voucher (irn_signed_invoice / irn_signed_qr) — the print's QR is rendered from the QR one.
+   *  For an adopted duplicate (2150) they come from Get IRN details ([GET], 3 days) when it answers. */
   signedQrCode: string | null
   signedInvoice: string | null
   /** True when NIC answered 2150 (duplicate) and the existing IRN for this document was adopted. */
@@ -592,10 +594,41 @@ export interface IrnResult {
 
 const str = (v: unknown): string => (v === null || v === undefined ? '' : String(v))
 
-function voucherForNic(db: DB, voucherId: number): { irn: string | null; irn_ack_no: string | null; irn_ack_date: string | null; ewb_no: string | null; ewb_valid_upto: string | null; date: string; deleted_at: string | null } {
+interface NicVoucherRow {
+  irn: string | null; irn_ack_no: string | null; irn_ack_date: string | null
+  irn_signed_invoice: string | null; irn_signed_qr: string | null
+  irn_cancelled_at: string | null; irn_cancel_reason: string | null; irn_cancel_remark: string | null
+  ewb_no: string | null; ewb_valid_upto: string | null; ewb_date: string | null; ewb_history: string | null
+  number: string; date: string; deleted_at: string | null
+}
+
+const NIC_COLUMNS = `irn, irn_ack_no, irn_ack_date, irn_signed_invoice, irn_signed_qr, irn_cancelled_at, irn_cancel_reason,
+  irn_cancel_remark, ewb_no, ewb_valid_upto, ewb_date, ewb_history, number, date, deleted_at`
+
+function nicRow(db: DB, voucherId: number): NicVoucherRow | undefined {
+  return db.prepare(`SELECT ${NIC_COLUMNS} FROM vouchers WHERE id = ?`).get(voucherId) as NicVoucherRow | undefined
+}
+
+/** An IRN is live while it is stored and no cancel is recorded (migration "NIC e-document columns"). */
+const irnLive = (v: Pick<NicVoucherRow, 'irn' | 'irn_cancelled_at'>): boolean => !!v.irn && !v.irn_cancelled_at
+
+export type { EwbEvent, NicRecord }
+
+export function readEwbHistory(raw: string | null): EwbEvent[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? (parsed as EwbEvent[]) : []
+  } catch {
+    return []
+  }
+}
+
+const withEvent = (raw: string | null, e: EwbEvent): string => JSON.stringify([...readEwbHistory(raw), e])
+
+function voucherForNic(db: DB, voucherId: number): NicVoucherRow {
   // getVoucher-style read (incl. the bin) so a binned voucher gets a precise message.
-  const v = db.prepare('SELECT irn, irn_ack_no, irn_ack_date, ewb_no, ewb_valid_upto, date, deleted_at FROM vouchers WHERE id = ?').get(voucherId) as
-    ReturnType<typeof voucherForNic> | undefined
+  const v = nicRow(db, voucherId)
   if (!v) throw new NicError('Voucher not found', [], 'config')
   if (v.deleted_at) throw new NicError('This voucher is in the bin — restore it first', [], 'config')
   return v
@@ -605,7 +638,9 @@ function voucherForNic(db: DB, voucherId: number): { irn: string | null; irn_ack
 export async function generateIrn(db: DB, slug: string, company: CompanyInfo, voucherId: number, deps: NicDeps = {}): Promise<IrnResult> {
   const ctx = context(db, slug, company, deps)
   const v = voucherForNic(db, voucherId)
-  if (v.irn) throw new NicError('This invoice already has an IRN', [], 'config')
+  // A cancelled IRN does not block a new one here (e.g. after renumbering); NIC itself refuses a
+  // second IRN for the same document number ([GEN] validation 12, error 2278).
+  if (irnLive(v)) throw new NicError('This invoice already has an IRN', [], 'config')
 
   const [invoice] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
   if (!invoice) throw new NicError('Only sales invoices and credit / debit notes in the books can be e-invoiced', [], 'config')
@@ -650,21 +685,44 @@ export async function generateIrn(db: DB, slug: string, company: CompanyInfo, vo
   // sends EwbDtls, but store them if the portal returns them).
   const ewbNo = data.EwbNo ? str(data.EwbNo) : null
   const ewbValid = data.EwbValidTill ? str(data.EwbValidTill) : null
-  const before = { irn: v.irn, irnAckNo: v.irn_ack_no, irnAckDate: v.irn_ack_date, ewbNo: v.ewb_no, ewbValidUpto: v.ewb_valid_upto }
+  const ewbDate = data.EwbDt ? str(data.EwbDt) : null
+  let signedInvoice = data.SignedInvoice ? str(data.SignedInvoice) : null
+  let signedQrCode = data.SignedQRCode ? str(data.SignedQRCode) : null
+  if (recovered && (!signedInvoice || !signedQrCode)) {
+    // The duplicate answer carries no signed copies; Get IRN details returns them within 3 days
+    // of generation ([GET]). Best effort — the IRN is adopted either way.
+    try {
+      const got = (await einvCall(ctx.creds, ctx.gstin, 'GET', `/eicore/v1.03/Invoice/irn/${irn}`, null, ctx.deps)).data
+      if (str(got.Irn) === irn) {
+        signedInvoice = got.SignedInvoice ? str(got.SignedInvoice) : signedInvoice
+        signedQrCode = got.SignedQRCode ? str(got.SignedQRCode) : signedQrCode
+      }
+    } catch (e) {
+      log('warn', 'nic-irn-signed-copies-unavailable', { voucherId, codes: e instanceof NicError ? e.codes : [] })
+    }
+  }
+  const before = {
+    irn: v.irn, irnAckNo: v.irn_ack_no, irnAckDate: v.irn_ack_date, ewbNo: v.ewb_no, ewbValidUpto: v.ewb_valid_upto,
+    ...(v.irn_cancelled_at ? { irnCancelledAt: v.irn_cancelled_at, irnCancelReason: v.irn_cancel_reason, irnCancelRemark: v.irn_cancel_remark } : {})
+  }
   db.transaction(() => {
-    db.prepare('UPDATE vouchers SET irn = ?, irn_ack_no = ?, irn_ack_date = ? WHERE id = ?').run(irn, ackNo, ackDate, voucherId)
-    if (ewbNo) db.prepare('UPDATE vouchers SET ewb_no = ?, ewb_valid_upto = ? WHERE id = ?').run(ewbNo, ewbValid, voucherId)
+    db.prepare(
+      `UPDATE vouchers SET irn = ?, irn_ack_no = ?, irn_ack_date = ?, irn_signed_invoice = ?, irn_signed_qr = ?,
+              irn_cancelled_at = NULL, irn_cancel_reason = NULL, irn_cancel_remark = NULL WHERE id = ?`
+    ).run(irn, ackNo, ackDate, signedInvoice, signedQrCode, voucherId)
+    if (ewbNo) {
+      db.prepare('UPDATE vouchers SET ewb_no = ?, ewb_valid_upto = ?, ewb_date = ?, ewb_history = ? WHERE id = ?')
+        .run(ewbNo, ewbValid, ewbDate, withEvent(v.ewb_history, { action: 'generate', ewbNo, at: ewbDate ?? '', validUpto: ewbValid ?? '' }), voucherId)
+    }
+    // The signed copies are kept on the voucher but only their presence is audited (a JWS is ~1–3 KB
+    // of what the IRP returned; the IRN, ack no and date identify it).
     writeAudit(db, 'voucher', voucherId, 'update', before, {
-      ...before, irn, irnAckNo: ackNo, irnAckDate: ackDate, ...(ewbNo ? { ewbNo, ewbValidUpto: ewbValid } : {}), ...(recovered ? { recoveredDuplicate: true } : {})
+      irn, irnAckNo: ackNo, irnAckDate: ackDate, ewbNo: ewbNo ?? v.ewb_no, ewbValidUpto: ewbNo ? ewbValid : v.ewb_valid_upto,
+      signedInvoice: !!signedInvoice, signedQrCode: !!signedQrCode, ...(recovered ? { recoveredDuplicate: true } : {})
     })
   })()
   log('info', 'nic-irn-generated', { voucherId, ackNo, recovered })
-  return {
-    irn, ackNo, ackDate,
-    signedQrCode: data.SignedQRCode ? str(data.SignedQRCode) : null,
-    signedInvoice: data.SignedInvoice ? str(data.SignedInvoice) : null,
-    recovered
-  }
+  return { irn, ackNo, ackDate, signedQrCode, signedInvoice, recovered }
 }
 
 export interface EwbResult {
@@ -678,6 +736,7 @@ export interface EwbResult {
 export async function generateEwbByIrn(db: DB, slug: string, company: CompanyInfo, voucherId: number, deps: NicDeps = {}): Promise<EwbResult> {
   const ctx = context(db, slug, company, deps)
   const v = voucherForNic(db, voucherId)
+  if (v.irn && v.irn_cancelled_at) throw new NicError('This invoice\'s IRN was cancelled — an e-way bill can no longer be generated against it', [], 'config')
   if (!v.irn) throw new NicError('Generate the IRN first — the e-way bill hangs off it', [], 'config')
   if (v.ewb_no) throw new NicError('This invoice already has an e-way bill', [], 'config')
   const [invoice] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
@@ -697,10 +756,12 @@ export async function generateEwbByIrn(db: DB, slug: string, company: CompanyInf
   const ewbNo = str(data.EwbNo)
   if (!/^\d{12}$/.test(ewbNo)) throw new NicError('NIC returned no valid e-way bill number')
   const validUpto = str(data.EwbValidTill)
+  const ewbDate = str(data.EwbDt)
   const before = { ewbNo: v.ewb_no, ewbValidUpto: v.ewb_valid_upto }
   db.transaction(() => {
-    db.prepare('UPDATE vouchers SET ewb_no = ?, ewb_valid_upto = ? WHERE id = ?').run(ewbNo, validUpto || null, voucherId)
-    writeAudit(db, 'voucher', voucherId, 'update', before, { ewbNo, ewbValidUpto: validUpto || null })
+    db.prepare('UPDATE vouchers SET ewb_no = ?, ewb_valid_upto = ?, ewb_date = ?, ewb_history = ? WHERE id = ?')
+      .run(ewbNo, validUpto || null, ewbDate || null, withEvent(v.ewb_history, { action: 'generate', ewbNo, at: ewbDate, validUpto }), voucherId)
+    writeAudit(db, 'voucher', voucherId, 'update', before, { ewbNo, ewbValidUpto: validUpto || null, ewbDate: ewbDate || null })
   })()
   log('info', 'nic-ewb-generated', { voucherId, ewbNo })
   return { ewbNo, validUpto }
@@ -823,4 +884,62 @@ export async function extendEwb(db: DB, slug: string, company: CompanyInfo, vouc
   })()
   log('info', 'nic-ewb-extended', { voucherId })
   return { ewbNo: str(data.ewayBillNo) || v.ewb_no, validUpto }
+}
+
+
+// ---------- the stored e-invoice / e-way record (read-only; no network) ----------
+
+/** A JWS (header.payload.signature, base64url) → its decoded payload. The IRP's SignedQRCode and
+ *  SignedInvoice carry `{ data: "<JSON text>", iss: "NIC" }` ([GEN] response; the verification of
+ *  the signature needs NIC's public signing key and is the portal's job — never done here). */
+export function decodeJwsPayload(jws: string | null): Record<string, unknown> | null {
+  if (!jws) return null
+  const parts = jws.split('.')
+  if (parts.length !== 3) return null
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1]!.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')) as Record<string, unknown>
+    if (typeof payload.data === 'string') {
+      try {
+        return { ...payload, data: JSON.parse(payload.data) as unknown }
+      } catch {
+        return payload
+      }
+    }
+    return payload
+  } catch {
+    return null
+  }
+}
+
+/** Everything the IRP / EWB system returned for one voucher, as stored. QUERY — writes nothing. */
+export function nicRecord(db: DB, voucherId: number): NicRecord {
+  const v = nicRow(db, voucherId)
+  if (!v) throw new NicError('Voucher not found', [], 'config')
+  return {
+    voucherId,
+    number: v.number,
+    date: v.date,
+    irn: v.irn,
+    ackNo: v.irn_ack_no,
+    ackDate: v.irn_ack_date,
+    signedInvoice: v.irn_signed_invoice,
+    signedQrCode: v.irn_signed_qr,
+    signedInvoiceData: decodeJwsPayload(v.irn_signed_invoice),
+    signedQrData: decodeJwsPayload(v.irn_signed_qr),
+    ewbNo: v.ewb_no,
+    ewbDate: v.ewb_date,
+    ewbValidUpto: v.ewb_valid_upto,
+    ewbHistory: readEwbHistory(v.ewb_history)
+  }
+}
+
+/** The JSON file "Save JSON" writes: the response fields as the IRP named them ([GEN]). */
+export function signedCopyJson(rec: NicRecord): Record<string, unknown> {
+  if (!rec.irn) throw new NicError('This voucher has no IRN', [], 'config')
+  if (!rec.signedInvoice && !rec.signedQrCode) throw new NicError('No signed copy is stored for this IRN (it was generated before Total kept them, or adopted without one)', [], 'config')
+  return {
+    Irn: rec.irn, AckNo: rec.ackNo, AckDt: rec.ackDate,
+    SignedInvoice: rec.signedInvoice, SignedQRCode: rec.signedQrCode,
+    DocNo: rec.number, DocDt: rec.date
+  }
 }

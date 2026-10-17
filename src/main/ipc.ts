@@ -2,10 +2,11 @@ import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electr
 import { checkSender, firstRefusalOf } from './ipcSender'
 import { allowedHelpUrl } from '@shared/helpLinks'
 import { nextRegistrationFacts } from '@shared/gst/registration'
-import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync, appendFileSync } from 'fs'
+import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync, appendFileSync, mkdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
 import { decodeTextFile } from '@shared/textFiles'
+import { fitFileName, portableFileName } from '@shared/fileNames'
 import { z } from 'zod'
 import { LANGUAGES } from '@shared/i18n'
 import { forgetFolderKey, isEncryptedFile, keyForPath, keyOfHandle, openDb, plainCopy, rekeyFile, removeDbFiles, rememberFolderKey } from './db/encryption'
@@ -3066,6 +3067,26 @@ export function registerIpc(): void {
     const c = requireCompany()
     return nic.generateEwbByIrn(c.db, c.slug, c.info, voucherId)
   }, 'owner')
+  // The stored IRP / EWB answers for one voucher (signed invoice + QR, ack, cancel state, e-way
+  // history) — read-only, no network.
+  handle('nic:record', (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    return nic.nicRecord(requireCompany().db, voucherId)
+  }, 'viewer')
+  // "Save JSON": the signed invoice + signed QR as the IRP returned them, to the exports folder.
+  handle('nic:signedCopyExport', (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    const rec = nic.nicRecord(c.db, voucherId)
+    const json = nic.signedCopyJson(rec)
+    const dir = join(companyExportsDir(c.slug), 'einvoice-signed')
+    mkdirSync(dir, { recursive: true })
+    const path = join(dir, fitFileName(dir, `${portableFileName(rec.number.replace(/[\\/]/g, '-'), { fallback: `voucher-${voucherId}` })}-signed-einvoice.json`))
+    writeFileSync(path, JSON.stringify(json, null, 2), 'utf8')
+    auditExport(c.db, 'einvoice_signed', { voucherId, path })
+    shell.showItemInFolder(path)
+    return { path }
+  })
 
   // ---------- intelligence ----------
   handle('intel:suggestLedgers', (p) => {
