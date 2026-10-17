@@ -516,22 +516,66 @@ describe('every export-audited channel is gated by canExport unless it is a prin
       if (map.get(ch) !== 'canExport' && map.get(ch) !== 'canPost') missed.push(ch)
     }
     expect(missed).toEqual([])
-    // Source scan, whatever the channel's role: a handler that audits an 'export' (auditExport(...) or
-    // writeAudit(db, 'export', ...)) must be gated by canExport or listed in NOT_EXPORTS. Viewer-role
-    // channels are not in AUDIT_COVERAGE, so the registry loop above cannot see them.
-    const { readdirSync, readFileSync } = await import('fs')
-    const dir = __dirname
+    // Source scan, whatever the channel's role (viewer channels are not in AUDIT_COVERAGE, so the loop
+    // above can't see them): every handler under src/main that writes a file for the user, or audits
+    // an export — directly, or through a helper defined in its own file — and every channel whose NAME
+    // says file / print / export must be gated by canExport (or canPost), listed in NOT_EXPORTS, or
+    // be one of the reads / inputs below. A new export that skips both the gate and the audit row
+    // (the real risk — banking:brsPdf was one) fails here.
+    const NOT_FILE_WRITES: Record<string, string> = {
+      'capture:addFiles': 'input: bills queued for capture',
+      'simple:taxes:filed': 'marks a return filed (meta), writes no file',
+      'company:revealExports': 'opens the exports folder',
+      'stock:labelsHtml': 'label HTML for the on-screen preview',
+      'counter:printHtml': 'bill HTML for the on-screen print',
+      'gst:recon2bPickFile': 'input: picks a GSTR-2B file',
+      'bank:importCsv': 'input: a bank statement',
+      'gstProfile:get': 'GST filing frequency',
+      'gstProfile:set': 'GST filing frequency',
+      'import:pickCsv': 'input: picks a CSV',
+      'bankImport:pickFile': 'input: picks a statement',
+      'bankImport:profile': 'a statement column mapping',
+      'bankImport:saveProfile': 'a statement column mapping',
+      'budget:importCsv': 'input: a budget CSV',
+      'pricing:importCsv': 'input: a price list'
+    }
+    const { readdirSync, readFileSync, statSync } = await import('fs')
+    const WRITES = /auditExport\(|writeAudit\([^;]*?'export'|writeExportPdf\(|writeFileSync\(|exportReturnJson\(|runPack\(|pickExportPath\(|chooseExportPath\(/
+    const FILE_NAME = /pdf|csv|xlsx|xml|export|json|ecr|esi|print|label|download|file/i
+    const walk = (d: string): string[] =>
+      readdirSync(d).flatMap((n) => (statSync(join(d, n)).isDirectory() ? walk(join(d, n)) : [join(d, n)]))
     const unlisted: string[] = []
-    for (const f of readdirSync(dir).filter((n) => /^ipc.*\.ts$/.test(n) && !/test\.ts$/.test(n))) {
-      const parts = readFileSync(join(dir, f), 'utf8').split(/\n\s*handle\(\s*'/).slice(1)
-      for (const part of parts) {
-        const ch = part.slice(0, part.indexOf("'"))
-        if (!/auditExport\(|writeAudit\([^)]*'export'/.test(part.split(/\n {2}(?:handle\(|const |let |function |\/\/)/)[0] ?? '')) continue
-        if (ch in caps.NOT_EXPORTS) continue
-        if (map.get(ch) !== 'canExport' && map.get(ch) !== 'canPost') unlisted.push(`${ch} (${f})`)
+    const seen = new Set<string>()
+    for (const f of walk(__dirname).filter((p) => p.endsWith('.ts') && !/test\.ts$/.test(p))) {
+      const src = readFileSync(f, 'utf8')
+      const hits = [...src.matchAll(/^([ \t]*)handle\(\s*'([^']+)'/gm)]
+      if (!hits.length) continue
+      // a handler's body: its first line up to the next line indented no deeper than `handle(`
+      const bodyOf = (m: RegExpMatchArray): string => {
+        const lines = src.slice(m.index).split('\n')
+        const end = lines.findIndex((l, i) => i > 0 && l.trim() !== '' && l.length - l.trimStart().length <= (m[1] ?? '').length)
+        return lines.slice(0, end < 0 ? undefined : end + 1).join('\n')
+      }
+      // file-local helpers that write a file / an export row (writeExport in ipcPayables.ts …)
+      const defs = [...src.matchAll(/^[ \t]*(?:export\s+)?(?:const|(?:async\s+)?function)\s+(\w+)/gm)]
+      const helpers = defs
+        .filter((d, i) => WRITES.test(src.slice(d.index, Math.min(defs[i + 1]?.index ?? src.length, ...hits.map((h) => h.index ?? 0).filter((x) => x > (d.index ?? 0))))))
+        .map((d) => d[1] ?? '')
+      const helperRe = helpers.length ? new RegExp(`\\b(?:${helpers.join('|')})\\(`) : null
+      for (const m of hits) {
+        const ch = m[2] ?? ''
+        seen.add(ch)
+        const body = bodyOf(m)
+        if (!WRITES.test(body) && !helperRe?.test(body) && !FILE_NAME.test(ch)) continue
+        if (ch in caps.NOT_EXPORTS || ch in NOT_FILE_WRITES) continue
+        if (map.get(ch) !== 'canExport' && map.get(ch) !== 'canPost') unlisted.push(`${ch} (${f.slice(__dirname.length + 1)})`)
       }
     }
     expect(unlisted).toEqual([])
+    // the scan really reads the handlers (a regex that silently matches nothing would pass)
+    expect(seen.size).toBeGreaterThan(500)
+    for (const ch of ['banking:brsPdf', 'payroll:form16Pdf', 'tds:form16aPdf', 'payroll:ecr', 'pack:runNow']) expect(seen.has(ch), ch).toBe(true)
+    for (const ch of Object.keys(NOT_FILE_WRITES)) expect(ipc.CHANNEL_ROLES.has(ch), ch).toBe(true)
     for (const ch of Object.keys(caps.NOT_EXPORTS)) expect(ipc.CHANNEL_ROLES.has(ch), ch).toBe(true)
   })
 })

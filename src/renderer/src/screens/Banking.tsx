@@ -16,6 +16,7 @@ import { RulesTab } from './banking/RulesTab'
 import { ChequeLayoutModal, ChequesTab } from './banking/ChequesTab'
 import { PdcTab } from './banking/PdcTab'
 import { BulkTab } from './banking/BulkTab'
+import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../lib/capabilities'
 import { AUTOSELECT_CHOICES, SUGGEST_CHOICES, TOLERANCE_CHOICES, WINDOW_CHOICES, type MatchSettings } from './banking/shared'
 
 export type BankTab = 'recon' | 'import' | 'rules' | 'cheques' | 'pdc' | 'bulk' | 'brs'
@@ -389,6 +390,7 @@ function BrsSection({ ledgerId, defaultAsOn }: { ledgerId: number; defaultAsOn: 
   const toast = useToasts()
   const [asOn, setAsOn] = useState(defaultAsOn)
   const [printing, setPrinting] = useState(false)
+  const exportRefused = useCapabilityRefused('canExport') // PR #155: the BRS PDF is a canExport channel
   const { data: brs, isLoading } = useQuery({
     queryKey: ['brs', ledgerId, asOn],
     queryFn: () => api.bank.brs(ledgerId, asOn)
@@ -433,7 +435,7 @@ function BrsSection({ ledgerId, defaultAsOn }: { ledgerId: number; defaultAsOn: 
         <Field label="As on">
           <DateInput value={asOn} context={defaultAsOn} onChange={setAsOn} testId="input-brs-date" className="w-40" />
         </Field>
-        <Button disabled={printing || !brs} data-testid="btn-banking-brs-pdf" onClick={() => void pdf()}>
+        <Button disabled={exportRefused || printing || !brs} disabledTitle={exportRefused ? CAPABILITY_REFUSED_TEXT.canExport : undefined} data-testid="btn-banking-brs-pdf" onClick={() => void pdf()}>
           Export PDF
         </Button>
       </div>

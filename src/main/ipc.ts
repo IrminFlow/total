@@ -2592,6 +2592,7 @@ export function registerIpc(): void {
       rows
     })
     const path = await writeExportPdf(c.slug, `brs-${slugify(r.ledgerName)}-${asOn}.pdf`, html, { pageSize: 'A4' })
+    auditExport(c.db, 'brs_pdf', { ledgerId, asOn, path })
     return { path }
   }, 'viewer')
 
