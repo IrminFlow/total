@@ -33,6 +33,8 @@ what you typed, and a **Back to simple** button.
 - The AI key box now tells you before you paste anything if you can't change the key (only the owner can, or another business on this computer has sign-ins), in the simple AI helper and in Settings → AI.
 - Ask Total no longer guesses when you say "pay 5000 to" one of your own accounts: your own bank or cash is a move of money (with a link to Move money), your capital is drawings, and income or loan accounts are asked about by name.
 
+- **Accountant view on People and the reports.** People opens the Outstandings of the side you are looking at, a person's page opens their statement, "How is my business doing" opens the profit and loss for the days shown, "By month" the registers for the busiest month, and Taxes for a business with no GST return opens Company details. Back to simple returns to the same screen. [#173](https://github.com/IrminFlow/total/pull/173)
+- **A gentle reminder before a bill is due.** A customer's page offers "Send a gentle reminder" when a bill falls due within 7 days (nothing late yet), in English, Hindi or Hinglish, by WhatsApp, SMS or copy. [#173](https://github.com/IrminFlow/total/pull/173)
 - **Help covers the recent simple-mode features.** Recipes and labour, "Remember on this computer", moving the books folder, "Back to simple" keeping your changes, Bank's Skipped for now / Not this / GST on charges, Money out refunds and "Record a purchase instead", low-stock warnings, and quarterly GST files, in English, Hindi and Hinglish (five more articles now have a Hinglish version).
 - **Make a bill** (Sell). Pick a customer (or leave it empty for a cash customer), add products or
   just an amount, say how it was paid (cash, UPI, card, bank transfer, on credit, partly paid), and
