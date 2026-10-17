@@ -92,7 +92,7 @@ import type { SearchHit, SearchResponse } from '@shared/search'
 import type { ChartGroupNode } from '@shared/chartOfAccounts'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { PrintDocKind, PrintTemplate, TemplateList } from '@shared/printTemplates'
-import type { CloseLedgerRow } from '@shared/yearEnd'
+import type { CloseLedgerRow, CloseRepairPreview } from '@shared/yearEnd'
 import type { DepreciationYearStatus } from '@shared/fixedAssets'
 import type { ConsolidatedResult } from '@shared/consolidate'
 import type { Registry } from '../types'
@@ -1411,7 +1411,13 @@ export const api = {
     preview: (fyStartYear: number) =>
       call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean; depreciation?: DepreciationYearStatus; unbilled?: UnbilledGoods; msme?: MsmeYearEndWarning }>('yearend:preview', { fyStartYear }),
     close: (fyStartYear: number) =>
-      call<{ voucherId: number; netProfit: number; lockedUpTo: string }>('yearend:close', { fyStartYear })
+      call<{ voucherId: number; netProfit: number; lockedUpTo: string }>('yearend:close', { fyStartYear }),
+    repairPreview: () => call<CloseRepairPreview>('yearEnd:repairPreview', {}),
+    repair: (fingerprint: string, fyStartYears?: number[]) =>
+      call<{ repaired: { fyStartYear: number; oldVoucherId: number; voucherId: number; netProfit: number; residual: number }[]; lockDate: string | null }>(
+        'yearEnd:repair',
+        fyStartYears ? { fingerprint, fyStartYears } : { fingerprint }
+      )
   },
   tally: {
     dryRun: (filePath?: string) =>

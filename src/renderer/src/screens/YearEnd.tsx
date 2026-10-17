@@ -5,6 +5,7 @@ import { planClose, type CloseLedgerRow } from '@shared/yearEnd'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { CashFinanceCloseWarnings } from './cashFinance/CloseWarnings'
+import { YearEndRecheck } from './YearEndRecheck'
 import { Banner, Button, DrawerSection, EmptyState, Money, Page, PageHeader, Panel, Select, TextInput } from '../components/ui'
 import { OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
@@ -401,6 +402,8 @@ export function YearEndScreen(): React.JSX.Element {
           </div>
         </>
       )}
+
+      <YearEndRecheck />
     </Page>
   )
 }
