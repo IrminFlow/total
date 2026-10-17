@@ -8,6 +8,8 @@ import { toDisplayDate, todayISO } from '@shared/dates'
 import { TotalLogo } from '../../components/TotalLogo'
 import { dataFolder } from '../../lib/platform'
 import { DataFolderSetting } from '../../simple/DataFolderSetting'
+import { runUpdatesWrite, useUpdatesCanSet } from '../../lib/updatesGate'
+import { confirmDialog } from '../../lib/dialogs'
 
 const PLATFORM_LABELS: Record<string, string> = { darwin: 'macOS', win32: 'Windows', linux: 'Linux' }
 
@@ -88,14 +90,20 @@ export function AboutSection(): React.JSX.Element {
 function AutoCheckRow(): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
-  const { user } = useSession()
-  const canEdit = !user || user.role === 'owner'
+  const gate = useUpdatesCanSet()
+  const canEdit = gate.allowed
   const { data } = useQuery({ queryKey: ['appUpdates'], queryFn: api.app.updates })
   const [busy, setBusy] = useState(false)
   const toggle = async (next: boolean): Promise<void> => {
+    const ask = (): Promise<boolean> =>
+      confirmDialog({
+        title: 'Update setting',
+        message: 'No company on this computer has sign-ins yet, so anyone using it can change how Total updates. Continue?',
+        confirmLabel: 'Continue'
+      })
     setBusy(true)
     try {
-      await api.app.setAutoCheck(next)
+      await runUpdatesWrite(gate, ask, (confirmed) => api.app.setAutoCheck(next, confirmed))
       await queryClient.invalidateQueries({ queryKey: ['appUpdates'] })
     } catch (err) {
       toast.push('error', (err as Error).message)
@@ -117,7 +125,7 @@ function AutoCheckRow(): React.JSX.Element {
         <span className="block text-body">Check for updates automatically</span>
         <span className="block text-hint text-muted">
           Total asks once at launch whether a newer version exists (a request to the release feed; nothing about your books is sent). Nothing is
-          downloaded until you say so.{canEdit ? '' : ' Only owners can change this.'}
+          downloaded until you say so.{canEdit ? '' : gate.reason === 'other_company_has_users' ? ' Another company on this computer has users; sign in as its owner to change this.' : ' Only owners can change this.'}
         </span>
       </span>
     </label>

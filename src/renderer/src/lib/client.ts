@@ -678,7 +678,7 @@ import type { Capability, CapabilityFlags } from '@shared/capabilities'
 import type { OpeningsResult, OpeningsState, SimpleOpeningsInput } from '@shared/simple/openings'
 import type { GstProfile, GstProfilePatch } from '@shared/gst/filing'
 import type { EinvoiceStatus } from '@shared/compliance'
-import type { UpdateAction, UpdateCheckResult, UpdateNotice, UpdatesView } from '@shared/updates'
+import type { UpdateAction, UpdateCheckResult, UpdateNotice, UpdatesCanSet, UpdatesView } from '@shared/updates'
 import type { DataFolderMoved, DataFolderPick, DataFolderView } from '@shared/dataFolder'
 /** A failed IPC call (WP 8.5): `message` is the service's wording, unchanged; the structured
  *  fields (shared/errors) let a form put a plain message under the field (`useFormErrors`). */
@@ -1542,8 +1542,10 @@ export const api = {
     checkUpdates: () =>
       call<UpdateCheckResult>('app:checkUpdates'),
     updates: () => call<UpdatesView>('app:updates:get'),
-    setAutoCheck: (autoCheck: boolean) => call<UpdatesView>('app:updates:set', { autoCheck }),
-    updateAction: (action: UpdateAction) => call<UpdatesView>('app:updates:act', { action }),
+    updatesCanSet: () => call<UpdatesCanSet>('app:updates:canSet'),
+    /** `confirmNoUsers`: no company on this computer has sign-ins and the user confirmed anyone can change this. */
+    setAutoCheck: (autoCheck: boolean, confirmNoUsers = false) => call<UpdatesView>('app:updates:set', confirmNoUsers ? { autoCheck, confirmNoUsers } : { autoCheck }),
+    updateAction: (action: UpdateAction, confirmNoUsers = false) => call<UpdatesView>('app:updates:act', confirmNoUsers ? { action, confirmNoUsers } : { action }),
     // Settings → "Where Total keeps your books": the folder in use, pick another (main's dialog), move.
     dataRoot: () => call<DataFolderView>('app:dataRoot:get'),
     pickDataRoot: () => call<DataFolderPick | null>('app:dataRoot:pick'),

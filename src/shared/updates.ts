@@ -49,3 +49,15 @@ export function isNewerVersion(remote: string, local: string): boolean {
 }
 
 export const bareVersion = (v: string): string => v.replace(/^v/, '')
+
+/** Who may change the app-wide update setting / answer a notice (the AI-key rule). */
+export type UpdatesCanSet = { allowed: boolean; reason: 'ok' | 'owner_only' | 'other_company_has_users' | 'needs_confirmation' }
+
+
+/** In a company with users: owner only. Without users: refused while any other company on this
+ *  computer has users, else allowed after an explicit confirmation. Pure; tested. */
+export function updatesCanSet(o: { companyHasUsers: boolean; isOwner: boolean; anyOtherCompanyHasUsers: boolean }): UpdatesCanSet {
+  if (o.companyHasUsers) return o.isOwner ? { allowed: true, reason: 'ok' } : { allowed: false, reason: 'owner_only' }
+  if (o.anyOtherCompanyHasUsers) return { allowed: false, reason: 'other_company_has_users' }
+  return { allowed: true, reason: 'needs_confirmation' }
+}

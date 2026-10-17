@@ -12,10 +12,12 @@ import { AboutSection } from '../screens/settings/AboutSection'
 import { LANGUAGE_KEY } from '../lib/i18n'
 import { useSession } from '../state/stores'
 import { CATALOGUES } from '@shared/i18n'
+import { DialogHost } from '../components/dialogs'
 
 const invoke = vi.fn()
 let view: UpdatesView
 let push: ((n: unknown) => void) | null = null
+let gate: { allowed: boolean; reason: string } | null = null
 
 const wrap = (ui: ReactNode): ReactNode => (
   <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>{ui}</QueryClientProvider>
@@ -26,11 +28,14 @@ beforeEach(() => {
   resetUpdateNoticeSession()
   view = { settings: { autoCheck: true, skippedVersion: null }, notice: null, current: '0.12.0' }
   push = null
+  gate = null
   invoke.mockReset()
   invoke.mockImplementation(async (channel: string, payload?: { autoCheck?: boolean; action?: string }) => {
     switch (channel) {
       case 'app:updates:get':
         return { ok: true, data: view }
+      case 'app:updates:canSet':
+        return gate ? { ok: true, data: gate } : { ok: false, error: 'unmocked' }
       case 'app:updates:set':
         view = { ...view, settings: { ...view.settings, autoCheck: payload!.autoCheck! } }
         return { ok: true, data: view }
@@ -95,7 +100,7 @@ describe('update notice', () => {
     fireEvent.click(await screen.findByTestId('btn-update-later'))
     first.unmount()
     render(wrap(<UpdateNotice />))
-    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(invoke.mock.calls.filter((c) => c[0] === 'app:updates:get')).toHaveLength(2))
     expect(screen.queryByTestId('update-notice')).toBeNull()
     // A newer version is news again.
     act(() => push!({ ...available, version: '0.14.0' }))
@@ -162,5 +167,83 @@ describe('Check for updates automatically', () => {
     fireEvent.click(box)
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('app:updates:set', { autoCheck: false }))
     expect(screen.getByText('Check for updates automatically')).toBeTruthy()
+  })
+})
+
+describe('who may change the update setting (the AI-key rule, asked before the click)', () => {
+  it('no sign-ins anywhere: the simple toggle asks first, then sends confirmNoUsers; Cancel sends nothing', async () => {
+    gate = { allowed: true, reason: 'needs_confirmation' }
+    render(wrap(<><UpdatesSetting /><DialogHost /></>))
+    const box = (await screen.findByTestId('chk-update-auto')) as HTMLInputElement
+    await waitFor(() => expect(box.disabled).toBe(false))
+    expect(screen.getByText(CATALOGUES.en['simple.updates.noSignIns']!)).toBeTruthy()
+    fireEvent.click(box)
+    fireEvent.click(await screen.findByText(CATALOGUES.en['simple.updates.confirmButton']!))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('app:updates:set', { autoCheck: false, confirmNoUsers: true }))
+    invoke.mockClear()
+    fireEvent.click(screen.getByTestId('chk-update-auto'))
+    fireEvent.click(await screen.findByText('Cancel'))
+    await act(async () => {})
+    expect(invoke).not.toHaveBeenCalledWith('app:updates:set', expect.anything())
+  })
+
+  it('another company has users: the toggle is disabled and says why, before any click', async () => {
+    gate = { allowed: false, reason: 'other_company_has_users' }
+    render(wrap(<UpdatesSetting />))
+    expect(await screen.findByText(CATALOGUES.en['simple.updates.otherCompany']!)).toBeTruthy()
+    expect((screen.getByTestId('chk-update-auto') as HTMLInputElement).disabled).toBe(true)
+  })
+
+  it('the notice asks to confirm before Download now and shows no buttons when another company has users', async () => {
+    gate = { allowed: true, reason: 'needs_confirmation' }
+    view.notice = available
+    const first = render(wrap(<><UpdateNotice /><DialogHost /></>))
+    fireEvent.click(await screen.findByTestId('btn-update-download'))
+    fireEvent.click(await screen.findByText(CATALOGUES.en['simple.updates.confirmButton']!))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('app:updates:act', { action: 'download', confirmNoUsers: true }))
+    first.unmount()
+    gate = { allowed: false, reason: 'other_company_has_users' }
+    render(wrap(<UpdateNotice />))
+    expect(await screen.findByText(CATALOGUES.en['simple.updates.otherCompany']!)).toBeTruthy()
+    expect(screen.queryByTestId('btn-update-download')).toBeNull()
+  })
+
+  it('company-select screen (no company, no sign-in): main asks for the confirmation the verdict did not foresee -> ask, then retry', async () => {
+    // canSet unreadable / not answered yet: the local fallback allows the click; main refuses with the confirm code.
+    let refused = 0
+    const base = invoke.getMockImplementation()!
+    invoke.mockImplementation(async (channel: string, payload?: { action?: string; confirmNoUsers?: boolean }) => {
+      if (channel === 'app:updates:act' && !payload?.confirmNoUsers) {
+        refused++
+        return { ok: false, error: 'Confirm to continue.', code: 'updates_confirm_no_users' }
+      }
+      return base(channel, payload)
+    })
+    view.notice = available
+    render(wrap(<><UpdateNotice /><DialogHost /></>))
+    fireEvent.click(await screen.findByTestId('btn-update-download'))
+    fireEvent.click(await screen.findByText(CATALOGUES.en['simple.updates.confirmButton']!))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('app:updates:act', { action: 'download', confirmNoUsers: true }))
+    expect(refused).toBe(1)
+    // Cancel: nothing more is sent.
+    invoke.mockClear()
+    fireEvent.click(screen.getByTestId('btn-update-skip'))
+    fireEvent.click(await screen.findByText('Cancel'))
+    await act(async () => {})
+    expect(invoke).not.toHaveBeenCalledWith('app:updates:act', { action: 'skip', confirmNoUsers: true })
+  })
+
+  it('accountant About: confirms in plain English, and explains when another company has users', async () => {
+    gate = { allowed: true, reason: 'needs_confirmation' }
+    const first = render(wrap(<><AboutSection /><DialogHost /></>))
+    const box = (await screen.findByTestId('chk-update-auto')) as HTMLInputElement
+    await waitFor(() => expect(box.disabled).toBe(false))
+    fireEvent.click(box)
+    fireEvent.click(await screen.findByText('Continue'))
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('app:updates:set', { autoCheck: false, confirmNoUsers: true }))
+    first.unmount()
+    gate = { allowed: false, reason: 'other_company_has_users' }
+    render(wrap(<AboutSection />))
+    expect(await screen.findByText(/Another company on this computer has users/)).toBeTruthy()
   })
 })

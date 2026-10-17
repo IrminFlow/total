@@ -210,6 +210,9 @@ export const ERROR_MAP = {
   duplicate_name: e('errors.duplicateName', 'name'),
   not_permitted: e('errors.notAllowed'),
   session_locked: e('errors.signInFirst'),
+  updates_other_company_has_users: e('errors.updates.otherCompany'),
+  updates_confirm_no_users: e('errors.updates.confirm'),
+  updates_owner_only: e('errors.updates.ownerOnly'),
   // ---------- WP 7.2 security (db/encryption.ts, services/dbEncryption.ts, ipc.ts) ----------
   db_locked: e('errors.security.locked'),
   db_key_mismatch: e('errors.security.keyMismatch'),
