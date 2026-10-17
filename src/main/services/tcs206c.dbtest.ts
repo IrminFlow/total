@@ -2,7 +2,7 @@
 // ₹10 lakh of a buyer's year, 20 % above; FY 2026-27 a flat 2 %) — src/shared/tcsSources.ts.
 // Every figure is hand-worked in paise in the comments (₹1 = 100 paise; ₹10 lakh = 1,00,00,000).
 import { describe, it, expect, beforeAll } from 'vitest'
-import { mkdtempSync } from 'fs'
+import { mkdtempSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { seededDb } from '../db/testdb'
@@ -11,8 +11,12 @@ import { createLedger } from './masters'
 import { getVoucher, saveVoucher } from './vouchers'
 import { listRates, listSections, saveRate } from './tds'
 import { addStatutoryTcsSections, statutoryTcsSections, tcsSuggestion } from './tcs'
-import { applyTcsToVoucher, tcsEligible } from './tcsWorkbench'
+import { applyTcsToVoucher, export27eqCsv, form27eqData, tcsEligible } from './tcsWorkbench'
+import { ensureCompanyTree } from '../paths'
 import type { VoucherInput } from '@shared/schemas'
+import type { Form26qData } from '@shared/tdsTypes'
+
+type Form26qDataRow = Form26qData['deductees'][number]
 
 beforeAll(() => {
   process.env.TOTAL_DATA_DIR = mkdtempSync(join(tmpdir(), 'total-tcs206c-test-'))
@@ -128,6 +132,9 @@ describe('s.206C(1G) tour package — the ₹10 lakh slab', () => {
 // s.206C(1C) — parking lot / toll plaza / mine or quarry, 2 % collected by the licensor
 // ---------------------------------------------------------------------------------------------
 
+const existing = (db: DB, name: string): number | null =>
+  (db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number } | undefined)?.id ?? null
+
 function licenceFixture(db: DB) {
   addStatutoryTcsSections(db)
   const parking = sid(db, '206C(1C) PARKING')
@@ -136,8 +143,8 @@ function licenceFixture(db: DB) {
     contractor: ledger(db, 'City Parking Contractors LLP', 'Sundry Debtors', { pan: 'AAFFC1234B', tcsSectionId: parking }),
     noPan: ledger(db, 'Kiosk Operator', 'Sundry Debtors', { tcsSectionId: parking }),
     fees: ledger(db, 'Parking Licence Fees', 'Indirect Incomes'),
-    cgst: ledger(db, 'CGST Output', 'Duties & Taxes', { taxType: 'cgst' }),
-    sgst: ledger(db, 'SGST Output', 'Duties & Taxes', { taxType: 'sgst' }),
+    cgst: existing(db, 'CGST Output') ?? ledger(db, 'CGST Output', 'Duties & Taxes', { taxType: 'cgst' }),
+    sgst: existing(db, 'SGST Output') ?? ledger(db, 'SGST Output', 'Duties & Taxes', { taxType: 'sgst' }),
     bank: ledger(db, 'HDFC Bank', 'Bank Accounts')
   }
 }
@@ -221,5 +228,51 @@ describe('s.206C(1C) — the statutory sections, added by the owner (no migratio
     // ₹59,000 × 2 % = ₹1,180.
     const r = tcsSuggestion(db, { partyLedgerId: lx.contractor, date: '2025-08-01', voucherKind: 'receipt', taxablePaise: 11800000 })!
     expect(r).toMatchObject({ basePaise: 5900000, tdsPaise: 118000, payment: { undeductedBillsPaise: 0, advancePaise: 5900000, deductedAtCredit: false } })
+  })
+})
+
+// ---------------------------------------------------------------------------------------------
+// Form 27EQ / Form 143 rows
+// ---------------------------------------------------------------------------------------------
+
+describe('27EQ / Form 143 — codes and the slab split', () => {
+  it('a tour collection across ₹10 lakh is two rows (5 % / 20 %) of one entry, flagged; 1C rows carry H (27EQ) and 1090 (Form 143)', () => {
+    const db = seededDb()
+    const fx = tourFixture(db)
+    const tcs = (base: number, amount: number): VoucherInput['tcs'] => ({ sectionId: fx.tour, baseAmount: base, tcsAmount: amount, isManual: false, autoPayable: true })
+    // As in the first test: ₹6,30,000 → ₹31,500 (Q1); ₹4,20,000 → ₹18,500 + ₹10,000 (Q2); ₹1,05,000 → ₹21,000 (Q3).
+    const v1 = tourSale(db, fx, '2025-06-10', fx.mehta, 60000000, tcs(63000000, 3150000))
+    const v2 = tourSale(db, fx, '2025-08-20', fx.mehta, 40000000, tcs(42000000, 2850000))
+    const v3 = tourSale(db, fx, '2025-11-05', fx.mehta, 10000000, tcs(10500000, 2100000))
+    const lx = licenceFixture(db)
+    const mine = sid(db, '206C(1C) MINE')
+    const quarry = ledger(db, 'Stone Quarry Lessee', 'Sundry Debtors', { pan: 'AABCQ1234E', tcsSectionId: mine })
+    // Quarry lease rent ₹2,00,000 + GST ₹36,000 = ₹2,36,000 × 2 % = ₹4,720 (Q2, code H).
+    const q2 = licenceBill(db, lx, '2025-09-01', quarry, 20000000, { sectionId: mine, baseAmount: 23600000, tcsAmount: 472000, isManual: false, autoPayable: true })
+    // Parking fee 1 Jul 2026 ₹59,000 × 2 % = ₹1,180 (Form 143, code 1090).
+    const p26 = licenceBill(db, lx, '2026-07-01', lx.contractor, 5000000, { sectionId: lx.parking, baseAmount: 5900000, tcsAmount: 118000, isManual: false, autoPayable: true })
+
+    const shape = (d: Form26qDataRow) => [d.voucherId, d.returnCode, d.amountPaise, d.rateBp, d.tdsPaise, d.note ?? '']
+    expect(form27eqData(db, 2025, 1).deductees.map(shape)).toEqual([[v1, 'O', 63000000, 500, 3150000, '']])
+    const q2data = form27eqData(db, 2025, 2)
+    expect(q2data.deductees.map(shape)).toEqual([
+      [v2, 'O', 37000000, 500, 1850000, '1G slab: one collection split at ₹10,00,000.00 (UNVERIFIED) — part up to the limit'],
+      [v2, 'O', 5000000, 2000, 1000000, '1G slab: one collection split at ₹10,00,000.00 (UNVERIFIED) — part above the limit'],
+      [q2, 'H', 23600000, 200, 472000, '']
+    ])
+    // The split keeps the quarter's totals: ₹4,20,000 + ₹2,36,000 = ₹6,56,000; TCS ₹28,500 + ₹4,720 = ₹33,220.
+    expect(q2data.totals).toMatchObject({ amountPaise: 65600000 })
+    expect(q2data.deductees.reduce((t, d) => t + d.tdsPaise, 0)).toBe(3322000)
+    expect(form27eqData(db, 2025, 3).deductees.map(shape)).toEqual([[v3, 'O', 10500000, 2000, 2100000, '1G slab: above ₹10,00,000.00 for the year — 20%']])
+    const f143 = form27eqData(db, 2026, 2)
+    expect(f143.layout).toBe('form143')
+    expect(f143.deductees.map(shape)).toEqual([[p26, '1090', 5900000, 200, 118000, '']])
+
+    ensureCompanyTree('tcs206c-co')
+    const csv = readFileSync(export27eqCsv(db, 'tcs206c-co', 2025, 2), 'utf8')
+    expect(csv.split(/\r?\n/)[0]).toMatch(/,Challan Amount \(Rs\),Note$/)
+    expect(csv).toContain('370000.00,5.00,18500.00')
+    expect(csv).toContain('50000.00,20.00,10000.00')
+    expect(csv).toContain('part above the limit')
   })
 })

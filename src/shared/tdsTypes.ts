@@ -154,6 +154,9 @@ export interface Form26qDeducteeRow {
   bsrCode: string | null
   challanDate: string | null
   challanNo: string | null
+  /** TCS: a flag for the person filing — e.g. one s.206C(1G) collection split across the ₹10 lakh
+   *  slab into two rows (src/shared/tcsSources.ts TCS_UNVERIFIED "tour-27eq-split"). */
+  note?: string
 }
 
 export interface Form26qChallanRow {

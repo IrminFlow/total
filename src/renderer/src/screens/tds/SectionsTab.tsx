@@ -14,6 +14,8 @@ import { LedgerPicker, useLedgers } from '../../components/pickers'
 import { LedgerLink } from '../../components/links'
 import { openLedgerStatement, useCanEditMasters } from '../../lib/drill'
 import { confirmDialog } from '../../lib/dialogs'
+import { api } from '../../lib/client'
+import { TCS_NOT_MODELLED, TCS_SOURCES, TCS_UNVERIFIED } from '@shared/tcsSources'
 
 const optionalMoney = (paise: number): React.JSX.Element => (paise > 0 ? <Money paise={paise} /> : <span className="text-muted">—</span>)
 
@@ -148,6 +150,8 @@ function SectionsBody(): React.JSX.Element {
             : 'Each rate row is effective-dated by deductee type and cites its source (hover a row in the rate editor). Figures are sourced from the Income-tax Act 1961 / Finance Act 2025 and the Income-tax Act 2025 — have them checked by your CA.'}
         </p>
       </Panel>
+
+      {k === 'tcs' && <TcsStatutoryPanel canEdit={canEdit} />}
 
       <Panel>
         <div className="px-3 pt-3">
@@ -578,5 +582,78 @@ export function SectionsTab({ kind = 'tds' }: { kind?: 'tds' | 'tcs' } = {}): Re
     <KindContext.Provider value={kind}>
       <SectionsBody />
     </KindContext.Provider>
+  )
+}
+
+/**
+ * TCS only: the statutory sections the company may lack (s.206C(1C) — added by the owner, no
+ * migration) and what the s.206C(1G) slab / 1C rows rest on, with the UNVERIFIED and
+ * not-modelled points (src/shared/tcsSources.ts).
+ */
+function TcsStatutoryPanel({ canEdit }: { canEdit: boolean }): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { data: statutory } = useQuery({ queryKey: ['tcsStatutory'], queryFn: api.tcs.statutory })
+  const missing = (statutory ?? []).filter((s) => s.sectionId == null)
+  const [busy, setBusy] = useState(false)
+  const add = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const created = await api.tcs.statutoryAdd()
+      toast.push('success', created.length === 0 ? 'Nothing to add — every section is already there' : `Added ${created.map((c) => c.code).join(', ')}`)
+      await queryClient.invalidateQueries()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <Panel>
+      <div className="px-3 pt-3">
+        <SectionTitle
+          as="h3"
+          right={canEdit && missing.length > 0 && (
+            <Button size="sm" data-testid="btn-tcs-statutory-add" disabled={busy} onClick={() => void add()}>
+              Add {missing.length === 1 ? 'it' : `these ${missing.length}`}
+            </Button>
+          )}
+        >
+          Statutory sections
+        </SectionTitle>
+      </div>
+      <ul className="px-3 pb-2 text-body-sm" data-testid="tcs-statutory">
+        {(statutory ?? []).map((s) => (
+          <li key={s.code} data-code={s.code} className="flex items-center gap-2 py-0.5">
+            <span className="num w-44">{s.code}</span>
+            <span>{s.description}</span>
+            <span className="text-muted">· {s.legacyCode} / 2025 Act {s.newReference}</span>
+            {s.sectionId != null ? <Badge tone="success">In your list</Badge> : <Badge tone="info">Not added</Badge>}
+          </li>
+        ))}
+      </ul>
+      <div className="px-3 pb-3 text-hint text-muted">
+        <p>
+          s.206C(1C): 2% on the amount payable by a licensee / lessee of a parking lot, toll plaza or mine or quarry, at debit or receipt,
+          whichever is earlier — flag the licensee with the section, or give the licence-fee ledger a default section.
+          {canEdit ? '' : ' Only the owner can add them.'} s.206C(1G) tour packages (FY 2025-26): 5% up to ₹10 lakh of a buyer&apos;s year, 20% above —
+          applied by the rate table; from 1 Apr 2026 a flat 2%.
+        </p>
+        <p className="mt-2 font-medium">Sources</p>
+        <ul className="list-disc pl-5" data-testid="tcs-sources">
+          {TCS_SOURCES.map((src) => (
+            <li key={src.key} title={src.quote}>{src.title} — <span className="num">{src.url}</span> (accessed {src.accessed})</li>
+          ))}
+        </ul>
+        <p className="mt-2 font-medium">Not modelled</p>
+        <ul className="list-disc pl-5" data-testid="tcs-not-modelled">
+          {TCS_NOT_MODELLED.map((n) => <li key={n.key}>{n.text}</li>)}
+        </ul>
+        <p className="mt-2 font-medium">Unverified</p>
+        <ul className="list-disc pl-5" data-testid="tcs-unverified">
+          {TCS_UNVERIFIED.map((u) => <li key={u.key}>{u.text}</li>)}
+        </ul>
+      </div>
+    </Panel>
   )
 }
