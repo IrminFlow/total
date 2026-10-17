@@ -151,7 +151,7 @@ export type Screen =
   | { name: 'itc-reversal' }
   | { name: 'edocs'; tab?: 'documents' | 'self-invoices' }
   | { name: 'registers'; tab?: 'sales' | 'purchase' | 'items'; from?: string; to?: string }
-  | { name: 'outstandings'; side?: 'receivable' | 'payable'; backTo?: 'simple-people' }
+  | { name: 'outstandings'; side?: 'receivable' | 'payable'; backTo?: 'simple-people'; backFilter?: PeopleFilter }
   // WP 4.2: credit control, reminders, interest on overdue bills, collection reports.
   | { name: 'receivables'; tab?: 'control' | 'reminders' | 'interest' | 'collections' }
   // WP 4.3: payables — planning, batch payments, runs, MSME, supplier reconciliation.

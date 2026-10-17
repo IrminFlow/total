@@ -1010,7 +1010,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.people.msg.final': '{company} ki taraf se aakhri yaad: {amount} ki due date nikle {days, plural, one {# din} other {# din}} ho gaye hain. Kripya 7 din mein payment kar dein.',
   'simple.people.msg.bill': '• Bill {bill}, {date}: {amount}',
   'simple.people.msg.more': '…aur {count, plural, one {# bill} other {# bill}}',
-  'simple.people.msg.beforeDue': '{company} ki taraf se ek friendly yaad: {amount} ki payment ki date {date} hai. Dhanyavaad!',
+  'simple.people.msg.beforeDue': '{company} ki taraf se ek friendly reminder: {amount} ki payment ki date {date} hai. Dhanyavaad!',
   'simple.people.msg.billDue': '• Bill {bill}, due date {date}: {amount}',
   'simple.people.remindBefore': 'Gentle reminder bhejein',
   'simple.people.reminder.titleBefore': '{name} ke liye gentle reminder',

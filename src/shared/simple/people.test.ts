@@ -104,7 +104,7 @@ describe('reminder message', () => {
     expect(hi).toContain('Sharma Traders की ओर से एक विनम्र सूचना: ₹1,500.50 की भुगतान तारीख 17 अक्तूबर 2026 है। धन्यवाद!')
     expect(hi).toContain('• बिल 7, भुगतान की तारीख 17 अक्तूबर 2026: ₹1,200.00')
     const hg = reminderMessage(f, 'hinglish')
-    expect(hg).toContain('Sharma Traders ki taraf se ek friendly yaad: ₹1,500.50 ki payment ki date 17 Oct 2026 hai. Dhanyavaad!')
+    expect(hg).toContain('Sharma Traders ki taraf se ek friendly reminder: ₹1,500.50 ki payment ki date 17 Oct 2026 hai. Dhanyavaad!')
     expect(hg).toContain('• Bill 8, due date 21 Oct 2026: ₹300.50')
     const sms = reminderSms(f)
     expect(sms).toBe('Hello Ramesh, A friendly note from Sharma Traders: ₹1,500.50 falls due on 17 Oct 2026. Thank you! If you have already paid, thank you — please ignore this message. Sharma Traders')

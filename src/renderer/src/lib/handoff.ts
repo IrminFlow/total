@@ -81,7 +81,9 @@ export function fullCounterpart(screen: Screen): Screen | null {
       return {
         name: 'outstandings',
         side: screen.tab === 'bills' || screen.filter === 'suppliers' || screen.filter === 'youOwe' ? 'payable' : 'receivable',
-        backTo: 'simple-people'
+        backTo: 'simple-people',
+        // The People list's filter comes back with it (Bills to pay has none).
+        ...(screen.tab !== 'bills' && screen.filter && screen.filter !== 'all' ? { backFilter: screen.filter } : {})
       }
     // A person's page: that ledger's statement (Back to simple: the same person).
     case 'simple-person':
@@ -185,7 +187,10 @@ export function simpleTargetFor(screen: Screen, facts: HandoffFacts | null): Scr
       // Reports → "By month" (WP 9.9) — whose Accountant view is the Registers screen.
       return reportEntry('by-month') ?? section(screen)
     case 'outstandings':
-      if (screen.backTo === 'simple-people') return screen.side === 'payable' ? { name: 'simple-people', tab: 'bills' } : { name: 'simple-people' }
+      if (screen.backTo === 'simple-people') {
+        if (screen.backFilter) return { name: 'simple-people', filter: screen.backFilter }
+        return screen.side === 'payable' ? { name: 'simple-people', tab: 'bills' } : { name: 'simple-people' }
+      }
       // WP 9.9: the same list in plain words — Reports → "Who owes me" / "Whom I owe" (whose
       // Accountant view is this screen); before it, People.
       return (
@@ -232,7 +237,7 @@ export function backToSimpleClears(screen: Screen, target: Screen): Name[] {
   if (screen.name === 'banking') out.add('simple-bank')
   if (screen.name === 'registers') out.add(alwaysKey({ name: 'simple-reports', report: 'by-month' }))
   if (screen.name === 'outstandings' && (screen.side === 'payable' || screen.backTo === 'simple-people')) out.add('simple-people')
-  if (screen.name === 'ledger-statement') out.add('simple-person')
+  if (screen.name === 'ledger-statement' && target.name === 'simple-person') out.add('simple-person')
   if (screen.name === 'company-info' && screen.backTo === 'simple-taxes') out.add('simple-taxes')
   return [...out]
 }

@@ -122,6 +122,8 @@ describe('the full → simple table', () => {
     const pairs: [Screen, Screen, typeof PARTY | null][] = [
       [{ name: 'simple-people' }, { name: 'outstandings', side: 'receivable', backTo: 'simple-people' }, null],
       [{ name: 'simple-people', tab: 'bills' }, { name: 'outstandings', side: 'payable', backTo: 'simple-people' }, null],
+      [{ name: 'simple-people', filter: 'suppliers' }, { name: 'outstandings', side: 'payable', backTo: 'simple-people', backFilter: 'suppliers' }, null],
+      [{ name: 'simple-people', filter: 'late' }, { name: 'outstandings', side: 'receivable', backTo: 'simple-people', backFilter: 'late' }, null],
       [{ name: 'simple-person', id: 7 }, { name: 'ledger-statement', ledgerId: 7 }, PARTY],
       [{ name: 'simple-reports', report: 'doing' }, { name: 'profit-loss', from: '2026-05-01', to: '2026-05-31' }, null],
       [{ name: 'simple-reports', report: 'cash' }, { name: 'cash-forecast' }, null],
@@ -155,7 +157,11 @@ describe('the full → simple table', () => {
     expect(fullCounterpart({ name: 'simple-stock-count' })).toEqual({ name: 'voucher-entry', kindHint: 'physical_stock' })
     expect(fullCounterpart({ name: 'simple-made-goods' })).toEqual({ name: 'manufacture' })
     expect(fullCounterpart({ name: 'simple-people' })).toEqual({ name: 'outstandings', side: 'receivable', backTo: 'simple-people' })
-    expect(fullCounterpart({ name: 'simple-people', filter: 'suppliers' })).toEqual({ name: 'outstandings', side: 'payable', backTo: 'simple-people' })
+    expect(fullCounterpart({ name: 'simple-people', filter: 'suppliers' })).toEqual({ name: 'outstandings', side: 'payable', backTo: 'simple-people', backFilter: 'suppliers' })
+    expect(fullCounterpart({ name: 'simple-people', filter: 'late' })).toEqual({ name: 'outstandings', side: 'receivable', backTo: 'simple-people', backFilter: 'late' })
+    expect(fullCounterpart({ name: 'simple-people', tab: 'bills', filter: 'late' })).toEqual({ name: 'outstandings', side: 'payable', backTo: 'simple-people' })
+    // A non-party ledger's statement goes back to a section page: the person's remembered choice stays.
+    expect(backToSimpleClears({ name: 'ledger-statement', ledgerId: 3 }, { name: 'simple-section', section: 'money' })).not.toContain('simple-person')
     expect(fullCounterpart({ name: 'simple-people', tab: 'bills' })).toEqual({ name: 'outstandings', side: 'payable', backTo: 'simple-people' })
     expect(fullCounterpart({ name: 'simple-person', id: 7 })).toEqual({ name: 'ledger-statement', ledgerId: 7 })
     expect(fullCounterpart({ name: 'simple-section', section: 'reports' })).toEqual({ name: 'trial-balance' })
