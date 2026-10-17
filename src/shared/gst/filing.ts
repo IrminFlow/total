@@ -15,19 +15,60 @@
 //  - Later amendments to that notification (12/2021, 17/2021, 09/2024-CT and state-specific
 //    provisos) were not read — UNVERIFIED below.
 import { z } from 'zod'
+import { EINVOICE_EXEMPTIONS, gstTurnoverSchema } from './einvoiceApplicability'
 
 export const GST_FILING_FREQUENCIES = ['monthly', 'quarterly'] as const
 export type GstFilingFrequency = (typeof GST_FILING_FREQUENCIES)[number]
 
-export const gstProfileSchema = z.object({ filing: z.enum(GST_FILING_FREQUENCIES) }).strict()
+/** The stored profile. To-do §4 (e-invoice applicability): `turnover` — the PAN-level aggregate
+ *  turnover per FY the owner enters — and `einvoiceExemption` — a registrant type Notification
+ *  13/2020-CT leaves out (shared/gst/einvoiceApplicability.ts). Both optional: absent = not
+ *  entered, so every existing profile reads exactly as before. */
+export const gstProfileSchema = z
+  .object({
+    filing: z.enum(GST_FILING_FREQUENCIES),
+    turnover: gstTurnoverSchema.optional(),
+    einvoiceExemption: z.enum(EINVOICE_EXEMPTIONS).optional()
+  })
+  .strict()
 export type GstProfile = z.infer<typeof gstProfileSchema>
+
+/** `gstProfile:set`'s payload: a patch — a key left out keeps its stored value, `null` clears an
+ *  optional one (so Company details' filing picker never wipes the turnover, and back). */
+export const gstProfilePatchSchema = z
+  .object({
+    filing: z.enum(GST_FILING_FREQUENCIES).optional(),
+    turnover: gstTurnoverSchema.nullable().optional(),
+    einvoiceExemption: z.enum(EINVOICE_EXEMPTIONS).nullable().optional()
+  })
+  .strict()
+export type GstProfilePatch = z.infer<typeof gstProfilePatchSchema>
 
 export const DEFAULT_GST_PROFILE: GstProfile = { filing: 'monthly' }
 
-/** Stored value → profile; missing / malformed = monthly. Never throws. */
+/** Stored value → profile; missing / malformed = monthly. Never throws. A malformed turnover /
+ *  exemption is dropped on its own (the filing frequency survives it). */
 export function normalizeGstProfile(raw: unknown): GstProfile {
   const p = gstProfileSchema.safeParse(raw)
-  return p.success ? p.data : { ...DEFAULT_GST_PROFILE }
+  if (p.success) return p.data
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const filing = z.enum(GST_FILING_FREQUENCIES).safeParse(r.filing)
+  const out: GstProfile = { filing: filing.success ? filing.data : DEFAULT_GST_PROFILE.filing }
+  const turnover = gstTurnoverSchema.safeParse(r.turnover)
+  if (turnover.success) out.turnover = turnover.data
+  const exemption = z.enum(EINVOICE_EXEMPTIONS).safeParse(r.einvoiceExemption)
+  if (exemption.success) out.einvoiceExemption = exemption.data
+  return out
+}
+
+/** Apply a patch (absent = keep, null = clear) — key order filing, turnover, exemption. */
+export function applyGstProfilePatch(before: GstProfile, patch: GstProfilePatch): GstProfile {
+  const out: GstProfile = { filing: patch.filing ?? before.filing }
+  const turnover = patch.turnover === undefined ? before.turnover : patch.turnover ?? undefined
+  if (turnover) out.turnover = turnover
+  const exemption = patch.einvoiceExemption === undefined ? before.einvoiceExemption : patch.einvoiceExemption ?? undefined
+  if (exemption) out.einvoiceExemption = exemption
+  return out
 }
 
 export const GST_FILING_UNVERIFIED: readonly string[] = [

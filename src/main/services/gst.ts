@@ -19,7 +19,9 @@ import { fyOf } from '@shared/dates'
 import { plainRupees } from '@shared/money'
 import { parseGstr2b, reconcile2b, type PurchaseDoc, type Recon2bOptions, type Recon2bResult } from '@shared/gst/recon2b'
 import { descendantIdsByName } from './masters'
-import { getGst3bManual } from './config'
+import { getGst3bManual, getGstProfile } from './config'
+import { einvoiceApplicability, type EinvoiceApplicability } from '@shared/gst/einvoiceApplicability'
+import { einvoiceTurnOnNotice, type EinvoiceStatus } from '@shared/compliance'
 import { companyExportsDir } from '../paths'
 import { IN_BOOKS } from './vouchers'
 import { chargesGstOn } from '@shared/gst/registration'
@@ -875,14 +877,36 @@ export function einvoicingOn(db: DB, company: Pick<CompanyInfo, 'gstRegistration
   return company.gstRegistrationType === 'regular' && getEinvoicing(db, company).enabled
 }
 
-/** Pre-export validation over the period's extracted documents (G7 panel + export gate). */
+/** To-do §4: what the business profile (meta gstProfile turnover / exemption) says about
+ *  e-invoicing on `today` (shared/gst/einvoiceApplicability.ts). Read-only; never touches the
+ *  switch — `einvoicingOn` is unchanged and stays the owner's choice. */
+export function einvoiceProfileApplicability(db: DB, company: Pick<CompanyInfo, 'gstRegistrationType'>, today: string): EinvoiceApplicability {
+  const p = getGstProfile(db)
+  return einvoiceApplicability({ gstRegistrationType: company.gstRegistrationType, turnover: p.turnover, einvoiceExemption: p.einvoiceExemption }, today)
+}
+
+/** One read for Company details, the Gateway / simple Taxes chip and the e-Invoice list. */
+export function einvoiceStatus(db: DB, company: Pick<CompanyInfo, 'gstRegistrationType'>, today: string): EinvoiceStatus {
+  const enabled = einvoicingOn(db, company)
+  const applicability = einvoiceProfileApplicability(db, company, today)
+  return {
+    enabled,
+    applicability,
+    turnOn: einvoiceTurnOnNotice(applicability, enabled),
+    reportingWindowDays: enabled && applicability.reportingWindowDays ? applicability.reportingWindowDays : null
+  }
+}
+
+/** Pre-export validation over the period's extracted documents (G7 panel + export gate). The
+ *  e-invoice doc-no warning (#140) runs while the switch is on OR the profile says e-invoicing
+ *  is required on the period's last day (to-do §4). */
 export function gstValidate(db: DB, company: CompanyInfo, from: string, to: string): GstIssue[] {
   const docs = extractOutwardDocs(db, company, from, to)
   return validateGstr1(docs, {
     stateCode: company.stateCode,
     gstin: company.gstin,
     gstRegistrationType: company.gstRegistrationType,
-    einvoicing: einvoicingOn(db, company)
+    einvoicing: einvoicingOn(db, company) || einvoiceProfileApplicability(db, company, to).required
   })
 }
 

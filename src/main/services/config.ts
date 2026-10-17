@@ -8,7 +8,7 @@ import { getLegacyConfigView, setLegacyConfig } from './printTemplates'
 import type { McpConfig } from '@shared/mcp'
 import { applyUiPatch, normalizeUi, uiPatchSchema, type UiSettings } from '@shared/simple/uiMode'
 import { UI_META_KEY } from '../i18n'
-import { gstProfileSchema, normalizeGstProfile, type GstProfile } from '@shared/gst/filing'
+import { applyGstProfilePatch, gstProfilePatchSchema, normalizeGstProfile, type GstProfile } from '@shared/gst/filing'
 
 /** Company-scoped JSON config living in the `meta` table — same pattern as readCompanyInfo/
  *  writeCompanyInfo (db/seed.ts) and the NIC credentials (services/nic.ts). */
@@ -209,17 +209,21 @@ export function getGstProfile(db: DB): GstProfile {
   return normalizeGstProfile(readMeta(db, 'gstProfile'))
 }
 
-/** Owner-only at the IPC layer; audited as a company update. An unchanged value writes nothing. */
+/** Owner-only at the IPC layer; audited as a company update with the whole before / after. The
+ *  input is a patch (shared/gst/filing.ts `gstProfilePatchSchema`: absent = keep, null = clear —
+ *  the e-invoice turnover of to-do §4 sits beside the filing frequency). An unchanged value
+ *  writes nothing; the first explicit value is stored even when it equals the default. */
 export function setGstProfile(db: DB, input: unknown): GstProfile {
-  const parsed = gstProfileSchema.parse(input)
+  const patch = gstProfilePatchSchema.parse(input)
   const stored = readMeta(db, 'gstProfile')
   const before = getGstProfile(db)
-  if (stored !== null && before.filing === parsed.filing) return before
+  const after = applyGstProfilePatch(before, patch)
+  if (stored !== null && JSON.stringify(before) === JSON.stringify(after)) return before
   db.transaction(() => {
-    writeMeta(db, 'gstProfile', parsed)
-    writeAudit(db, 'company', 0, 'update', { gstProfile: stored === null ? null : before }, { gstProfile: parsed })
+    writeMeta(db, 'gstProfile', after)
+    writeAudit(db, 'company', 0, 'update', { gstProfile: stored === null ? null : before }, { gstProfile: after })
   })()
-  return parsed
+  return after
 }
 
 // ---------- compliance-deadline notifications (once-per-day guard) ----------
