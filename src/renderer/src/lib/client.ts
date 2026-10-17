@@ -348,6 +348,8 @@ export type TcsSuggestion = Omit<TdsSuggestion, 'sectionFrom' | 'candidates'> & 
   sectionFrom: 'party' | 'goods' | 'ledger' | 'chosen' | 'credits'
   candidates: { sectionId: number; code: string; from: 'party' | 'goods' | 'ledger' | 'credits' }[]
   gstInBase: boolean
+  /** s.206C(1G) tour package slab split (FY 2025-26); null otherwise. Optional: older mains omit it. */
+  slab?: { limitPaise: number; priorPaise: number; belowPaise: number; abovePaise: number; lowerRateBp: number; upperRateBp: number } | null
 }
 
 /** tcs:suggest payload (src/shared/schemas.ts tcsSuggestSchema). */

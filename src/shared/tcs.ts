@@ -23,9 +23,11 @@
  */
 import type { VoucherKind } from './domain'
 import type { PostingError } from './posting'
+import { roundToRupee } from './money'
+import { TCS_SLABS, type TcsSlab } from './tcsSources'
 import {
   rupees, validateWithholdingEntries,
-  type RateDeducteeType, type WithholdingEntryToValidate, type WithholdingLabels, type WithholdingRateRow, type WithholdingSectionFacts
+  type ApplicableRate, type RateDeducteeType, type WithholdingEntryToValidate, type WithholdingLabels, type WithholdingRateRow, type WithholdingSectionFacts
 } from './withholding'
 import type { EligibleReason } from './tdsEligibility'
 
@@ -477,3 +479,65 @@ export const TCS_REMARK_TEXT: Record<string, string> = {
  *  declaration — reported in the statement with remark B. */
 export const isDeclarationReason = (reason: string | null | undefined): boolean =>
   !!reason && /27C|form 127|206C\(1A\)|394\(2\)/i.test(reason)
+
+// ---------------------------------------------------------------------------------------------
+// Rate slabs (s.206C(1G) overseas tour programme package — citations in ./tcsSources.ts)
+// ---------------------------------------------------------------------------------------------
+
+/** The slab in force for a section code on a date, or null. */
+export function tcsSlabOn(sectionCode: string, dateISO: string, slabs: readonly TcsSlab[] = TCS_SLABS): TcsSlab | null {
+  return slabs.find((s) => s.sectionCode === sectionCode && s.effectiveFrom <= dateISO && (s.effectiveTo == null || dateISO <= s.effectiveTo)) ?? null
+}
+
+export interface SlabbedTcs {
+  /** The collection, rounded to the rupee once. */
+  tcsPaise: number
+  /** Part of this base inside the limit (lower rate) / above it (higher rate), paise. */
+  belowPaise: number
+  abovePaise: number
+  /** Rates applied to the two parts, basis points (after the no-PAN rule). */
+  lowerRateBp: number
+  upperRateBp: number
+  /** Part of the base a capped lower-collection certificate covered (at its own rate), paise. */
+  certificatePaise: number
+  limitPaise: number
+}
+
+/**
+ * TCS on a slabbed section: the buyer's aggregate for the year before this collection is
+ * `priorPaise`; the part of `basePaise` that keeps the aggregate within `slab.limitPaise` goes at
+ * the rate row's rate, the rest at `slab.aboveRateBp`. Without a PAN each part takes the higher of
+ * the row's no-PAN rate and `noPanMultiple` × its rate, capped at `noPanCapBp` (s.206CC). A
+ * certificate covers its remaining cap first at its own rate; the slab runs on the rest.
+ * ₹9,00,000 already + ₹2,00,000 now against ₹10,00,000: ₹1,00,000 at 5 % + ₹1,00,000 at 20 % =
+ * ₹5,000 + ₹20,000 = ₹25,000.
+ */
+export function slabbedTcs(
+  rate: Pick<ApplicableRate, 'row' | 'rateBp' | 'basis' | 'certificateRateBp' | 'certificateRemainingPaise'>,
+  slab: Pick<TcsSlab, 'limitPaise' | 'aboveRateBp'>,
+  basePaise: number,
+  priorPaise: number,
+  opts: { noPanMultiple: number; noPanCapBp: number }
+): SlabbedTcs {
+  const base = Math.max(0, basePaise)
+  let certificatePaise = 0
+  let certificateRaw = 0
+  if (rate.basis === 'certificate' && rate.certificateRateBp != null) {
+    certificatePaise = rate.certificateRemainingPaise == null ? base : Math.min(base, rate.certificateRemainingPaise)
+    certificateRaw = Math.round((certificatePaise * rate.certificateRateBp) / 10000)
+  }
+  const rest = base - certificatePaise
+  const prior = Math.max(0, priorPaise) + certificatePaise
+  const belowPaise = Math.max(0, Math.min(prior + rest, slab.limitPaise) - prior)
+  const abovePaise = rest - belowPaise
+  const raise = (bp: number): number =>
+    rate.basis === 'no_pan' ? Math.min(opts.noPanCapBp, Math.max(bp, rate.row.noPanRateBp, bp * opts.noPanMultiple)) : bp
+  // The lower part: the row's rate (already raised when there is no PAN).
+  const lowerRateBp = rate.basis === 'no_pan' ? rate.rateBp : rate.row.rateBp
+  const upperRateBp = raise(slab.aboveRateBp)
+  const raw = certificateRaw + Math.round((belowPaise * lowerRateBp) / 10000) + Math.round((abovePaise * upperRateBp) / 10000)
+  return {
+    tcsPaise: base > 0 ? roundToRupee(raw) : 0,
+    belowPaise, abovePaise, lowerRateBp, upperRateBp, certificatePaise, limitPaise: slab.limitPaise
+  }
+}

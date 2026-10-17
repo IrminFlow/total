@@ -59,6 +59,9 @@ export type TcsSuggestion = Omit<TdsSuggestion, 'sectionFrom' | 'candidates'> & 
   sectionFrom: 'party' | 'goods' | 'ledger' | 'chosen' | 'credits'
   candidates: { sectionId: number; code: string; from: 'party' | 'goods' | 'ledger' | 'credits' }[]
   gstInBase: boolean
+  /** s.206C(1G) tour package (FY 2025-26): how the base splits across the ₹10 lakh slab
+   *  (src/shared/tcsSources.ts TCS_SLABS); null for every other section. */
+  slab: { limitPaise: number; priorPaise: number; belowPaise: number; abovePaise: number; lowerRateBp: number; upperRateBp: number } | null
 }
 
 /**
@@ -147,7 +150,9 @@ export function tcsSuggestion(db: DB, input: TcsSuggestInput): TcsSuggestion | n
   if (!resolved.rate || resolved.tdsPaise == null) return null
   const status = thresholdStatus(resolved.rate.row, input.date, base, resolved.priorPaise)
   const payable = findPayableLedger(db, sectionId)
-  const effectiveBp = resolved.rate.basis === 'certificate' ? resolved.rate.certificateRateBp! : resolved.rate.rateBp
+  const effectiveBp = resolved.slab && resolved.slab.abovePaise > 0
+    ? resolved.slab.upperRateBp
+    : resolved.rate.basis === 'certificate' ? resolved.rate.certificateRateBp! : resolved.rate.rateBp
   const cert = resolved.rate.certificateId != null
     ? (db.prepare('SELECT id, certificate_no, rate_bp, valid_to FROM tds_certificates WHERE id = ?').get(resolved.rate.certificateId) as
       { id: number; certificate_no: string; rate_bp: number; valid_to: string })
@@ -175,6 +180,12 @@ export function tcsSuggestion(db: DB, input: TcsSuggestInput): TcsSuggestion | n
     sectionFrom,
     candidates,
     payment,
-    gstInBase: !!row.baseIncludesGst && input.voucherKind === 'sales'
+    gstInBase: !!row.baseIncludesGst && input.voucherKind === 'sales',
+    slab: resolved.slab
+      ? {
+          limitPaise: resolved.slab.limitPaise, priorPaise: resolved.priorPaise, belowPaise: resolved.slab.belowPaise,
+          abovePaise: resolved.slab.abovePaise, lowerRateBp: resolved.slab.lowerRateBp, upperRateBp: resolved.slab.upperRateBp
+        }
+      : null
   }
 }

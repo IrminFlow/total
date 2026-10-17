@@ -114,7 +114,12 @@ export function TdsBanner({
       <div className="flex items-center justify-between gap-3">
         <span>
           {name} u/s {s.reference !== s.code ? `${s.code} (${s.reference})` : s.code}: {verb}{' '}
-          <Money paise={s.tdsPaise} className="text-amber" /> <span className="text-muted">at {s.rate}%</span>
+          <Money paise={s.tdsPaise} className="text-amber" />{' '}
+          {tcs && (s as TcsSuggestion).slab ? (
+            <TcsSlabText slab={(s as TcsSuggestion).slab!} />
+          ) : (
+            <span className="text-muted">at {s.rate}%</span>
+          )}
           {s.basePaise != null && <span className="text-muted"> on {rs(s.basePaise)}</span>}
           {s.basis === 'no_pan' && <span className="ml-2 text-cr">PAN missing — {s.rate}% rate</span>}
           {!tcs && s.deducteeType && <span className="ml-2 text-muted">· {DEDUCTEE_TYPE_LABELS[s.deducteeType]}</span>}
@@ -197,6 +202,20 @@ export function TdsBanner({
 }
 
 /** Shown instead of the banner while the voucher is marked "Not applicable" (saved on save). */
+/** s.206C(1G) tour package: the rate per part of the ₹10 lakh slab (src/shared/tcsSources.ts). */
+function TcsSlabText({ slab }: { slab: NonNullable<TcsSuggestion['slab']> }): React.JSX.Element {
+  const pct = (bp: number): string => `${bp / 100}%`
+  const parts = [
+    slab.belowPaise > 0 ? `${pct(slab.lowerRateBp)} on ${formatPaise(slab.belowPaise, { symbol: true })}` : null,
+    slab.abovePaise > 0 ? `${pct(slab.upperRateBp)} on ${formatPaise(slab.abovePaise, { symbol: true })}` : null
+  ].filter(Boolean)
+  return (
+    <span className="text-muted" data-testid="tcs-slab">
+      at {parts.join(' + ')} (slab: {pct(slab.lowerRateBp)} up to {formatPaise(slab.limitPaise, { symbol: true })} a year, {pct(slab.upperRateBp)} above)
+    </span>
+  )
+}
+
 export function TdsNotApplicableNote({ reason, onUndo, kind = 'tds' }: { reason: string; onUndo: () => void; kind?: 'tds' | 'tcs' }): React.JSX.Element {
   return (
     <div data-testid={`banner-${kind}-na`} className="mt-3 flex items-center justify-between gap-3 rounded-md border border-line bg-panel2 px-3 py-2 text-body-sm text-muted">

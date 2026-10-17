@@ -11,7 +11,7 @@ import {
   thresholdPeriod, thresholdStatus, validateTdsEntries,
   type ApplicableRate, type CertificateUse, type DeducteeType, type TdsCertificate, type TdsRateRow
 } from '@shared/tds'
-import { TCS_NO_PAN_MULTIPLE, validateTcsEntries } from '@shared/tcs'
+import { slabbedTcs, tcsSlabOn, TCS_NO_PAN_MULTIPLE, validateTcsEntries, type SlabbedTcs } from '@shared/tcs'
 import { KIND, type WithholdingKind } from './withholdingKind'
 import type { PostingError } from '@shared/posting'
 import { fyFromStartYear, fyOf, todayISO } from '@shared/dates'
@@ -382,6 +382,9 @@ export interface ResolvedTds {
   panAvailable: boolean
   /** Prior base for this party + section in the rate row's threshold period (excl. this voucher). */
   priorPaise: number
+  /** TCS on a slabbed section (s.206C(1G) tour package, FY 2025-26 — src/shared/tcsSources.ts):
+   *  how the base split across the slab. Absent for every other section. */
+  slab?: SlabbedTcs
 }
 
 /** What the rate table says this deduction should be (rate, certificate, excess-only base,
@@ -403,6 +406,13 @@ export function resolveTds(
   const priorPaise = kind === 'tcs'
     ? tcsPriorBase(db, partyLedgerId, sectionId, rate.row.thresholdBasis, dateISO, excludeVoucherId)
     : priorBase(db, partyLedgerId, sectionId, rate.row.thresholdBasis, dateISO, excludeVoucherId)
+  // The 1G tour slab (5% up to Rs 10 lakh a year, 20% above) applies only while the row in force
+  // is a cited statutory one — a row the user added (no source) is taken as it stands.
+  const slabDef = kind === 'tcs' && rate.row.source != null ? tcsSlabOn(rules.code, dateISO) : null
+  if (slabDef) {
+    const slab = slabbedTcs(rate, slabDef, basePaise, priorPaise, TCS_NO_PAN_OPTS)
+    return { rate, tdsPaise: slab.tcsPaise, deducteeType, panAvailable, priorPaise, slab }
+  }
   return { rate, tdsPaise: expectedTdsPaise(rate, basePaise, priorPaise), deducteeType, panAvailable, priorPaise }
 }
 
@@ -661,7 +671,8 @@ export function prepareVoucherWithholding(
   const basis = {
     rateBp: e.isManual || !resolved?.rate
       ? null
-      : resolved.rate.basis === 'certificate' ? resolved.rate.certificateRateBp : resolved.rate.rateBp,
+      : resolved.slab && resolved.slab.abovePaise > 0 ? resolved.slab.upperRateBp
+        : resolved.rate.basis === 'certificate' ? resolved.rate.certificateRateBp : resolved.rate.rateBp,
     deducteeType: resolved?.deducteeType ?? null,
     certificateId: e.isManual ? null : (resolved?.rate?.certificateId ?? null),
     gstInBase: kind === 'tcs' && resolved?.rate ? !!resolved.rate.row.baseIncludesGst : null
