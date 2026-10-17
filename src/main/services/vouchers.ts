@@ -393,6 +393,29 @@ export interface SaveVoucherHooks {
   historicImport?: boolean
 }
 
+export const IRN_FROZEN =
+  'This invoice has a live e-invoice IRN — its date, party, amounts, tax and items can’t change. Cancel the IRN first (e-Documents → IRN details, within 24 hours of the ack), or issue a credit / debit note'
+export const IRN_LIVE_BIN =
+  'This invoice has a live e-invoice IRN — cancel the IRN first (e-Documents → IRN details, within 24 hours of the ack) before moving it to the bin, or issue a credit note'
+
+/** The voucher's IRN while it is live (stored, no recorded cancel — migration "NIC e-document columns"). */
+export function liveIrnOf(db: DB, voucherId: number): string | null {
+  const r = db.prepare('SELECT irn FROM vouchers WHERE id = ? AND irn IS NOT NULL AND irn_cancelled_at IS NULL').get(voucherId) as { irn: string } | undefined
+  return r?.irn ?? null
+}
+
+/** Whether a save would change what the IRP registered: the date, party, place of supply, every
+ *  ledger line (amounts and tax) or every item line (item, quantity, rate, discount, amount). */
+function irnFactsChanged(before: Voucher, input: VoucherInputParsed): boolean {
+  if (input.date !== before.date || (input.partyLedgerId ?? null) !== before.partyLedgerId || (input.posOverride ?? null) !== (before.posOverride ?? null)) return true
+  const key = (xs: string[]): string => [...xs].sort().join('|')
+  const lines = (ls: readonly { ledgerId: number; drCr: string; amount: number }[]): string => key(ls.map((l) => `${l.ledgerId}:${l.drCr}:${l.amount}`))
+  if (lines(input.lines) !== lines(before.lines)) return true
+  const items = (ls: readonly { stockItemId: number; qtyMilli: number; ratePaise: number; discountPaise?: number; amount: number; direction: string }[]): string =>
+    key(ls.map((l) => `${l.stockItemId}:${l.qtyMilli}:${l.ratePaise}:${l.discountPaise ?? 0}:${l.amount}:${l.direction}`))
+  return items(input.inventory) !== items(before.inventory)
+}
+
 export const IRN_RENUMBER_REFUSED = 'This invoice has an e-invoice IRN — its number and voucher type can’t change (cancel the IRN on the portal and enter a new invoice instead)'
 
 export const INTEREST_NOTE_IMMUTABLE =
@@ -617,7 +640,14 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
   // WP 6.4 review: an e-invoice's IRN was generated for this type's number — renumbering it (a new
   // number, or another series) would leave the IRN describing a document that no longer exists.
   if (before?.irn && (number !== before.number || vt.id !== before.voucherTypeId)) {
-    throw new AppError('irn_renumber', `${IRN_RENUMBER_REFUSED} (IRN ${before.irn.slice(0, 12)}…)`, { field: 'number' })
+    // A recorded cancel (irn_cancelled_at) lets the number go: the corrected invoice gets a new one.
+    if (liveIrnOf(db, before.id)) throw new AppError('irn_renumber', `${IRN_RENUMBER_REFUSED} (IRN ${before.irn.slice(0, 12)}…)`, { field: 'number' })
+  }
+  // GST correction workflow: the IRP registered this invoice's amounts, party, tax and items — while
+  // its IRN is live they can't change here (an e-invoice can't be amended; cancel it within 24 h,
+  // or issue a credit / debit note). Narration, transport and other details stay editable.
+  if (before?.irn && liveIrnOf(db, before.id) && irnFactsChanged(before, posting)) {
+    throw new AppError('irn_frozen', IRN_FROZEN)
   }
 
   const lock = getLockDate(db)
@@ -928,6 +958,8 @@ export function deleteVoucher(db: DB, id: number): void {
   if (!before) throw new AppError('voucher_not_found', 'Voucher not found')
   const lock = getLockDate(db)
   if (lock && before.date <= lock) throw lockedError(lock)
+  // GST correction workflow: binning doesn't cancel an IRN on the IRP — refused while it is live.
+  if (before.irn && liveIrnOf(db, id)) throw new AppError('irn_live', IRN_LIVE_BIN)
   db.transaction(() => {
     // WP 2.5: refused while a live document draws on its lines (or it re-prices a frozen GRN).
     assertBinnable(db, id)

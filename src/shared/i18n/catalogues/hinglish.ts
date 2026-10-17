@@ -2043,6 +2043,8 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'errors.dateLockedPlain': 'Yeh date lock ki gayi period mein hai. Baad ki date chunein ya owner se unlock karwayein.',
   'errors.numberNeeded': 'Bill number likhein.',
   'errors.einvoiceNumber': 'Is bill ko GST portal se e-invoice number mil chuka hai, isliye iska number nahi badal sakta. Iski jagah naya bill banayein.',
+  'errors.einvoiceFrozen': 'Is bill ko GST portal se e-invoice number mil chuka hai, isliye iski date, customer, rakam, tax aur saamaan nahi badal sakte. Pehle e-invoice cancel karein (24 ghante ke andar), ya iski jagah wapsi / extra charge ka note banayein.',
+  'errors.einvoiceLive': 'Is bill ko GST portal se e-invoice number mil chuka hai, isliye ise abhi hataya nahi ja sakta. Pehle e-invoice cancel karein (24 ghante ke andar), ya iski jagah wapsi ka note banayein.',
   'errors.twoSides': 'Entry mein paisa ek account se nikal kar doosre mein jaana chahiye. Doosra account jodein.',
   'errors.unbalanced': 'Dono taraf ka jod match nahi karta — {amount} ka farak hai. Dono taraf ka total barabar karein.',
   'errors.unbalancedPlain': 'Dono taraf ka jod match nahi karta. Dono taraf ka total barabar karein.',

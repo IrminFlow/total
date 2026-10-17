@@ -39,7 +39,8 @@ import type { GstDoc } from '@shared/gst/returns'
 import {
   capitalGoodsSale, capitalGoodsWorkingText, headsTotal, ZERO_TAX_HEADS, type TaxHeads
 } from '@shared/capitalGoodsGst'
-import { getLockDate, getVoucher, saveVoucher, NOT_DELETED } from './vouchers'
+import { getLockDate, getVoucher, saveVoucher, NOT_DELETED, IRN_LIVE_BIN, liveIrnOf } from './vouchers'
+import { AppError } from '@shared/errors'
 import { closingBalances } from './reports'
 import { writeAudit } from './audit'
 
@@ -1202,6 +1203,8 @@ export function binFixedAssetPartner(db: DB, voucherId: number): void {
   const lock = getLockDate(db)
   const pv = db.prepare('SELECT date FROM vouchers WHERE id = ?').get(partner) as { date: string }
   if (lock && pv.date <= lock) throw new Error(`Books are locked up to ${lock} (the paired voucher is dated ${pv.date})`)
+  // The paired tax invoice goes to the bin too — not while its e-invoice IRN is live.
+  if (liveIrnOf(db, partner)) throw new AppError('irn_live', IRN_LIVE_BIN)
   const before = getVoucher(db, partner)
   db.prepare("UPDATE vouchers SET deleted_at = datetime('now') WHERE id = ?").run(partner)
   writeAudit(db, 'voucher', partner, 'delete', before, { pairedWith: voucherId })
