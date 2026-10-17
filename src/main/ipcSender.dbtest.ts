@@ -72,8 +72,8 @@ describe('IPC sender validation', () => {
   it('every registered channel refuses a foreign frame, a child frame and a frame-less event', async () => {
     const leaked: string[] = []
     const senders = [
-      eventFrom('file:///tmp/other/index.html', 50),
-      eventFrom('file:///test/out/renderer/other.html', 51),
+      eventFrom(TEST_RENDERER_URL.replace(/\/out\/renderer\/index\.html$/, '/other/index.html'), 50),
+      eventFrom(TEST_RENDERER_URL.replace(/index\.html$/, 'other.html'), 51),
       eventFrom('http://localhost:5173/', 52),
       childFrameEvent(),
       {},

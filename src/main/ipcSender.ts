@@ -4,6 +4,7 @@
 // with `not_permitted` BEFORE the payload is parsed, and logged once per sender.
 // Pure: no Electron import, so the rule is unit-tested (ipcSender.test.ts) and the dbtests use the
 // trusted shim in ipcSender.testutil.ts.
+import { resolve } from 'path'
 import { fileURLToPath } from 'url'
 
 /** Where the renderer is loaded from: its file:// URL, or the dev server origin (dev only). */
@@ -31,14 +32,17 @@ export function configureTrustedRenderer(t: TrustedRenderer | null): void {
   trusted = t
 }
 
+/** The file path a file:// URL names (query / hash dropped), resolved; lower-cased on win32 (drive
+ *  letters and NTFS names are case-insensitive). Null when it is not a local file URL — including a
+ *  POSIX-style `file:///tmp/x` on Windows, which fileURLToPath refuses (no drive letter). */
 function filePath(url: string, platform: string): string | null {
   try {
     const u = new URL(url)
     if (u.protocol !== 'file:' || (u.host && u.host !== 'localhost')) return null
     u.search = ''
     u.hash = ''
-    const p = fileURLToPath(u.href)
-    return platform === 'win32' ? p.toLowerCase().replace(/\//g, '\\') : p
+    const p = resolve(fileURLToPath(u.href))
+    return platform === 'win32' ? p.toLowerCase() : p
   } catch {
     return null
   }
