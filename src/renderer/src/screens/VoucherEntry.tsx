@@ -7,7 +7,8 @@ import {
   modeForKind, planVoucherEdit, taxLedgerIdsFrom,
   type AccountingFormState, type EditPlan, type InvoiceFormState, type ManufactureFormState, type StockNoteFormState
 } from '@shared/voucherEdit'
-import type { SimpleHandoff } from '@shared/simple/handoff'
+import type { HandoffEntry, HandoffPendingRefs, SimpleHandoff } from '@shared/simple/handoff'
+import { reportHandoffEditor } from '../lib/handoff'
 import { HandoffBanner } from '../components/HandoffBanner'
 import { api } from '../lib/client'
 import { confirmDialog } from '../lib/dialogs'
@@ -223,6 +224,11 @@ export function VoucherEntry({
   // in the accounting form, which the mode attribute reports.
   const aiMode = aiForm && aiForm !== 'tradeDoc' && aiDraft && currentType.id === aiDraft.payload.voucherTypeId ? aiForm : null
   const handoffHere = handoff && currentType.id === handoff.entry.voucherTypeId ? handoff : null
+  // The editor's state as it stands, for "Back to simple" to carry the changes back (lib/handoff.ts).
+  // (A plain function: hooks can't follow the loading return above; the editors only store it.)
+  const reportHandoff = (state: InvoiceFormState | AccountingFormState, pending: HandoffPendingRefs): void => {
+    if (handoffHere) reportHandoffEditor(handoffHere, { ...handoffHere.entry, state, pending } as HandoffEntry)
+  }
   const activeMode = voucherId ? plan!.mode : (aiMode ?? handoffHere?.entry.form ?? modeForKind(currentType.kind))
 
   const typeTabs = !voucherId ? (
@@ -384,13 +390,13 @@ export function VoucherEntry({
         ) : handoffHere ? (
           // WP 9.10: the simple form's answers in this editor's own form state (as an AI draft opens).
           handoffHere.entry.form === 'invoice' ? (
-            <InvoiceEntry key="handoff" typeId={currentType.id} kind={currentType.kind} initial={handoffHere.entry.state} pending={handoffHere.entry.pending} />
+            <InvoiceEntry key="handoff" typeId={currentType.id} kind={currentType.kind} initial={handoffHere.entry.state} pending={handoffHere.entry.pending} onHandoffState={reportHandoff} />
           ) : handoffHere.entry.form === 'manufacture' ? (
             <ManufactureForm key="handoff" typeId={currentType.id} initial={handoffHere.entry.state} handedOff />
           ) : handoffHere.entry.form === 'physical' ? (
             <PhysicalStockEntry key="handoff" typeId={currentType.id} initial={handoffHere.entry.state} />
           ) : (
-            <AccountingEntry key="handoff" typeId={currentType.id} kind={currentType.kind} initial={handoffHere.entry.state} pending={handoffHere.entry.pending} />
+            <AccountingEntry key="handoff" typeId={currentType.id} kind={currentType.kind} initial={handoffHere.entry.state} pending={handoffHere.entry.pending} onHandoffState={reportHandoff} />
           )
         ) : aiForm && aiDraft && currentType.id === aiDraft.payload.voucherTypeId ? (
           // WP 5.3: the draft's own editor, pre-filled with the state the draft tool built.

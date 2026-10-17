@@ -11,11 +11,13 @@ import type { UiSettings } from '@shared/simple/uiMode'
 import type { HandoffEntry, IntentFormResult } from '@shared/simple/handoff'
 import { sanitiseHandoffEntry } from '@shared/simple/handoff'
 import { emptyInvoiceState } from '@shared/voucherEdit'
-import { useNav, useSession, type Screen } from '../state/stores'
+import { useNav, useSession, useToasts, type Screen } from '../state/stores'
 import { viewOverrideKey } from '../lib/mode'
 import {
-  alwaysKey, backToSimpleClears, dropKeptForms, factsQuery, fullCounterpart, rememberSaved, savedIdFor, simpleTargetFor, useAccountantView, useAlwaysFullRedirect, useBackToSimple, useKeptForm
+  alwaysKey, backToSimpleClears, dropKeptForms, factsQuery, fullCounterpart, rememberSaved, reportHandoffEditor, savedIdFor, simpleTargetFor, useAccountantView, useAlwaysFullRedirect, useBackToSimple,
+  useCarriedBack, useKeptForm
 } from '../lib/handoff'
+import { CarriedBackNote } from '../simple/CarriedBackNote'
 import { simplePaletteRows, SIMPLE_ENTRIES } from '../lib/screens'
 import { ViewToggle } from '../simple/ViewToggle'
 import { CommandPalette } from '../components/CommandPalette'
@@ -46,21 +48,29 @@ const BILL: HandoffEntry = {
 }
 let intentForm: IntentFormResult | Error = { kind: 'sale', entries: [BILL], missing: [] }
 let facts: unknown = {}
+let carried: unknown = { ok: false, reason: 'lines' }
+const carryCalls: unknown[] = []
 
 beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
   localStorage.clear()
   invoke.mockReset()
-  invoke.mockImplementation(async (channel: string) => {
+  invoke.mockImplementation(async (channel: string, payload?: unknown) => {
     if (channel === 'config:features:get') return { ok: true, data: DEFAULT_FEATURES }
     if (channel === 'simple:intentForm') return intentForm instanceof Error ? { ok: false, error: intentForm.message, code: 'validation' } : { ok: true, data: intentForm }
     if (channel === 'simple:handoffTarget') return { ok: true, data: facts }
+    if (channel === 'simple:carryBack') {
+      carryCalls.push(payload)
+      return { ok: true, data: carried }
+    }
     if (channel === 'search:query') return { ok: true, data: null }
     return { ok: false, error: `unmocked channel ${channel}` }
   })
   window.total = { platform: 'test', invoke } as unknown as typeof window.total
   intentForm = { kind: 'sale', entries: [BILL], missing: [] }
   facts = {}
+  carried = { ok: false, reason: 'lines' }
+  carryCalls.length = 0
   act(() => useNav.setState({ stack: [{ name: 'gateway' }] }))
   dropKeptForms()
 })
@@ -317,6 +327,90 @@ describe('the remembered choice', () => {
     act(() => useSession.setState({ slug: 'other-co' }))
     act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow] }))
     expect(renderHook(() => useKeptForm({ customer: null as number | null, qty: '' })).result.current[0]).toEqual({ customer: null, qty: '' })
+  })
+
+  it('Back to simple from a CHANGED hand-off editor carries the changes back (no discard question) and names what could not come', async () => {
+    setSession({ mode: 'simple' })
+    const flow: Screen = { name: 'simple-sell' }
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow] }))
+    const wrapper = ({ children }: { children: React.ReactNode }): React.JSX.Element => withClient(<>{children}</>)
+    const { result } = renderHook(() => useAccountantView('simple-sell'), { wrapper })
+    const answers = { customerId: 7, lines: [{ key: 1, itemId: 4, qtyText: '2', rate: 50_000, discount: null }] }
+    const intent = { kind: 'sale', date: '2026-05-10', customerId: 7, items: [{ itemId: 4, qty: 2000, rate: 50_000 }], payment: { how: 'credit' } } as never
+    await act(async () => result.current({ intent, keep: { form: answers } }))
+    const editor = top()
+    expect(editor).toMatchObject({ name: 'voucher-entry', handoff: { from: 'simple-sell', intent: { kind: 'sale', customerId: 7 } } })
+    const handoff = (editor as Extract<Screen, { name: 'voucher-entry' }>).handoff!
+    // The editor reports its changed state (the quantity and the TDS typed there).
+    const edited = { ...handoff.entry, state: { ...(handoff.entry.state as typeof BILL.state), rows: [{ ...(BILL.state as typeof BILL.state).rows[0]!, qtyText: '5' }] } } as HandoffEntry
+    act(() => reportHandoffEditor(handoff, edited))
+    carried = { ok: true, form: { customerId: 7, lines: [{ key: -1, itemId: 4, qtyText: '5', rate: 50_000, discount: null }] }, dropped: ['tds', 'godowns'] }
+    const Dirty = (): null => {
+      useUnsavedGuard(true)
+      return null
+    }
+    const dirty = render(withClient(<><Dirty /><DialogHost /></>))
+    const back = renderHook(() => useBackToSimple(), { wrapper })
+    await act(async () => back.result.current())
+    dirty.unmount()
+    expect(screen.queryByTestId('confirm-ok')).toBeNull()
+    expect(top()).toBe(flow)
+    expect(carryCalls).toEqual([{ flow: 'simple-sell', intent: handoff.intent, original: handoff.entry, current: edited, base: answers, today: '2026-05-10' }])
+    // The flow starts from the carried form (fresh line keys) and its note lists what was dropped.
+    const Flow = (): React.JSX.Element => {
+      const [form] = useKeptForm<typeof answers>({ customerId: 0, lines: [] })
+      const dropped = useCarriedBack()
+      return (
+        <>
+          <span data-testid="qty">{form.lines.map((l) => `${l.qtyText}:${l.key > 0}`).join()}</span>
+          <CarriedBackNote dropped={dropped} />
+        </>
+      )
+    }
+    render(withClient(<Flow />))
+    expect(screen.getByTestId('qty').textContent).toBe('5:true')
+    expect(screen.getByTestId('carried-back-note').textContent).toContain('Some details from the full editor could not be carried: TDS, where the stock is kept and its batch.')
+  })
+
+  it('Back to simple from an UNCHANGED hand-off editor is as before; one the simple form cannot hold says so and keeps the earlier answers', async () => {
+    setSession({ mode: 'simple' })
+    const flow: Screen = { name: 'simple-sell' }
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, flow] }))
+    const wrapper = ({ children }: { children: React.ReactNode }): React.JSX.Element => withClient(<>{children}</>)
+    const { result } = renderHook(() => useAccountantView('simple-sell'), { wrapper })
+    const answers = { customerId: 7, lines: [] as unknown[] }
+    const intent = { kind: 'sale', date: '2026-05-10', customerId: 7, items: [{ itemId: 4, qty: 2000, rate: 50_000 }], payment: { how: 'credit' } } as never
+    // Unchanged: carryBack gives the same form back — nothing carried, the kept answers as before.
+    await act(async () => result.current({ intent, keep: { form: answers } }))
+    let handoff = (top() as Extract<Screen, { name: 'voucher-entry' }>).handoff!
+    act(() => reportHandoffEditor(handoff, handoff.entry))
+    carried = { ok: true, form: answers, dropped: [] }
+    const back = renderHook(() => useBackToSimple(), { wrapper })
+    await act(async () => back.result.current())
+    expect(top()).toBe(flow)
+    const Flow = (): React.JSX.Element => {
+      const [form] = useKeptForm<typeof answers>({ customerId: 0, lines: [] })
+      return (
+        <>
+          <span data-testid="kept">{JSON.stringify(form)}</span>
+          <CarriedBackNote dropped={useCarriedBack()} />
+        </>
+      )
+    }
+    const first = render(withClient(<Flow />))
+    expect(screen.getByTestId('kept').textContent).toBe(JSON.stringify(answers))
+    expect(screen.queryByTestId('carried-back-note')).toBeNull()
+    first.unmount()
+    // Refused (say a sale whose debit is no customer): a plain note, then the usual way back.
+    await act(async () => result.current({ intent, keep: { form: answers } }))
+    handoff = (top() as Extract<Screen, { name: 'voucher-entry' }>).handoff!
+    act(() => reportHandoffEditor(handoff, { ...handoff.entry, state: { ...(handoff.entry.state as typeof BILL.state), partyId: 99 } } as HandoffEntry))
+    carried = { ok: false, reason: 'party' }
+    await act(async () => back.result.current())
+    expect(top()).toBe(flow)
+    expect(useToasts.getState().toasts.map((x) => x.text)).toContain('The changes made in the full app could not be brought back here — your earlier answers are shown.')
+    render(withClient(<Flow />))
+    expect(screen.getByTestId('kept').textContent).toBe(JSON.stringify(answers))
   })
 
   it('review: a plain report / Taxes header has the ⋯ "Always" menu — remembered per report, and never into a screen the company cannot use', async () => {

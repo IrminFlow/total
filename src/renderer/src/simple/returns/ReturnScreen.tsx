@@ -23,7 +23,8 @@ import { SaveCard } from '../SaveCard'
 import { BillPicker } from './BillPicker'
 import { ReturnLines } from './ReturnLines'
 import { RefundHow } from './RefundHow'
-import { useAccountantView, useKeptForm } from '../../lib/handoff'
+import { useAccountantView, useCarriedBack, useKeptForm } from '../../lib/handoff'
+import { CarriedBackNote } from '../CarriedBackNote'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
 import { useCanSave, ViewerNote } from '../ViewerNote'
@@ -54,6 +55,7 @@ export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; 
   const ledgers = useLedgers()
   const sale = side === 'sale' // i18n-technical
   const [billId, setBillId] = useKeptForm<number | null>(initialBill ?? null, 'billId') // i18n-technical: slot
+  const carriedBack = useCarriedBack()
   const [form, setForm] = useKeptForm<ReturnForm>(() => emptyReturnForm(workingDate))
   const [savedIds, setSavedIds] = useState<number[] | null>(null)
   const [preview, setPreview] = useState<SimplePreview | null>(null)
@@ -215,6 +217,7 @@ export function ReturnScreen({ side, billId: initialBill }: { side: ReturnSide; 
         <AccountantViewButton testId="btn-return-accountant-view" title={t('simple.returns.accountantHint')} onOpen={accountantView} />
       </div>
       {!canSave && <ViewerNote top />}
+      <CarriedBackNote dropped={carriedBack} />
 
       {savedIds ? (
         <SaveCard

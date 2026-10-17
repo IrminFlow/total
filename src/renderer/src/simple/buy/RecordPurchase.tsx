@@ -31,7 +31,8 @@ import { SaveCard } from '../SaveCard'
 import { BuyLines } from './BuyLines'
 import { BuyAmount } from './BuyAmount'
 import { PaidNow } from './PaidNow'
-import { useAccountantView, useKeptForm } from '../../lib/handoff'
+import { useAccountantView, useCarriedBack, useKeptForm } from '../../lib/handoff'
+import { CarriedBackNote } from '../CarriedBackNote'
 import { AccountantViewButton } from '../AccountantViewButton'
 import { SaveBar } from '../SaveBar'
 import { useCanSave, ViewerNote } from '../ViewerNote'
@@ -104,6 +105,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
   }, [workingDate, startMode, slug, info?.gstRegistrationType])
   // WP 9.8: `party` starts the purchase for that supplier (People → Record a purchase).
   // WP 10.1: an Ask Total entry request opens the purchase pre-filled (askPrefill.ts — the draft's own mapping).
+  const carriedBack = useCarriedBack()
   const [form, setForm] = useKeptForm<BuyForm>(() => (ask ? buyFromAsk(blank(), ask.prefill, (l) => ({ ...newLine(), ...l })) : party != null ? { ...blank(), supplierId: party } : blank()))
   const [savedIds, setSavedIds] = useState<number[] | null>(null)
   const [preview, setPreview] = useState<SimplePreview | null>(null)
@@ -351,6 +353,7 @@ export function RecordPurchase({ party, ask }: { party?: number; ask?: AskOpen<'
         </div>
       </div>
       {!canSave && <ViewerNote top />}
+      <CarriedBackNote dropped={carriedBack} />
 
       {noPurchaseAccount && !savedIds && (
         <section role="status" className="mb-4 rounded-lg border border-amber/60 bg-amberbar/10 px-4 py-3" data-testid="buy-no-purchase-account">
