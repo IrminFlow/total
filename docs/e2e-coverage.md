@@ -46,6 +46,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 3.4 | GSTR-9, ITC-04, 2B matching / IMS, RCM self-invoices, ITC reversal | 25, 44 | |
 | 3.5 | NIC: connection test against the fake sandbox; e-way JSON | 06, 13 | |
 | 3.5 | E-invoice JSON export | 70 (gap filled) | live IRN: see 70's header |
+| 3.5 | NIC follow-ups: signed invoice / QR stored and saved, Cancel IRN, cancel e-way bill + history, correction workflow (`irn_frozen` / `irn_live`) | 70 | against the fake sandbox; Extend validity only says when its ±8 h window opens (the fake's clock can't reach it) — the extension itself is in `nicContract.dbtest` / `einvoiceDetails.test` |
 | 3.6 | Fixed assets | 22 | |
 | 3.7 | Payroll + statutory (PF / ESI / PT / salary TDS / Form 16) | 07, 27 | |
 | 3.8 | Audit trail / edit log, chain verification | 30 | |

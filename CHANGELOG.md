@@ -578,6 +578,20 @@ Read these before filing from the next release.
   mining are excluded by the Act — mark those "Not applicable". UNVERIFIED (1961 wording read via a
   search index; GST in the base): `src/shared/tcsSources.ts`. [#163](https://github.com/IrminFlow/total/pull/163)
 
+- **e-Invoice / e-way bill: signed copies, cancellation, extension, and a frozen IRN** (experimental —
+  the live NIC client has never run against the real portal). Generate IRN now keeps the IRP's
+  signed invoice and signed QR code; the printed invoice's QR is the signed QR ("e-Invoice QR
+  (signed by the IRP)") instead of Total's own Verification QR. e-Documents → **IRN details** shows
+  the IRN, ack no. / date and the signed copies (Copy, Save JSON), and lets the owner **Cancel IRN**
+  (reason + remark, within 24 hours of the ack, not while an e-way bill is live), **cancel the e-way
+  bill** (within 24 hours) or **extend its validity** (from 8 hours before to 8 hours after expiry,
+  with the reason, where the goods are and the distance left); every e-way bill event is kept. **While
+  an invoice's IRN is live, its date, party, amounts, tax and items can't be altered and it can't go
+  to the bin** — cancel the IRN first, or issue a credit / debit note; after the cancel the invoice
+  can be corrected (under a new number: NIC never issues a second IRN for the same number). A
+  cancelled IRN no longer prints. What is not confirmed against the portal is listed on the screen.
+  [#164](https://github.com/IrminFlow/total/pull/164)
+
 ### For developers
 
 - **Electron hardening (D7)** (to-do §4 Security), [#161](https://github.com/IrminFlow/total/pull/161): every IPC
@@ -607,6 +621,15 @@ Read these before filing from the next release.
   `einvoiceTurnOnNotice` + `EinvoiceStatus` in `shared/compliance.ts`, new read channel
   `gst:einvoiceStatus` (viewer; services/gst.ts `einvoiceStatus`). `einvoicingOn` unchanged;
   `gstValidate` passes `einvoicing: einvoicingOn || required on the period's last day`.
+- **NIC e-document columns** (migration after 054, last), [#164](https://github.com/IrminFlow/total/pull/164):
+  `vouchers.irn_signed_invoice` / `irn_signed_qr` / `irn_cancelled_at` / `irn_cancel_reason` /
+  `irn_cancel_remark` / `ewb_date` / `ewb_history` (appended, no rebuild). A live IRN = `irn` set and
+  `irn_cancelled_at` NULL (`vouchers.liveIrnOf`); cancel keeps the IRN, cancelling an e-way bill
+  clears the live EWB columns and appends to `ewb_history`. IPC `nic:record` (QUERY),
+  `nic:signedCopyExport` (EXPORT, `canExport`), `nic:cancelIrn` / `nic:cancelEwb` / `nic:extendEwb`
+  (owner, audited `voucher`). Windows and the UNVERIFIED list are pure in `shared/gst/nicRecord.ts`.
+  `saveVoucher` / `deleteVoucher` raise `irn_frozen` / `irn_live` (ERROR_MAP). The books workbook
+  carries the columns (`irn_cancelled_at` is exempt from the export's `_at` skip).
 
 - **TCS after WP 3.3** ([#163](https://github.com/IrminFlow/total/pull/163)), no migration:
   `src/shared/tcsSources.ts` (quoted sources with URL / where read / access date, `TCS_SLABS`,
