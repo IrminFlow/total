@@ -436,7 +436,7 @@ Read these before filing from the next release.
   profile says e-invoicing is required. No figure changed. Every notification is quoted in
   `src/shared/gst/einvoiceApplicability.ts`; UNVERIFIED: amendments after 10/2023-CT, which year's
   AATO the IRP window reads, the earlier ₹100 cr window (13 Sep 2023 advisory), OIDAR / rule 14
-  classes — `EINVOICE_APPLICABILITY_UNVERIFIED`. [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  classes — `EINVOICE_APPLICABILITY_UNVERIFIED`. [#165](https://github.com/IrminFlow/total/pull/165)
 - **Cheque register: fill it from earlier entries** (Banking → Cheques). Payments saved before
   the bank had a cheque book carry their cheque number on the voucher but were never in the
   register, so after an upgrade the register was empty and "Leaves left" / the next leaf were
@@ -570,7 +570,7 @@ Read these before filing from the next release.
   OS), `will-navigate` / `will-redirect` (refused except the dev server's origin) and
   `will-attach-webview` (refused) — applied to EVERY web contents through `web-contents-created`
   (the hidden PDF window too); `windowPolicy.test.ts`.
-- **E-invoice applicability** (to-do §4), [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM): no migration —
+- **E-invoice applicability** (to-do §4), [#165](https://github.com/IrminFlow/total/pull/165): no migration —
   company meta `gstProfile` gains optional `turnover: { years: [{ fy, paise }], otherGstins? }` and
   `einvoiceExemption`; `gstProfile:set` now takes a Zod-strict PATCH (`gstProfilePatchSchema`:
   absent = keep, null = clear; audited company update with the whole before / after), so the
