@@ -680,9 +680,10 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
   // P&L amount dropped that way is summed into a computed "Profit & Loss A/c (opening)" row, so
   // the trial balance still balances. Companies that closed their first FY before WP 1.3 have a
   // closing journal that netted FY movements only, leaving stored P&L openings un-transferred;
-  // those journals are not rewritten, so the computed row legitimately shows that residue in
-  // later years and the TB still balances (the row is derived from exactly what the FY window
-  // drops, whatever was posted).
+  // those journals are not rewritten automatically, so the computed row legitimately shows that
+  // residue in later years and the TB still balances (the row is derived from exactly what the FY
+  // window drops, whatever was posted) — until the owner runs Year-end → Check earlier closes
+  // (services/yearEndRepair.ts), which re-closes those years under today's rule.
   const { rows, priorPnl } = yearBasisBalances(db, asOn)
 
   const result = rows

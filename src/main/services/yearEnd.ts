@@ -78,6 +78,14 @@ export function closePreview(db: DB, fyStartYear: number, booksFrom: number = bo
   }
 }
 
+/** The ledger a close carries the profit to: Retained Earnings under Reserves & Surplus (else
+ *  Capital Account), created on first use. */
+export function retainedEarningsLedger(db: DB): number {
+  const retainedGroupExists = db.prepare("SELECT 1 FROM groups WHERE name = 'Reserves & Surplus'").get()
+  const retainedGroup = retainedGroupExists ? 'Reserves & Surplus' : 'Capital Account'
+  return findOrCreateLedger(db, 'Retained Earnings', retainedGroup)
+}
+
 export interface CloseResult {
   voucherId: number
   netProfit: number
@@ -90,7 +98,14 @@ export interface CloseResult {
  * the lock is set, since saveVoucher itself refuses to post into a locked period — the lock is set
  * only once the closing entry (dated the same 31 Mar) already exists.
  */
-export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): CloseResult {
+export function postClose(
+  db: DB,
+  company: CompanyInfo,
+  fyStartYear: number,
+  /** Guided re-close (yearEndRepair.ts): post the transfer on the ledger the replaced journal
+   *  used (a renamed Retained Earnings stays the one ledger) instead of finding it by name. */
+  opts: { transferLedgerId?: number } = {}
+): CloseResult {
   const fy = fyFromStartYear(fyStartYear)
   if (fyStartYear < company.booksFrom) {
     throw new Error(`Books start in FY ${fyFromStartYear(company.booksFrom).label} — nothing to close before that`)
@@ -105,9 +120,7 @@ export function postClose(db: DB, company: CompanyInfo, fyStartYear: number): Cl
   const plan = planClose(preview.rows)
   if (plan.lines.length === 0) throw new Error(`No income or expense activity to close for FY ${fy.label}`)
 
-  const retainedGroupExists = db.prepare("SELECT 1 FROM groups WHERE name = 'Reserves & Surplus'").get()
-  const retainedGroup = retainedGroupExists ? 'Reserves & Surplus' : 'Capital Account'
-  const retainedId = findOrCreateLedger(db, 'Retained Earnings', retainedGroup)
+  const retainedId = opts.transferLedgerId ?? retainedEarningsLedger(db)
 
   const lines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number; costAllocations: [] }[] = plan.lines.map((l) => ({
     ledgerId: l.ledgerId,

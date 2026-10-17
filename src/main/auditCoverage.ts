@@ -280,6 +280,11 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'voucher:duplicates': QUERY,
   'pdc:mature': a('voucher', 'credit_override'),
   'yearend:close': a('year_end', 'voucher', 'ledger', 'company'),
+  // Guided re-close of 0.4.0 closes: the preview computes; the repair bins + re-posts closing
+  // journals (voucher delete / create), moves the lock back and forth (company) and writes one
+  // year_end row per repaired year (Retained Earnings may be created: ledger).
+  'yearEnd:repairPreview': QUERY,
+  'yearEnd:repair': a('year_end', 'voucher', 'ledger', 'company'),
   // The stock journal goes through saveVoucher (a 'voucher' row) — listed so canPost covers it.
   'manufacture:save': a('manufacture', 'voucher', 'ai_draft'),
   'jobWork:saveChallan': a('job_work'),

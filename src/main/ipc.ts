@@ -106,6 +106,7 @@ import { quickCreateItem } from './services/quickCreate'
 import { quickItemSchema } from '@shared/schemas'
 import * as budgets from './services/budgets'
 import * as yearEnd from './services/yearEnd'
+import * as yearEndRepair from './services/yearEndRepair'
 import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
 import { registerPricingIpc } from './ipcPricing'
@@ -1321,6 +1322,22 @@ export function registerIpc(): void {
     const { fyStartYear } = fyStartYearSchema.parse(p)
     const c = requireCompany()
     return yearEnd.postClose(c.db, c.info, fyStartYear)
+  }, 'owner')
+  // Guided re-close (0.4.0 closes): compare every live closing journal with today's rule (read
+  // only); the owner's repair re-closes the differing years oldest first in one transaction.
+  handle('yearEnd:repairPreview', (p) => {
+    z.object({}).strict().parse(p ?? {})
+    // The repair compares against this preview with the company's booksFrom — the same here.
+    const c = requireCompany()
+    return yearEndRepair.repairPreview(c.db, c.info.booksFrom)
+  }, 'accountant')
+  handle('yearEnd:repair', (p) => {
+    const input = z
+      .object({ fingerprint: z.string().regex(/^[0-9a-f]{64}$/), fyStartYears: z.array(z.number().int().min(1990).max(2100)).min(1).max(100).optional() })
+      .strict()
+      .parse(p)
+    const c = requireCompany()
+    return yearEndRepair.repairCloses(c.db, c.info, input)
   }, 'owner')
 
   // ---------- backups: list/run/restore + encrypted export/import ----------
