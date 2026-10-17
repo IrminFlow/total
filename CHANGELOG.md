@@ -304,7 +304,7 @@ what you typed, and a **Back to simple** button.
   ticked one at a time; ticking the newer one ticks the older too, because a payment always settles
   the older bill of that number first (the newer one says so). A new bill never takes the number of
   an advance or kept credit that has been used up; it gets the year added ("ADV1/25-26").
-  [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM)
+  [#171](https://github.com/IrminFlow/total/pull/171)
 
 ### For accountants (figures that changed)
 
@@ -589,7 +589,7 @@ Read these before filing from the next release.
 
 ### For developers
 
-- **Simple mode small batch** (to-do §4 Simple mode), [#PRNUM](https://github.com/IrminFlow/total/pull/PRNUM): Buy's
+- **Simple mode small batch** (to-do §4 Simple mode), [#171](https://github.com/IrminFlow/total/pull/171): Buy's
   `purchaseIntentFrom` sends the WP 9.1 amount line's `billTotal` when the amount is typed with GST
   (claim / paid) and `buyTotals` / carry-back follow it. `MoneyRow.forWhat` (optional) comes from
   the purchase a payment's `against` ref settles (an expense account outside Purchase Accounts);

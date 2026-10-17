@@ -55,13 +55,13 @@ done on main were dropped. One line each; the pointer says where to look.
 ## 4. Known bugs / limitations by area
 
 ### Simple mode
-- ~~Buy's "just an amount" bill with GST rounds to the rupee; it could send the printed `billTotal` like Money out does — PR #88, `simple/buy/`~~ DONE — PR #PRNUM
-- ~~Money list names the supplier, not the category (e.g. Electricity), for an expense paid with a GST bill — PR #88 / #111, `services/simpleMoney.ts`~~ DONE — PR #PRNUM
+- ~~Buy's "just an amount" bill with GST rounds to the rupee; it could send the printed `billTotal` like Money out does — PR #88, `simple/buy/`~~ DONE — PR #171
+- ~~Money list names the supplier, not the category (e.g. Electricity), for an expense paid with a GST bill — PR #88 / #111, `services/simpleMoney.ts`~~ DONE — PR #171
 - ~~Money list stops at the working date, so an entry dated up to +30 days ahead isn't listed until then~~ DONE — lists up to the working date + 30 days with a "Dated ahead" chip (PR #121) — PR #88
 - ~~Expense tiles include "Purchases", "Raw material purchases", "Discount given"; paying "Purchases" from Money out books no goods~~ DONE — Money out drops those tiles for "Buying goods? Record a purchase instead" (opens Record a purchase with the supplier / amount / way paid carried); Record a purchase keeps them (PR #139) — PR #88, `shared/simple/categories.ts`
 - ~~A refund from a supplier who owes you nothing is accepted silently (raises what you owe)~~ DONE — refused on the supplier (`simple_refund_no_credit`) with "Record it as other money in"; "They are paying us for something else" posts it on account (PR #139) — PR #88
 - GST-bill expense preview says "Purchase bill …" even for rent or electricity — PR #88
-- ~~Two open bills with the same name (different years) tick together in Money in / out; a later bill can reuse an older settled credit's name — PR #88 / #89~~ DONE — PR #PRNUM
+- ~~Two open bills with the same name (different years) tick together in Money in / out; a later bill can reuse an older settled credit's name — PR #88 / #89~~ DONE — PR #171
 - ~~Refund TO a customer (money out against their credit) outside a return isn't offered~~ DONE — Money out "A customer (refund)" while a customer holds credit (`money_out.customerId`, against their named credits oldest first) (PR #139) — PR #88
 - ~~Bank: "Do you have a GST bill?" not asked for bank expenses; bank charges incl. GST not split for a regular registration~~ DONE — asked on a GST-charging date (Money out's purchase intent, paid from the bank); "GST on the charge" splits the input tax with the bank as the supplier (PR #139) — PR #90
 - ~~Bank: no Undo / "Not this" on a Done line (unmatch in the full app); a skipped line isn't remembered after refresh; after "Pick the bills yourself" the user must go back to Bank themselves~~ DONE — "Not this" (the full app's unmatch), skips remembered on this computer under "Skipped for now", "Back to Bank" (PR #121) — PR #90
