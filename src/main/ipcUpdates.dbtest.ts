@@ -1,4 +1,5 @@
 // Update consent IPC: app-level setting, Zod-strict, owner-only (role map), nothing in any company DB.
+import { TRUSTED_EVENT } from './ipcSender.testutil'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -21,7 +22,7 @@ const root = mkdtempSync(join(tmpdir(), 'total-ipc-updates-'))
 process.env.TOTAL_DATA_DIR = root
 process.env.TOTAL_SUPPRESS_SYNC_WARNING = '1'
 
-const call = (ch: string, payload?: unknown) => handlers.get(ch)!({}, payload)
+const call = (ch: string, payload?: unknown) => handlers.get(ch)!(TRUSTED_EVENT, payload)
 let ipc: typeof import('./ipc')
 
 beforeAll(async () => {

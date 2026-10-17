@@ -3,6 +3,7 @@
 // payables:msmeDue, report:dashboardPromised), on the Demo Traders seed and — with
 // TOTAL_PERF_DATA pointing at a `total-cli perf-seed` data root (e.g. the 100k seed) — on Perf
 // Traders. Viewer-level read, Zod-strict, writes nothing; `parties: false` leaves the two chips out.
+import { TRUSTED_EVENT } from './ipcSender.testutil'
 import { describe, expect, it, vi } from 'vitest'
 import { cpSync, existsSync, mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
@@ -38,7 +39,7 @@ ipc.registerIpc()
 async function call(channel: string, payload?: unknown): Promise<{ ok: boolean; data?: unknown; error?: string }> {
   const h = handlers.get(channel)
   if (!h) throw new Error(`no handler ${channel}`)
-  return h({}, payload)
+  return h(TRUSTED_EVENT, payload)
 }
 async function ok<T>(channel: string, payload?: unknown): Promise<T> {
   const r = await call(channel, payload)

@@ -1,6 +1,7 @@
 // WP 5.1 through the real IPC registration (registerIpc, Electron mocked, TOTAL_AI_MOCK demo
 // provider): a draft consumed by voucher:save, a re-save of a used draft, thread delete and
 // "Delete all AI data" (audited), and the company closing in the middle of an answer.
+import { TRUSTED_EVENT } from '../ipcSender.testutil'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
@@ -30,7 +31,7 @@ process.env.TOTAL_AI_MOCK = '1'
 async function call<T = unknown>(channel: string, payload?: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
   const h = handlers.get(channel)
   if (!h) throw new Error(`no handler ${channel}`)
-  return (await h({}, payload)) as { ok: boolean; data?: T; error?: string }
+  return (await h(TRUSTED_EVENT, payload)) as { ok: boolean; data?: T; error?: string }
 }
 async function ok<T = unknown>(channel: string, payload?: unknown): Promise<T> {
   const r = await call<T>(channel, payload)

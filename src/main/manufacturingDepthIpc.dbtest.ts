@@ -1,6 +1,7 @@
 // WP 2.4 — the new manufacturing IPC channels end to end through registerIpc(): Zod parsing, the
 // { ok, data | error } envelope, BOM versions / explode, by-products on manufacture:save, job-work
 // challans and the reports. Electron is mocked the same way as stockVisibilityIpc.dbtest.ts.
+import { TRUSTED_EVENT } from './ipcSender.testutil'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
@@ -25,7 +26,7 @@ process.env.TOTAL_SUPPRESS_SYNC_WARNING = '1'
 async function call<T = unknown>(channel: string, payload?: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
   const h = handlers.get(channel)
   if (!h) throw new Error(`no handler ${channel}`)
-  return (await h({}, payload)) as { ok: boolean; data?: T; error?: string }
+  return (await h(TRUSTED_EVENT, payload)) as { ok: boolean; data?: T; error?: string }
 }
 async function ok<T = unknown>(channel: string, payload?: unknown): Promise<T> {
   const r = await call<T>(channel, payload)

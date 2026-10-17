@@ -8,6 +8,7 @@
 //     return link, else its reference), a ledger's party-ness.
 // The round trip of every simple:post kind through its editor is WP 9.1's (simplePost.dbtest.ts,
 // simpleStock.dbtest.ts) and is not repeated here.
+import { TRUSTED_EVENT } from '../ipcSender.testutil'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -453,7 +454,7 @@ describe('simple:handoffTarget — what "Back to simple" needs', () => {
   it('both are viewer reads over IPC; neither writes', async () => {
     const ipc = await import('../ipc')
     ipc.registerIpc()
-    const call = async (ch: string, p?: unknown) => handlers.get(ch)!({}, p)
+    const call = async (ch: string, p?: unknown) => handlers.get(ch)!(TRUSTED_EVENT, p)
     const ok = async <T,>(ch: string, p?: unknown): Promise<T> => {
       const res = await call(ch, p)
       if (!res.ok) throw new Error(`${ch}: ${res.error}`)

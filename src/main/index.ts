@@ -1,6 +1,7 @@
 import { e2eToday } from './e2eClock'
 import { app, BrowserWindow, dialog, shell } from 'electron'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
@@ -15,7 +16,8 @@ import { syncFolderWarning } from '@shared/syncpath'
 import { configureI18n } from '@shared/i18n'
 // Main renders hi / hinglish synchronously (prints, errors): register both catalogues.
 import '@shared/i18n/all'
-import { allowedExternalUrl } from '@shared/externalLinks'
+import { applyWindowPolicy, mainWindowWebPreferences } from './windowPolicy'
+import { configureTrustedRenderer } from './ipcSender'
 import { dataFolderLabel } from '@shared/updateText'
 import { MOVED_NOTE } from './services/dataRootMove'
 
@@ -127,34 +129,10 @@ function createWindow(): void {
     icon: appIconPath,
     ...(isMac ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 18, y: 16 } } : {}),
     backgroundColor: '#f4f4ef',
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false,
-      contextIsolation: true,
-      nodeIntegration: false,
-      // Scripted runs only (TOTAL_E2E_TODAY, e2eClock.ts): the preload hands the day to the renderer.
-      ...(e2eToday ? { additionalArguments: [`--total-e2e-today=${e2eToday}`] } : {})
-    }
+    webPreferences: mainWindowWebPreferences({ preload: join(__dirname, '../preload/index.js'), e2eToday })
   })
 
   win.on('ready-to-show', () => win.show())
-
-  // WP 7.2: no window is ever opened, and only the allow-listed links (help pages, mailto:, a
-  // WhatsApp chat — shared/externalLinks.ts) go to the OS; anything else is refused and logged.
-  win.webContents.setWindowOpenHandler((details) => {
-    const safe = allowedExternalUrl(details.url)
-    if (safe) void shell.openExternal(safe)
-    else log('warn', 'window-open-refused', { scheme: details.url.split(':')[0]?.slice(0, 16) ?? '' })
-    return { action: 'deny' }
-  })
-  // The window never navigates away from the app itself (a dropped file, a stray link).
-  win.webContents.on('will-navigate', (event, url) => {
-    const devUrl = is.dev ? process.env.ELECTRON_RENDERER_URL : undefined
-    if (devUrl && url.startsWith(devUrl)) return
-    event.preventDefault()
-    log('warn', 'navigation-refused', { scheme: url.split(':')[0]?.slice(0, 16) ?? '' })
-  })
-  win.webContents.on('will-attach-webview', (event) => event.preventDefault())
 
   if (is.dev && process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -179,6 +157,17 @@ if (gotSingleInstanceLock) {
     electronApp.setAppUserModelId('com.irminlabs.total')
     if (process.platform === 'darwin') app.dock?.setIcon(appIconPath)
     app.on('browser-window-created', (_, window) => optimizer.watchWindowShortcuts(window))
+    // WP 7.2 / D7: one policy for every web contents (the main window, the hidden PDF window):
+    // no new windows, no navigation away from the app, no webviews (windowPolicy.ts).
+    const devUrl = is.dev ? process.env.ELECTRON_RENDERER_URL : undefined
+    app.on('web-contents-created', (_, contents) =>
+      applyWindowPolicy(contents, { openExternal: (url) => void shell.openExternal(url), log, devUrl })
+    )
+    // D7: IPC answers only the app's own renderer page (ipcSender.ts) — set before any window loads.
+    configureTrustedRenderer({
+      fileUrl: pathToFileURL(join(__dirname, '../renderer/index.html')).href,
+      ...(devUrl ? { devOrigin: devUrl } : {})
+    })
     ensureDataTree()
     registerIpc()
     startBackupScheduler(getCurrentCompany)

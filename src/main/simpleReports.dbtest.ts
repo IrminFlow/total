@@ -6,6 +6,7 @@
 //   - cash in the next 30 days opens at the forecast's (= trial balance) cash; who owes whom =
 //     Outstandings; by month = the registers' monthly rows;
 //   - read-only (no audit row), any role; a custom period that ends before it starts → `to`.
+import { TRUSTED_EVENT } from './ipcSender.testutil'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
@@ -43,7 +44,7 @@ process.env.TOTAL_SUPPRESS_SYNC_WARNING = '1'
 async function call(channel: string, payload?: unknown): Promise<{ ok: boolean; data?: unknown; error?: string; code?: string; field?: string }> {
   const h = handlers.get(channel)
   if (!h) throw new Error(`no handler ${channel}`)
-  return h({}, payload)
+  return h(TRUSTED_EVENT, payload)
 }
 async function ok<T>(channel: string, payload?: unknown): Promise<T> {
   const r = await call(channel, payload)

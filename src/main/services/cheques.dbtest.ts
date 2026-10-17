@@ -3,6 +3,7 @@
 // backfill records them as Print cheque would have — and nothing else: vouchers and figures stay
 // as they are, a leaf held by another entry is a conflict (skipped, never overwritten), and a
 // second run finds nothing. The role gates are driven through the IPC handlers (electron mocked).
+import { TRUSTED_EVENT } from '../ipcSender.testutil'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
@@ -325,7 +326,7 @@ describe('cheque register backfill = Print cheque, review cases', () => {
 })
 
 describe('cheque register backfill through IPC: preview accountant+, apply owner only', () => {
-  const call = async (channel: string, payload?: unknown): Promise<Result> => handlers.get(channel)!({}, payload)
+  const call = async (channel: string, payload?: unknown): Promise<Result> => handlers.get(channel)!(TRUSTED_EVENT, payload)
   const ok = async <T,>(channel: string, payload?: unknown): Promise<T> => {
     const r = await call(channel, payload)
     if (!r.ok) throw new Error(`${channel}: ${r.error} (${r.code ?? ''})`)

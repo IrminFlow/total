@@ -1,6 +1,7 @@
 // Moving the data folder (Settings → "Where Total keeps your books"): the copy, its check, the
 // pointer, the note in the old folder — and a failed copy (or pointer) leaves everything as it was.
 // The secret store (hermetic test cipher) and a passphrase-locked business still open from the copy.
+import { TRUSTED_EVENT } from '../ipcSender.testutil'
 import { describe, expect, it, vi } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -48,7 +49,7 @@ const { openDb } = await import('../db/encryption')
 const move = await import('./dataRootMove')
 const { dataRootChoice } = await import('../paths')
 ipc.registerIpc()
-const call = (ch: string, payload?: unknown) => handlers.get(ch)!({}, payload)
+const call = (ch: string, payload?: unknown) => handlers.get(ch)!(TRUSTED_EVENT, payload)
 
 const PASS = 'a long enough passphrase'
 

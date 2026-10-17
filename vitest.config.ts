@@ -14,7 +14,7 @@ export default defineConfig({
     // passed alone but hit vitest's 5 s default in a loaded full run (valuationPass, simpleLint,
     // authcrypt); they are correctness-, not latency-, sensitive.
     testTimeout: 30000,
-    include: ['src/shared/**/*.test.ts', 'src/main/**/*.test.ts'],
+    include: ['src/shared/**/*.test.ts', 'src/main/**/*.test.ts', 'src/preload/**/*.test.ts'],
     exclude: [...configDefaults.exclude, '**/*.dbtest.ts']
   }
 })

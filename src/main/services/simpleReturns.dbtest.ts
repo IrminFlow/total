@@ -9,6 +9,7 @@
 //     as one group;
 //   - the reads: partly returned bills, bills of a closed / locked period, bills without products,
 //     the sales list's returned chip.
+import { TRUSTED_EVENT } from '../ipcSender.testutil'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
@@ -557,7 +558,7 @@ describe('roles: a viewer reads the bills but cannot save a return', () => {
   const call = (channel: string, payload?: unknown) => {
     const h = handlers.get(channel)
     if (!h) throw new Error(`no handler ${channel}`)
-    return h({}, payload)
+    return h(TRUSTED_EVENT, payload)
   }
   const ok = async <T>(channel: string, payload?: unknown): Promise<T> => {
     const res = await call(channel, payload)
