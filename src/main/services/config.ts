@@ -217,6 +217,8 @@ export function setGstProfile(db: DB, input: unknown): GstProfile {
   const patch = gstProfilePatchSchema.parse(input)
   const stored = readMeta(db, 'gstProfile')
   const before = getGstProfile(db)
+  // An empty patch says nothing: it never stores the default on a company without the key.
+  if (Object.keys(patch).length === 0) return before
   const after = applyGstProfilePatch(before, patch)
   if (stored !== null && JSON.stringify(before) === JSON.stringify(after)) return before
   db.transaction(() => {

@@ -1296,6 +1296,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.taxes.einvoice.title': 'ई-इनवॉइस आप पर {date} से लागू है — इसे चालू करें',
   'simple.taxes.einvoice.why': '{fy} में आपके कारोबार का टर्नओवर {amount} से ज़्यादा है, इसलिए GST में रजिस्टर्ड खरीदारों को बिक्री पर ई-इनवॉइस बनाना ज़रूरी है। Total इसे अपने आप चालू नहीं करता।',
   'simple.taxes.einvoice.action': 'चालू करें',
+  'simple.taxes.einvoice.askOwner': 'मालिक से कहें कि कारोबार के ब्योरे में इसे चालू करें।',
   'simple.taxes.withholding.thisMonthTds': 'इस महीने आपने जो TDS काटा: {amount}, {date} तक भरें।',
   'simple.taxes.withholding.thisMonthTcs': 'इस महीने आपने जो TCS वसूला: {amount}, {date} तक भरें।',
   'simple.taxes.withholding.unpaid': '{month}: {amount} अभी भरना है, तारीख {date}{late, select, yes { — देर हो गई} other {}}',

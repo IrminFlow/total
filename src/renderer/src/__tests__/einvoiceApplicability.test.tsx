@@ -139,6 +139,16 @@ describe('the Gateway Compliance card and the simple Taxes screen', () => {
     await waitFor(() => expect(useNav.getState().stack.at(-1)).toMatchObject({ name: 'company-info' }))
   })
 
+  it('simple Taxes: a non-owner is told to ask the owner (the switch is the owner\'s)', async () => {
+    act(() => {
+      useSession.setState({ ui: { mode: 'simple' }, user: { id: 3, name: 'Vikram', role: 'viewer' } } as never)
+    })
+    renderUi(<EinvoiceTurnOnCard />)
+    await screen.findByTestId('taxes-einvoice-turn-on')
+    expect(screen.queryByTestId('btn-taxes-einvoice-turn-on')).toBeNull()
+    expect(screen.getByTestId('taxes-einvoice-ask-owner').textContent).toMatch(/Ask the owner/)
+  })
+
   it('simple Taxes: an unregistered business never asks', async () => {
     renderUi(<TaxesScreen />)
     await screen.findByTestId('taxes-unregistered')

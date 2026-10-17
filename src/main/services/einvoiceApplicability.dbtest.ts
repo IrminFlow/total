@@ -55,6 +55,11 @@ describe('gstProfile turnover: the setting round trip', () => {
     expect(() => setGstProfile(db, { turnover: { years: [{ fy: '2024-25', paise: 1 }, { fy: '2024-25', paise: 2 }] } })).toThrow()
     expect(() => setGstProfile(db, { turnover: { years: [] }, extra: true })).toThrow()
     expect(metaRow(db)).toBeUndefined()
+    // an empty patch writes nothing (no default stored, no audit row)
+    const n = companyAudits(db).length
+    expect(setGstProfile(db, {})).toEqual({ filing: 'monthly' })
+    expect(metaRow(db)).toBeUndefined()
+    expect(companyAudits(db).length).toBe(n)
   })
 })
 

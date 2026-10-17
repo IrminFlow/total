@@ -1291,6 +1291,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.taxes.einvoice.title': 'E-invoicing aap par {date} se laagu hai — ise chaalu karein',
   'simple.taxes.einvoice.why': '{fy} mein aapke business ka turnover {amount} se zyada hai, isliye GST registered buyers ko sale par e-invoice banana zaroori hai. Total ise apne aap chaalu nahi karta.',
   'simple.taxes.einvoice.action': 'Chaalu karein',
+  'simple.taxes.einvoice.askOwner': 'Owner se kahein ki business ki details mein ise chaalu karein.',
   'simple.taxes.withholding.thisMonthTds': 'Is mahine aapne jo TDS kaata: {amount}, {date} tak bharein.',
   'simple.taxes.withholding.thisMonthTcs': 'Is mahine aapne jo TCS collect kiya: {amount}, {date} tak bharein.',
   'simple.taxes.withholding.unpaid': '{month}: {amount} abhi bharna hai, date {date}{late, select, yes { — late ho gaya} other {}}',

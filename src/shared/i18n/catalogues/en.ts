@@ -1363,6 +1363,7 @@ export const en = {
   'simple.taxes.einvoice.title': 'E-invoicing applies to you from {date} — turn it on',
   'simple.taxes.einvoice.why': 'Your business’s turnover for {fy} is over {amount}, so the law asks you to make e-invoices for sales to GST-registered buyers. Total does not turn it on by itself.',
   'simple.taxes.einvoice.action': 'Turn it on',
+  'simple.taxes.einvoice.askOwner': 'Ask the owner to turn it on in the business details.',
   'simple.taxes.withholding.thisMonthTds': 'TDS you deducted this month: {amount}, pay by {date}.',
   'simple.taxes.withholding.thisMonthTcs': 'TCS you collected this month: {amount}, pay by {date}.',
   'simple.taxes.withholding.unpaid': '{month}: {amount} still to pay, due {date}{late, select, yes { — late} other {}}',
