@@ -1028,7 +1028,12 @@ function afterVoucherSave(ctx: Ctx, voucherId: number, d: VoucherDraft, post: Po
     }
   }
   const vm = (d.more ?? {}) as Record<string, unknown>
-  const edoc = ['irn', 'irn_ack_no', 'irn_ack_date', 'ewb_no', 'ewb_valid_upto'].filter((k) => str(vm[k]))
+  // e-invoice / e-way facts as the IRP returned them (incl. the signed copies, a recorded cancel and
+  // the e-way bill's history — migration "NIC e-document columns").
+  const edoc = [
+    'irn', 'irn_ack_no', 'irn_ack_date', 'irn_signed_invoice', 'irn_signed_qr', 'irn_cancelled_at', 'irn_cancel_reason', 'irn_cancel_remark',
+    'ewb_no', 'ewb_valid_upto', 'ewb_date', 'ewb_history'
+  ].filter((k) => str(vm[k]))
   if (edoc.length) {
     for (const k of edoc) ctx.db.prepare(`UPDATE vouchers SET ${k} = ? WHERE id = ?`).run(String(vm[k]), voucherId)
     writeAudit(ctx.db, 'voucher', voucherId, 'update', null, Object.fromEntries(edoc.map((k) => [k, vm[k]])))
@@ -1544,7 +1549,8 @@ export function undoImport(db: DB, batchId: number): UndoResult {
             case 'voucher': {
               const v = db.prepare('SELECT deleted_at FROM vouchers WHERE id = ?').get(it.entity_id) as { deleted_at: string | null } | undefined
               if (v && !v.deleted_at) {
-                deleteVoucher(db, it.entity_id)
+                // A live IRN that came in with the file goes back out with it (PR #164 review).
+                deleteVoucher(db, it.entity_id, { importUndo: true })
                 res.binned++
               }
               return

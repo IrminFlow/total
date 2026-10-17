@@ -6,6 +6,7 @@ import type {
 } from '@shared/domain'
 import type { UiMode, UiPatch, UiSettings } from '@shared/simple/uiMode'
 import type { Language } from '@shared/i18n'
+import type { EwbExtendRequest, NicCancelReason, NicRecord } from '@shared/gst/nicRecord'
 import type { QuickItemInput } from '@shared/schemas'
 import type { CaughtError, ErrorIssue, ErrorParams } from '@shared/errors'
 import type { SaveSummary } from '@shared/simple/saveCard'
@@ -1455,7 +1456,19 @@ export const api = {
     /** Auth handshake only (WP 3.5) — files nothing. */
     testConnection: () => call<{ ok: true; endpoint: string; sandbox: boolean; tokenExpiry: string }>('nic:testConnection'),
     generateIrn: (voucherId: number) => call<{ irn: string; ackNo: string; ackDate: string }>('nic:generateIrn', { voucherId }),
-    generateEwb: (voucherId: number) => call<{ ewbNo: string; validUpto: string }>('nic:generateEwb', { voucherId })
+    generateEwb: (voucherId: number) => call<{ ewbNo: string; validUpto: string }>('nic:generateEwb', { voucherId }),
+    /** Cancel the IRN on the IRP (within 24 h of the ack). */
+    cancelIrn: (voucherId: number, reason: NicCancelReason, remark: string) =>
+      call<{ irn: string; cancelDate: string }>('nic:cancelIrn', { voucherId, reason, remark }),
+    /** Cancel the e-way bill (within 24 h of its generation). */
+    cancelEwb: (voucherId: number, reason: NicCancelReason, remark: string) =>
+      call<{ ewbNo: string; cancelDate: string }>('nic:cancelEwb', { voucherId, reason, remark }),
+    /** Extend the e-way bill's validity (8 h before / after expiry). */
+    extendEwb: (voucherId: number, input: EwbExtendRequest) => call<{ ewbNo: string; validUpto: string }>('nic:extendEwb', { voucherId, ...input }),
+    /** The stored IRP / EWB answers for one voucher — read-only, no network. */
+    record: (voucherId: number) => call<NicRecord>('nic:record', { voucherId }),
+    /** Writes the signed invoice + signed QR JSON to the exports folder. */
+    signedCopyExport: (voucherId: number) => call<{ path: string }>('nic:signedCopyExport', { voucherId })
   },
   intel: {
     suggestLedgers: (kind: string, query: string) =>

@@ -22,8 +22,9 @@ import { createFakeNic, istStamp, type FakeNic } from './nicFake.testutil'
 import {
   aesDecrypt, aesEncrypt, authenticate, cancelEwb, cancelIrn, decryptJson, encryptLoginPayload, extendEwb, generateEwbByIrn,
   generateIrn, getIrnDetails, maskNicCredentials, NIC_SECRET_MASK, NicError, nicBackoffMs, parseNicTimestamp, resetNicSession,
-  testNicConnection, writeNicCredentials, type NicDeps
+  testNicConnection, writeNicCredentials, nicRecord, signedCopyJson, type NicDeps
 } from './nic'
+import { loadPrintDocument } from './printTemplates'
 
 const GSTIN = '27AAPFU0939F1ZV'
 const COMPANY: CompanyInfo = { ...TEST_INFO, name: 'Demo Traders', gstin: GSTIN, address: '12 MG Road\nPune 411001' }
@@ -331,6 +332,18 @@ describe('IRN and e-way bill: payloads, persistence, cancel, extend', () => {
     await expect(generateIrn(b.db, SLUG, COMPANY, id, deps())).rejects.toThrow('This invoice already has an IRN')
     // Get IRN details round-trips.
     expect(await getIrnDetails(b.db, SLUG, COMPANY, r.irn, deps())).toMatchObject({ Irn: r.irn, Status: 'ACT', SignedQRCode: r.signedQrCode })
+    // The signed copies are stored as the IRP returned them ([GEN] SignedInvoice / SignedQRCode) …
+    expect(b.db.prepare('SELECT irn_signed_invoice AS si, irn_signed_qr AS sq FROM vouchers WHERE id = ?').get(id)).toEqual({ si: rec.signedInvoice, sq: rec.signedQr })
+    expect(JSON.parse(audit.a)).toMatchObject({ signedInvoice: true, signedQrCode: true })
+    expect(audit.a).not.toContain(rec.signedQr) // presence only in the audit row
+    // … read back (decoded, not verified) by nic:record …
+    const stored = nicRecord(b.db, id)
+    expect(stored).toMatchObject({ irn: r.irn, ackNo: rec.ackNo, ackDate: rec.ackDt, signedQrCode: rec.signedQr, signedInvoice: rec.signedInvoice })
+    expect((stored.signedQrData as { data: { Irn: string } }).data.Irn).toBe(r.irn)
+    expect(signedCopyJson(stored)).toEqual({ Irn: r.irn, AckNo: rec.ackNo, AckDt: rec.ackDt, SignedInvoice: rec.signedInvoice, SignedQRCode: rec.signedQr, DocNo: 'INV/26-27/0001', DocDt: '2026-08-15' })
+    // … and the print's QR is rendered from the signed string.
+    const printed = loadPrintDocument(b.db, COMPANY, id)
+    expect(printed.shape === 'invoice' && printed.einvoice).toMatchObject({ irn: r.irn, signedQr: rec.signedQr })
   })
 
   it('a lost response is recovered: NIC 2150 (duplicate) with the existing IRN in InfoDtls is adopted', async () => {
@@ -339,8 +352,23 @@ describe('IRN and e-way bill: payloads, persistence, cancel, extend', () => {
     const first = await generateIrn(b.db, SLUG, COMPANY, id, deps())
     b.db.prepare('UPDATE vouchers SET irn = NULL, irn_ack_no = NULL, irn_ack_date = NULL WHERE id = ?').run(id) // as if the reply never arrived
     const again = await generateIrn(b.db, SLUG, COMPANY, id, deps())
-    expect(again).toMatchObject({ irn: first.irn, ackNo: first.ackNo, ackDate: first.ackDate, recovered: true, signedQrCode: null })
+    // The duplicate answer carries no signed copies — they are fetched with Get IRN details ([GET]).
+    expect(again).toMatchObject({ irn: first.irn, ackNo: first.ackNo, ackDate: first.ackDate, recovered: true, signedQrCode: first.signedQrCode, signedInvoice: first.signedInvoice })
+    expect(fake.calls.at(-1)!.path).toBe(`/eicore/v1.03/Invoice/irn/${first.irn}`)
     expect(voucherRow(b.db, id).irn).toBe(first.irn)
+    expect(nicRecord(b.db, id).signedQrCode).toBe(first.signedQrCode)
+  })
+
+  it('an adopted duplicate older than 3 days keeps the IRN without signed copies (Get IRN refuses, 2283)', async () => {
+    const b = books()
+    const id = b2bInvoice(b)
+    const first = await generateIrn(b.db, SLUG, COMPANY, id, deps())
+    b.db.prepare('UPDATE vouchers SET irn = NULL, irn_ack_no = NULL, irn_ack_date = NULL, irn_signed_invoice = NULL, irn_signed_qr = NULL WHERE id = ?').run(id)
+    clock += 4 * 24 * 3600 * 1000
+    const again = await generateIrn(b.db, SLUG, COMPANY, id, deps())
+    expect(again).toMatchObject({ irn: first.irn, recovered: true, signedQrCode: null, signedInvoice: null })
+    expect(nicRecord(b.db, id)).toMatchObject({ irn: first.irn, signedQrCode: null })
+    expect(() => signedCopyJson(nicRecord(b.db, id))).toThrow(/No signed copy is stored/)
   })
 
   it('e-way bill by IRN: the transport payload, EWB no and valid-until stored; cancel EWB, cancel IRN, no re-use of the number', async () => {
@@ -359,38 +387,107 @@ describe('IRN and e-way bill: payloads, persistence, cancel, extend', () => {
     expect(rec.validTill).toBe('2026-08-25 23:59:00') // 840 km → 5 days, ends 23:59 IST
     expect(listSalesInvoices(b.db, '2026-08-01', '2026-08-31', COMPANY).find((x) => x.voucherId === id)!.ewbNo).toBe(e.ewbNo)
 
-    // Extend inside the ±8 h window around expiry.
-    await expect(extendEwb(b.db, SLUG, COMPANY, id, { reasonCode: 5, remarks: 'Accident', fromPlace: 'Hubballi', fromStateCode: 29, fromPincode: 580020, remainingDistanceKm: 400, transMode: '1', vehicleNo: 'KA25AB9999' }, deps()))
-      .rejects.toThrow(/NIC 240/) // too early
+    // EwbDt and a 'generate' event are kept with it ([EWB] response EwbNo / EwbDt / EwbValidTill).
+    expect(nicRecord(b.db, id, clock)).toMatchObject({ ewbNo: e.ewbNo, ewbDate: rec.ewbDt, ewbValidUpto: rec.validTill, ewbHistory: [{ action: 'generate', ewbNo: e.ewbNo, at: rec.ewbDt, validUpto: rec.validTill }] })
+
+    // Extend inside the ±8 h window around expiry ([EXT]); too early is refused locally, no call.
+    const extend = { reasonCode: 5, remarks: 'Accident', fromPlace: 'Hubballi', fromStateCode: 29, fromPincode: 580020, remainingDistanceKm: 400, transMode: '1', vehicleNo: 'KA25AB9999' } as const
+    expect(nicRecord(b.db, id, clock).extendEwb).toMatchObject({ allowed: false, opensAt: rec.validTillMs! - 8 * 3600 * 1000, closesAt: rec.validTillMs! + 8 * 3600 * 1000 })
+    const before = fake.calls.length
+    await expect(extendEwb(b.db, SLUG, COMPANY, id, extend, deps())).rejects.toThrow(/Validity can be extended from .*8 hours before it expires/)
+    expect(fake.calls.length).toBe(before)
+    // An unreadable validity is a Part-A-only bill as far as the window goes: nothing to extend.
+    clock = rec.validTillMs! - 9 * 3600 * 1000
+    b.db.prepare("UPDATE vouchers SET ewb_valid_upto = 'unknown' WHERE id = ?").run(id)
+    await expect(extendEwb(b.db, SLUG, COMPANY, id, extend, deps())).rejects.toThrow(/has no validity yet/)
+    b.db.prepare('UPDATE vouchers SET ewb_valid_upto = ? WHERE id = ?').run(rec.validTill, id)
     clock = rec.validTillMs! - 2 * 3600 * 1000
-    const ext = await extendEwb(b.db, SLUG, COMPANY, id, { reasonCode: 5, remarks: 'Accident', fromPlace: 'Hubballi', fromStateCode: 29, fromPincode: 580020, remainingDistanceKm: 400, transMode: '1', vehicleNo: 'KA25AB9999' }, deps())
+    expect(nicRecord(b.db, id, clock).extendEwb.allowed).toBe(true)
+    const ext = await extendEwb(b.db, SLUG, COMPANY, id, extend, deps())
     expect(ext.validUpto).toBe('27/08/2026 11:59:00 PM')
-    expect(fake.calls.at(-1)!.plain).toMatchObject({ action: 'EXTENDVALIDITY', consignmentStatus: 'M', transitType: '', extnRsnCode: 5, fromState: 29 })
+    expect(fake.calls.at(-1)!.plain).toMatchObject({ action: 'EXTENDVALIDITY', consignmentStatus: 'M', transitType: '', extnRsnCode: 5, fromState: 29, remainingDistance: 400, vehicleNo: 'KA25AB9999', fromPincode: 580020 })
     expect(voucherRow(b.db, id).ewbValidUpto).toBe('27/08/2026 11:59:00 PM')
+    // The new validity (EWB-API 'dd/MM/yyyy hh:mm:ss PM') is read for the next window: 27 Aug 23:59 IST ± 8 h.
+    expect(nicRecord(b.db, id, clock).extendEwb).toMatchObject({ allowed: false, opensAt: Date.UTC(2026, 7, 27, 18, 29) - 8 * 3600 * 1000 })
+    expect(nicRecord(b.db, id, clock).ewbHistory.at(-1)).toMatchObject({ action: 'extend', ewbNo: e.ewbNo, validUpto: '27/08/2026 11:59:00 PM', reason: 5, fromPlace: 'Hubballi', remainingDistanceKm: 400, vehicleNo: 'KA25AB9999' })
+    const extAudit = b.db.prepare("SELECT after_json AS a FROM audit_log WHERE entity = 'voucher' AND entity_id = ? ORDER BY id DESC LIMIT 1").get(id) as { a: string }
+    expect(JSON.parse(extAudit.a)).toMatchObject({ ewbValidUpto: '27/08/2026 11:59:00 PM', ewbExtension: { reason: 5, remainingDistanceKm: 400 } })
 
     // The IRN can't be cancelled while the EWB is active (local check mirrors NIC 2230).
     await expect(cancelIrn(b.db, SLUG, COMPANY, id, 'order_cancelled', '', deps())).rejects.toThrow(/Cancel the e-way bill first/)
     clock = Date.UTC(2026, 7, 20, 9, 0, 0)
     await cancelEwb(b.db, SLUG, COMPANY, id, 'order_cancelled', 'order cancelled', deps())
-    expect(fake.calls.at(-1)!.plain).toMatchObject({ cancelRsnCode: 2 }) // EWB: 2 = order cancelled
+    expect(fake.calls.at(-1)!.plain).toMatchObject({ action: 'CANEWB', ewbNo: Number(e.ewbNo), cancelRsnCode: 2, cancelRmrk: 'order cancelled' }) // EWB: 2 = order cancelled
     expect(voucherRow(b.db, id)).toMatchObject({ ewbNo: null, ewbValidUpto: null })
+    // The cancelled bill stays in the history; the live columns are clear for a new one.
+    const hist = nicRecord(b.db, id, clock).ewbHistory
+    expect(hist.map((x) => x.action)).toEqual(['generate', 'extend', 'cancel'])
+    expect(hist.at(-1)).toMatchObject({ action: 'cancel', ewbNo: e.ewbNo, reason: 'order_cancelled', remark: 'order cancelled' })
+    expect(hist.at(-1)!.at).toMatch(/^\d{2}\/\d{2}\/2026 /)
+    const cAudit = b.db.prepare("SELECT after_json AS a FROM audit_log WHERE entity = 'voucher' AND entity_id = ? ORDER BY id DESC LIMIT 1").get(id) as { a: string }
+    expect(JSON.parse(cAudit.a)).toMatchObject({ ewbNo: null, cancelledEwbNo: e.ewbNo, ewbCancelReason: 'order_cancelled' })
     const c = await cancelIrn(b.db, SLUG, COMPANY, id, 'order_cancelled', 'buyer cancelled the order', deps())
     expect(fake.calls.at(-1)!.plain).toEqual({ Irn: irn, CnlRsn: '3', CnlRem: 'buyer cancelled the order' }) // IRN: 3 = order cancelled
     expect(c).toEqual({ irn, cancelDate: fake.irns.get(irn)!.cancelDate })
-    expect(voucherRow(b.db, id)).toEqual({ irn: null, ackNo: null, ackDate: null, ewbNo: null, ewbValidUpto: null })
-    const audit = b.db.prepare("SELECT after_json AS a FROM audit_log WHERE entity = 'voucher' AND entity_id = ? ORDER BY id DESC LIMIT 1").get(id) as { a: string }
-    expect(JSON.parse(audit.a)).toMatchObject({ irn: null, cancelledIrn: irn, irnCancelReason: 'order_cancelled' })
+    // The IRN, ack and signed copies are KEPT; the cancel is recorded beside them ([CNL] CancelDate).
+    const kept = voucherRow(b.db, id)
+    expect(kept).toMatchObject({ irn, ackNo: fake.irns.get(irn)!.ackNo, ewbNo: null, ewbValidUpto: null })
+    expect(b.db.prepare('SELECT irn_cancelled_at AS at, irn_cancel_reason AS r, irn_cancel_remark AS m, irn_signed_qr AS q FROM vouchers WHERE id = ?').get(id))
+      .toEqual({ at: fake.irns.get(irn)!.cancelDate, r: 'order_cancelled', m: 'buyer cancelled the order', q: fake.irns.get(irn)!.signedQr })
+    const audit = b.db.prepare("SELECT before_json AS b, after_json AS a FROM audit_log WHERE entity = 'voucher' AND entity_id = ? ORDER BY id DESC LIMIT 1").get(id) as { b: string; a: string }
+    expect(JSON.parse(audit.b)).toMatchObject({ irn, irnCancelledAt: null })
+    expect(JSON.parse(audit.a)).toMatchObject({ irn, irnCancelledAt: fake.irns.get(irn)!.cancelDate, irnCancelReason: 'order_cancelled', irnCancelRemark: 'buyer cancelled the order' })
+    // The record says so; the list, the e-invoice extract and the print no longer treat it as e-invoiced.
+    expect(nicRecord(b.db, id, clock)).toMatchObject({ irn, irnLive: false, irnCancelReason: 'order_cancelled', cancelIrn: { allowed: false, reason: 'The IRN is already cancelled' } })
+    expect(listSalesInvoices(b.db, '2026-08-01', '2026-08-31', COMPANY).find((x) => x.voucherId === id)).toMatchObject({ irn: null, irnCancelledAt: fake.irns.get(irn)!.cancelDate })
+    expect(extractEdocInvoices(b.db, COMPANY, '2026-08-01', '2026-08-31', id)[0]!.irn).toBeNull()
+    const printed = loadPrintDocument(b.db, COMPANY, id)
+    expect(printed.shape === 'invoice' && printed.einvoice).toMatchObject({ irn: null, ackNo: null })
+    expect(printed.shape === 'invoice' && printed.einvoice && 'signedQr' in printed.einvoice).toBe(false)
+    // Cancelling twice is refused locally; so is an e-way bill against a cancelled IRN.
+    const calls = fake.calls.length
+    await expect(cancelIrn(b.db, SLUG, COMPANY, id, 'other', 'again', deps())).rejects.toThrow('This IRN is already cancelled')
+    await expect(generateEwbByIrn(b.db, SLUG, COMPANY, id, deps())).rejects.toThrow(/IRN was cancelled/)
+    expect(fake.calls.length).toBe(calls)
     // NIC 2278: the cancelled document number can't be e-invoiced again.
     await expect(generateIrn(b.db, SLUG, COMPANY, id, deps())).rejects.toThrow(/cancelled number cannot be e-invoiced again.*\(NIC 2278/)
   })
 
-  it('IRN cancellation after 24 h maps NIC 2270', async () => {
+  it('IRN cancellation after 24 h is refused locally (no call); a portal 2270 maps to the same advice', async () => {
+    const b = books()
+    const id = b2bInvoice(b)
+    const { ackDate } = await generateIrn(b.db, SLUG, COMPANY, id, deps())
+    // Inside the window: the record offers it, with the deadline = AckDt + 24 h (IST).
+    expect(nicRecord(b.db, id, clock).cancelIrn).toMatchObject({ allowed: true, closesAt: Date.parse(`${ackDate.replace(' ', 'T')}+05:30`) + 24 * 3600 * 1000 })
+    clock += 25 * 3600 * 1000
+    expect(nicRecord(b.db, id, clock).cancelIrn).toMatchObject({ allowed: false, reason: expect.stringMatching(/24-hour window to cancel this IRN closed on .* — issue a credit note instead/) })
+    const calls = fake.calls.length
+    await expect(cancelIrn(b.db, SLUG, COMPANY, id, 'data_entry_mistake', 'late', deps())).rejects.toThrow(/24-hour window to cancel this IRN closed/)
+    expect(fake.calls.length).toBe(calls)
+    expect(voucherRow(b.db, id).irn).not.toBeNull()
+    // An unreadable ack date leaves the window to the portal, whose 2270 is mapped.
+    b.db.prepare("UPDATE vouchers SET irn_ack_date = 'unknown' WHERE id = ?").run(id)
+    await expect(cancelIrn(b.db, SLUG, COMPANY, id, 'data_entry_mistake', 'late', deps())).rejects.toThrow(/24-hour window to cancel this IRN has passed.*\(NIC 2270/)
+    expect(b.db.prepare('SELECT irn_cancelled_at AS at FROM vouchers WHERE id = ?').get(id)).toEqual({ at: null })
+  })
+
+  it('e-way bill cancellation after 24 h is refused locally; the portal 4055 is mapped when the generation time is unknown', async () => {
     const b = books()
     const id = b2bInvoice(b)
     await generateIrn(b.db, SLUG, COMPANY, id, deps())
+    b.db.prepare("UPDATE vouchers SET vehicle_no = 'MH12AB1234', transport_distance = 300 WHERE id = ?").run(id)
+    const e = await generateEwbByIrn(b.db, SLUG, COMPANY, id, deps())
+    expect(nicRecord(b.db, id, clock).cancelEwb).toMatchObject({ allowed: true })
+    // While it is live, Cancel IRN says why not.
+    expect(nicRecord(b.db, id, clock).cancelIrn).toMatchObject({ allowed: false, reason: expect.stringMatching(/Cancel the e-way bill first/) })
     clock += 25 * 3600 * 1000
-    await expect(cancelIrn(b.db, SLUG, COMPANY, id, 'data_entry_mistake', '', deps())).rejects.toThrow(/24-hour window to cancel this IRN has passed.*\(NIC 2270/)
-    expect(voucherRow(b.db, id).irn).not.toBeNull()
+    expect(nicRecord(b.db, id, clock).cancelEwb).toMatchObject({ allowed: false, reason: expect.stringMatching(/24-hour window to cancel this e-way bill closed/) })
+    const calls = fake.calls.length
+    await expect(cancelEwb(b.db, SLUG, COMPANY, id, 'duplicate', 'x', deps())).rejects.toThrow(/24-hour window to cancel this e-way bill closed/)
+    expect(fake.calls.length).toBe(calls)
+    b.db.prepare('UPDATE vouchers SET ewb_date = NULL WHERE id = ?').run(id)
+    await expect(cancelEwb(b.db, SLUG, COMPANY, id, 'duplicate', 'x', deps())).rejects.toThrow(/cancel this e-way bill has passed \(NIC 4055/)
+    expect(voucherRow(b.db, id).ewbNo).toBe(e.ewbNo)
   })
 
   it('an export without a GSTIN is e-invoiced as URP / 96 / 999999 with zero IGST (export without payment)', async () => {

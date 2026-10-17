@@ -266,6 +266,15 @@ describe('GST on the sale of a capital good (s.18(6))', () => {
     expect(getVoucher(db, voucherId)!.deletedAt).not.toBeNull()
     restoreVoucher(db, voucherId)
     expect(gstr1(db, info, '2026-09-01', '2026-09-30', '092026').summary.find((x) => x.section === 'b2cs')).toMatchObject({ cgst: R(6300), sgst: R(6300) })
+    // PR #164: once the invoice has a LIVE e-invoice IRN, binning the journal (which would bin the
+    // invoice with it) is refused as a whole — neither voucher moves; a recorded cancel lifts it.
+    db.prepare("UPDATE vouchers SET irn = ?, irn_ack_no = '1', irn_ack_date = '2026-09-10 10:00:00' WHERE id = ?").run('a'.repeat(64), invoiceVoucherId!)
+    expect(() => deleteVoucher(db, voucherId)).toThrow(/live e-invoice IRN/)
+    expect(() => deleteVoucher(db, invoiceVoucherId!)).toThrow(/live e-invoice IRN/)
+    expect([getVoucher(db, voucherId)!.deletedAt, getVoucher(db, invoiceVoucherId!)!.deletedAt]).toEqual([null, null])
+    db.prepare("UPDATE vouchers SET irn_cancelled_at = '2026-09-10 12:00:00' WHERE id = ?").run(invoiceVoucherId!)
+    deleteVoucher(db, voucherId)
+    expect(getVoucher(db, invoiceVoucherId!)!.deletedAt).not.toBeNull()
   })
 
   it('a sale above the credit-based amount pays the tax on the value only; entered credit wins; the scrap proviso', () => {

@@ -3540,5 +3540,28 @@ export const MIGRATIONS: string[] = [
     INSERT INTO voucher_fts (rowid, number, narration, reference) SELECT NEW.id, NEW.number, NEW.narration, NEW.reference WHERE NEW.deleted_at IS NULL;
   END;
   INSERT INTO voucher_fts (voucher_fts) VALUES ('rebuild');
+  `,
+  // WP 3.5 follow-up (last — after the voucher text index; number by position): the NIC e-invoice /
+  // e-way bill facts the live client could not keep before. Columns appended to `vouchers` (the
+  // table that already holds irn / irn_ack_no / irn_ack_date / ewb_no / ewb_valid_upto) — no
+  // rebuild, no CHECK changes, so the voucher_fts view and triggers are untouched.
+  //  - irn_signed_invoice / irn_signed_qr: the IRP's SignedInvoice and SignedQRCode (JWS strings)
+  //    from the Generate IRN response (https://einv-apisandbox.nic.in/version1.03/generate-irn.html);
+  //    the print's QR is rendered from irn_signed_qr.
+  //  - irn_cancelled_at / irn_cancel_reason / irn_cancel_remark: a recorded Cancel IRN
+  //    (https://einv-apisandbox.nic.in/version1.03/cancel-irn.html — CancelDate, CnlRsn, CnlRem).
+  //    The IRN itself is KEPT (NIC never issues another one for that document number, error 2278);
+  //    an IRN is live while irn IS NOT NULL AND irn_cancelled_at IS NULL.
+  //  - ewb_date: EwbDt of the live e-way bill; ewb_history: a JSON array of every generate /
+  //    extend / cancel event (EWB no, validity, reason, remark, place …) — ewb_no / ewb_valid_upto
+  //    stay the LIVE bill (cleared on cancel, so a new one can be generated against the IRN).
+  `
+  ALTER TABLE vouchers ADD COLUMN irn_signed_invoice TEXT;
+  ALTER TABLE vouchers ADD COLUMN irn_signed_qr TEXT;
+  ALTER TABLE vouchers ADD COLUMN irn_cancelled_at TEXT;
+  ALTER TABLE vouchers ADD COLUMN irn_cancel_reason TEXT;
+  ALTER TABLE vouchers ADD COLUMN irn_cancel_remark TEXT;
+  ALTER TABLE vouchers ADD COLUMN ewb_date TEXT;
+  ALTER TABLE vouchers ADD COLUMN ewb_history TEXT;
   `
 ]

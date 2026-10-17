@@ -352,7 +352,10 @@ export interface EdocListRow {
   total: number
   vehicleNo: string | null
   hasHsn: boolean
+  /** The LIVE IRN (null once cancelled). */
   irn: string | null
+  /** When the IRN was cancelled on the IRP (its CancelDate); null = never / live. */
+  irnCancelledAt: string | null
   ewbNo: string | null
   /** Outward (sales-side) debit note — exports in EWB files as docType 'OTH'. */
   outwardDbn: boolean

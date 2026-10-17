@@ -77,6 +77,9 @@ export const ERROR_MAP = {
   voucher_not_found: e('errors.entryMissing'),
   voucher_in_bin: e('errors.entryInBin'),
   irn_renumber: e('errors.einvoiceNumber', 'number'),
+  /** GST correction workflow: a live IRN freezes date / party / amounts / tax / items; binning waits for the cancel. */
+  irn_frozen: e('errors.einvoiceFrozen'),
+  irn_live: e('errors.einvoiceLive'),
   books_locked: e('errors.dateLocked', 'date', ['date'], 'errors.dateLockedPlain'),
   gst_not_charged: e('errors.taxNotRegistered', 'items'),
   bad_purpose: e('errors.wrongPurpose'),

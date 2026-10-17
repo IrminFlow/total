@@ -2149,6 +2149,8 @@ export const en = {
   'errors.dateLockedPlain': 'This date is in a locked period. Pick a later date or ask the owner to unlock.',
   'errors.numberNeeded': 'Type a bill number.',
   'errors.einvoiceNumber': 'This bill already has an e-invoice number from the GST portal, so its number can’t change. Make a new bill instead.',
+  'errors.einvoiceFrozen': 'This bill already has an e-invoice number from the GST portal, so its date, customer, amounts, tax and items can’t change. Cancel the e-invoice first (within 24 hours), or make a return / extra charge note instead.',
+  'errors.einvoiceLive': 'This bill has an e-invoice number from the GST portal, so it can’t be removed yet. Cancel the e-invoice first (within 24 hours), or make a return note instead.',
   'errors.twoSides': 'An entry needs money going out of one account and into another. Add the second account.',
   'errors.unbalanced': 'The two sides don’t match — they differ by {amount}. Make both sides add up to the same total.',
   'errors.unbalancedPlain': 'The two sides don’t match. Make both sides add up to the same total.',
@@ -2678,6 +2680,7 @@ export const en = {
   'simple.print.alloc.against': 'Set against bill {name}: {amount}',
   'simple.print.alloc.oldest': 'Set against the oldest open bills',
   'simple.print.verificationQr': 'Verification QR',
+  'simple.print.signedQr': 'e-Invoice QR (signed by the IRP)',
   'simple.print.paymentRequest': 'Please pay the balance into the bank account below, with the bill numbers.',
 
   // ---------- command palette (shared chrome; wording unchanged from 0.10) ----------

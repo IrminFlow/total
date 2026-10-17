@@ -2,10 +2,12 @@ import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electr
 import { checkSender, firstRefusalOf } from './ipcSender'
 import { allowedHelpUrl } from '@shared/helpLinks'
 import { nextRegistrationFacts } from '@shared/gst/registration'
-import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync, appendFileSync } from 'fs'
+import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync, appendFileSync, mkdirSync } from 'fs'
 import { tmpdir } from 'os'
 import { join, basename } from 'path'
 import { decodeTextFile } from '@shared/textFiles'
+import { fitFileName, portableFileName } from '@shared/fileNames'
+import { EWB_CANCEL_REMARK_MAX, IRN_CANCEL_REMARK_MAX, NIC_CANCEL_REASONS } from '@shared/gst/nicRecord'
 import { z } from 'zod'
 import { LANGUAGES } from '@shared/i18n'
 import { forgetFolderKey, isEncryptedFile, keyForPath, keyOfHandle, openDb, plainCopy, rekeyFile, removeDbFiles, rememberFolderKey } from './db/encryption'
@@ -3066,6 +3068,67 @@ export function registerIpc(): void {
     const c = requireCompany()
     return nic.generateEwbByIrn(c.db, c.slug, c.info, voucherId)
   }, 'owner')
+  // Cancel IRN ([CNL] /eicore/v1.03/Invoice/Cancel): within 24 h of the ack, reasons 1–4, remark ≤ 100.
+  handle('nic:cancelIrn', async (p) => {
+    const { voucherId, reason, remark } = z.object({
+      voucherId: z.number().int().positive(),
+      reason: z.enum(NIC_CANCEL_REASONS),
+      remark: z.string().trim().min(1).max(IRN_CANCEL_REMARK_MAX)
+    }).strict().parse(p)
+    const c = requireCompany()
+    return nic.cancelIrn(c.db, c.slug, c.info, voucherId, reason, remark)
+  }, 'owner')
+  // Cancel e-way bill ([CEWB] ewayapi action CANEWB): within 24 h, reasons per [MASTER], remark ≤ 50.
+  handle('nic:cancelEwb', async (p) => {
+    const { voucherId, reason, remark } = z.object({
+      voucherId: z.number().int().positive(),
+      reason: z.enum(NIC_CANCEL_REASONS),
+      remark: z.string().trim().min(1).max(EWB_CANCEL_REMARK_MAX)
+    }).strict().parse(p)
+    const c = requireCompany()
+    return nic.cancelEwb(c.db, c.slug, c.info, voucherId, reason, remark)
+  }, 'owner')
+  // Extend e-way bill validity ([EXT] ewayapi action EXTENDVALIDITY): 8 h before / after expiry.
+  handle('nic:extendEwb', async (p) => {
+    const { voucherId, ...input } = z.object({
+      voucherId: z.number().int().positive(),
+      // [MASTER] "Reasons for extension of validity" (= EWB_EXTEND_REASONS).
+      reasonCode: z.union([z.literal(1), z.literal(2), z.literal(4), z.literal(5), z.literal(99)]),
+      remarks: z.string().trim().min(1).max(50),
+      fromPlace: z.string().trim().min(1).max(50),
+      fromStateCode: z.number().int().min(1).max(99),
+      fromPincode: z.number().int().min(100000).max(999999),
+      remainingDistanceKm: z.number().int().min(1).max(4000),
+      transMode: z.enum(['1', '2', '3', '4', '5']), // [MASTER] modes; 5 = in transit (= EWB_EXTEND_MODES)
+      vehicleNo: z.string().trim().max(20).optional(),
+      transDocNo: z.string().trim().max(15).optional(),
+      transDocDate: isoDate.optional(),
+      transitType: z.enum(['R', 'W', 'O']).optional(),
+      addressLine1: z.string().trim().max(120).optional()
+    }).strict().parse(p)
+    const c = requireCompany()
+    return nic.extendEwb(c.db, c.slug, c.info, voucherId, input)
+  }, 'owner')
+  // The stored IRP / EWB answers for one voucher (signed invoice + QR, ack, cancel state, e-way
+  // history) — read-only, no network.
+  handle('nic:record', (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    return nic.nicRecord(requireCompany().db, voucherId)
+  }, 'viewer')
+  // "Save JSON": the signed invoice + signed QR as the IRP returned them, to the exports folder.
+  handle('nic:signedCopyExport', (p) => {
+    const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
+    const c = requireCompany()
+    const rec = nic.nicRecord(c.db, voucherId)
+    const json = nic.signedCopyJson(rec)
+    const dir = join(companyExportsDir(c.slug), 'einvoice-signed')
+    mkdirSync(dir, { recursive: true })
+    const path = join(dir, fitFileName(dir, `${portableFileName(rec.number.replace(/[\\/]/g, '-'), { fallback: `voucher-${voucherId}` })}-signed-einvoice.json`))
+    writeFileSync(path, JSON.stringify(json, null, 2), 'utf8')
+    auditExport(c.db, 'einvoice_signed', { voucherId, path })
+    shell.showItemInFolder(path)
+    return { path }
+  })
 
   // ---------- intelligence ----------
   handle('intel:suggestLedgers', (p) => {

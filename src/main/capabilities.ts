@@ -58,6 +58,8 @@ export const EXPORT_CHANNELS: readonly string[] = [
   'gst:exportGstr9',
   'gst:exportItc04',
   'gst:imsExport',
+  // The IRP-signed invoice + QR of one e-invoice, written to a file.
+  'nic:signedCopyExport',
   'payables:msmeForm1Csv',
   'payables:runExportCsv',
   // PR #144 review: the PF ECR and ESI upload files are statutory return files like the PT CSV

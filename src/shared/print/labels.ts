@@ -76,6 +76,8 @@ export interface PrintLabels {
   lineCredit: string
   /** Caption under the bill's verification QR code. */
   verificationQr: string
+  /** Under the IRP-signed e-invoice QR (the stored SignedQRCode). */
+  signedQr: string
   balance: string
   openingBalance: string
   totalsClosing: string
@@ -177,6 +179,7 @@ export const ENGLISH_PRINT_LABELS: PrintLabels = {
   lineDebit: 'Debit',
   lineCredit: 'Credit',
   verificationQr: 'Verification QR',
+  signedQr: 'e-Invoice QR (signed by the IRP)',
   balance: 'Balance',
   openingBalance: 'Opening balance',
   totalsClosing: 'Totals / closing balance',
@@ -279,6 +282,7 @@ export function printLabelsFor(t: Translate): PrintLabels {
     lineDebit: t('simple.print.lineDebit'),
     lineCredit: t('simple.print.lineCredit'),
     verificationQr: t('simple.print.verificationQr'),
+    signedQr: t('simple.print.signedQr'),
     balance: t('simple.print.balance'),
     openingBalance: t('simple.print.openingBalance'),
     totalsClosing: t('simple.print.totalsClosing'),

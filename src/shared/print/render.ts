@@ -53,6 +53,10 @@ export interface PrintEinvoiceInfo {
   /** ISO date or date-time as returned by the IRP. */
   ackDate: string | null
   ewbNo: string | null
+  /** The IRP's SignedQRCode (a JWS) from Generate IRN — when present the QR block encodes it
+   *  verbatim, as the e-invoice QR the IRP signed (generate-irn v1.03), instead of the unsigned
+   *  Verification QR. Absent / null = the Verification QR, unchanged. */
+  signedQr?: string | null
 }
 
 /** "TCS @ 1% u/s 206C(1)" totals row, or '' when the invoice carries no TCS. */
@@ -182,9 +186,16 @@ const escText = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&
 
 /** Inline SVG QR ('M' error correction) in a fixed-size mm box. */
 function qrSvg(textValue: string, sizeMm: number): string {
-  const qr = qrcode(0, 'M')
+  let qr = qrcode(0, 'M')
   qr.addData(textValue)
-  qr.make()
+  try {
+    qr.make()
+  } catch {
+    // A long signed IRN QR (a JWS of ~1 KB+) may not fit at level M — level L holds more.
+    qr = qrcode(0, 'L')
+    qr.addData(textValue)
+    qr.make()
+  }
   const inner = qr.createSvgTag({ scalable: true })
   return `<div style="width:${sizeMm}mm;height:${sizeMm}mm">${inner}</div>`
 }
@@ -703,7 +714,15 @@ function taxSummaryBlock(c: Ctx, inv: EdocInvoice, isIntra: boolean): string {
       </table>`
 }
 
-function qrBlock(c: Ctx, company: CompanyInfo, inv: EdocInvoice, irn: string | null): string {
+function qrBlock(c: Ctx, company: CompanyInfo, inv: EdocInvoice, irn: string | null, signedQr: string | null = null): string {
+  // The IRP-signed QR (Generate IRN's SignedQRCode, stored since migration "NIC e-document
+  // columns"): printed verbatim — that JWS IS the e-invoice QR a verifier app reads.
+  if (signedQr) {
+    return `<div style="margin-top:8px">
+         ${qrSvg(signedQr, c.t.einvoice.qrSizeMm)}
+         <div style="font-size:${c.px(8.5)};color:#555;text-align:center;margin-top:2px">${esc(c.L.signedQr)}</div>
+       </div>`
+  }
   // Verification QR — see src/shared/einvoiceQr.ts for why this is never labelled "IRN QR": it's
   // our own unsigned JSON summary, not the NIC-signed IRP QR. An IRN rides along inside the JSON.
   return `<div style="margin-top:8px">
@@ -887,8 +906,9 @@ function renderInvoice(c: Ctx, doc: InvoiceDocument, opts: RenderOptions): strin
 
   // No QR on a self-invoice (never e-invoiced, no payment details) or a non-invoice document.
   const showQr = t.einvoice.showQr && !notInvoice && doc.kind !== 'self_invoice'
-  const headerQr = showQr && t.einvoice.qrPlacement === 'header' ? qrBlock(c, company, inv, irn) : ''
-  const footerQr = showQr && t.einvoice.qrPlacement === 'footer' ? `<div class="qr-foot">${qrBlock(c, company, inv, irn)}</div>` : ''
+  const signedQr = doc.einvoice?.irn ? doc.einvoice.signedQr ?? null : null
+  const headerQr = showQr && t.einvoice.qrPlacement === 'header' ? qrBlock(c, company, inv, irn, signedQr) : ''
+  const footerQr = showQr && t.einvoice.qrPlacement === 'footer' ? `<div class="qr-foot">${qrBlock(c, company, inv, irn, signedQr)}</div>` : ''
   if (footerQr) c.extra.add('qr-foot')
 
   const logoRight = t.header.logoPosition === 'right' ? logoImg(c) : ''

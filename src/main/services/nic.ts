@@ -13,6 +13,10 @@ import type { CompanyInfo } from '@shared/domain'
 import { nicCredentialsSchema, type NicCredentials } from '@shared/schemas'
 import { buildEInvoiceJson, buildEwbByIrnPayload, type EdocCompany } from '@shared/gst/edocs'
 import { einvoiceIssues } from '@shared/gst/einvoiceSchema'
+import {
+  ewbCancelWindow, ewbExtendWindow, irnCancelWindow, nicTimestampMs, IRN_CANCEL_REMARK_MAX, EWB_CANCEL_REMARK_MAX,
+  type EwbEvent, type EwbExtendRequest, type NicCancelReason, type NicRecord
+} from '@shared/gst/nicRecord'
 import { outwardDebitNoteIds } from './gst'
 import { extractEdocInvoices, goodsMovedOnChallan, movedOnChallanReason } from './edocs'
 import { writeAudit } from './audit'
@@ -384,13 +388,9 @@ function sessionKey(creds: NicCredentials, gstin: string): string {
 
 const baseUrl = (creds: NicCredentials): string => creds.baseUrlEinvoice.replace(/\/+$/, '')
 
-/** 'yyyy-MM-dd HH:mm:ss' read as IST (UTC+05:30 — UNVERIFIED, [AUTH] gives only the format). */
-export function parseNicTimestamp(s: unknown): number | null {
-  const m = typeof s === 'string' ? /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(s) : null
-  if (!m) return null
-  const [, y, mo, d, h, mi, se] = m.map(Number) as [number, number, number, number, number, number, number]
-  return Date.UTC(y, mo - 1, d, h, mi, se) - 330 * 60 * 1000
-}
+/** 'yyyy-MM-dd HH:mm:ss' read as IST (UTC+05:30 — UNVERIFIED, [AUTH] gives only the format); the
+ *  EWB API's 'dd/MM/yyyy hh:mm:ss AM' too (shared/gst/nicRecord.ts). */
+export const parseNicTimestamp = nicTimestampMs
 
 /** e-Invoice header set ([GEN]/[CNL]/[GET]/[EWB] request-header tables). The secrets ride only
  *  in headers and the RSA-encrypted login body — never in a URL, a log line or an error. */
@@ -582,8 +582,9 @@ export interface IrnResult {
   irn: string
   ackNo: string
   ackDate: string
-  /** The NIC-signed JWTs from the response. NOT persisted — the vouchers table has no column for
-   *  them and WP 3.5 adds no migration; Get IRN returns them for 3 days ([GET]). */
+  /** The NIC-signed JWS strings from the response ([GEN] SignedInvoice / SignedQRCode), stored on
+   *  the voucher (irn_signed_invoice / irn_signed_qr) — the print's QR is rendered from the QR one.
+   *  For an adopted duplicate (2150) they come from Get IRN details ([GET], 3 days) when it answers. */
   signedQrCode: string | null
   signedInvoice: string | null
   /** True when NIC answered 2150 (duplicate) and the existing IRN for this document was adopted. */
@@ -592,10 +593,41 @@ export interface IrnResult {
 
 const str = (v: unknown): string => (v === null || v === undefined ? '' : String(v))
 
-function voucherForNic(db: DB, voucherId: number): { irn: string | null; irn_ack_no: string | null; irn_ack_date: string | null; ewb_no: string | null; ewb_valid_upto: string | null; date: string; deleted_at: string | null } {
+interface NicVoucherRow {
+  irn: string | null; irn_ack_no: string | null; irn_ack_date: string | null
+  irn_signed_invoice: string | null; irn_signed_qr: string | null
+  irn_cancelled_at: string | null; irn_cancel_reason: string | null; irn_cancel_remark: string | null
+  ewb_no: string | null; ewb_valid_upto: string | null; ewb_date: string | null; ewb_history: string | null
+  number: string; date: string; deleted_at: string | null
+}
+
+const NIC_COLUMNS = `irn, irn_ack_no, irn_ack_date, irn_signed_invoice, irn_signed_qr, irn_cancelled_at, irn_cancel_reason,
+  irn_cancel_remark, ewb_no, ewb_valid_upto, ewb_date, ewb_history, number, date, deleted_at`
+
+function nicRow(db: DB, voucherId: number): NicVoucherRow | undefined {
+  return db.prepare(`SELECT ${NIC_COLUMNS} FROM vouchers WHERE id = ?`).get(voucherId) as NicVoucherRow | undefined
+}
+
+/** An IRN is live while it is stored and no cancel is recorded (migration "NIC e-document columns"). */
+const irnLive = (v: Pick<NicVoucherRow, 'irn' | 'irn_cancelled_at'>): boolean => !!v.irn && !v.irn_cancelled_at
+
+export type { EwbEvent, NicRecord }
+
+export function readEwbHistory(raw: string | null): EwbEvent[] {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    return Array.isArray(parsed) ? (parsed as EwbEvent[]) : []
+  } catch {
+    return []
+  }
+}
+
+const withEvent = (raw: string | null, e: EwbEvent): string => JSON.stringify([...readEwbHistory(raw), e])
+
+function voucherForNic(db: DB, voucherId: number): NicVoucherRow {
   // getVoucher-style read (incl. the bin) so a binned voucher gets a precise message.
-  const v = db.prepare('SELECT irn, irn_ack_no, irn_ack_date, ewb_no, ewb_valid_upto, date, deleted_at FROM vouchers WHERE id = ?').get(voucherId) as
-    ReturnType<typeof voucherForNic> | undefined
+  const v = nicRow(db, voucherId)
   if (!v) throw new NicError('Voucher not found', [], 'config')
   if (v.deleted_at) throw new NicError('This voucher is in the bin — restore it first', [], 'config')
   return v
@@ -605,7 +637,9 @@ function voucherForNic(db: DB, voucherId: number): { irn: string | null; irn_ack
 export async function generateIrn(db: DB, slug: string, company: CompanyInfo, voucherId: number, deps: NicDeps = {}): Promise<IrnResult> {
   const ctx = context(db, slug, company, deps)
   const v = voucherForNic(db, voucherId)
-  if (v.irn) throw new NicError('This invoice already has an IRN', [], 'config')
+  // A cancelled IRN does not block a new one here (e.g. after renumbering); NIC itself refuses a
+  // second IRN for the same document number ([GEN] validation 12, error 2278).
+  if (irnLive(v)) throw new NicError('This invoice already has an IRN', [], 'config')
 
   const [invoice] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
   if (!invoice) throw new NicError('Only sales invoices and credit / debit notes in the books can be e-invoiced', [], 'config')
@@ -650,21 +684,44 @@ export async function generateIrn(db: DB, slug: string, company: CompanyInfo, vo
   // sends EwbDtls, but store them if the portal returns them).
   const ewbNo = data.EwbNo ? str(data.EwbNo) : null
   const ewbValid = data.EwbValidTill ? str(data.EwbValidTill) : null
-  const before = { irn: v.irn, irnAckNo: v.irn_ack_no, irnAckDate: v.irn_ack_date, ewbNo: v.ewb_no, ewbValidUpto: v.ewb_valid_upto }
+  const ewbDate = data.EwbDt ? str(data.EwbDt) : null
+  let signedInvoice = data.SignedInvoice ? str(data.SignedInvoice) : null
+  let signedQrCode = data.SignedQRCode ? str(data.SignedQRCode) : null
+  if (recovered && (!signedInvoice || !signedQrCode)) {
+    // The duplicate answer carries no signed copies; Get IRN details returns them within 3 days
+    // of generation ([GET]). Best effort — the IRN is adopted either way.
+    try {
+      const got = (await einvCall(ctx.creds, ctx.gstin, 'GET', `/eicore/v1.03/Invoice/irn/${irn}`, null, ctx.deps)).data
+      if (str(got.Irn) === irn) {
+        signedInvoice = got.SignedInvoice ? str(got.SignedInvoice) : signedInvoice
+        signedQrCode = got.SignedQRCode ? str(got.SignedQRCode) : signedQrCode
+      }
+    } catch (e) {
+      log('warn', 'nic-irn-signed-copies-unavailable', { voucherId, codes: e instanceof NicError ? e.codes : [] })
+    }
+  }
+  const before = {
+    irn: v.irn, irnAckNo: v.irn_ack_no, irnAckDate: v.irn_ack_date, ewbNo: v.ewb_no, ewbValidUpto: v.ewb_valid_upto,
+    ...(v.irn_cancelled_at ? { irnCancelledAt: v.irn_cancelled_at, irnCancelReason: v.irn_cancel_reason, irnCancelRemark: v.irn_cancel_remark } : {})
+  }
   db.transaction(() => {
-    db.prepare('UPDATE vouchers SET irn = ?, irn_ack_no = ?, irn_ack_date = ? WHERE id = ?').run(irn, ackNo, ackDate, voucherId)
-    if (ewbNo) db.prepare('UPDATE vouchers SET ewb_no = ?, ewb_valid_upto = ? WHERE id = ?').run(ewbNo, ewbValid, voucherId)
+    db.prepare(
+      `UPDATE vouchers SET irn = ?, irn_ack_no = ?, irn_ack_date = ?, irn_signed_invoice = ?, irn_signed_qr = ?,
+              irn_cancelled_at = NULL, irn_cancel_reason = NULL, irn_cancel_remark = NULL WHERE id = ?`
+    ).run(irn, ackNo, ackDate, signedInvoice, signedQrCode, voucherId)
+    if (ewbNo) {
+      db.prepare('UPDATE vouchers SET ewb_no = ?, ewb_valid_upto = ?, ewb_date = ?, ewb_history = ? WHERE id = ?')
+        .run(ewbNo, ewbValid, ewbDate, withEvent(v.ewb_history, { action: 'generate', ewbNo, at: ewbDate ?? '', validUpto: ewbValid ?? '' }), voucherId)
+    }
+    // The signed copies are kept on the voucher but only their presence is audited (a JWS is ~1–3 KB
+    // of what the IRP returned; the IRN, ack no and date identify it).
     writeAudit(db, 'voucher', voucherId, 'update', before, {
-      ...before, irn, irnAckNo: ackNo, irnAckDate: ackDate, ...(ewbNo ? { ewbNo, ewbValidUpto: ewbValid } : {}), ...(recovered ? { recoveredDuplicate: true } : {})
+      irn, irnAckNo: ackNo, irnAckDate: ackDate, ewbNo: ewbNo ?? v.ewb_no, ewbValidUpto: ewbNo ? ewbValid : v.ewb_valid_upto,
+      signedInvoice: !!signedInvoice, signedQrCode: !!signedQrCode, ...(recovered ? { recoveredDuplicate: true } : {})
     })
   })()
   log('info', 'nic-irn-generated', { voucherId, ackNo, recovered })
-  return {
-    irn, ackNo, ackDate,
-    signedQrCode: data.SignedQRCode ? str(data.SignedQRCode) : null,
-    signedInvoice: data.SignedInvoice ? str(data.SignedInvoice) : null,
-    recovered
-  }
+  return { irn, ackNo, ackDate, signedQrCode, signedInvoice, recovered }
 }
 
 export interface EwbResult {
@@ -678,6 +735,7 @@ export interface EwbResult {
 export async function generateEwbByIrn(db: DB, slug: string, company: CompanyInfo, voucherId: number, deps: NicDeps = {}): Promise<EwbResult> {
   const ctx = context(db, slug, company, deps)
   const v = voucherForNic(db, voucherId)
+  if (v.irn && v.irn_cancelled_at) throw new NicError('This invoice\'s IRN was cancelled — an e-way bill can no longer be generated against it', [], 'config')
   if (!v.irn) throw new NicError('Generate the IRN first — the e-way bill hangs off it', [], 'config')
   if (v.ewb_no) throw new NicError('This invoice already has an e-way bill', [], 'config')
   const [invoice] = extractEdocInvoices(db, company, '0000-01-01', '9999-12-31', voucherId)
@@ -697,28 +755,29 @@ export async function generateEwbByIrn(db: DB, slug: string, company: CompanyInf
   const ewbNo = str(data.EwbNo)
   if (!/^\d{12}$/.test(ewbNo)) throw new NicError('NIC returned no valid e-way bill number')
   const validUpto = str(data.EwbValidTill)
+  const ewbDate = str(data.EwbDt)
   const before = { ewbNo: v.ewb_no, ewbValidUpto: v.ewb_valid_upto }
   db.transaction(() => {
-    db.prepare('UPDATE vouchers SET ewb_no = ?, ewb_valid_upto = ? WHERE id = ?').run(ewbNo, validUpto || null, voucherId)
-    writeAudit(db, 'voucher', voucherId, 'update', before, { ewbNo, ewbValidUpto: validUpto || null })
+    db.prepare('UPDATE vouchers SET ewb_no = ?, ewb_valid_upto = ?, ewb_date = ?, ewb_history = ? WHERE id = ?')
+      .run(ewbNo, validUpto || null, ewbDate || null, withEvent(v.ewb_history, { action: 'generate', ewbNo, at: ewbDate, validUpto }), voucherId)
+    writeAudit(db, 'voucher', voucherId, 'update', before, { ewbNo, ewbValidUpto: validUpto || null, ewbDate: ewbDate || null })
   })()
   log('info', 'nic-ewb-generated', { voucherId, ewbNo })
   return { ewbNo, validUpto }
 }
 
-/** Why a document is being cancelled. The two systems number these DIFFERENTLY:
- *  IRN [CNL] CnlRsn: 1 Duplicate, 2 Data entry mistake, 3 Order cancelled, 4 Others;
- *  EWB [MASTER] "Reason Codes": 1 Duplicate, 2 Order Cancelled, 3 Data Entry mistake, 4 Others. */
-export type NicCancelReason = 'duplicate' | 'data_entry_mistake' | 'order_cancelled' | 'other'
+export type { NicCancelReason }
 const IRN_CANCEL_CODE: Record<NicCancelReason, string> = { duplicate: '1', data_entry_mistake: '2', order_cancelled: '3', other: '4' }
 const EWB_CANCEL_CODE: Record<NicCancelReason, number> = { duplicate: 1, order_cancelled: 2, data_entry_mistake: 3, other: 4 }
 
 /**
- * Cancel a voucher's IRN ([CNL]: within 24 h, not while an e-way bill is active). On success the
- * IRN/ack columns are cleared (the voucher is no longer e-invoiced) and the cancelled IRN, date
- * and reason are kept in the audit row — there is no column for a cancelled IRN and WP 3.5 adds
- * no migration. NIC will not issue a new IRN for the same document number ([GEN] validation 12,
- * error 2278). Service-level only: no IPC channel / UI yet.
+ * Cancel a voucher's IRN ([CNL] POST /eicore/v1.03/Invoice/Cancel {Irn, CnlRsn, CnlRem}; within 24 h
+ * of AckDt, not while an e-way bill is active). Refused locally — before any call — outside that
+ * window or with a live e-way bill. On success the IRN, ack and signed copies are KEPT and the
+ * cancel recorded (irn_cancelled_at = the portal's CancelDate, reason, remark), audited with the
+ * whole before / after: from then on the voucher can be edited and binned again (saveVoucher /
+ * deleteVoucher), and NIC will not issue a new IRN for the same document number ([GEN]
+ * validation 12, error 2278).
  */
 export async function cancelIrn(
   db: DB, slug: string, company: CompanyInfo, voucherId: number, reason: NicCancelReason, remark = '', deps: NicDeps = {}
@@ -726,18 +785,38 @@ export async function cancelIrn(
   const ctx = context(db, slug, company, deps)
   const v = voucherForNic(db, voucherId)
   if (!v.irn) throw new NicError('This invoice has no IRN to cancel', [], 'config')
+  if (v.irn_cancelled_at) throw new NicError('This IRN is already cancelled', [], 'config')
   if (v.ewb_no) throw new NicError('Cancel the e-way bill first — an IRN with an active e-way bill cannot be cancelled', ['2230'], 'config')
+  const now = (deps.now ?? Date.now)()
+  const win = irnCancelWindow({ irn: v.irn, irnCancelledAt: null, ackDate: v.irn_ack_date, ewbNo: null }, now)
+  if (!win.allowed) throw new NicError(win.reason!, ['2270'], 'config')
+  const rem = remark.trim().slice(0, IRN_CANCEL_REMARK_MAX)
   const { data } = await einvCall(ctx.creds, ctx.gstin, 'POST', '/eicore/v1.03/Invoice/Cancel', {
-    Irn: v.irn, CnlRsn: IRN_CANCEL_CODE[reason], CnlRem: remark.slice(0, 100)
+    Irn: v.irn, CnlRsn: IRN_CANCEL_CODE[reason], CnlRem: rem
   }, ctx.deps)
-  const cancelDate = str(data.CancelDate)
-  const before = { irn: v.irn, irnAckNo: v.irn_ack_no, irnAckDate: v.irn_ack_date }
+  // [CNL] response: Irn, CancelDate. A missing CancelDate (UNVERIFIED) is stamped with our clock in IST.
+  const cancelDate = str(data.CancelDate) || istNow(now)
+  const before = nicAuditFacts(v)
   db.transaction(() => {
-    db.prepare('UPDATE vouchers SET irn = NULL, irn_ack_no = NULL, irn_ack_date = NULL WHERE id = ?').run(voucherId)
-    writeAudit(db, 'voucher', voucherId, 'update', before, { irn: null, irnAckNo: null, irnAckDate: null, cancelledIrn: v.irn, irnCancelDate: cancelDate, irnCancelReason: reason })
+    db.prepare('UPDATE vouchers SET irn_cancelled_at = ?, irn_cancel_reason = ?, irn_cancel_remark = ? WHERE id = ?').run(cancelDate, reason, rem || null, voucherId)
+    writeAudit(db, 'voucher', voucherId, 'update', before, { ...before, irnCancelledAt: cancelDate, irnCancelReason: reason, irnCancelRemark: rem || null })
   })()
   log('info', 'nic-irn-cancelled', { voucherId })
   return { irn: str(data.Irn) || v.irn, cancelDate }
+}
+
+/** 'yyyy-MM-dd HH:mm:ss' in IST. */
+function istNow(ms: number): string {
+  return new Date(ms + 330 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ')
+}
+
+/** The e-document facts of a voucher as audited (signed copies by presence only). */
+function nicAuditFacts(v: NicVoucherRow): Record<string, unknown> {
+  return {
+    irn: v.irn, irnAckNo: v.irn_ack_no, irnAckDate: v.irn_ack_date, signedInvoice: !!v.irn_signed_invoice, signedQrCode: !!v.irn_signed_qr,
+    irnCancelledAt: v.irn_cancelled_at, irnCancelReason: v.irn_cancel_reason, irnCancelRemark: v.irn_cancel_remark,
+    ewbNo: v.ewb_no, ewbDate: v.ewb_date, ewbValidUpto: v.ewb_valid_upto
+  }
 }
 
 /** Get IRN details ([GET], GET /eicore/v1.03/Invoice/irn/{irn}; within 3 days of generation). */
@@ -747,59 +826,64 @@ export async function getIrnDetails(db: DB, slug: string, company: CompanyInfo, 
   return (await einvCall(ctx.creds, ctx.gstin, 'GET', `/eicore/v1.03/Invoice/irn/${irn}`, null, ctx.deps)).data
 }
 
-/** Cancel a voucher's e-way bill ([CEWB], action CANEWB; within 24 h). Clears ewb_no/valid-upto;
- *  the cancelled number stays in the audit row. Service-level only: no IPC channel / UI yet. */
+/**
+ * Cancel a voucher's e-way bill ([CEWB] POST /ewaybillapi/v1.03/ewayapi, action CANEWB, data
+ * {ewbNo, cancelRsnCode ([MASTER] 1–4), cancelRmrk Text(50)}; within 24 h of EwbDt). Refused
+ * locally after the window. On success the LIVE columns are cleared (ewb_no / ewb_valid_upto /
+ * ewb_date — a new bill can then be generated against the IRN) and the cancel goes into
+ * ewb_history with the number, the portal's cancelDate, reason and remark; audited.
+ */
 export async function cancelEwb(
   db: DB, slug: string, company: CompanyInfo, voucherId: number, reason: NicCancelReason, remark = '', deps: NicDeps = {}
 ): Promise<{ ewbNo: string; cancelDate: string }> {
   const ctx = context(db, slug, company, deps)
   const v = voucherForNic(db, voucherId)
   if (!v.ewb_no) throw new NicError('This voucher has no e-way bill to cancel', [], 'config')
-  // [CEWB] data structure: cancelRmrk Text(50).
-  const data = await ewayApiCall(ctx.creds, ctx.gstin, 'CANEWB', { ewbNo: Number(v.ewb_no), cancelRsnCode: EWB_CANCEL_CODE[reason], cancelRmrk: remark.slice(0, 50) }, ctx.deps)
-  const cancelDate = str(data.cancelDate)
+  const now = (deps.now ?? Date.now)()
+  const win = ewbCancelWindow({ ewbNo: v.ewb_no, ewbDate: v.ewb_date }, now)
+  if (!win.allowed) throw new NicError(win.reason!, ['4055'], 'config')
+  const rem = remark.trim().slice(0, EWB_CANCEL_REMARK_MAX)
+  const data = await ewayApiCall(ctx.creds, ctx.gstin, 'CANEWB', { ewbNo: Number(v.ewb_no), cancelRsnCode: EWB_CANCEL_CODE[reason], cancelRmrk: rem }, ctx.deps)
+  const cancelDate = str(data.cancelDate) || istNow(now)
+  const ewbNo = v.ewb_no
+  const before = nicAuditFacts(v)
   db.transaction(() => {
-    db.prepare('UPDATE vouchers SET ewb_no = NULL, ewb_valid_upto = NULL WHERE id = ?').run(voucherId)
-    writeAudit(db, 'voucher', voucherId, 'update', { ewbNo: v.ewb_no, ewbValidUpto: v.ewb_valid_upto },
-      { ewbNo: null, ewbValidUpto: null, cancelledEwbNo: v.ewb_no, ewbCancelDate: cancelDate, ewbCancelReason: reason })
+    db.prepare('UPDATE vouchers SET ewb_no = NULL, ewb_valid_upto = NULL, ewb_date = NULL, ewb_history = ? WHERE id = ?')
+      .run(withEvent(v.ewb_history, { action: 'cancel', ewbNo, at: cancelDate, reason, ...(rem ? { remark: rem } : {}) }), voucherId)
+    writeAudit(db, 'voucher', voucherId, 'update', before,
+      { ...before, ewbNo: null, ewbDate: null, ewbValidUpto: null, cancelledEwbNo: ewbNo, ewbCancelDate: cancelDate, ewbCancelReason: reason, ewbCancelRemark: rem || null })
   })()
   log('info', 'nic-ewb-cancelled', { voucherId })
-  return { ewbNo: str(data.ewayBillNo) || v.ewb_no, cancelDate }
+  return { ewbNo: str(data.ewayBillNo) || ewbNo, cancelDate }
 }
 
-export interface EwbExtendInput {
-  /** [MASTER] "Reasons for extension of validity": 1 Natural Calamity, 2 Law and Order,
-   *  4 Transshipment, 5 Accident, 99 Others. */
-  reasonCode: 1 | 2 | 4 | 5 | 99
-  remarks: string
-  fromPlace: string
-  fromStateCode: number
-  fromPincode: number
-  remainingDistanceKm: number
-  /** 1 road, 2 rail, 3 air, 4 ship, 5 in transit ([MASTER]). */
-  transMode: '1' | '2' | '3' | '4' | '5'
-  vehicleNo?: string
-  transDocNo?: string
-  /** ISO date. */
-  transDocDate?: string
-  /** Only for transMode 5: R road, W warehouse, O others ([EXT] validations). */
-  transitType?: 'R' | 'W' | 'O'
-  addressLine1?: string
-}
+/** = shared/gst/nicRecord.ts EwbExtendRequest. */
+export type EwbExtendInput = EwbExtendRequest
 
-/** Extend an e-way bill's validity ([EXT], action EXTENDVALIDITY; between 8 h before and 8 h
- *  after expiry). Stores the new valid-upto. Route via the IRP UNVERIFIED (see header). */
+/**
+ * Extend an e-way bill's validity ([EXT] action EXTENDVALIDITY; between 8 h before and 8 h after
+ * expiry, with the reason code, remarks, where the goods are now (place / state / PIN), the
+ * remaining distance and the vehicle or transport document). Refused locally outside the window.
+ * Stores the new valid-upto and an 'extend' event in ewb_history; audited. Route via the IRP
+ * UNVERIFIED (see header).
+ */
 export async function extendEwb(db: DB, slug: string, company: CompanyInfo, voucherId: number, input: EwbExtendInput, deps: NicDeps = {}): Promise<{ ewbNo: string; validUpto: string }> {
   const ctx = context(db, slug, company, deps)
   const v = voucherForNic(db, voucherId)
   if (!v.ewb_no) throw new NicError('This voucher has no e-way bill to extend', [], 'config')
   if (input.transMode === '1' && !input.vehicleNo) throw new NicError('Road transport needs a vehicle number', ['4011'], 'config')
+  if ((input.transMode === '2' || input.transMode === '3' || input.transMode === '4') && !input.transDocNo) {
+    throw new NicError('Rail, air or ship transport needs the transport document number', ['4012'], 'config')
+  }
   if (!/^\d{6}$/.test(String(input.fromPincode))) throw new NicError('The current location needs a 6-digit PIN code', [], 'config')
+  const win = ewbExtendWindow({ ewbNo: v.ewb_no, ewbValidUpto: v.ewb_valid_upto }, (deps.now ?? Date.now)())
+  if (!win.allowed) throw new NicError(win.reason!, [], 'config')
   const inTransit = input.transMode === '5'
   const iso = input.transDocDate?.split('-')
+  const vehicleNo = input.vehicleNo ? input.vehicleNo.replace(/[\s-]/g, '').toUpperCase() : ''
   const data = await ewayApiCall(ctx.creds, ctx.gstin, 'EXTENDVALIDITY', {
     ewbNo: Number(v.ewb_no),
-    vehicleNo: input.vehicleNo ? input.vehicleNo.replace(/[\s-]/g, '').toUpperCase() : '',
+    vehicleNo,
     fromPlace: input.fromPlace.slice(0, 50),
     fromState: input.fromStateCode,
     remainingDistance: input.remainingDistanceKm,
@@ -817,10 +901,81 @@ export async function extendEwb(db: DB, slug: string, company: CompanyInfo, vouc
     addressLine3: ''
   }, ctx.deps)
   const validUpto = str(data.validUpto)
+  const ewbNo = v.ewb_no
+  const before = nicAuditFacts(v)
+  const event: EwbEvent = {
+    action: 'extend', ewbNo, at: str(data.updatedDate), validUpto, reason: input.reasonCode, remark: input.remarks,
+    fromPlace: input.fromPlace, fromStateCode: input.fromStateCode, fromPincode: input.fromPincode,
+    remainingDistanceKm: input.remainingDistanceKm, transMode: input.transMode, ...(vehicleNo ? { vehicleNo } : {})
+  }
   db.transaction(() => {
-    db.prepare('UPDATE vouchers SET ewb_valid_upto = ? WHERE id = ?').run(validUpto, voucherId)
-    writeAudit(db, 'voucher', voucherId, 'update', { ewbNo: v.ewb_no, ewbValidUpto: v.ewb_valid_upto }, { ewbNo: v.ewb_no, ewbValidUpto: validUpto, ewbExtensionReason: input.reasonCode })
+    db.prepare('UPDATE vouchers SET ewb_valid_upto = ?, ewb_history = ? WHERE id = ?').run(validUpto, withEvent(v.ewb_history, event), voucherId)
+    writeAudit(db, 'voucher', voucherId, 'update', before, { ...before, ewbValidUpto: validUpto, ewbExtension: event })
   })()
   log('info', 'nic-ewb-extended', { voucherId })
-  return { ewbNo: str(data.ewayBillNo) || v.ewb_no, validUpto }
+  return { ewbNo: str(data.ewayBillNo) || ewbNo, validUpto }
+}
+
+// ---------- the stored e-invoice / e-way record (read-only; no network) ----------
+
+/** A JWS (header.payload.signature, base64url) → its decoded payload. The IRP's SignedQRCode and
+ *  SignedInvoice carry `{ data: "<JSON text>", iss: "NIC" }` ([GEN] response; the verification of
+ *  the signature needs NIC's public signing key and is the portal's job — never done here). */
+export function decodeJwsPayload(jws: string | null): Record<string, unknown> | null {
+  if (!jws) return null
+  const parts = jws.split('.')
+  if (parts.length !== 3) return null
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1]!.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')) as Record<string, unknown>
+    if (typeof payload.data === 'string') {
+      try {
+        return { ...payload, data: JSON.parse(payload.data) as unknown }
+      } catch {
+        return payload
+      }
+    }
+    return payload
+  } catch {
+    return null
+  }
+}
+
+/** Everything the IRP / EWB system returned for one voucher, as stored. QUERY — writes nothing. */
+export function nicRecord(db: DB, voucherId: number, now: number = Date.now()): NicRecord {
+  const v = nicRow(db, voucherId)
+  if (!v) throw new NicError('Voucher not found', [], 'config')
+  return {
+    voucherId,
+    number: v.number,
+    date: v.date,
+    irn: v.irn,
+    ackNo: v.irn_ack_no,
+    ackDate: v.irn_ack_date,
+    signedInvoice: v.irn_signed_invoice,
+    signedQrCode: v.irn_signed_qr,
+    signedInvoiceData: decodeJwsPayload(v.irn_signed_invoice),
+    signedQrData: decodeJwsPayload(v.irn_signed_qr),
+    irnCancelledAt: v.irn_cancelled_at,
+    irnCancelReason: (v.irn_cancel_reason as NicCancelReason | null) ?? null,
+    irnCancelRemark: v.irn_cancel_remark,
+    irnLive: irnLive(v),
+    ewbNo: v.ewb_no,
+    ewbDate: v.ewb_date,
+    ewbValidUpto: v.ewb_valid_upto,
+    ewbHistory: readEwbHistory(v.ewb_history),
+    cancelIrn: irnCancelWindow({ irn: v.irn, irnCancelledAt: v.irn_cancelled_at, ackDate: v.irn_ack_date, ewbNo: v.ewb_no }, now),
+    cancelEwb: ewbCancelWindow({ ewbNo: v.ewb_no, ewbDate: v.ewb_date }, now),
+    extendEwb: ewbExtendWindow({ ewbNo: v.ewb_no, ewbValidUpto: v.ewb_valid_upto }, now)
+  }
+}
+
+/** The JSON file "Save JSON" writes: the response fields as the IRP named them ([GEN]). */
+export function signedCopyJson(rec: NicRecord): Record<string, unknown> {
+  if (!rec.irn) throw new NicError('This voucher has no IRN', [], 'config')
+  if (!rec.signedInvoice && !rec.signedQrCode) throw new NicError('No signed copy is stored for this IRN (it was generated before Total kept them, or adopted without one)', [], 'config')
+  return {
+    Irn: rec.irn, AckNo: rec.ackNo, AckDt: rec.ackDate,
+    SignedInvoice: rec.signedInvoice, SignedQRCode: rec.signedQrCode,
+    DocNo: rec.number, DocDt: rec.date
+  }
 }

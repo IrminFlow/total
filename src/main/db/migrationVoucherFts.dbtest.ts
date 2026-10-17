@@ -39,8 +39,8 @@ function withNarration(db: DB, id: number, narration: string, reference: string 
 }
 
 describe('voucher text index migration', () => {
-  it('is the last migration, an FTS5 table + view + three triggers, no rebuild of vouchers', () => {
-    expect(M).toBe(MIGRATIONS.length - 1)
+  it('was last when added (the NIC e-document columns follow it), an FTS5 table + view + three triggers, no rebuild of vouchers', () => {
+    expect(M).toBe(MIGRATIONS.findIndex((sql) => sql.includes('irn_signed_invoice')) - 1)
     expect(MIGRATIONS[M]!.trimStart().startsWith('-- @foreign-keys-off')).toBe(false)
     expect(MIGRATIONS[M]!).not.toMatch(/DROP TABLE|ALTER TABLE/i)
     const db = seededDb()
@@ -60,7 +60,11 @@ describe('voucher text index migration', () => {
     const ids = [1, 2, 3, 4].map((k) => postSimpleVoucher(db, { date: `2025-0${k + 4}-01`, amount: k * 100_00, kind: 'receipt' }).id)
     ids.forEach((id, k) => db.prepare('UPDATE vouchers SET narration = ? WHERE id = ?').run(`nar ${k} बिल`, id))
     db.prepare("UPDATE vouchers SET deleted_at = '2026-01-01 00:00:00' WHERE id = ?").run(ids[1])
-    const dump = (): unknown => ['vouchers', 'voucher_lines', 'ledgers', 'audit_log'].map((t) => db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all())
+    // The columns each table has BEFORE the migration: a later migration may append columns (the
+    // NIC e-document columns on vouchers) — every value in these must be unchanged.
+    const TABLES = ['vouchers', 'voucher_lines', 'ledgers', 'audit_log']
+    const columns = Object.fromEntries(TABLES.map((t) => [t, (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name)]))
+    const dump = (): unknown => TABLES.map((t) => db.prepare(`SELECT ${columns[t]!.join(', ')} FROM ${t} ORDER BY rowid`).all())
     const before = { rows: dump(), tb: trialBalance(db, '2026-03-31') }
     migrate(db)
     expect(schemaVersion(db)).toBe(MIGRATIONS.length)

@@ -10,6 +10,11 @@
 //      the row's "Generate IRN" → the live-API confirmation → the IRN is stored (64 hex, ack no.,
 //      audited), the row shows "IRN ✓" and no longer offers Generate IRN; renumbering the invoice
 //      is refused (irn_renumber), a save that keeps its number goes through and keeps the IRN.
+//      NIC follow-up: the signed invoice / QR are stored and shown read-only in "IRN details" (Save
+//      JSON writes them); while the IRN is live an amount change is refused (irn_frozen) and the bin
+//      too (irn_live); Cancel IRN (reason + remark + confirmation) records the cancel and the change
+//      goes through; a second invoice's e-way bill is cancelled from the same panel (history kept),
+//      and Extend says when its ±8 h window opens.
 //   3. An unregistered company (created through the UI) → Company details: GSTIN + "Regular from"
 //      10 days ago → company:current carries gstRegistrationSince / gstPreviousRegistrationType and
 //      the screen says "Regular since … · unregistered before"; a sale with CGST / SGST lines dated
@@ -199,6 +204,102 @@ await scenario('70-einvoice-gst-profile', async (h) => {
     const resaved = await h.invoke('voucher:get', { id: sale.id })
     assertEq(resaved.narration, 'e2e 70 B2B sale (checked)', 'the narration fix saved')
     assertEq(resaved.irn, withIrn.irn, 'the IRN survives an ordinary edit')
+
+    // ---- 2b. The signed copies (generate-irn v1.03 SignedInvoice / SignedQRCode), read-only ----
+    const record = await h.invoke('nic:record', { voucherId: sale.id })
+    assertEq(record.signedQrCode, filed.signedQr, 'the signed QR NIC returned is stored')
+    assertEq(record.signedInvoice, filed.signedInvoice, 'the signed invoice NIC returned is stored')
+    await page.locator(row).locator('[data-testid="btn-edocs-details"]').click()
+    await page.waitForSelector('[data-testid="edoc-details-signed-qr"]', { timeout: 10000 })
+    assertEq(await page.inputValue('[data-testid="edoc-details-signed-qr"]'), filed.signedQr, 'IRN details shows the signed QR')
+    assertEq((await page.textContent('[data-testid="edoc-details-ack-no"]'))?.trim(), filed.ackNo, 'IRN details shows the ack no.')
+    assert((await page.textContent('[data-testid="edoc-details-unverified"]')).includes('never run against the real NIC portal'), 'the UNVERIFIED list is on the screen')
+    await h.click('btn-edoc-signed-save')
+    await page.waitForFunction(() => /Signed e-invoice JSON written/.test(document.body.textContent ?? ''), null, { timeout: 10000 })
+    const signedDir = path.join(exportsDir, 'einvoice-signed')
+    const signedFiles = fs.readdirSync(signedDir)
+    assertEq(signedFiles.length, 1, `one signed-copy file (${signedFiles.join(', ')})`)
+    const signedJson = JSON.parse(fs.readFileSync(path.join(signedDir, signedFiles[0]), 'utf8'))
+    assertEq(signedJson.Irn, withIrn.irn, 'the saved JSON carries the IRN')
+    assertEq(signedJson.SignedQRCode, filed.signedQr, 'the saved JSON carries the signed QR')
+    await h.shot('02b-edocs-irn-details')
+
+    // ---- 2c. Correction workflow: a live IRN freezes amounts and keeps the invoice out of the bin ----
+    const raw = (channel, payload) => page.evaluate(([c, p]) => window.total.invoke(c, p), [channel, payload])
+    const more = {
+      ...saleData, number: sale.number,
+      lines: [
+        { ...saleData.lines[0], amount: 2_301_000 }, { ...saleData.lines[1], amount: 1_950_000 },
+        { ...saleData.lines[2], amount: 175_500 }, { ...saleData.lines[3], amount: 175_500 }
+      ],
+      inventory: [{ ...saleData.inventory[0], qtyMilli: 3000, amount: 1_950_000 }]
+    }
+    const frozen = await raw('voucher:save', { id: sale.id, data: more })
+    assertEq(frozen.ok, false, 'an amount change on a live IRN is refused')
+    assertEq(frozen.code, 'irn_frozen', `irn_frozen (${frozen.error})`)
+    assert(frozen.error.includes('Cancel the IRN first'), 'the message points to Cancel IRN')
+    const binned = await raw('voucher:delete', { id: sale.id })
+    assertEq(binned.ok, false, 'binning a live IRN is refused')
+    assertEq(binned.code, 'irn_live', `irn_live (${binned.error})`)
+
+    // ---- 2d. Cancel IRN (cancel-irn v1.03, within 24 h): reason + remark + confirmation ----
+    await h.click('btn-edoc-irn-cancel')
+    await page.selectOption('[data-testid="input-edoc-irn-cancel-reason"]', 'data_entry_mistake')
+    await h.fill('input-edoc-irn-cancel-remark', 'Wrong quantity')
+    await page.check('[data-testid="input-edoc-irn-cancel-understood"]')
+    await h.click('btn-edoc-irn-cancel-confirm')
+    await page.waitForSelector('[data-testid="edoc-irn-cancelled-state"]', { timeout: 15000 })
+    assertEq(fake.irns.get(withIrn.irn).status, 'CNL', 'NIC holds the IRN as cancelled')
+    const cancelCall = fake.calls.findLast((c) => c.path === '/eicore/v1.03/Invoice/Cancel')
+    assertEq(JSON.stringify(cancelCall.plain), JSON.stringify({ Irn: withIrn.irn, CnlRsn: '2', CnlRem: 'Wrong quantity' }), 'the cancel request (CnlRsn 2 = data entry mistake)')
+    const afterCancel = await h.invoke('nic:record', { voucherId: sale.id })
+    assertEq(afterCancel.irn, withIrn.irn, 'the cancelled IRN is kept')
+    assertEq(afterCancel.irnCancelledAt, fake.irns.get(withIrn.irn).cancelDate, 'the cancel date is recorded')
+    assertEq(afterCancel.irnCancelRemark, 'Wrong quantity', 'the remark is recorded')
+    await h.shot('02d-edocs-irn-cancelled')
+    await page.keyboard.press('Escape')
+    await page.waitForFunction((sel) => document.querySelector(sel)?.textContent?.includes('IRN cancelled'), row, { timeout: 10000 })
+    const cAudit = await h.invoke('audit:list', { entity: 'voucher', entityId: sale.id })
+    assert(JSON.stringify(cAudit).includes('irnCancelledAt'), 'the cancel is audited on the voucher')
+    // The correction can now be made.
+    await h.invoke('voucher:save', { id: sale.id, data: more })
+    assertEq((await h.invoke('voucher:get', { id: sale.id })).inventory[0].qtyMilli, 3000, 'after the cancel the amounts can change')
+
+    // ---- 2e. e-Way bill on a second invoice: cancel (CANEWB, 24 h); extend says when it opens ----
+    const second = await h.invoke('voucher:save', { data: { ...saleData, narration: 'e2e 70 second sale' } })
+    await h.invoke('nic:generateIrn', { voucherId: second.id })
+    await h.invoke('edoc:transportSet', {
+      voucherId: second.id,
+      data: {
+        transMode: '1', transDistanceKm: 120, transporterId: null, transporterName: 'Local Carrier', transDocNo: null, transDocDate: null,
+        vehicleNo: 'MH12AB1234', vehicleType: 'R', shipToName: null, shipToGstin: null, shipToAddr1: null, shipToAddr2: null, shipToPlace: null, shipToPincode: null, shipToState: null
+      }
+    })
+    const ewb = await h.invoke('nic:generateEwb', { voucherId: second.id })
+    assert(/^\d{12}$/.test(ewb.ewbNo), `an e-way bill (${ewb.ewbNo})`)
+    await h.goto('gateway')
+    await h.goto('edocs')
+    const row2 = `[data-testid="rows-edocs"] [data-row-id="${second.id}"]`
+    await page.waitForSelector(row2, { timeout: 15000 })
+    await page.locator(row2).locator('[data-testid="btn-edocs-details"]').click()
+    await page.waitForSelector('[data-testid="edoc-ewb-event-generate"]', { timeout: 10000 })
+    assert((await page.textContent('[data-testid="edoc-irn-cancel-closed"]')).includes('Cancel the e-way bill first'), 'Cancel IRN waits for the e-way bill')
+    assert((await page.textContent('[data-testid="edoc-ewb-extend-closed"]')).includes('Validity can be extended from'), 'Extend says when its window opens')
+    await h.click('btn-edoc-ewb-cancel')
+    await page.selectOption('[data-testid="input-edoc-ewb-cancel-reason"]', 'duplicate')
+    await h.fill('input-edoc-ewb-cancel-remark', 'Raised twice')
+    await page.check('[data-testid="input-edoc-ewb-cancel-understood"]')
+    await h.click('btn-edoc-ewb-cancel-confirm')
+    await page.waitForSelector('[data-testid="edoc-ewb-event-cancel"]', { timeout: 15000 })
+    assertEq(fake.ewbs.get(Number(ewb.ewbNo)).status, 'CNL', 'NIC holds the e-way bill as cancelled')
+    const canCall = fake.calls.findLast((c) => c.path === '/ewaybillapi/v1.03/ewayapi')
+    assertEq(canCall.plain.action, 'CANEWB', 'the CANEWB action')
+    assertEq(canCall.plain.cancelRsnCode, 1, 'cancelRsnCode 1 = duplicate')
+    const afterEwb = await h.invoke('nic:record', { voucherId: second.id })
+    assertEq(afterEwb.ewbNo, null, 'the live e-way bill is cleared')
+    assertEq(afterEwb.ewbHistory.map((e) => e.action).join(','), 'generate,cancel', 'the history keeps both events')
+    await h.shot('02e-edocs-ewb-cancelled')
+    await page.keyboard.press('Escape')
   } finally {
     server.close()
   }

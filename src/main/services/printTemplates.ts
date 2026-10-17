@@ -282,7 +282,7 @@ function partyBalance(db: DB, partyId: number | null, date: string): number | nu
 interface VoucherHead {
   id: number; number: string; date: string; kind: string; partyId: number | null; narration: string | null
   reference: string | null; instrumentNo: string | null; instrumentDate: string | null
-  irn: string | null; ackNo: string | null; ackDate: string | null; ewbNo: string | null
+  irn: string | null; ackNo: string | null; ackDate: string | null; ewbNo: string | null; signedQr: string | null
 }
 
 function voucherHead(db: DB, voucherId: number): VoucherHead {
@@ -290,7 +290,12 @@ function voucherHead(db: DB, voucherId: number): VoucherHead {
     .prepare(
       `SELECT v.id, v.number, v.date, vt.kind, v.party_ledger_id AS partyId, v.narration, v.reference,
               v.instrument_no AS instrumentNo, v.instrument_date AS instrumentDate,
-              v.irn, v.irn_ack_no AS ackNo, v.irn_ack_date AS ackDate, v.ewb_no AS ewbNo
+              -- A cancelled IRN (irn_cancelled_at) no longer prints: the document is not e-invoiced.
+              CASE WHEN v.irn_cancelled_at IS NULL THEN v.irn END AS irn,
+              CASE WHEN v.irn_cancelled_at IS NULL THEN v.irn_ack_no END AS ackNo,
+              CASE WHEN v.irn_cancelled_at IS NULL THEN v.irn_ack_date END AS ackDate,
+              CASE WHEN v.irn_cancelled_at IS NULL THEN v.irn_signed_qr END AS signedQr,
+              v.ewb_no AS ewbNo
        FROM vouchers v JOIN voucher_types vt ON vt.id = v.voucher_type_id
        WHERE v.id = ? AND ${NOT_DELETED}`
     )
@@ -317,7 +322,7 @@ export function loadPrintDocument(db: DB, company: CompanyInfo, voucherId: numbe
     attachDiscounts(db, voucherId, inv.items)
     return {
       shape: 'invoice', kind, company, invoice: inv, audit: auditTrailFor(db, voucherId), outstandingPaise,
-      einvoice: { irn: head.irn, ackNo: head.ackNo, ackDate: head.ackDate, ewbNo: head.ewbNo },
+      einvoice: { irn: head.irn, ackNo: head.ackNo, ackDate: head.ackDate, ewbNo: head.ewbNo, ...(head.signedQr ? { signedQr: head.signedQr } : {}) },
       ...(kind === 'sales' ? { counter: counterPaymentsFor(db, voucherId) } : {})
     }
   }

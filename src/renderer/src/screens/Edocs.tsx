@@ -10,6 +10,7 @@ import type { EdocListRow } from '@shared/reports'
 import { gstPeriodOf, toDisplayDate, todayISO } from '@shared/dates'
 import { EINVOICE_APPLICABILITY_UNVERIFIED, irpDaysLeft, irpLastReportingDay, reportingWindowApplies } from '@shared/gst/einvoiceApplicability'
 import { TransportModal } from './voucher/TransportModal'
+import { EinvoiceDetailsModal } from './edocs/EinvoiceDetails'
 import { LedgerLink } from '../components/links'
 import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../lib/capabilities'
 
@@ -37,7 +38,7 @@ const DOC_TYPE_TITLE: Record<EdocListRow['docType'], string> = {
   CHL: 'Delivery challan — e-way bill only (no IRN)'
 }
 
-const irnEwbText = (r: EdocListRow): string => `${r.irn ? 'IRN ✓' : 'no IRN'} · ${r.ewbNo ?? 'no EWB'}`
+const irnEwbText = (r: EdocListRow): string => `${r.irn ? 'IRN ✓' : r.irnCancelledAt ? 'IRN cancelled' : 'no IRN'} · ${r.ewbNo ?? 'no EWB'}`
 
 export const EDOC_COLUMNS = defineColumns<EdocListRow>([
   { id: 'date', header: 'Date', kind: 'date', value: (r) => r.date, className: 'text-muted' },
@@ -118,7 +119,13 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
     width: 124,
     cell: (r) => (
       <span className="text-hint">
-        {r.irn ? <span className="text-dr" title={r.irn}>IRN ✓</span> : <span className="text-muted">no IRN</span>}
+        {r.irn ? (
+          <span className="text-dr" title={r.irn}>IRN ✓</span>
+        ) : r.irnCancelledAt ? (
+          <span className="text-amber" title={`Cancelled on the IRP ${r.irnCancelledAt}`} data-testid="edoc-irn-cancelled">IRN cancelled</span>
+        ) : (
+          <span className="text-muted">no IRN</span>
+        )}
         {' · '}
         {r.ewbNo ? <span className="num text-dr">{r.ewbNo}</span> : <span className="text-muted">no EWB</span>}
       </span>
@@ -242,6 +249,7 @@ function EdocsDocuments(): React.JSX.Element {
   const [busy, setBusy] = useState<number | null>(null)
   const [confirming, setConfirming] = useState<{ kind: 'irn' | 'ewb'; voucherId: number } | null>(null)
   const [transportFor, setTransportFor] = useState<{ voucherId: number; number: string } | null>(null)
+  const [detailsFor, setDetailsFor] = useState<number | null>(null)
   const [docTypeFilter, setDocTypeFilter] = useState<DocTypeFilter>('all')
   const allRows = data ?? []
   const rows = useMemo(
@@ -464,7 +472,7 @@ function EdocsDocuments(): React.JSX.Element {
             periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}`,
             filename: 'edocs'
           }}
-          trailingWidth={live ? 300 : 210}
+          trailingWidth={live ? 390 : 300}
           trailing={(r) => (
             <span className="whitespace-nowrap">
               {live && r.partyGstin && !r.irn && r.docType !== 'CHL' && (
@@ -483,6 +491,15 @@ function EdocsDocuments(): React.JSX.Element {
                   onClick={() => requestGenerate('ewb', r.voucherId)}
                 >
                   Generate EWB
+                </button>
+              )}
+              {(r.irn || r.irnCancelledAt || (r.ewbNo && r.docType !== 'CHL')) && (
+                <button
+                  className="mr-2 text-small text-blue hover:underline"
+                  data-testid="btn-edocs-details"
+                  onClick={() => setDetailsFor(r.voucherId)}
+                >
+                  IRN details
                 </button>
               )}
               {!exportRefused && r.docType !== 'CRN' && !r.ewbReason?.startsWith('Goods moved on challan') && (
@@ -528,6 +545,17 @@ function EdocsDocuments(): React.JSX.Element {
             const { kind, voucherId } = confirming
             setConfirming(null)
             void (kind === 'irn' ? generateIrn(voucherId) : generateEwb(voucherId))
+          }}
+        />
+      )}
+
+      {detailsFor !== null && (
+        <EinvoiceDetailsModal
+          voucherId={detailsFor}
+          live={live}
+          onClose={() => {
+            setDetailsFor(null)
+            void queryClient.invalidateQueries({ queryKey: ['edocList'] })
           }}
         />
       )}
