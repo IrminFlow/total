@@ -436,7 +436,9 @@ Read these before filing from the next release.
   the pure `shared/tradeCycle/convert.ts` `convertPicks` (the drawer's own picks) into
   `rowsFromSourcePicks`, and the editor saves through `voucher:save` (links written by the target's
   save, I1–I7 unchanged). `GDNI_PURPOSES` / `GRNI_PURPOSES` moved there (re-exported by
-  tradeAnalysis.ts). No migration. [#149](https://github.com/IrminFlow/total/pull/149)
+  tradeAnalysis.ts). A conversion (order → challan / GRN in `useAddFrom` too) draws only from open
+  lines read after the editor opened — a cached list could miss a note / order saved since. No
+  migration. [#149](https://github.com/IrminFlow/total/pull/149)
 
 - `receivables:statementPdf` is a viewer read, governed by `canExport` (in `EXPORT_CHANNELS`, like
   `report:pdf`). New viewer read `gst:einvoicing`
