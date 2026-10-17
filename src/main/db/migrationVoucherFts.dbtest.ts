@@ -60,10 +60,11 @@ describe('voucher text index migration', () => {
     const ids = [1, 2, 3, 4].map((k) => postSimpleVoucher(db, { date: `2025-0${k + 4}-01`, amount: k * 100_00, kind: 'receipt' }).id)
     ids.forEach((id, k) => db.prepare('UPDATE vouchers SET narration = ? WHERE id = ?').run(`nar ${k} बिल`, id))
     db.prepare("UPDATE vouchers SET deleted_at = '2026-01-01 00:00:00' WHERE id = ?").run(ids[1])
-    // The later NIC e-document migration appends (NULL) columns to vouchers — left out of the comparison.
-    const LATER = new Set(['irn_signed_invoice', 'irn_signed_qr', 'irn_cancelled_at', 'irn_cancel_reason', 'irn_cancel_remark', 'ewb_date', 'ewb_history'])
-    const dump = (): unknown => ['vouchers', 'voucher_lines', 'ledgers', 'audit_log'].map((t) =>
-      (db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all() as Record<string, unknown>[]).map((r) => Object.fromEntries(Object.entries(r).filter(([k]) => !LATER.has(k)))))
+    // The columns each table has BEFORE the migration: a later migration may append columns (the
+    // NIC e-document columns on vouchers) — every value in these must be unchanged.
+    const TABLES = ['vouchers', 'voucher_lines', 'ledgers', 'audit_log']
+    const columns = Object.fromEntries(TABLES.map((t) => [t, (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name)]))
+    const dump = (): unknown => TABLES.map((t) => db.prepare(`SELECT ${columns[t]!.join(', ')} FROM ${t} ORDER BY rowid`).all())
     const before = { rows: dump(), tb: trialBalance(db, '2026-03-31') }
     migrate(db)
     expect(schemaVersion(db)).toBe(MIGRATIONS.length)

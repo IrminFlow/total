@@ -26,11 +26,28 @@ describe('WP 7.1 performance indexes migration', () => {
     seedCompany(db, TEST_INFO)
     postSimpleVoucher(db, { date: '2025-05-01', amount: 123456, kind: 'receipt' })
     postSimpleVoucher(db, { date: '2025-06-01', amount: 99_00, kind: 'sales' })
-    const dump = (): unknown => ['vouchers', 'voucher_lines', 'ledgers', 'audit_log'].map((t) => db.prepare(`SELECT * FROM ${t} ORDER BY rowid`).all())
-    const before = { rows: dump(), tb: trialBalance(db, '2026-03-31'), pnl: profitAndLoss(db, '2025-04-01', '2026-03-31') }
+    const TABLES = ['vouchers', 'voucher_lines', 'ledgers', 'audit_log']
+    // Each table's columns as they stand BEFORE the migration: a later migration may append
+    // columns (e.g. the NIC e-document columns on vouchers) — the rows must keep every value they
+    // had in these, and the appended ones (without a default) must be empty.
+    const columns = Object.fromEntries(TABLES.map((t) => [t, (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name)]))
+    const dump = (): unknown => TABLES.map((t) => db.prepare(`SELECT ${columns[t]!.join(', ')} FROM ${t} ORDER BY rowid`).all())
+    const figures = (): unknown => ({ tb: trialBalance(db, '2026-03-31'), pnl: profitAndLoss(db, '2025-04-01', '2026-03-31') })
+    const before = { rows: dump(), ...(figures() as object) }
+    // This migration on its own: the whole table, every column, unchanged.
+    migrate(db, MIGRATIONS.slice(0, M + 1))
+    for (const t of TABLES) expect((db.prepare(`PRAGMA table_info(${t})`).all() as { name: string }[]).map((c) => c.name), t).toEqual(columns[t])
+    expect({ rows: dump(), ...(figures() as object) }).toEqual(before)
+    // …and through to the last migration.
     migrate(db)
     expect(schemaVersion(db)).toBe(MIGRATIONS.length)
-    expect({ rows: dump(), tb: trialBalance(db, '2026-03-31'), pnl: profitAndLoss(db, '2025-04-01', '2026-03-31') }).toEqual(before)
+    expect({ rows: dump(), ...(figures() as object) }).toEqual(before)
+    for (const t of TABLES) {
+      // (A column appended with a DEFAULT carries it on old rows — only default-less ones must be empty.)
+      const added = (db.prepare(`PRAGMA table_info(${t})`).all() as { name: string; dflt_value: unknown }[])
+        .filter((c) => !columns[t]!.includes(c.name) && c.dflt_value === null).map((c) => c.name)
+      for (const c of added) expect(db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE ${c} IS NOT NULL`).get(), `${t}.${c}`).toEqual({ n: 0 })
+    }
     const names = new Set((db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as { name: string }[]).map((r) => r.name))
     for (const n of INDEXES) expect(names.has(n), n).toBe(true)
     // Re-running the statements is a no-op (IF NOT EXISTS).
