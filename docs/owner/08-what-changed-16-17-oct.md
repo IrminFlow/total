@@ -6,9 +6,9 @@ merged into the main copy of the code. Nothing here has been published. No versi
 raised, no tag, no release, no website change.
 
 Thirty-one PRs were merged after the plan was written (#117 to #147). Two of them only changed
-documents (#117, #147). The test DMG on your Desktop, `Total-dev-6f90647f.dmg`, holds everything up
-to #145. One later change, #146 (the cheque register), is **not** in that DMG. Three more PRs
-(#148, #149, #150) are still open and not merged.
+documents (#117, #147). The test DMG on your Desktop, `Total-dev-bdf44fa0.dmg`, holds everything up
+to #159 (see the last line of this note). Three PRs
+(#148, #149, #150) were open when this was first written and have since merged.
 
 ---
 
@@ -35,7 +35,7 @@ to #145. One later change, #146 (the cheque register), is **not** in that DMG. T
 
 - Someone who can only look can now save a customer's statement too. A reminder sent inside your "don't remind within N days" window asks first. Cash flow lines can be clicked to see the entries they are made of (#140).
 - Ask Total understands bills by number and TDS or payroll amounts, and its drafts no longer pile up (#125).
-- Cheque register: entries saved before you set up a cheque book can be filled in later (#146, not in the test DMG).
+- Cheque register: entries saved before you set up a cheque book can be filled in later (#146).
 
 ### Taxes and reports
 
@@ -93,3 +93,5 @@ These are in `to-do.md`. Only you or someone outside can do them.
 - **A CA review** of the tax points marked UNVERIFIED, plus the figure changes listed in `to-do.md` section 2.
 - **Signing.** No Apple Developer ID and no Windows certificate yet, so both builds trigger a warning on first open.
 - **NIC portal and live AI.** No portal login and no AI key have been used yet, so those paths are only tested with fakes.
+
+The newer test copy `Total-dev-bdf44fa0.dmg` also includes #146 and #148 to #159: cheque register fill-in, Hindi help on demand, trade challan / GRN lists and convert, faster voucher search, locked attachments, fixed-asset disposals and GST on asset sales, MSME due dates in the cash forecast, edits carried back from the full editor, and follow-up fixes.
