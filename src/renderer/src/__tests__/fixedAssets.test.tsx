@@ -12,6 +12,7 @@ import { AssetFormModal, blankDraft, draftFromAsset, draftFromCandidate, draftTo
 import { FA_QUERY_FAMILIES } from '../screens/fixedAssets/common'
 import { gstRateOf, partOf } from '../screens/fixedAssets/DisposalWizard'
 import { SCREENS, invalidationFamilies } from '../lib/screens'
+import { FIXED_ASSET_EVENT_SOURCES, FIXED_ASSET_UNVERIFIED } from '@shared/fixedAssetSources'
 import { useSession } from '../state/stores'
 
 const invoke = vi.fn()
@@ -46,7 +47,7 @@ beforeEach(() => {
   calls.length = 0
   preview = {
     from: '2025-04-01', to: '2026-03-31', fyStartYear: 2025, total: 1_900_000, blocked: null, existingRun: null,
-    rows: [{ assetId: 11, assetName: 'MacBook Pro', groupId: 7, groupName: 'Computers', method: 'slm', openingWdv: 0, additions: 6_000_000, depreciation: 1_900_000, closingWdv: 4_100_000, daysUsed: 365, fullyDepreciated: false, ratePpb: null, extraShiftAllowed: true, extraShift: null }],
+    rows: [{ assetId: 11, assetName: 'MacBook Pro', groupId: 7, groupName: 'Computers', method: 'slm', openingWdv: 0, additions: 6_000_000, depreciation: 1_900_000, closingWdv: 4_100_000, daysUsed: 365, fullyDepreciated: false, ratePpb: null, extraShiftAllowed: true, extraShift: null, extraShiftNote: null }],
     journal: [
       { ledgerId: null, ledgerName: 'Depreciation', drCr: 'dr', amount: 1_900_000, assetId: null },
       { ledgerId: null, ledgerName: 'Accumulated Depreciation - Computers', drCr: 'cr', amount: 1_900_000, assetId: null }
@@ -61,6 +62,7 @@ beforeEach(() => {
     switch (channel) {
       case 'fa:list': return { ok: true, data: [ASSET] }
       case 'fa:groups': return { ok: true, data: GROUPS }
+      case 'fa:classes': return { ok: true, data: [] }
       case 'fa:blocks': return { ok: true, data: [{ id: 3, code: 'PM40', name: 'Machinery and plant @40%', isSeeded: true, rates: [], openings: [] }] }
       case 'fa:purchaseCandidates': return { ok: true, data: [CANDIDATE] }
       case 'fa:save': return { ok: true, data: { ...ASSET, id: 12, name: 'Laptop for sales' } }
@@ -204,6 +206,12 @@ describe('Fixed assets screen', () => {
     await waitFor(() => expect(calls.find((c) => c.channel === 'fa:runPost')?.payload).toEqual(sent))
   })
 
+  it('an extra-shift note (a class Total cannot check for NESD) shows on the preview', async () => {
+    preview = { ...preview, rows: [{ ...preview.rows[0]!, extraShiftNote: 'U1 Ovens is a class you added — NESD is not checked for it' }] }
+    renderUi(<FixedAssetsScreen tab="depreciation" />)
+    expect((await screen.findByTestId('fixed-assets-shift-note')).textContent).toContain('NESD is not checked')
+  })
+
   it('a blocked period disables posting and says why', async () => {
     preview = { ...preview, blocked: 'Books are locked up to 2026-03-31' }
     renderUi(<FixedAssetsScreen tab="depreciation" />)
@@ -266,6 +274,16 @@ describe('GST on the sale', () => {
     await waitFor(() => expect(calls.some((c) => c.channel === 'fa:disposalPreview' && (c.payload as { gst: unknown }).gst != null)).toBe(true))
     expect((calls.filter((c) => c.channel === 'fa:disposalPreview').at(-1)!.payload as { gst: unknown }).gst).toEqual({ ratePercent: 18, scrapProviso: false, itc: null })
     expect((await screen.findByTestId('fixed-assets-disposal-gst-working')).textContent).toContain('s.18(6)')
+  })
+})
+
+describe('setup: sources and the unverified list', () => {
+  it('lists every FIXED_ASSET_UNVERIFIED point and every event source', async () => {
+    renderUi(<FixedAssetsScreen tab="setup" />)
+    const list = await screen.findByTestId('fixed-assets-unverified')
+    expect(list.querySelectorAll('li').length).toBe(FIXED_ASSET_UNVERIFIED.length)
+    for (const u of FIXED_ASSET_UNVERIFIED) expect(list.textContent).toContain(u.text.slice(0, 40))
+    for (const src of FIXED_ASSET_EVENT_SOURCES) expect(document.body.textContent).toContain(src.title)
   })
 })
 

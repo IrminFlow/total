@@ -133,6 +133,11 @@ export function DepreciationTab(): React.JSX.Element {
         {existingRunId == null && (
           <ExtraShiftForm rows={preview?.rows ?? []} shifts={shifts} onChange={setShifts} />
         )}
+        {preview?.rows.some((r) => r.extraShiftNote) && (
+          <Banner tone="info" className="m-3" testId="fixed-assets-shift-note">
+            Extra shift not checked against Schedule II: {preview.rows.filter((r) => r.extraShiftNote).map((r) => `${r.assetName} — ${r.extraShiftNote}`).join('; ')}
+          </Banner>
+        )}
         <DataTable
           viewId="fixed-assets-run-preview"
           testId="fixed-assets-run-preview"

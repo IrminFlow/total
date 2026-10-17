@@ -8,7 +8,7 @@ import type { DB } from '../db/connection'
 import { seededDb } from '../db/testdb'
 import { createLedger } from './masters'
 import { deleteVoucher, getVoucher, restoreVoucher, saveVoucher, setLockDate } from './vouchers'
-import { extractOutwardDocs, gstr3b } from './gst'
+import { extractOutwardDocs, gstr1, gstr3b } from './gst'
 import { readCompanyInfo, writeCompanyInfo } from '../db/seed'
 import { closingBalances } from './reports'
 import * as fa from './fixedAssets'
@@ -194,17 +194,18 @@ describe('GST on the sale of a capital good (s.18(6))', () => {
     expect(p.blocked).toBeNull()
     expect(p).toMatchObject({ gstApplies: true, suggestedGstRate: 18 })
     // Working (as capitalGoodsGst.test): ITC 18,000; rule 40(2) 6 quarters ⇒ 12,600; rule 44(6)
-    // 43/60 ⇒ 12,900; tax on ₹50,000 @ 18% = 9,000 ⇒ s.18(6) amount 12,900, extra 3,900.
+    // 17 months 14 days used ⇒ 18 (a part month counts, the rule's illustration) ⇒ 42/60 ⇒ 12,600;
+    // tax on ₹50,000 @ 18% = 9,000 ⇒ s.18(6) amount 12,600, extra 3,600.
     expect(p.gst).toMatchObject({
       supply: 'intra', taxableValue: R(50000), itcSource: 'purchase', invoiceTotal: R(59000),
-      extraOutputTax: { igst: 0, cgst: R(1950), sgst: R(1950), cess: 0 }
+      extraOutputTax: { igst: 0, cgst: R(1800), sgst: R(1800), cess: 0 }
     })
-    expect(p.gst!.working.payable).toEqual({ igst: 0, cgst: R(6450), sgst: R(6450), cess: 0 })
+    expect(p.gst!.working.payable).toEqual({ igst: 0, cgst: R(6300), sgst: R(6300), cess: 0 })
 
     const { voucherId, invoiceVoucherId } = fa.disposeAsset(db, sale())
     const inv = getVoucher(db, invoiceVoucherId!)!
     expect(inv.partyLedgerId).toBe(buyer)
-    expect(inv.narration).toContain('rule 44(6) 43/60 months left = ₹12,900.00')
+    expect(inv.narration).toContain('rule 44(6) 42/60 months left = ₹12,600.00')
     expect(inv.lines.map((l) => [ledgerName(db, l.ledgerId), l.drCr, l.amount])).toEqual([
       ['Shree Traders', 'dr', R(59000)],
       ['Sale of Fixed Assets', 'cr', R(50000)],
@@ -221,33 +222,50 @@ describe('GST on the sale of a capital good (s.18(6))', () => {
       ['Accumulated Depreciation - Plant and machinery', 'dr', 633333],
       ['Plant and Machinery', 'cr', R(100000)],
       ['Loss on Sale of Fixed Assets', 'dr', 4076895],
-      ['GST on Sale of Capital Goods (s.18(6))', 'dr', R(3900)],
-      ['Output CGST', 'cr', R(1950)],
-      ['Output SGST', 'cr', R(1950)]
+      ['GST on Sale of Capital Goods (s.18(6))', 'dr', R(3600)],
+      ['Output CGST', 'cr', R(1800)],
+      ['Output SGST', 'cr', R(1800)]
     ])
     const id = (name: string): number => (db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number }).id
     expect(balanceOf(db, id('Sale of Fixed Assets'), '2026-09-30')).toBe(0)
-    expect(balanceOf(db, id('Output CGST'), '2026-09-30')).toBe(-R(6450))
+    expect(balanceOf(db, id('Output CGST'), '2026-09-30')).toBe(-R(6300))
 
-    // GSTR-1 / the export see the invoice alone (18% on ₹50,000); 3B 3.1(a) adds the extra 3,900.
+    // Rule 44(6) proviso ("furnished in FORM GSTR-1"): the invoice's own outward document carries
+    // the extra — taxable ₹50,000 @ 18%, tax 6,300 + 6,300 — so GSTR-1, 3B 3.1(a) and GSTR-9 agree
+    // with the books; the invoice value stays the buyer's ₹59,000 (no value-mismatch flag).
     const info = readCompanyInfo(db)
     const docs = extractOutwardDocs(db, info, '2026-09-01', '2026-09-30')
-    expect(docs.map((d) => [d.voucherId, d.items])).toEqual([[invoiceVoucherId, [{ rate: 18, taxable: R(50000), cgst: R(4500), sgst: R(4500), igst: 0, cess: 0 }]]])
+    expect(docs.map((d) => [d.voucherId, d.items, d.invoiceValue, d.validation?.valDiff])).toEqual([[invoiceVoucherId, [{ rate: 18, taxable: R(50000), cgst: R(6300), sgst: R(6300), igst: 0, cess: 0 }], R(59000), 0]])
+    const g1 = gstr1(db, info, '2026-09-01', '2026-09-30', '092026')
+    expect(g1.summary.find((x) => x.section === 'b2cs')).toMatchObject({ taxable: R(50000), cgst: R(6300), sgst: R(6300) }) // the buyer has no GSTIN
     const r = gstr3b(db, info, '2026-09-01', '2026-09-30', '092026')
-    expect(r.outward).toMatchObject({ taxable: R(50000), cgst: R(6450), sgst: R(6450), igst: 0 })
-    expect(r.netPayable).toMatchObject({ cgst: R(6450), sgst: R(6450) })
+    expect(r.outward).toMatchObject({ taxable: R(50000), cgst: R(6300), sgst: R(6300), igst: 0 })
+    expect(r.netPayable).toMatchObject({ cgst: R(6300), sgst: R(6300) })
 
-    // The invoice can't be edited on its own; binning the journal reinstates the asset and drops
-    // the extra from 3B; the journal comes back only with its invoice.
+    // The invoice can't be edited on its own. Binning the journal bins the invoice with it (a
+    // pair) and reinstates the asset; the returns show nothing; restoring the journal brings the
+    // invoice back — and binning the invoice bins the journal.
     expect(() => saveVoucher(db, { ...inv, lines: inv.lines.map((l) => ({ ...l, costAllocations: [] })) } as unknown as VoucherInput, inv.id)).toThrow(/posted by a fixed-asset disposal/)
     deleteVoucher(db, voucherId)
     expect(fa.getAsset(db, machine, '2026-09-30').status).toBe('active')
-    expect(gstr3b(db, info, '2026-09-01', '2026-09-30', '092026').outward).toMatchObject({ cgst: R(4500), sgst: R(4500) })
-    deleteVoucher(db, invoiceVoucherId!)
-    expect(() => restoreVoucher(db, voucherId)).toThrow(/tax invoice first/)
-    restoreVoucher(db, invoiceVoucherId!)
+    expect(getVoucher(db, invoiceVoucherId!)!.deletedAt).not.toBeNull()
+    expect(extractOutwardDocs(db, info, '2026-09-01', '2026-09-30')).toEqual([])
+    expect(gstr3b(db, info, '2026-09-01', '2026-09-30', '092026').outward).toMatchObject({ cgst: 0, sgst: 0 })
     restoreVoucher(db, voucherId)
-    expect(gstr3b(db, info, '2026-09-01', '2026-09-30', '092026').outward).toMatchObject({ cgst: R(6450), sgst: R(6450) })
+    expect(getVoucher(db, invoiceVoucherId!)!.deletedAt).toBeNull()
+    expect(fa.getAsset(db, machine, '2026-09-30').status).toBe('disposed')
+    expect(gstr3b(db, info, '2026-09-01', '2026-09-30', '092026').outward).toMatchObject({ cgst: R(6300), sgst: R(6300) })
+    deleteVoucher(db, invoiceVoucherId!)
+    expect(getVoucher(db, voucherId)!.deletedAt).not.toBeNull()
+    expect(fa.getAsset(db, machine, '2026-09-30').status).toBe('active')
+    // Each bin / restore audits both vouchers (pairedWith on the partner).
+    const paired = db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'voucher' AND after_json LIKE '%pairedWith%'").get() as { n: number }
+    expect(paired.n).toBe(3)
+    // The invoice alone may come back (an ordinary sale); the journal then follows on its own restore.
+    restoreVoucher(db, invoiceVoucherId!)
+    expect(getVoucher(db, voucherId)!.deletedAt).not.toBeNull()
+    restoreVoucher(db, voucherId)
+    expect(gstr1(db, info, '2026-09-01', '2026-09-30', '092026').summary.find((x) => x.section === 'b2cs')).toMatchObject({ cgst: R(6300), sgst: R(6300) })
   })
 
   it('a sale above the credit-based amount pays the tax on the value only; entered credit wins; the scrap proviso', () => {
@@ -255,7 +273,7 @@ describe('GST on the sale of a capital good (s.18(6))', () => {
     const high = fa.previewDisposal(db, sale({ proceedsPaise: R(90000) }))
     expect(high.gst!.extraOutputTax).toEqual({ igst: 0, cgst: 0, sgst: 0, cess: 0 })
     expect(high.journal.some((l) => l.ledgerName.startsWith('GST on Sale'))).toBe(false)
-    // Credit entered by hand: IGST 6,000 ⇒ rule 44(6) 6,000 × 43/60 = 4,300 < 9,000 ⇒ no extra.
+    // Credit entered by hand: IGST 6,000 ⇒ rule 44(6) 6,000 × 42/60 = 4,200 < 9,000 ⇒ no extra.
     const entered = fa.previewDisposal(db, sale({ gst: { ratePercent: 18, itc: { igst: R(6000), cgst: 0, sgst: 0, cess: 0 } } }))
     expect(entered.gst).toMatchObject({ itcSource: 'entered', extraOutputTax: { cgst: 0, sgst: 0 } })
     const scrap = fa.previewDisposal(db, sale({ kind: 'scrap', proceedsPaise: R(1000), gst: { ratePercent: 18, scrapProviso: true } }))
@@ -334,6 +352,18 @@ describe('extra-shift depreciation (Schedule II Notes para 6)', () => {
     expect(JSON.parse(audit.a).extraShift).toEqual([{ assetId: press.id, doubleDays: 100, tripleDays: 50, extra: 173516 }])
     // The next year is single shift again: the same 633,333 a year (SLM).
     expect(fa.previewRun(db, '2026-04-01', '2027-03-31').rows.find((r) => r.assetId === press.id)!.depreciation).toBe(633333)
+  })
+
+  it('a class the user added (or a group without one) is not checked for NESD — the preview says so', () => {
+    const cls = fa.saveClass(db, { code: 'U1', name: 'Bakery ovens (own class)', lifeMonths: 120, effectiveFrom: '2014-04-01', source: 'test' })
+    const g = fa.saveAssetGroup(db, { name: 'Ovens', caClassId: cls.id, lifeMonths: 120 })
+    const ovens = ledger(db, 'Ovens', 'Fixed Assets')
+    const oven = fa.saveAsset(db, laptops({ name: 'Oven', ledgerId: ovens, purchaseVoucherId: null, assetGroupId: g.id, lifeMonths: 120, itBlockId: null }))
+    const p = fa.previewRun(db, '2025-04-01', '2026-03-31', [{ assetId: oven.id, doubleShiftDays: 10 }])
+    expect(p.blocked).toBeNull()
+    expect(p.rows.find((r) => r.assetId === oven.id)).toMatchObject({ extraShiftAllowed: true, extraShiftNote: expect.stringMatching(/class you added.*NESD/) })
+    // Without shift days there is nothing to warn about.
+    expect(fa.previewRun(db, '2025-04-01', '2026-03-31').rows.find((r) => r.assetId === oven.id)!.extraShiftNote).toBeNull()
   })
 })
 

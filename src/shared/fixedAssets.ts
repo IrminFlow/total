@@ -343,6 +343,9 @@ export interface DepreciationPreviewRow {
   extraShiftAllowed: boolean
   /** Extra-shift days given for the run and the extra charge they add (inside `depreciation`). */
   extraShift: { doubleDays: number; tripleDays: number; extra: number } | null
+  /** Set when extra shift is given for an asset whose NESD status Total cannot check (a class the
+   *  user added, or a group without a class) — FIXED_ASSET_UNVERIFIED 'shift-user-class'. */
+  extraShiftNote: string | null
 }
 
 export interface JournalPreviewLine {

@@ -465,17 +465,19 @@ Read these before filing from the next release.
   disposal journal clears "Sale of Fixed Assets" instead of the buyer. Where input tax credit was
   taken (read from the purchase voucher's input tax in the asset's share, or entered by hand), the
   credit is reduced both ways the rules prescribe — rule 40(2), five points per quarter or part from
-  the invoice date, and rule 44(6), the remaining months of a five-year life — and the higher of
-  the two is compared with the tax on the value. When the credit-based amount is higher, the
-  difference is extra output tax (rule 44(6) proviso): Dr "GST on Sale of Capital Goods (s.18(6))",
-  Cr output GST in the disposal journal, added to GSTR-3B 3.1(a) tax (taxable 0) and its set-off.
-  The working (credit, both reductions, tax on the value, the amount paid) is in both narrations and
-  on the review step. The s.18(6) scrap proviso (refractory bricks, moulds and dies, jigs and
-  fixtures) pays the tax on the value only. The invoice can't be edited on its own; the journal is
-  restored only with its invoice. Returns without such a sale are unchanged. UNVERIFIED: which rule
-  governs (both computed, the higher used), quarter / month counting, the comparison on the GST
-  total, the GSTR-1 table for the extra (not in the export or GSTR-9 — enter it on the portal as your
-  CA advises), the credit share — `src/shared/fixedAssetSources.ts`.
+  the invoice date, and rule 44(6), the whole months left of a five-year life (a part month counts
+  as used, as the rule's own illustration does) — and the higher of the two is compared with the
+  tax on the value. When the credit-based amount is higher, the difference is extra output tax
+  (rule 44(6) proviso, "furnished in FORM GSTR-1"): Dr "GST on Sale of Capital Goods (s.18(6))",
+  Cr output GST in the disposal journal, and reported on the tax invoice's own GSTR-1 entry (taxable
+  value and rate unchanged, tax raised) so GSTR-1, GSTR-3B 3.1(a), GSTR-9 and the HSN summary agree
+  with the books. The working (credit, both reductions, tax on the value, the amount paid) is in
+  both narrations and on the review step. The s.18(6) scrap proviso (refractory bricks, moulds and
+  dies, jigs and fixtures) pays the tax on the value only. The invoice can't be edited on its own;
+  invoice and journal bin as a pair and the journal restores with its invoice. Returns without such
+  a sale are unchanged. UNVERIFIED: which rule governs (both computed, the higher used), quarter
+  counting, the comparison on the GST total, whether the portal takes a B2B tax amount above rate ×
+  value, the credit share — `src/shared/fixedAssetSources.ts`.
   [#158](https://github.com/IrminFlow/total/pull/158)
 - **Fixed assets: the rule 25(2) 40 % cap on income-tax depreciation.** The Income-tax tab has a
   "Concessional tax regime" switch for the persons in the Income-tax Rules, 2026 rule 25(2) Table (a
@@ -491,7 +493,8 @@ Read these before filing from the next release.
   the seeded classes marked NESD in Part C (every seeded class except general plant and machinery)
   and for more shift days than the asset is depreciated in the period. The days are in the journal's
   narration and the run's audit row. A run without shift days is unchanged. UNVERIFIED: the formula
-  with several cost layers, classes you add are not checked — `src/shared/fixedAssetSources.ts`.
+  with several cost layers; classes you add (or a group without a class) are not checked — the
+  preview says so — `src/shared/fixedAssetSources.ts`.
   [#158](https://github.com/IrminFlow/total/pull/158)
 - **Fixed assets: component lives** (Schedule II Notes para 4). "Split off a component…" on an asset
   with no depreciation booked yet makes a significant part (a machine's motor, say) its own record

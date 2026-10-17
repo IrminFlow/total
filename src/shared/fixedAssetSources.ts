@@ -29,7 +29,7 @@ export const FIXED_ASSET_EVENT_SOURCES: readonly FixedAssetSource[] = [
       'demolished or destroyed, the depreciation on such assets shall be calculated on a pro rata basis from the date of such ' +
       'addition or, as the case may be, up to the date on which such asset has been sold, discarded, demolished or destroyed.',
     url: 'https://www.mca.gov.in/content/mca/global/en/acts-rules/ebooks/acts.html',
-    readIn: 'MCA e-book text of Schedule II Part C ("Source: mca.gov.in"), https://oss-data-in.vaquill.ai/legislation/REG_MCA_mcaacts28232scheduleiiusefullivestocompu/act.pdf',
+    readIn: 'MCA e-book text of Schedule II Part C ("Version: 3 Source: mca.gov.in", extracted 13 March 2026), https://oss-data-in.vaquill.ai/legislation/REG_MCA_mcaacts28232scheduleiiusefullivestocompu/act.pdf — mca.gov.in itself refuses automated reads (HTTP 403); the quote was re-checked against that copy in the PR #158 review',
     accessed: '2026-10-17'
   },
   {
@@ -77,13 +77,13 @@ export const FIXED_ASSET_EVENT_SOURCES: readonly FixedAssetSource[] = [
       'The amount of credit in the case of supply of capital goods or plant and machinery, for the purposes of sub-section (6) of ' +
       'section 18, shall be calculated by reducing the input tax on the said goods at the rate of five percentage points for every ' +
       'quarter or part thereof from the date of the issue of the invoice for such goods.',
-    url: 'https://cbic-gst.gov.in/gst-acts.html',
-    readIn: 'gstzen.in reproduction of rule 40 (as substituted by Notification 22/2017-CT), https://gstzen.in/a/manner-of-claiming-credit-in-special-circumstances-cgst-rule-40.html — the CBIC text itself was not opened',
+    url: 'https://cbic-gst.gov.in/pdf/01062021-CGST-Rules-2017-Part-A-Rules.pdf',
+    readIn: 'CBIC, Central Goods and Services Tax Rules, 2017 Part A (Rules), updated to 01.06.2021, p. 46 (rule 40 as substituted by Notification 22/2017-CT); gstzen.in reproduction agrees word for word',
     accessed: '2026-10-17'
   },
   {
     key: 'CGST-R44-6',
-    title: 'CGST Rules, 2017 — rule 44(6) with 44(1)(b) (credit for s.18(6) on capital goods; excess is output tax)',
+    title: 'CGST Rules, 2017 — rule 44(6) with 44(1)(b) and its illustration (credit for s.18(6) on capital goods; excess is output tax, furnished in GSTR-1)',
     quote:
       '(6) The amount of input tax credit for the purposes of sub-section (6) of section 18 relating to capital goods shall be ' +
       'determined in the same manner as specified in clause (b) of sub-rule (1) and the amount shall be determined separately for ' +
@@ -91,9 +91,11 @@ export const FIXED_ASSET_EVENT_SOURCES: readonly FixedAssetSource[] = [
       'determined is more than the tax determined on the transaction value of the capital goods, the amount determined shall form ' +
       'part of the output tax liability and the same shall be furnished in FORM GSTR-1. — (1)(b): for capital goods held in stock, ' +
       'the input tax credit involved in the remaining useful life in months shall be computed on pro-rata basis, taking the useful ' +
-      'life as five years.',
-    url: 'https://cbic-gst.gov.in/gst-acts.html',
-    readIn: 'gstzen.in reproduction of rule 44 (sub-rule (6) as substituted by Notification 15/2017-CT), https://gstzen.in/a/manner-of-reversal-of-credit-under-special-circumstances-cgst-rule-44.html — the CBIC text itself was not opened',
+      'life as five years. Illustration: Capital goods have been in use for 4 years, 6 month and 15 days. The useful remaining life ' +
+      'in months= 5 months ignoring a part of the month Input tax credit taken on such capital goods= C Input tax credit ' +
+      'attributable to remaining useful life= C multiplied by 5/60',
+    url: 'https://cbic-gst.gov.in/pdf/01062021-CGST-Rules-2017-Part-A-Rules.pdf',
+    readIn: 'CBIC, Central Goods and Services Tax Rules, 2017 Part A (Rules), updated to 01.06.2021, p. 48–49 (sub-rule (6) as substituted by Notification 15/2017-CT); gstzen.in reproduction agrees',
     accessed: '2026-10-17'
   },
   {
@@ -189,17 +191,14 @@ export const FIXED_ASSET_UNVERIFIED: readonly { key: string; text: string }[] = 
   {
     key: 'cg-two-rules',
     text:
-      'Rule 40(2) (five points per quarter) and rule 44(6) (remaining months of a five-year life) both prescribe the s.18(6) ' +
-      'credit and give different figures; practitioners disagree which governs. Total computes both and uses the HIGHER, so it ' +
-      'never pays less than either rule asks.'
+      'Rule 40(2) (five points per quarter) and rule 44(6) (remaining months of a five-year life, a part month ignored) both say ' +
+      'they determine the s.18(6) amount — both texts confirmed in the CBIC Rules — and give different figures; neither refers to ' +
+      'the other, and practitioners disagree which governs. Total computes both and uses the HIGHER, so it never pays less than ' +
+      'either rule asks.'
   },
   {
     key: 'cg-quarters',
     text: 'Quarters "or part thereof" are counted as three-month periods from the invoice date (not calendar quarters); a sale on the invoice date is in the first quarter.'
-  },
-  {
-    key: 'cg-months',
-    text: 'Rule 44(1)(b) "remaining useful life in months": months used are counted in whole months from the invoice date (a part month is not counted as used).'
   },
   {
     key: 'cg-compare',
@@ -210,10 +209,18 @@ export const FIXED_ASSET_UNVERIFIED: readonly { key: string; text: string }[] = 
   {
     key: 'cg-where',
     text:
-      'Rule 44(6) puts the extra amount in the output tax liability and says to furnish it in GSTR-1 without naming a table. Total ' +
-      'posts it as output tax (Dr "GST on Sale of Capital Goods (s.18(6))", Cr Output GST) in the disposal journal and adds it to ' +
-      'GSTR-3B 3.1(a) tax (taxable value 0); the GSTR-1 export and GSTR-9 show only the invoice — enter the extra on the portal as ' +
-      'your CA advises. It is not an ITC reversal, so it is not in 3B 4(B)(1).'
+      'Rule 44(6) proviso: the amount beyond the tax on the transaction value "shall form part of the output tax liability and ' +
+      'the same shall be furnished in FORM GSTR-1" — no table is named. Total posts it as output tax in the disposal journal ' +
+      '(Dr "GST on Sale of Capital Goods (s.18(6))", Cr Output GST — the seller bears it; the buyer is invoiced the tax on the ' +
+      'value only) and reports it ON THE TAX INVOICE in GSTR-1 (B2B / B2C: taxable value and rate unchanged, the tax amount raised), ' +
+      'so GSTR-1, GSTR-3B 3.1(a), GSTR-9 and the HSN summary all carry what the books post. Whether the portal accepts a B2B ' +
+      'tax amount above rate × taxable value without a correction is not verified — your CA may prefer to charge the buyer the ' +
+      'full s.18(6) amount on the invoice instead (enter the credit by hand as nil and add the difference to the proceeds). It ' +
+      'is not an ITC reversal, so it is not in 3B 4(B)(1). The e-invoice / print show the tax charged to the buyer.'
+  },
+  {
+    key: 'cg-pair',
+    text: 'The tax invoice and the disposal journal are a pair: binning either bins both; restoring the journal brings the invoice back; the invoice alone may be restored as an ordinary sale.'
   },
   {
     key: 'cg-itc',
@@ -252,7 +259,7 @@ export const FIXED_ASSET_UNVERIFIED: readonly { key: string; text: string }[] = 
   },
   {
     key: 'shift-user-class',
-    text: 'NESD is checked for the seeded Schedule II classes only (of those, only general plant and machinery IV(i)(a) allows extra shift). A class you add, or a group without a class, is not checked — Part C\'s NESD marks decide.'
+    text: 'NESD is checked for the seeded Schedule II classes only (of those, only general plant and machinery IV(i)(a) allows extra shift). A class you add, or a group without a class, is not checked — the run preview says so, and Part C\'s NESD marks decide.'
   },
   {
     key: 'component-when',

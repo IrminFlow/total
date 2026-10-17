@@ -9,7 +9,9 @@
  *  - rule 40(2): the input tax reduced by five percentage points for every quarter or part
  *    thereof from the date of the invoice;
  *  - rule 44(6) with 44(1)(b): the credit "involved in the remaining useful life in months …
- *    pro-rata basis, taking the useful life as five years", per tax head separately.
+ *    pro-rata basis, taking the useful life as five years", per tax head separately — the
+ *    remaining life in WHOLE months, "ignoring a part of the month" (the rule's own illustration:
+ *    4 years 6 months 15 days used ⇒ 5 months remain ⇒ C × 5/60).
  * The higher of the two readings is the credit-based amount (the reading that pays no less than
  * either rule asks — UNVERIFIED 'cg-two-rules'). The tax on the transaction value goes on the tax
  * invoice; when the credit-based amount is higher, rule 44(6)'s proviso makes the difference
@@ -47,13 +49,20 @@ export function quartersOrPart(invoiceDate: string, supplyDate: string): number 
   return q
 }
 
-/** Whole months from the invoice date to the supply date (a part month is not counted as used, so
- *  the remaining life — and the credit-based amount — is never understated). UNVERIFIED 'cg-months'. */
+/** Whole months from the invoice date to the supply date. */
 export function wholeMonthsUsed(invoiceDate: string, supplyDate: string): number {
   if (supplyDate < invoiceDate) throw new Error('The sale is dated before the purchase invoice')
   let m = 0
   while (addMonths(invoiceDate, m + 1) <= supplyDate) m++
   return m
+}
+
+/** Months used for rule 44(1)(b): a part of a month counts as used, so the REMAINING life is the
+ *  whole months left "ignoring a part of the month" (the illustration under rule 44(1)(b): in use
+ *  4 years, 6 months and 15 days ⇒ remaining life 5 months, not 6). */
+export function monthsUsedOrPart(invoiceDate: string, supplyDate: string): number {
+  const whole = wholeMonthsUsed(invoiceDate, supplyDate)
+  return addMonths(invoiceDate, whole) < supplyDate ? whole + 1 : whole
 }
 
 const scale = (h: TaxHeads, num: number, den: number): TaxHeads => ({
@@ -69,6 +78,7 @@ export interface CapitalGoodsSaleWorking {
   /** Tax on the transaction value (what the invoice charges), per head. */
   taxOnValue: TaxHeads
   rule40: { quarters: number; reductionBp: number; heads: TaxHeads }
+  /** monthsUsed counts a part month as used (rule 44(1)(b) illustration). */
   rule44: { monthsUsed: number; remainingMonths: number; heads: TaxHeads }
   /** The higher of the two credit-based readings (by GST total; cess by its own). */
   creditBased: TaxHeads
@@ -97,7 +107,7 @@ export function capitalGoodsSale(input: {
   const quarters = quartersOrPart(input.invoiceDate, input.supplyDate)
   const reductionBp = Math.min(10_000, quarters * POINTS_PER_QUARTER_BP)
   const r40 = scale(input.itc, 10_000 - reductionBp, 10_000)
-  const monthsUsed = wholeMonthsUsed(input.invoiceDate, input.supplyDate)
+  const monthsUsed = monthsUsedOrPart(input.invoiceDate, input.supplyDate)
   const remainingMonths = Math.max(0, CAPITAL_GOODS_LIFE_MONTHS - monthsUsed)
   const r44 = scale(input.itc, remainingMonths, CAPITAL_GOODS_LIFE_MONTHS)
   const gstPick = gstTotal(r44) >= gstTotal(r40) ? r44 : r40

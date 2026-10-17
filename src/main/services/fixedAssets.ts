@@ -39,7 +39,7 @@ import type { GstDoc } from '@shared/gst/returns'
 import {
   capitalGoodsSale, capitalGoodsWorkingText, headsTotal, ZERO_TAX_HEADS, type TaxHeads
 } from '@shared/capitalGoodsGst'
-import { getLockDate, saveVoucher, NOT_DELETED } from './vouchers'
+import { getLockDate, getVoucher, saveVoucher, NOT_DELETED } from './vouchers'
 import { closingBalances } from './reports'
 import { writeAudit } from './audit'
 
@@ -752,11 +752,12 @@ interface ComputedRun {
 /** Schedule II Notes para 6: extra-shift depreciation is not permitted for a class marked NESD in
  *  Part C. Seeded classes are checked against EXTRA_SHIFT_SEEDED_CLASS_CODES; a class the user added
  *  (or a group without a class) is not checked (FIXED_ASSET_UNVERIFIED 'shift-user-class'). */
-function extraShiftAllowed(db: DB, a: AssetRec): boolean {
-  if (a.group.ca_class_id == null) return true
-  const c = db.prepare('SELECT code, is_seeded FROM ca_asset_classes WHERE id = ?').get(a.group.ca_class_id) as { code: string; is_seeded: number } | undefined
-  if (!c || !c.is_seeded) return true
-  return EXTRA_SHIFT_SEEDED_CLASS_CODES.includes(c.code)
+function extraShiftAllowed(db: DB, a: AssetRec): { allowed: boolean; note: string | null } {
+  if (a.group.ca_class_id == null) return { allowed: true, note: `${a.group.name} has no Schedule II class — check Part C for an NESD mark before charging extra shift` }
+  const c = db.prepare('SELECT code, name, is_seeded FROM ca_asset_classes WHERE id = ?').get(a.group.ca_class_id) as { code: string; name: string; is_seeded: number } | undefined
+  if (!c) return { allowed: true, note: null }
+  if (!c.is_seeded) return { allowed: true, note: `${c.code} ${c.name} is a class you added — NESD is not checked for it; Part C's mark decides` }
+  return { allowed: EXTRA_SHIFT_SEEDED_CLASS_CODES.includes(c.code), note: null }
 }
 
 function computeRun(db: DB, from: string, to: string, shifts: ExtraShiftInput[] = []): ComputedRun {
@@ -776,11 +777,13 @@ function computeRun(db: DB, from: string, to: string, shifts: ExtraShiftInput[] 
   for (const a of assets) {
     const input = engineInput(a, { from, to })
     const r = companiesActPeriod(input, { from, to })
-    const allowed = extraShiftAllowed(db, a)
+    const { allowed, note } = extraShiftAllowed(db, a)
     const shift = shiftBy.get(a.row.id)
     let charged = r
     let extraShift: DepreciationPreviewRow['extraShift'] = null
+    let extraShiftNote: string | null = null
     if (shift && (shift.doubleDays > 0 || shift.tripleDays > 0)) {
+      extraShiftNote = note
       if (!allowed) {
         shiftBlocked ??= `${a.row.name}: its Schedule II class is marked NESD — no extra-shift depreciation (Sch II Notes para 6)`
       } else if (shift.doubleDays + shift.tripleDays > r.daysUsed) {
@@ -796,7 +799,7 @@ function computeRun(db: DB, from: string, to: string, shifts: ExtraShiftInput[] 
         assetId: a.row.id, assetName: a.row.name, groupId: a.group.id, groupName: a.group.name, method: a.row.method,
         openingWdv: charged.openingWdv, additions: charged.additions, depreciation: charged.depreciation, closingWdv: charged.closingWdv,
         daysUsed: charged.daysUsed, fullyDepreciated: charged.fullyDepreciated, ratePpb: charged.ratePpb,
-        extraShiftAllowed: allowed, extraShift
+        extraShiftAllowed: allowed, extraShift, extraShiftNote
       }
     })
   }
@@ -927,8 +930,8 @@ export function runLines(db: DB, runId: number): DepreciationPreviewRow[] {
             dl.opening_wdv AS openingWdv, dl.depreciation, dl.closing_wdv AS closingWdv, dl.days_used AS daysUsed
        FROM depreciation_lines dl JOIN fixed_assets a ON a.id = dl.asset_id JOIN fixed_asset_groups g ON g.id = a.asset_group_id
       WHERE dl.run_id = ? ORDER BY a.name`
-  ).all(runId) as Omit<DepreciationPreviewRow, 'additions' | 'fullyDepreciated' | 'ratePpb' | 'extraShiftAllowed' | 'extraShift'>[]).map((r) => ({
-    ...r, additions: 0, fullyDepreciated: false, ratePpb: null, extraShiftAllowed: false, extraShift: null
+  ).all(runId) as Omit<DepreciationPreviewRow, 'additions' | 'fullyDepreciated' | 'ratePpb' | 'extraShiftAllowed' | 'extraShift' | 'extraShiftNote'>[]).map((r) => ({
+    ...r, additions: 0, fullyDepreciated: false, ratePpb: null, extraShiftAllowed: false, extraShift: null, extraShiftNote: null
   }))
 }
 
@@ -1153,40 +1156,77 @@ export function saleInvoiceOf(db: DB, journalId: number): number | null {
 }
 
 /**
- * GSTR-3B 3.1(a): the extra output tax of s.18(6) sales in the period (rule 44(6) proviso — "part
- * of the output tax liability"), as documents with taxable value 0 shaped like their tax invoice
- * (same class / place of supply), so buildGstr3b adds the tax and its set-off like any supply.
- * Read from the live disposal journals' Cr output-tax lines; GSTR-1 is not changed
- * (FIXED_ASSET_UNVERIFIED 'cg-where'). Empty for a company without such sales.
+ * Rule 44(6) proviso: the s.18(6) amount beyond the tax on the transaction value "shall form part of
+ * the output tax liability and the same shall be furnished in FORM GSTR-1". The disposal journal
+ * posts that excess as output tax; here it is added to the TAX INVOICE's outward document (taxable
+ * value and rate unchanged, the tax raised), so GSTR-1, GSTR-3B 3.1(a), GSTR-9 and the HSN summary
+ * all carry what the books post for that invoice (FIXED_ASSET_UNVERIFIED 'cg-where'). Read from the
+ * live disposal journals' Cr output-tax lines; returns `docs` untouched for a company without such
+ * sales. Called by extractOutwardDocs.
  */
-export function capitalGoodsExtraTaxDocs(db: DB, docs: readonly GstDoc[], from: string, to: string): GstDoc[] {
+export function applyCapitalGoodsExtraTax(db: DB, docs: readonly GstDoc[], from: string, to: string): GstDoc[] {
   const links = saleInvoices(db)
   const journalIds = Object.keys(links).map(Number)
-  if (journalIds.length === 0) return []
-  const out: GstDoc[] = []
+  if (journalIds.length === 0) return [...docs]
   const lineStmt = db.prepare(
     `SELECT l.tax_type AS taxType, SUM(vl.amount) AS amount FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
       WHERE vl.voucher_id = ? AND vl.dr_cr = 'cr' AND l.tax_type IS NOT NULL GROUP BY l.tax_type`
   )
+  const extraByInvoice = new Map<number, TaxHeads>()
   for (const jid of journalIds) {
-    const v = db.prepare(`SELECT v.id, v.date FROM vouchers v WHERE v.id = ? AND ${NOT_DELETED} AND v.date BETWEEN ? AND ?`).get(jid, from, to) as { id: number; date: string } | undefined
+    const v = db.prepare(`SELECT v.id FROM vouchers v WHERE v.id = ? AND ${NOT_DELETED} AND v.date BETWEEN ? AND ?`).get(jid, from, to)
     if (!v) continue
-    const base = docs.find((d) => d.voucherId === links[String(jid)])
-    if (!base) continue
     const heads = { ...ZERO_TAX_HEADS }
     for (const r of lineStmt.all(jid) as { taxType: keyof TaxHeads; amount: number }[]) heads[r.taxType] += r.amount
-    if (headsTotal(heads) === 0) continue
-    out.push({
-      ...base,
-      voucherId: jid,
-      invoiceValue: 0,
-      items: [{ rate: base.items[0]?.rate ?? 0, taxable: 0, cgst: heads.cgst, sgst: heads.sgst, igst: heads.igst, cess: heads.cess }],
-      nilLines: [],
-      hsnLines: [],
-      validation: { valDiff: 0, missingHsnCount: 0, missingGstin: false }
-    })
+    if (headsTotal(heads) > 0) extraByInvoice.set(links[String(jid)]!, heads)
   }
-  return out
+  if (extraByInvoice.size === 0) return [...docs]
+  return docs.map((d) => {
+    const extra = extraByInvoice.get(d.voucherId)
+    if (!extra) return d
+    const add = <T extends { cgst: number; sgst: number; igst: number; cess: number }>(x: T): T =>
+      ({ ...x, cgst: x.cgst + extra.cgst, sgst: x.sgst + extra.sgst, igst: x.igst + extra.igst, cess: x.cess + extra.cess })
+    // Onto the invoice's (one) rated line; a rate-less invoice (a free disposal) gets a 0-value line.
+    const items = d.items.length > 0 ? d.items.map((it, i) => (i === 0 ? add(it) : it)) : [add({ rate: 0, taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0 })]
+    const hsnLines = d.hsnLines.map((h, i) => (i === 0 ? add(h) : h))
+    return { ...d, items, hsnLines }
+  })
+}
+
+/** Inside deleteVoucher's transaction: a GST disposal's tax invoice and journal go to the bin
+ *  together (the journal clears the invoice's value; the invoice carries the sale the journal
+ *  describes). Binning either bins the other. */
+export function binFixedAssetPartner(db: DB, voucherId: number): void {
+  const partner = fixedAssetPartnerOf(db, voucherId)
+  if (partner == null || !db.prepare(`SELECT 1 FROM vouchers v WHERE v.id = ? AND ${NOT_DELETED}`).get(partner)) return
+  const lock = getLockDate(db)
+  const pv = db.prepare('SELECT date FROM vouchers WHERE id = ?').get(partner) as { date: string }
+  if (lock && pv.date <= lock) throw new Error(`Books are locked up to ${lock} (the paired voucher is dated ${pv.date})`)
+  const before = getVoucher(db, partner)
+  db.prepare("UPDATE vouchers SET deleted_at = datetime('now') WHERE id = ?").run(partner)
+  writeAudit(db, 'voucher', partner, 'delete', before, { pairedWith: voucherId })
+}
+
+/** Inside restoreVoucher's transaction: a restored GST disposal journal brings its tax invoice
+ *  back with it (the invoice alone may be restored on its own — it is an ordinary sale). */
+export function restoreFixedAssetPartners(db: DB, voucherId: number): void {
+  const invoiceId = saleInvoiceOf(db, voucherId)
+  if (invoiceId == null || db.prepare(`SELECT 1 FROM vouchers v WHERE v.id = ? AND ${NOT_DELETED}`).get(invoiceId)) return
+  const lock = getLockDate(db)
+  const before = getVoucher(db, invoiceId)
+  if (!before) return
+  if (lock && before.date <= lock) throw new Error(`Books are locked up to ${lock} (the tax invoice is dated ${before.date})`)
+  db.prepare('UPDATE vouchers SET deleted_at = NULL WHERE id = ?').run(invoiceId)
+  writeAudit(db, 'voucher', invoiceId, 'restore', before, { restored: true, pairedWith: voucherId })
+}
+
+/** The other half of a GST disposal pair: the journal's invoice, or the invoice's journal. */
+function fixedAssetPartnerOf(db: DB, voucherId: number): number | null {
+  const links = saleInvoices(db)
+  const asJournal = links[String(voucherId)]
+  if (asJournal != null) return asJournal
+  const asInvoice = Object.entries(links).find(([, inv]) => inv === voucherId)
+  return asInvoice ? Number(asInvoice[0]) : null
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1458,7 +1498,7 @@ export function assertNotFixedAssetVoucher(db: DB, voucherId: number): void {
   if (owned) throw new Error(FIXED_ASSET_VOUCHER_EDIT)
   // The tax invoice of a GST disposal: its value is cleared by the disposal journal.
   if (Object.values(saleInvoices(db)).includes(voucherId)) {
-    throw new Error('This tax invoice was posted by a fixed-asset disposal — bin the disposal journal and this invoice, and dispose of the asset again')
+    throw new Error('This tax invoice was posted by a fixed-asset disposal — bin it (the disposal journal goes with it) and dispose of the asset again')
   }
 }
 
@@ -1474,10 +1514,11 @@ export function assertFixedAssetVoucherRestorable(db: DB, voucherId: number): vo
     ).get(voucherId, run.to, run.from) as { from: string; to: string } | undefined
     if (clash) throw new Error(`Depreciation for ${fmtDate(clash.from)} to ${fmtDate(clash.to)} has been posted again since — bin that run to restore this one`)
   }
-  // A GST disposal's journal comes back only with its tax invoice in the books.
+  // A GST disposal's journal comes back with its tax invoice (restoreFixedAssetPartners) — the
+  // invoice must still exist (not purged).
   const invoiceId = saleInvoiceOf(db, voucherId)
-  if (invoiceId != null && !db.prepare(`SELECT 1 FROM vouchers v WHERE v.id = ? AND ${NOT_DELETED}`).get(invoiceId)) {
-    throw new Error('Restore the sale\'s tax invoice first — the disposal journal clears its value')
+  if (invoiceId != null && !db.prepare('SELECT 1 FROM vouchers WHERE id = ?').get(invoiceId)) {
+    throw new Error('The sale\'s tax invoice was purged — dispose of the asset again instead')
   }
   const disposalOf = db.prepare('SELECT id FROM depreciation_runs WHERE voucher_id = ? AND asset_id IS NOT NULL').get(voucherId)
   const asset = db.prepare('SELECT id, disposal_voucher_id FROM fixed_assets WHERE disposal_voucher_id = ?').get(voucherId)
