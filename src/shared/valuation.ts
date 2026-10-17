@@ -309,11 +309,16 @@ export interface InventoryMovement extends StockMovement {
   lineId?: number
 }
 
-export interface InventoryPassInput {
+/** `M` = the movements' container: an array by default; `Iterable` where a stream is accepted
+ *  (runInventoryPass, bookedInwardValues — each reads it once). */
+export interface InventoryPassInput<M extends Iterable<InventoryMovement> = readonly InventoryMovement[]> {
   items: readonly InventoryItem[]
-  /** Any order; the pass orders by (date, voucherId), keeping input order within a voucher —
-   *  so callers pass each voucher's lines in line order. */
-  movements: readonly InventoryMovement[]
+  /** An ARRAY in any order: the pass orders it by (date, voucherId), keeping input order within
+   *  a voucher — so callers pass each voucher's lines in line order. Any other iterable is a
+   *  STREAM (a prepared statement's rows, perf: nothing materialised): it must already arrive in
+   *  pass order (date, voucherId, then line order — out of order throws) and is read once per
+   *  pass, one voucher at a time. */
+  movements: M
   /** Per-voucher costing; a voucher absent here is `'stored'` with no additional cost. */
   costing?: ReadonlyMap<number, VoucherCosting>
   /** Outward lineIds whose engine-charged cost the pass must remember — the sources of
@@ -498,7 +503,7 @@ class InventoryPass {
   private readonly costSources: ReadonlySet<number>
 
   constructor(
-    private readonly input: InventoryPassInput,
+    private readonly input: InventoryPassInput<Iterable<InventoryMovement>>,
     private readonly observer?: PassObserver
   ) {
     for (const it of input.items) {
@@ -556,27 +561,47 @@ class InventoryPass {
     until?: StockPosition,
     skipVoucherId?: number
   ): void {
-    const moves = orderMovements(this.input.movements)
+    const source = this.input.movements
+    // An array is ordered here (a no-op when already in order); a stream must arrive in order.
+    const ordered = Array.isArray(source) ? orderMovements(source as readonly InventoryMovement[]) : null
+    const it = (ordered ?? source)[Symbol.iterator]()
     const costing = this.input.costing
+    // One voucher's lines at a time — the handlers below see exactly the slice they saw when the
+    // whole input was an array (moves[i..j) of one voucher, in input order).
+    const group: InventoryMovement[] = []
     let ci = 0
-    let i = 0
-    while (i < moves.length) {
-      const first = moves[i]!
-      while (ci < checkpoints.length && !positionIncludes(checkpoints[ci]!.p, first)) checkpoints[ci++]!.onReach()
-      if (until && !positionIncludes(until, first)) return
-      let j = i + 1
-      while (j < moves.length && moves[j]!.voucherId === first.voucherId) j++
-      if (first.voucherId !== skipVoucherId) {
-        const c = costing?.get(first.voucherId)
-        if (c && c.rule === 'derived') this.applyDerived(moves, i, j, c)
-        else if (c && c.rule === 'linked') this.applyLinked(moves, i, j, c)
-        else if (c && c.rule === 'transfer') this.applyTransfer(moves, i, j)
-        else if (c && (c.additionalCostPaise ?? 0) > 0) this.applyStoredWithExtra(moves, i, j, c.additionalCostPaise!)
-        else for (let k = i; k < j; k++) this.plain(moves[k]!)
+    let next = it.next()
+    try {
+      while (!next.done) {
+        const first = next.value
+        while (ci < checkpoints.length && !positionIncludes(checkpoints[ci]!.p, first)) checkpoints[ci++]!.onReach()
+        if (until && !positionIncludes(until, first)) return
+        group.length = 0
+        group.push(first)
+        next = it.next()
+        while (!next.done && next.value.voucherId === first.voucherId) {
+          group.push(next.value)
+          next = it.next()
+        }
+        if (!ordered && !next.done && !(next.value.date > first.date || (next.value.date === first.date && next.value.voucherId > first.voucherId))) {
+          throw new Error('inventory movements streamed out of pass order (date, voucher)')
+        }
+        if (first.voucherId !== skipVoucherId) {
+          const c = costing?.get(first.voucherId)
+          const j = group.length
+          if (c && c.rule === 'derived') this.applyDerived(group, 0, j, c)
+          else if (c && c.rule === 'linked') this.applyLinked(group, 0, j, c)
+          else if (c && c.rule === 'transfer') this.applyTransfer(group, 0, j)
+          else if (c && (c.additionalCostPaise ?? 0) > 0) this.applyStoredWithExtra(group, 0, j, c.additionalCostPaise!)
+          else for (let k = 0; k < j; k++) this.plain(group[k]!)
+        }
       }
-      i = j
+      while (ci < checkpoints.length) checkpoints[ci++]!.onReach()
+    } finally {
+      // Stopped early (`until`) or failed: close the stream (a statement iterator frees the
+      // connection only once returned).
+      if (!next.done) it.return?.()
     }
-    while (ci < checkpoints.length) checkpoints[ci++]!.onReach()
   }
 
   /** Legacy additional-cost loading: split by stored amount via allocateAdditionalCost. */
@@ -700,7 +725,7 @@ class InventoryPass {
  * movement register walks one item this way — it never re-derives a cost).
  */
 export function runInventoryPass(
-  input: InventoryPassInput,
+  input: InventoryPassInput<Iterable<InventoryMovement>>,
   checkpoints: StockPosition[] = [],
   observer?: PassObserver
 ): InventoryPassResult {
@@ -729,7 +754,7 @@ export function needsPass(c: VoucherCosting): boolean {
  * share of additional cost), so when nothing is `'derived'` or `'transfer'` no pass is needed and `movements`
  * may hold just the costed vouchers' lines; otherwise this runs the full pass.
  */
-export function bookedInwardValues(input: InventoryPassInput): Map<number, number> {
+export function bookedInwardValues(input: InventoryPassInput<Iterable<InventoryMovement>>): Map<number, number> {
   const costing = input.costing
   if (!costing || costing.size === 0) return new Map()
   for (const c of costing.values()) if (needsPass(c)) return runInventoryPass(input).inwardValueByLine

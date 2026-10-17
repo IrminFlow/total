@@ -111,7 +111,8 @@ export function setDerivedCostingSource(source: DerivedCostingSource | null): vo
  *   including every pre-0.6.0 one, keep their stored costing.
  */
 export function voucherCosting(db: DB, asOn: string): Map<number, VoucherCosting> {
-  const costing = linkedCosting(db)
+  // The linked part is date-independent: inside withStockPass it is read once per call.
+  const costing = passMemo?.db === db ? new Map(passMemo.linked ??= linkedCosting(db)) : linkedCosting(db)
   const ledgerExtra = db
     .prepare(
       `SELECT v.id AS voucherId, SUM(vl.amount) AS extra
@@ -267,6 +268,15 @@ function listItems(db: DB): ItemRow[] {
     .all() as ItemRow[]
 }
 
+/** The pass's movement statement: in-books stock lines dated ≤ ?, in the pass's chronological
+ *  key (date, voucher) and each voucher's line order. */
+const movementsSql = (where = ''): string =>
+  `SELECT il.id AS lineId, il.voucher_id AS voucherId, il.stock_item_id AS stockItemId, il.godown_id AS godownId,
+          v.date AS date, il.qty_milli AS qtyMilli, il.amount, il.direction, il.is_absolute AS isAbsolute
+   FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
+   WHERE v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK} ${where}
+   ORDER BY v.date, v.id, il.line_order, il.id`
+
 /** In-books inventory lines dated ≤ asOn, in voucher order (date, voucher, line order) —
  *  all of them, or one godown's, or (`stockJournalInward`) only stock journals' plain inward
  *  lines (all that stored-rule additional-cost loading reads). */
@@ -283,13 +293,7 @@ function loadMovements(
       : ''
   ].join(' ')
   return db
-    .prepare(
-      `SELECT il.id AS lineId, il.voucher_id AS voucherId, il.stock_item_id AS stockItemId, il.godown_id AS godownId,
-              v.date AS date, il.qty_milli AS qtyMilli, il.amount, il.direction, il.is_absolute AS isAbsolute
-       FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-       WHERE v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK} ${where}
-       ORDER BY v.date, v.id, il.line_order, il.id`
-    )
+    .prepare(movementsSql(where))
     .all(...(filter.godownId ? [asOn, filter.godownId] : [asOn])) as MovementRow[]
 }
 
@@ -311,6 +315,79 @@ const toItems = (items: ItemRow[], withOpening = true): InventoryItem[] =>
     openingQtyMilli: withOpening ? i.openingQtyMilli : 0,
     openingValue: withOpening ? i.openingValue : 0
   }))
+
+/** The company-wide movements as on `asOn` as a STREAM (perf, PR #104): the same statement and
+ *  order as loadMovements, read row by row from a prepared-statement iterator straight into the
+ *  pass — no array of ~all inventory lines is built. Re-iterable: each pass runs the query again. */
+function streamMovements(db: DB, asOn: string): Iterable<InventoryMovement> {
+  if (!streamPassInput) return loadMovements(db, asOn).map((r) => toMovement(r))
+  // Built per call: IN_BOOKS / MOVES_STOCK come through a circular import (vouchers.ts).
+  // Raw rows (arrays, in movementsSql's column order): a per-row iterator pays a native call per
+  // row, and skipping the keyed row object wins that back (measured in docs/perf-budgets.md).
+  const stmt = db.prepare(movementsSql()).raw(true)
+  return {
+    *[Symbol.iterator]() {
+      for (const r of stmt.iterate(asOn) as IterableIterator<RawMovementRow>) {
+        const direction = r[7]
+        const isAbsolute = !!r[8]
+        yield { itemId: r[2], voucherId: r[1], date: r[4], lineId: r[0], direction, qtyMilli: r[5], amount: direction === 'in' && !isAbsolute ? r[6] : 0, isAbsolute }
+      }
+    }
+  }
+}
+
+/** One movementsSql row in raw mode: lineId, voucherId, stockItemId, godownId, date, qtyMilli,
+ *  amount, direction, isAbsolute. */
+type RawMovementRow = [number, number, number, number | null, string, number, number, 'in' | 'out', number]
+
+let streamPassInput = true
+/** TEST ONLY (stockPassStream.dbtest.ts): `false` feeds the pass the old materialised array, so
+ *  the streamed pass can be compared with it reader by reader. */
+export function setStreamedPassInput(on: boolean): void {
+  streamPassInput = on
+}
+
+/** The company-wide pass input as of `asOn`, its movements streamed (streamMovements) — for the
+ *  readers that walk the movements once and never need the rows back. */
+function streamedPassInput(db: DB, asOn: string): { items: ItemRow[]; input: InventoryPassInput<Iterable<InventoryMovement>> } {
+  const items = listItems(db)
+  return { items, input: { items: toItems(items), movements: streamMovements(db, asOn), costing: voucherCosting(db, asOn) } }
+}
+
+// ---------- one pass per request (perf, PR #104) ----------
+
+/** Closing positions per (as-on, godown) computed inside the current withStockPass call. */
+interface PassMemo {
+  db: DB
+  closing: Map<string, Map<number, ValuationResult>>
+  /** linkedCosting(db) — the same for every as-on date. */
+  linked?: Map<number, VoucherCosting>
+}
+let passMemo: PassMemo | null = null
+const memoKey = (asOn: string, godownId?: number): string => (godownId ? `${asOn}|g${godownId}` : asOn)
+const memoGet = (db: DB, asOn: string, godownId?: number): Map<number, ValuationResult> | undefined =>
+  passMemo?.db === db ? passMemo.closing.get(memoKey(asOn, godownId)) : undefined
+const memoSet = (db: DB, asOn: string, closing: Map<number, ValuationResult>, godownId?: number): void => {
+  if (passMemo?.db === db) passMemo.closing.set(memoKey(asOn, godownId), closing)
+}
+
+/**
+ * Run a READ-ONLY service call that asks several stock readers for the same date (a screen's
+ * summary + its panels, Home's attention rows, reorder = consumption + summary) on ONE valuation
+ * pass per (as-on, godown): the closing positions are remembered for the length of `fn` only —
+ * never across calls (each IPC request starts empty), and nested calls share the outer memo.
+ * Never wrap anything that writes the books: a voucher saved inside would not be seen.
+ */
+export function withStockPass<T>(db: DB, fn: () => T): T {
+  if (passMemo?.db === db) return fn()
+  const outer = passMemo
+  passMemo = { db, closing: new Map() }
+  try {
+    return fn()
+  } finally {
+    passMemo = outer
+  }
+}
 
 /** The company-wide pass input as of `asOn` (every item, every in-books line, every rule). */
 function companyPassInput(db: DB, asOn: string): { items: ItemRow[]; rows: MovementRow[]; input: InventoryPassInput } {
@@ -368,13 +445,17 @@ export interface StockSummaryOptions {
  */
 export function stockSummary(db: DB, asOn: string, opts: StockSummaryOptions = {}): StockSummaryRow[] {
   const items = listItems(db)
-  const costing = voucherCosting(db, asOn)
-  const input = opts.godownId
-    ? godownPassInput(db, asOn, opts.godownId, items, costing)
-    : { items: toItems(items), movements: loadMovements(db, asOn).map((r) => toMovement(r)), costing }
-  const results = runInventoryPass(input).closing
+  let results = memoGet(db, asOn, opts.godownId)
+  if (!results) {
+    const costing = voucherCosting(db, asOn)
+    const input = opts.godownId
+      ? godownPassInput(db, asOn, opts.godownId, items, costing)
+      : { items: toItems(items), movements: streamMovements(db, asOn), costing }
+    results = runInventoryPass(input).closing
+    memoSet(db, asOn, results, opts.godownId)
+  }
   return items.map((item) => {
-    const r = results.get(item.id) ?? ZERO
+    const r = results!.get(item.id) ?? ZERO
     const openingQty = opts.godownId ? 0 : item.openingQtyMilli
     const openingValue = opts.godownId ? 0 : item.openingValue
     return {
@@ -405,14 +486,29 @@ export function stockValue(db: DB, asOn: string): number {
 export function stockValuesAt(db: DB, dates: string[]): Map<string, number> {
   const result = new Map<string, number>()
   if (dates.length === 0) return result
-  const latest = dates.reduce((a, b) => (a > b ? a : b))
-  const { items, input } = companyPassInput(db, latest)
   const unique = [...new Set(dates)]
-  const { at } = runInventoryPass(input, unique.map((date) => ({ date })))
-  unique.forEach((d, i) => {
-    const snap = at[i]!
-    result.set(d, items.reduce((s, item) => s + (snap.get(item.id)?.closingValue ?? 0), 0))
-  })
+  // Inside withStockPass: dates already walked in this call need no pass.
+  const known = new Map(unique.flatMap((d) => {
+    const c = memoGet(db, d)
+    return c ? [[d, c] as const] : []
+  }))
+  const missing = unique.filter((d) => !known.has(d))
+  const items = missing.length ? null : listItems(db)
+  let all = items
+  if (missing.length) {
+    const latest = missing.reduce((a, b) => (a > b ? a : b))
+    const { items: listed, input } = streamedPassInput(db, latest)
+    all = listed
+    const { at } = runInventoryPass(input, missing.map((date) => ({ date })))
+    missing.forEach((d, i) => {
+      known.set(d, at[i]!)
+      memoSet(db, d, at[i]!)
+    })
+  }
+  for (const d of unique) {
+    const snap = known.get(d)!
+    result.set(d, all!.reduce((s, item) => s + (snap.get(item.id)?.closingValue ?? 0), 0))
+  }
   return result
 }
 
@@ -429,8 +525,9 @@ export interface PeriodConsumption {
  * `from`, so each item's valuation_method (FIFO / weighted average) prices the period.
  */
 export function periodConsumption(db: DB, from: string, to: string): Map<number, PeriodConsumption> {
-  const { items, input } = companyPassInput(db, to)
+  const { items, input } = streamedPassInput(db, to)
   const { closing, at } = runInventoryPass(input, [{ date: from, voucherId: 0 }])
+  memoSet(db, to, closing)
   const before = at[0]!
   const result = new Map<number, PeriodConsumption>()
   for (const item of items) {
@@ -504,7 +601,7 @@ export interface CountLineEffect {
  * the count" (0). Lines of a voucher that is not in the books are absent.
  */
 export function countLineEffects(db: DB, voucherId: number, date: string): Map<number, CountLineEffect> {
-  const { input } = companyPassInput(db, date)
+  const { input } = streamedPassInput(db, date)
   const out = new Map<number, CountLineEffect>()
   runInventoryPass(input, [], {
     onLine: (e) => {
@@ -769,7 +866,7 @@ export function stockMovements(db: DB, itemId: number, from: string, to: string,
   const costing = voucherCosting(db, to)
   const input = godownId
     ? godownPassInput(db, to, godownId, items, costing)
-    : { items: toItems(items), movements: loadMovements(db, to).map((r) => toMovement(r)), costing }
+    : { items: toItems(items), movements: streamMovements(db, to), costing }
 
   const effects: { lineId: number; date: string; qtyDelta: number; valueDelta: number; qtyAfter: number; valueAfter: number; isAbsolute: boolean; direction: 'in' | 'out' }[] = []
   const { closing, at } = runInventoryPass(input, [{ date: from, voucherId: 0 }], {
@@ -782,6 +879,7 @@ export function stockMovements(db: DB, itemId: number, from: string, to: string,
       })
     }
   })
+  memoSet(db, to, closing, godownId)
   const opening = at[0]!.get(itemId) ?? ZERO
   const end = closing.get(itemId) ?? ZERO
 
@@ -855,9 +953,10 @@ export function reorderPlan(db: DB, from: string, to: string, opts: { onlyBelow?
       .map((x) => [x.id, x.r])
   )
   if (levels.size === 0) return []
-  const consumption = periodConsumption(db, from, to)
+  // ONE pass: the summary as on `to` reuses periodConsumption's closing (withStockPass).
+  const { consumption, summary } = withStockPass(db, () => ({ consumption: periodConsumption(db, from, to), summary: stockSummary(db, to) }))
   const rows: ReorderRow[] = []
-  for (const s of stockSummary(db, to)) {
+  for (const s of summary) {
     const level = levels.get(s.stockItemId)
     if (level == null) continue
     const below = isBelowReorder(s.closingQtyMilli, level)

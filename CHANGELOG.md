@@ -153,6 +153,13 @@ what you typed, and a **Back to simple** button.
 - **Faster on big books.** Reports, lists, search and opening a business are faster with 100,000
   or more entries (for example the profit and loss for a year in about 0.2 s on a 100,000-entry
   test company). Nothing you see changes except the speed. [#104](https://github.com/IrminFlow/total/pull/104)
+- **Stock figures on big books use less memory, and the accountant Home counts your stock once.**
+  Total now reads the stock entries one at a time while it values your stock instead of loading
+  them all first: on a 1,00,000-entry test company (1,32,539 stock lines) the memory held while
+  valuing drops from about 47 MB to about 17 MB, and it no longer grows with the size of your
+  books. The accountant Home (Gateway) valued all the stock twice when it opened and now does it
+  once; the Balance sheet reads the returns' links once instead of twice. Every figure is exactly
+  the same as before. [#169](https://github.com/IrminFlow/total/pull/169)
 - **Searching for a word or a bill number is quicker on big books.** Words from a narration, a
   reference or part of a number ("bill 4", "1/25") are found through a text index instead of
   reading every entry; the results are exactly the same as before. [#153](https://github.com/IrminFlow/total/pull/153)
@@ -691,6 +698,18 @@ Read these before filing from the next release.
   `services/tcs206c.dbtest.ts`, `__tests__/tcs206c.test.tsx`; the WP 3.3 tests are unchanged.
 
 - **Export gate sweep covers every role.** `securityReview.dbtest` now scans every IPC handler under `src/main` that writes a file or audits an `export` (directly or through a helper in its file; viewer-role ones included, which the audit-coverage registry does not list), plus every channel whose name says file / print / export, and requires each in `EXPORT_CHANNELS`, `NOT_EXPORTS` or a listed read / input; review: the bank reconciliation PDF (`banking:brsPdf`, written with no gate and no audit row) is now a `canExport` channel with an export audit row, and report packs (`pack:runNow`, `pack:save`) are `canExport` channels; Form 16 / 16A / 27D, self-invoice, barcode-label prints and the template export are listed as non-exports with reasons. The data-folder-move locked case no longer sleeps 1.7 s, and the e-invoicing Company details test waits for the loaded switch (Windows flake). [#155](https://github.com/IrminFlow/total/pull/155)
+
+- **Streamed valuation pass** (to-do §4), [#169](https://github.com/IrminFlow/total/pull/169):
+  `InventoryPassInput.movements` may be any iterable — an array is ordered as before, any other
+  iterable is a stream that must arrive in pass order (else it throws; closed on early stop).
+  `stockAnalysis` feeds `stockSummary` / `stockValue` / `stockValuesAt` / `periodConsumption` /
+  `countLineEffects` / `stockMovements` (company-wide) from `stmt.raw(true).iterate()`.
+  `withStockPass(db, fn)` remembers closing positions per (as-on, godown) and the `line_links`
+  costing for ONE read-only call (never across IPC calls; never wrap a write) — used by
+  `dashboard:all`, `balanceSheet`, `reorderPlan` and the simple product view.
+  `stockPassStream.dbtest.ts` compares every streamed reader with the old array input
+  (`setStreamedPassInput(false)`, test only) on the stock fixture, the demo and a 10k seed.
+  Numbers in `docs/perf-budgets.md`.
 
 - **Voucher text index** (to-do §4), [#153](https://github.com/IrminFlow/total/pull/153): migration
   054 "voucher text index" (last, after #148's 053) — `voucher_fts`, an external-content FTS5 table (trigram tokenizer,
