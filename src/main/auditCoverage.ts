@@ -354,6 +354,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'nic:generateIrn': a('voucher'),
   'nic:generateEwb': a('voucher'),
   'nic:cancelIrn': a('voucher'),
+  'nic:cancelEwb': a('voucher'),
+  'nic:extendEwb': a('voucher'),
   'nic:record': QUERY,
   'nic:signedCopyExport': EXPORT,
   'invoice:pdf': EXPORT,

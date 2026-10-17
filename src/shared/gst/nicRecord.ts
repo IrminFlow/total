@@ -102,6 +102,24 @@ export const EWB_EXTEND_MODES = [
   { code: '5', label: 'In transit' }
 ] as const
 
+/** What Extend validity sends ([EXT] request: extnRsnCode, extnRemarks, fromPlace, fromState,
+ *  fromPincode, remainingDistance, transMode, vehicleNo / transDocNo + transDocDate, transitType). */
+export interface EwbExtendRequest {
+  reasonCode: EwbExtendReasonCode
+  remarks: string
+  fromPlace: string
+  fromStateCode: number
+  fromPincode: number
+  remainingDistanceKm: number
+  transMode: '1' | '2' | '3' | '4' | '5'
+  vehicleNo?: string
+  transDocNo?: string
+  /** ISO date. */
+  transDocDate?: string
+  transitType?: 'R' | 'W' | 'O'
+  addressLine1?: string
+}
+
 const HOUR_MS = 3600 * 1000
 /** [CNL] / [CEWB]: "within 24 hours". */
 export const CANCEL_WINDOW_MS = 24 * HOUR_MS

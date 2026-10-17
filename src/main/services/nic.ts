@@ -15,7 +15,7 @@ import { buildEInvoiceJson, buildEwbByIrnPayload, type EdocCompany } from '@shar
 import { einvoiceIssues } from '@shared/gst/einvoiceSchema'
 import {
   ewbCancelWindow, ewbExtendWindow, irnCancelWindow, nicTimestampMs, IRN_CANCEL_REMARK_MAX, EWB_CANCEL_REMARK_MAX,
-  type EwbEvent, type EwbExtendReasonCode, type NicCancelReason, type NicRecord
+  type EwbEvent, type EwbExtendRequest, type NicCancelReason, type NicRecord
 } from '@shared/gst/nicRecord'
 import { outwardDebitNoteIds } from './gst'
 import { extractEdocInvoices, goodsMovedOnChallan, movedOnChallanReason } from './edocs'
@@ -826,59 +826,64 @@ export async function getIrnDetails(db: DB, slug: string, company: CompanyInfo, 
   return (await einvCall(ctx.creds, ctx.gstin, 'GET', `/eicore/v1.03/Invoice/irn/${irn}`, null, ctx.deps)).data
 }
 
-/** Cancel a voucher's e-way bill ([CEWB], action CANEWB; within 24 h). Clears ewb_no/valid-upto;
- *  the cancelled number stays in the audit row. Service-level only: no IPC channel / UI yet. */
+/**
+ * Cancel a voucher's e-way bill ([CEWB] POST /ewaybillapi/v1.03/ewayapi, action CANEWB, data
+ * {ewbNo, cancelRsnCode ([MASTER] 1–4), cancelRmrk Text(50)}; within 24 h of EwbDt). Refused
+ * locally after the window. On success the LIVE columns are cleared (ewb_no / ewb_valid_upto /
+ * ewb_date — a new bill can then be generated against the IRN) and the cancel goes into
+ * ewb_history with the number, the portal's cancelDate, reason and remark; audited.
+ */
 export async function cancelEwb(
   db: DB, slug: string, company: CompanyInfo, voucherId: number, reason: NicCancelReason, remark = '', deps: NicDeps = {}
 ): Promise<{ ewbNo: string; cancelDate: string }> {
   const ctx = context(db, slug, company, deps)
   const v = voucherForNic(db, voucherId)
   if (!v.ewb_no) throw new NicError('This voucher has no e-way bill to cancel', [], 'config')
-  // [CEWB] data structure: cancelRmrk Text(50).
-  const data = await ewayApiCall(ctx.creds, ctx.gstin, 'CANEWB', { ewbNo: Number(v.ewb_no), cancelRsnCode: EWB_CANCEL_CODE[reason], cancelRmrk: remark.slice(0, 50) }, ctx.deps)
-  const cancelDate = str(data.cancelDate)
+  const now = (deps.now ?? Date.now)()
+  const win = ewbCancelWindow({ ewbNo: v.ewb_no, ewbDate: v.ewb_date }, now)
+  if (!win.allowed) throw new NicError(win.reason!, ['4055'], 'config')
+  const rem = remark.trim().slice(0, EWB_CANCEL_REMARK_MAX)
+  const data = await ewayApiCall(ctx.creds, ctx.gstin, 'CANEWB', { ewbNo: Number(v.ewb_no), cancelRsnCode: EWB_CANCEL_CODE[reason], cancelRmrk: rem }, ctx.deps)
+  const cancelDate = str(data.cancelDate) || istNow(now)
+  const ewbNo = v.ewb_no
+  const before = nicAuditFacts(v)
   db.transaction(() => {
-    db.prepare('UPDATE vouchers SET ewb_no = NULL, ewb_valid_upto = NULL WHERE id = ?').run(voucherId)
-    writeAudit(db, 'voucher', voucherId, 'update', { ewbNo: v.ewb_no, ewbValidUpto: v.ewb_valid_upto },
-      { ewbNo: null, ewbValidUpto: null, cancelledEwbNo: v.ewb_no, ewbCancelDate: cancelDate, ewbCancelReason: reason })
+    db.prepare('UPDATE vouchers SET ewb_no = NULL, ewb_valid_upto = NULL, ewb_date = NULL, ewb_history = ? WHERE id = ?')
+      .run(withEvent(v.ewb_history, { action: 'cancel', ewbNo, at: cancelDate, reason, ...(rem ? { remark: rem } : {}) }), voucherId)
+    writeAudit(db, 'voucher', voucherId, 'update', before,
+      { ...before, ewbNo: null, ewbDate: null, ewbValidUpto: null, cancelledEwbNo: ewbNo, ewbCancelDate: cancelDate, ewbCancelReason: reason, ewbCancelRemark: rem || null })
   })()
   log('info', 'nic-ewb-cancelled', { voucherId })
-  return { ewbNo: str(data.ewayBillNo) || v.ewb_no, cancelDate }
+  return { ewbNo: str(data.ewayBillNo) || ewbNo, cancelDate }
 }
 
-export interface EwbExtendInput {
-  /** [MASTER] "Reasons for extension of validity": 1 Natural Calamity, 2 Law and Order,
-   *  4 Transshipment, 5 Accident, 99 Others. */
-  reasonCode: 1 | 2 | 4 | 5 | 99
-  remarks: string
-  fromPlace: string
-  fromStateCode: number
-  fromPincode: number
-  remainingDistanceKm: number
-  /** 1 road, 2 rail, 3 air, 4 ship, 5 in transit ([MASTER]). */
-  transMode: '1' | '2' | '3' | '4' | '5'
-  vehicleNo?: string
-  transDocNo?: string
-  /** ISO date. */
-  transDocDate?: string
-  /** Only for transMode 5: R road, W warehouse, O others ([EXT] validations). */
-  transitType?: 'R' | 'W' | 'O'
-  addressLine1?: string
-}
+/** = shared/gst/nicRecord.ts EwbExtendRequest. */
+export type EwbExtendInput = EwbExtendRequest
 
-/** Extend an e-way bill's validity ([EXT], action EXTENDVALIDITY; between 8 h before and 8 h
- *  after expiry). Stores the new valid-upto. Route via the IRP UNVERIFIED (see header). */
+/**
+ * Extend an e-way bill's validity ([EXT] action EXTENDVALIDITY; between 8 h before and 8 h after
+ * expiry, with the reason code, remarks, where the goods are now (place / state / PIN), the
+ * remaining distance and the vehicle or transport document). Refused locally outside the window.
+ * Stores the new valid-upto and an 'extend' event in ewb_history; audited. Route via the IRP
+ * UNVERIFIED (see header).
+ */
 export async function extendEwb(db: DB, slug: string, company: CompanyInfo, voucherId: number, input: EwbExtendInput, deps: NicDeps = {}): Promise<{ ewbNo: string; validUpto: string }> {
   const ctx = context(db, slug, company, deps)
   const v = voucherForNic(db, voucherId)
   if (!v.ewb_no) throw new NicError('This voucher has no e-way bill to extend', [], 'config')
   if (input.transMode === '1' && !input.vehicleNo) throw new NicError('Road transport needs a vehicle number', ['4011'], 'config')
+  if ((input.transMode === '2' || input.transMode === '3' || input.transMode === '4') && !input.transDocNo) {
+    throw new NicError('Rail, air or ship transport needs the transport document number', ['4012'], 'config')
+  }
   if (!/^\d{6}$/.test(String(input.fromPincode))) throw new NicError('The current location needs a 6-digit PIN code', [], 'config')
+  const win = ewbExtendWindow({ ewbNo: v.ewb_no, ewbValidUpto: v.ewb_valid_upto }, (deps.now ?? Date.now)())
+  if (!win.allowed) throw new NicError(win.reason!, [], 'config')
   const inTransit = input.transMode === '5'
   const iso = input.transDocDate?.split('-')
+  const vehicleNo = input.vehicleNo ? input.vehicleNo.replace(/[\s-]/g, '').toUpperCase() : ''
   const data = await ewayApiCall(ctx.creds, ctx.gstin, 'EXTENDVALIDITY', {
     ewbNo: Number(v.ewb_no),
-    vehicleNo: input.vehicleNo ? input.vehicleNo.replace(/[\s-]/g, '').toUpperCase() : '',
+    vehicleNo,
     fromPlace: input.fromPlace.slice(0, 50),
     fromState: input.fromStateCode,
     remainingDistance: input.remainingDistanceKm,
@@ -896,14 +901,20 @@ export async function extendEwb(db: DB, slug: string, company: CompanyInfo, vouc
     addressLine3: ''
   }, ctx.deps)
   const validUpto = str(data.validUpto)
+  const ewbNo = v.ewb_no
+  const before = nicAuditFacts(v)
+  const event: EwbEvent = {
+    action: 'extend', ewbNo, at: str(data.updatedDate), validUpto, reason: input.reasonCode, remark: input.remarks,
+    fromPlace: input.fromPlace, fromStateCode: input.fromStateCode, fromPincode: input.fromPincode,
+    remainingDistanceKm: input.remainingDistanceKm, transMode: input.transMode, ...(vehicleNo ? { vehicleNo } : {})
+  }
   db.transaction(() => {
-    db.prepare('UPDATE vouchers SET ewb_valid_upto = ? WHERE id = ?').run(validUpto, voucherId)
-    writeAudit(db, 'voucher', voucherId, 'update', { ewbNo: v.ewb_no, ewbValidUpto: v.ewb_valid_upto }, { ewbNo: v.ewb_no, ewbValidUpto: validUpto, ewbExtensionReason: input.reasonCode })
+    db.prepare('UPDATE vouchers SET ewb_valid_upto = ?, ewb_history = ? WHERE id = ?').run(validUpto, withEvent(v.ewb_history, event), voucherId)
+    writeAudit(db, 'voucher', voucherId, 'update', before, { ...before, ewbValidUpto: validUpto, ewbExtension: event })
   })()
   log('info', 'nic-ewb-extended', { voucherId })
-  return { ewbNo: str(data.ewayBillNo) || v.ewb_no, validUpto }
+  return { ewbNo: str(data.ewayBillNo) || ewbNo, validUpto }
 }
-
 
 // ---------- the stored e-invoice / e-way record (read-only; no network) ----------
 

@@ -5,8 +5,10 @@ import { useToasts } from '../../state/stores'
 import { Banner, Button, Checkbox, Field, Modal, Select, TextInput } from '../../components/ui'
 import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../../lib/capabilities'
 import {
-  IRN_CANCEL_REMARK_MAX, NIC_CANCEL_REASON_LABEL, NIC_CANCEL_REASONS, NIC_UNVERIFIED, istLabel, type NicCancelReason, type NicRecord
+  EWB_CANCEL_REMARK_MAX, EWB_EXTEND_MODES, EWB_EXTEND_REASONS, IRN_CANCEL_REMARK_MAX, NIC_CANCEL_REASON_LABEL, NIC_CANCEL_REASONS, NIC_UNVERIFIED,
+  istLabel, type EwbEvent, type EwbExtendReasonCode, type EwbExtendRequest, type NicCancelReason, type NicRecord
 } from '@shared/gst/nicRecord'
+import { GST_STATE_LIST } from '@shared/gst/states'
 
 /**
  * e-Documents → a row's "IRN details": what the IRP returned for this voucher, as stored —
@@ -28,6 +30,7 @@ function EinvoiceDetailsBody({ rec, live }: { rec: NicRecord; live: boolean }): 
       <Banner tone="warning">Experimental — the live NIC client has never run against the real portal. Check every result on the portal.</Banner>
       {rec.irn && <SignedCopies rec={rec} />}
       {rec.irn && <IrnCancel rec={rec} live={live} />}
+      {(rec.ewbNo || rec.ewbHistory.length > 0) && <EwayBill rec={rec} live={live} />}
       <details className="text-hint text-muted" data-testid="edoc-details-unverified">
         <summary className="cursor-pointer">Not verified against the live portal ({NIC_UNVERIFIED.length})</summary>
         <ul className="mt-1 list-disc pl-5">
@@ -222,6 +225,290 @@ function SignedField({ label, value, testId, onCopy }: { label: string; value: s
         rows={3}
         className="num w-full resize-y rounded border border-line bg-panel2 px-2 py-1 text-hint"
       />
+    </div>
+  )
+}
+
+const EVENT_LABEL: Record<EwbEvent['action'], string> = { generate: 'Generated', extend: 'Extended', cancel: 'Cancelled' }
+
+function eventDetail(e: EwbEvent): string {
+  if (e.action === 'cancel') return [typeof e.reason === 'string' && e.reason in NIC_CANCEL_REASON_LABEL ? NIC_CANCEL_REASON_LABEL[e.reason as NicCancelReason] : '', e.remark ?? ''].filter(Boolean).join(' · ')
+  if (e.action === 'extend') {
+    const why = EWB_EXTEND_REASONS.find((r) => r.code === e.reason)?.label ?? ''
+    return [why, e.remark, e.fromPlace && `at ${e.fromPlace}`, e.remainingDistanceKm != null && `${e.remainingDistanceKm} km left`, e.vehicleNo].filter(Boolean).join(' · ')
+  }
+  return ''
+}
+
+function EwayBill({ rec, live }: { rec: NicRecord; live: boolean }): React.JSX.Element {
+  return (
+    <section aria-label="e-Way bill" className="flex flex-col gap-2" data-testid="edoc-ewb">
+      <h3 className="text-label font-semibold uppercase text-muted">e-Way bill</h3>
+      {rec.ewbNo ? (
+        <>
+          <Fact label="EWB no." value={rec.ewbNo} testId="edoc-details-ewb-no" />
+          <Fact label="Generated" value={rec.ewbDate} />
+          <Fact label="Valid until" value={rec.ewbValidUpto} testId="edoc-details-ewb-valid" />
+        </>
+      ) : (
+        <p className="text-hint text-muted">No live e-way bill.</p>
+      )}
+      {rec.ewbHistory.length > 0 && (
+        <table className="w-full text-hint" data-testid="edoc-ewb-history">
+          <caption className="sr-only">e-Way bill history</caption>
+          <thead>
+            <tr className="text-left text-muted">
+              <th scope="col" className="py-0.5 font-normal">Event</th>
+              <th scope="col" className="py-0.5 font-normal">EWB no.</th>
+              <th scope="col" className="py-0.5 font-normal">When</th>
+              <th scope="col" className="py-0.5 font-normal">Valid until</th>
+              <th scope="col" className="py-0.5 font-normal">Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rec.ewbHistory.map((e, i) => (
+              <tr key={i} data-testid={`edoc-ewb-event-${e.action}`}>
+                <td className="py-0.5">{EVENT_LABEL[e.action]}</td>
+                <td className="num py-0.5">{e.ewbNo}</td>
+                <td className="num py-0.5">{e.at || '—'}</td>
+                <td className="num py-0.5">{e.validUpto || '—'}</td>
+                <td className="py-0.5">{eventDetail(e) || '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      {rec.ewbNo && <EwbCancel rec={rec} live={live} />}
+      {rec.ewbNo && <EwbExtend rec={rec} live={live} />}
+    </section>
+  )
+}
+
+function EwbCancel({ rec, live }: { rec: NicRecord; live: boolean }): React.JSX.Element {
+  const toast = useToasts()
+  const refresh = useRefresh(rec.voucherId)
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState<NicCancelReason>('data_entry_mistake')
+  const [remark, setRemark] = useState('')
+  const [understood, setUnderstood] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const win = rec.cancelEwb
+  const submit = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const r = await api.nic.cancelEwb(rec.voucherId, reason, remark.trim())
+      toast.push('success', `e-Way bill ${r.ewbNo} cancelled on the portal`)
+      setOpen(false)
+      await refresh()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (!win.allowed) return <p className="text-hint text-muted" data-testid="edoc-ewb-cancel-closed">{win.reason}</p>
+  if (!live) return <p className="text-hint text-muted">Add the NIC API credentials (Settings → Live filing) to cancel or extend on the portal.</p>
+  if (!open) {
+    return (
+      <div className="flex items-center gap-3">
+        <Button size="sm" variant="danger" data-testid="btn-edoc-ewb-cancel" onClick={() => setOpen(true)}>
+          Cancel e-way bill…
+        </Button>
+        {win.closesAt !== null && <span className="text-hint text-muted">Possible until {istLabel(win.closesAt)}</span>}
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-2 rounded border border-line p-3" data-testid="edoc-ewb-cancel-form">
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Reason">
+          <Select value={reason} onChange={(e) => setReason(e.target.value as NicCancelReason)} data-testid="input-edoc-ewb-cancel-reason">
+            {NIC_CANCEL_REASONS.map((r) => (
+              <option key={r} value={r}>{NIC_CANCEL_REASON_LABEL[r]}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Remark" hint={`Up to ${EWB_CANCEL_REMARK_MAX} characters`}>
+          <TextInput value={remark} maxLength={EWB_CANCEL_REMARK_MAX} onChange={(e) => setRemark(e.target.value)} data-testid="input-edoc-ewb-cancel-remark" />
+        </Field>
+      </div>
+      <Checkbox
+        checked={understood}
+        onChange={setUnderstood}
+        testId="input-edoc-ewb-cancel-understood"
+        label="I understand this cancels the e-way bill on the live portal and can't be undone."
+      />
+      <div className="flex justify-end gap-2">
+        <Button size="sm" onClick={() => setOpen(false)}>Back</Button>
+        <Button size="sm" variant="danger" data-testid="btn-edoc-ewb-cancel-confirm" disabled={!understood || !remark.trim() || busy} onClick={() => void submit()}>
+          Cancel e-way bill on the portal
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+/** The extension form's fields as typed (strings until sent). */
+interface ExtendForm {
+  reasonCode: EwbExtendReasonCode
+  remarks: string
+  fromPlace: string
+  fromStateCode: string
+  fromPincode: string
+  remainingDistanceKm: string
+  transMode: EwbExtendRequest['transMode']
+  vehicleNo: string
+  transDocNo: string
+  transDocDate: string
+  transitType: 'R' | 'W' | 'O'
+  addressLine1: string
+}
+
+/** The request, or the first thing missing (in the form's words). */
+export function extendRequestFrom(f: ExtendForm): EwbExtendRequest | string {
+  if (!f.remarks.trim()) return 'Add a remark'
+  if (!f.fromPlace.trim()) return 'Say where the goods are now'
+  if (!f.fromStateCode) return 'Pick the state the goods are in now'
+  if (!/^\d{6}$/.test(f.fromPincode.trim())) return 'The current PIN code needs 6 digits'
+  const km = Number(f.remainingDistanceKm)
+  if (!Number.isInteger(km) || km < 1 || km > 4000) return 'The remaining distance is a whole number of km (1–4000)'
+  if (f.transMode === '1' && !f.vehicleNo.trim()) return 'Road transport needs a vehicle number'
+  if (['2', '3', '4'].includes(f.transMode) && !f.transDocNo.trim()) return 'Rail, air or ship needs the transport document number'
+  if (f.transMode === '5' && !f.addressLine1.trim()) return 'Give the address where the goods are held'
+  return {
+    reasonCode: f.reasonCode,
+    remarks: f.remarks.trim(),
+    fromPlace: f.fromPlace.trim(),
+    fromStateCode: Number(f.fromStateCode),
+    fromPincode: Number(f.fromPincode.trim()),
+    remainingDistanceKm: km,
+    transMode: f.transMode,
+    ...(f.vehicleNo.trim() ? { vehicleNo: f.vehicleNo.trim() } : {}),
+    ...(f.transDocNo.trim() ? { transDocNo: f.transDocNo.trim() } : {}),
+    ...(f.transDocDate ? { transDocDate: f.transDocDate } : {}),
+    ...(f.transMode === '5' ? { transitType: f.transitType, addressLine1: f.addressLine1.trim() } : {})
+  }
+}
+
+function EwbExtend({ rec, live }: { rec: NicRecord; live: boolean }): React.JSX.Element | null {
+  const toast = useToasts()
+  const refresh = useRefresh(rec.voucherId)
+  const [open, setOpen] = useState(false)
+  const [understood, setUnderstood] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [f, setF] = useState<ExtendForm>({
+    reasonCode: 5, remarks: '', fromPlace: '', fromStateCode: '', fromPincode: '', remainingDistanceKm: '', transMode: '1',
+    vehicleNo: '', transDocNo: '', transDocDate: '', transitType: 'R', addressLine1: ''
+  })
+  const set = (patch: Partial<ExtendForm>): void => setF((x) => ({ ...x, ...patch }))
+  const win = rec.extendEwb
+  if (!live) return null
+  if (!win.allowed) return <p className="text-hint text-muted" data-testid="edoc-ewb-extend-closed">{win.reason}</p>
+  const req = extendRequestFrom(f)
+  const submit = async (): Promise<void> => {
+    if (typeof req === 'string') return
+    setBusy(true)
+    try {
+      const r = await api.nic.extendEwb(rec.voucherId, req)
+      toast.push('success', `e-Way bill ${r.ewbNo} extended — valid until ${r.validUpto}`)
+      setOpen(false)
+      await refresh()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (!open) {
+    return (
+      <div className="flex items-center gap-3">
+        <Button size="sm" data-testid="btn-edoc-ewb-extend" onClick={() => setOpen(true)}>
+          Extend validity…
+        </Button>
+        {win.closesAt !== null && <span className="text-hint text-muted">Possible until {istLabel(win.closesAt)}</span>}
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-2 rounded border border-line p-3" data-testid="edoc-ewb-extend-form">
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Reason">
+          <Select value={String(f.reasonCode)} onChange={(e) => set({ reasonCode: Number(e.target.value) as EwbExtendReasonCode })} data-testid="input-edoc-ewb-extend-reason">
+            {EWB_EXTEND_REASONS.map((r) => (
+              <option key={r.code} value={r.code}>{r.label}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="Remarks">
+          <TextInput value={f.remarks} maxLength={50} onChange={(e) => set({ remarks: e.target.value })} data-testid="input-edoc-ewb-extend-remarks" />
+        </Field>
+        <Field label="Goods are now at (place)">
+          <TextInput value={f.fromPlace} maxLength={50} onChange={(e) => set({ fromPlace: e.target.value })} data-testid="input-edoc-ewb-extend-place" />
+        </Field>
+        <Field label="State">
+          <Select value={f.fromStateCode} onChange={(e) => set({ fromStateCode: e.target.value })} data-testid="input-edoc-ewb-extend-state">
+            <option value="">Pick a state</option>
+            {GST_STATE_LIST.map(([code, name]) => (
+              <option key={code} value={String(Number(code))}>{code} · {name}</option>
+            ))}
+          </Select>
+        </Field>
+        <Field label="PIN code">
+          <TextInput value={f.fromPincode} inputMode="numeric" maxLength={6} onChange={(e) => set({ fromPincode: e.target.value })} data-testid="input-edoc-ewb-extend-pin" />
+        </Field>
+        <Field label="Distance left (km)">
+          <TextInput value={f.remainingDistanceKm} inputMode="numeric" onChange={(e) => set({ remainingDistanceKm: e.target.value })} data-testid="input-edoc-ewb-extend-km" />
+        </Field>
+        <Field label="Mode">
+          <Select value={f.transMode} onChange={(e) => set({ transMode: e.target.value as ExtendForm['transMode'] })} data-testid="input-edoc-ewb-extend-mode">
+            {EWB_EXTEND_MODES.map((m) => (
+              <option key={m.code} value={m.code}>{m.label}</option>
+            ))}
+          </Select>
+        </Field>
+        {f.transMode === '1' && (
+          <Field label="Vehicle no.">
+            <TextInput value={f.vehicleNo} onChange={(e) => set({ vehicleNo: e.target.value })} data-testid="input-edoc-ewb-extend-vehicle" />
+          </Field>
+        )}
+        {['2', '3', '4'].includes(f.transMode) && (
+          <>
+            <Field label="Transport doc no.">
+              <TextInput value={f.transDocNo} maxLength={15} onChange={(e) => set({ transDocNo: e.target.value })} />
+            </Field>
+            <Field label="Transport doc date">
+              <TextInput type="date" value={f.transDocDate} onChange={(e) => set({ transDocDate: e.target.value })} />
+            </Field>
+          </>
+        )}
+        {f.transMode === '5' && (
+          <>
+            <Field label="Held at">
+              <Select value={f.transitType} onChange={(e) => set({ transitType: e.target.value as ExtendForm['transitType'] })}>
+                <option value="R">On road</option>
+                <option value="W">Warehouse</option>
+                <option value="O">Others</option>
+              </Select>
+            </Field>
+            <Field label="Address">
+              <TextInput value={f.addressLine1} maxLength={120} onChange={(e) => set({ addressLine1: e.target.value })} />
+            </Field>
+          </>
+        )}
+      </div>
+      {typeof req === 'string' && <p className="text-hint text-muted" data-testid="edoc-ewb-extend-missing">{req}</p>}
+      <Checkbox
+        checked={understood}
+        onChange={setUnderstood}
+        testId="input-edoc-ewb-extend-understood"
+        label="I understand this extends the e-way bill on the live portal."
+      />
+      <div className="flex justify-end gap-2">
+        <Button size="sm" onClick={() => setOpen(false)}>Back</Button>
+        <Button size="sm" variant="primary" data-testid="btn-edoc-ewb-extend-confirm" disabled={!understood || typeof req === 'string' || busy} onClick={() => void submit()}>
+          Extend on the portal
+        </Button>
+      </div>
     </div>
   )
 }
