@@ -375,3 +375,24 @@ describe('Income-tax block of assets', () => {
     expect(next.additionalDepreciation).toBe(R(10000))
   })
 })
+
+describe('extra shift (Schedule II Notes para 6)', () => {
+  it('adds 50% for double-shift days and 100% for triple-shift days, pro rata', () => {
+    // 10 years SLM, 5% residual: 95,000 ÷ 10 = 9,500 a year (950,000 paise).
+    expect(companiesActPeriod(asset(), FY25).depreciation).toBe(R(9500))
+    // All 365 days double shift ⇒ +50% = 14,250.
+    expect(companiesActPeriod(asset({ extraShift: { doubleDays: 365, tripleDays: 0 } }), FY25).depreciation).toBe(R(14250))
+    // 73 triple-shift days ⇒ 950,000 × 146 ÷ 730 = 190,000 extra ⇒ 11,400.
+    expect(companiesActPeriod(asset({ extraShift: { doubleDays: 0, tripleDays: 73 } }), FY25).depreciation).toBe(R(11400))
+    // No shift days = single shift exactly.
+    expect(companiesActPeriod(asset({ extraShift: { doubleDays: 0, tripleDays: 0 } }), FY25).depreciation).toBe(R(9500))
+    expect(() => companiesActPeriod(asset({ extraShift: { doubleDays: 300, tripleDays: 100 } }), FY25)).toThrow(/can't exceed the 365 days/)
+  })
+
+  it('never takes the carrying amount below the residual value', () => {
+    // Last year of a 1-year life with every day triple shift: still exactly cost − residual.
+    const r = companiesActPeriod(asset({ lifeMonths: 12, extraShift: { doubleDays: 0, tripleDays: 365 } }), FY25)
+    expect(r.depreciation).toBe(R(95000))
+    expect(r.closingWdv).toBe(r.residual)
+  })
+})

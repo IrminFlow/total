@@ -156,6 +156,28 @@ export const disposalInputSchema = z.object({
 })
 export type DisposalInput = z.input<typeof disposalInputSchema>
 
+/** Extra-shift working for one asset in a run (Schedule II Notes para 6, fixedAssetSources 'SCH2-N6'). */
+export const extraShiftSchema = z.object({
+  assetId: id,
+  doubleShiftDays: z.number().int().min(0).max(366).default(0),
+  tripleShiftDays: z.number().int().min(0).max(366).default(0)
+})
+export type ExtraShiftInput = z.input<typeof extraShiftSchema>
+
+/** A depreciation run's period, optionally with the assets that worked extra shifts in it. */
+export const depreciationRunSchema = z
+  .object({ from: isoDate, to: isoDate, shifts: z.array(extraShiftSchema).max(5000).default([]) })
+  .refine((p) => p.to >= p.from, { message: 'The period ends before it starts', path: ['to'] })
+  .refine((p) => new Set(p.shifts.map((x) => x.assetId)).size === p.shifts.length, { message: 'An asset is listed twice for extra shifts', path: ['shifts'] })
+
+/**
+ * Seeded Schedule II Part C classes that do NOT carry the NESD mark ("no extra shift depreciation")
+ * — read from the Part C table (fixedAssetSources 'SCH2-N6'): of the seeded classes only general
+ * plant and machinery, IV(i)(a). Every other seeded class is NESD; a class the user added is not
+ * checked (FIXED_ASSET_UNVERIFIED 'shift-user-class').
+ */
+export const EXTRA_SHIFT_SEEDED_CLASS_CODES: readonly string[] = ['IV(a)']
+
 export const scheduleQuerySchema = depreciationPeriodSchema
 export const itStatementQuerySchema = z.object({
   fyStartYear: z.number().int().min(1990).max(2100),
@@ -303,6 +325,10 @@ export interface DepreciationPreviewRow {
   daysUsed: number
   fullyDepreciated: boolean
   ratePpb: number | null
+  /** The asset's class allows extra-shift depreciation (not NESD). */
+  extraShiftAllowed: boolean
+  /** Extra-shift days given for the run and the extra charge they add (inside `depreciation`). */
+  extraShift: { doubleDays: number; tripleDays: number; extra: number } | null
 }
 
 export interface JournalPreviewLine {

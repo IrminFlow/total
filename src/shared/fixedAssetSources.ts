@@ -242,6 +242,19 @@ export const FIXED_ASSET_UNVERIFIED: readonly { key: string; text: string }[] = 
       'as may be prescribed" was not followed into the rules.'
   },
   {
+    key: 'shift-formula',
+    text:
+      'Extra shift: the period\'s single-shift charge × (½ × double-shift days + 1 × triple-shift days) ÷ the days depreciated in ' +
+      'the period, one rounding. Where cost layers start on different days the single-shift charge per day is not uniform and ' +
+      'the formula averages it over the period. SLM keeps its yearly charge, so an asset worked in shifts reaches its residual ' +
+      'value before the end of its life and then stops. The days are given per run (kept in the run\'s audit row and narration, ' +
+      'no column); a disposal\'s catch-up is single shift.'
+  },
+  {
+    key: 'shift-user-class',
+    text: 'NESD is checked for the seeded Schedule II classes only (of those, only general plant and machinery IV(i)(a) allows extra shift). A class you add, or a group without a class, is not checked — Part C\'s NESD marks decide.'
+  },
+  {
     key: 's50-text',
     text: 'Income-tax Act, 1961 s.50 was read through the department\'s section page in a search result, not opened directly, and s.43(6)(c) (moneys payable reduce the block, FY 2025-26 and earlier) was not re-read — the block computation is WP 3.6\'s; the 2025 Act s.41(1)(c) / s.74 text is from the Bill as passed by Lok Sabha.'
   }

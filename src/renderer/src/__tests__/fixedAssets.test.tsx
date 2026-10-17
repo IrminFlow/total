@@ -46,7 +46,7 @@ beforeEach(() => {
   calls.length = 0
   preview = {
     from: '2025-04-01', to: '2026-03-31', fyStartYear: 2025, total: 1_900_000, blocked: null, existingRun: null,
-    rows: [{ assetId: 11, assetName: 'MacBook Pro', groupId: 7, groupName: 'Computers', method: 'slm', openingWdv: 0, additions: 6_000_000, depreciation: 1_900_000, closingWdv: 4_100_000, daysUsed: 365, fullyDepreciated: false, ratePpb: null }],
+    rows: [{ assetId: 11, assetName: 'MacBook Pro', groupId: 7, groupName: 'Computers', method: 'slm', openingWdv: 0, additions: 6_000_000, depreciation: 1_900_000, closingWdv: 4_100_000, daysUsed: 365, fullyDepreciated: false, ratePpb: null, extraShiftAllowed: true, extraShift: null }],
     journal: [
       { ledgerId: null, ledgerName: 'Depreciation', drCr: 'dr', amount: 1_900_000, assetId: null },
       { ledgerId: null, ledgerName: 'Accumulated Depreciation - Computers', drCr: 'cr', amount: 1_900_000, assetId: null }
@@ -187,6 +187,20 @@ describe('Fixed assets screen', () => {
     expect(journal.textContent).toContain('created on posting')
     fireEvent.click(screen.getByTestId('btn-fixed-assets-post-run'))
     await waitFor(() => expect(calls.find((c) => c.channel === 'fa:runPost')?.payload).toEqual({ from: '2025-04-01', to: '2026-03-31' }))
+  })
+
+  it('extra-shift days go with the preview and the posting', async () => {
+    renderUi(<FixedAssetsScreen tab="depreciation" />)
+    await screen.findByTestId('fixed-assets-extra-shift')
+    fireEvent.change(screen.getByTestId('input-fixed-assets-shift-double'), { target: { value: '100' } })
+    fireEvent.change(screen.getByTestId('input-fixed-assets-shift-triple'), { target: { value: '50' } })
+    fireEvent.click(screen.getByTestId('btn-fixed-assets-shift-add'))
+    const sent = { from: '2025-04-01', to: '2026-03-31', shifts: [{ assetId: 11, doubleShiftDays: 100, tripleShiftDays: 50 }] }
+    await waitFor(() => expect(calls.some((c) => c.channel === 'fa:runPreview' && JSON.stringify(c.payload) === JSON.stringify(sent))).toBe(true))
+    expect(screen.getByTestId('fixed-assets-shift-11').textContent).toContain('100 double / 50 triple')
+    await waitFor(() => expect((screen.getByTestId('btn-fixed-assets-post-run') as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(screen.getByTestId('btn-fixed-assets-post-run'))
+    await waitFor(() => expect(calls.find((c) => c.channel === 'fa:runPost')?.payload).toEqual(sent))
   })
 
   it('a blocked period disables posting and says why', async () => {

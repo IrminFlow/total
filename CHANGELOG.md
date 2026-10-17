@@ -485,6 +485,14 @@ Read these before filing from the next release.
   shown (s.202(2)(a)(vi), s.205(1)(a): no deduction under s.33(8)). FY 2026-27 onwards only — the
   1961 Act's equivalent was not re-read (UNVERIFIED, `src/shared/fixedAssetSources.ts`). Off = the
   statement as before. [#PR](https://github.com/IrminFlow/total/pull/PR)
+- **Fixed assets: extra-shift depreciation** (Schedule II Notes para 6). A depreciation run can take
+  double- and triple-shift days per asset: the charge for those days rises by 50 % / 100 % (the
+  period's single-shift charge × (½ × double + 1 × triple days) ÷ days depreciated). Refused for
+  the seeded classes marked NESD in Part C (every seeded class except general plant and machinery)
+  and for more shift days than the asset is depreciated in the period. The days are in the journal's
+  narration and the run's audit row. A run without shift days is unchanged. UNVERIFIED: the formula
+  with several cost layers, classes you add are not checked — `src/shared/fixedAssetSources.ts`.
+  [#PR](https://github.com/IrminFlow/total/pull/PR)
 
 ### For developers
 

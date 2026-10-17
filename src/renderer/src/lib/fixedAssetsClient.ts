@@ -3,7 +3,7 @@
 import { call } from './client'
 import type {
   AssetAdditionInput, AssetAdditionRow, AssetGroupInput, AssetGroupRow, AssetSchedule, CaClassInput, CaClassRow,
-  DepreciationPreview, DepreciationPreviewRow, DepreciationRunRow, DepreciationYearStatus, DisposalInput, DisposalPreview,
+  DepreciationPreview, DepreciationPreviewRow, DepreciationRunRow, DepreciationYearStatus, DisposalInput, DisposalPreview, ExtraShiftInput,
   FixedAssetInput, FixedAssetRow, ItBlockInput, ItBlockOpeningInput, ItBlockRateInput, ItBlockRateRow, ItBlockRow,
   ItStatement, PurchaseCandidate
 } from '@shared/fixedAssets'
@@ -32,8 +32,8 @@ export const faApi = {
   purchaseCandidates: (from: string, to: string) => call<PurchaseCandidate[]>('fa:purchaseCandidates', { from, to }),
   fromVoucher: (id: number) => call<PurchaseCandidate | null>('fa:fromVoucher', { id }),
 
-  runPreview: (from: string, to: string) => call<DepreciationPreview>('fa:runPreview', { from, to }),
-  runPost: (from: string, to: string) => call<DepreciationRunRow>('fa:runPost', { from, to }),
+  runPreview: (from: string, to: string, shifts: ExtraShiftInput[] = []) => call<DepreciationPreview>('fa:runPreview', shifts.length ? { from, to, shifts } : { from, to }),
+  runPost: (from: string, to: string, shifts: ExtraShiftInput[] = []) => call<DepreciationRunRow>('fa:runPost', shifts.length ? { from, to, shifts } : { from, to }),
   runs: () => call<DepreciationRunRow[]>('fa:runs'),
   runLines: (id: number) => call<DepreciationPreviewRow[]>('fa:runLines', { id }),
   yearStatus: (fyStartYear: number) => call<DepreciationYearStatus>('fa:yearStatus', { fyStartYear }),

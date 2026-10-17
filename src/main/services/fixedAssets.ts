@@ -23,7 +23,8 @@ import {
   assetAdditionInputSchema, assetGroupInputSchema, caClassInputSchema, disposalInputSchema, fixedAssetInputSchema,
   itBlockInputSchema, itBlockOpeningInputSchema, itBlockRateInputSchema,
   type AssetAdditionInput, type AssetAdditionRow, type AssetGroupInput, type AssetGroupRow, type AssetSchedule,
-  type CaClassInput, type CaClassRow, type DepreciationPreview, type DisposalGstPreview, type DisposalPart, type DepreciationPreviewRow, type DepreciationRunRow,
+  EXTRA_SHIFT_SEEDED_CLASS_CODES,
+  type CaClassInput, type CaClassRow, type DepreciationPreview, type DisposalGstPreview, type DisposalPart, type ExtraShiftInput, type DepreciationPreviewRow, type DepreciationRunRow,
   type DepreciationYearStatus, type DisposalInput, type DisposalKind, type DisposalPreview, type FixedAssetInput,
   type FixedAssetRow, type ItBlockInput, type ItBlockOpeningInput, type ItBlockRateInput, type ItBlockRateRow,
   type ItBlockRow, type ItStatement, type ItStatementBlockRow, type JournalPreviewLine, type PurchaseCandidate,
@@ -748,7 +749,17 @@ interface ComputedRun {
   perAsset: { a: AssetRec; row: DepreciationPreviewRow }[]
 }
 
-function computeRun(db: DB, from: string, to: string): ComputedRun {
+/** Schedule II Notes para 6: extra-shift depreciation is not permitted for a class marked NESD in
+ *  Part C. Seeded classes are checked against EXTRA_SHIFT_SEEDED_CLASS_CODES; a class the user added
+ *  (or a group without a class) is not checked (FIXED_ASSET_UNVERIFIED 'shift-user-class'). */
+function extraShiftAllowed(db: DB, a: AssetRec): boolean {
+  if (a.group.ca_class_id == null) return true
+  const c = db.prepare('SELECT code, is_seeded FROM ca_asset_classes WHERE id = ?').get(a.group.ca_class_id) as { code: string; is_seeded: number } | undefined
+  if (!c || !c.is_seeded) return true
+  return EXTRA_SHIFT_SEEDED_CLASS_CODES.includes(c.code)
+}
+
+function computeRun(db: DB, from: string, to: string, shifts: ExtraShiftInput[] = []): ComputedRun {
   const fy = fyOf(from)
   if (to > fy.to) throw new Error('A depreciation run must lie inside one financial year')
   const assets = loadAssets(db).filter((a) => {
@@ -756,15 +767,36 @@ function computeRun(db: DB, from: string, to: string): ComputedRun {
     const d = disposalDateOf(a)
     return !d || d > from
   })
+  const shiftBy = new Map(shifts.map((x) => [x.assetId, { doubleDays: x.doubleShiftDays ?? 0, tripleDays: x.tripleShiftDays ?? 0 }]))
+  let shiftBlocked: string | null = null
+  for (const id of shiftBy.keys()) {
+    if (!assets.some((a) => a.row.id === id)) shiftBlocked ??= 'Extra shifts are given for an asset that is not in use in this period'
+  }
   const perAsset: ComputedRun['perAsset'] = []
   for (const a of assets) {
-    const r = companiesActPeriod(engineInput(a, { from, to }), { from, to })
+    const input = engineInput(a, { from, to })
+    const r = companiesActPeriod(input, { from, to })
+    const allowed = extraShiftAllowed(db, a)
+    const shift = shiftBy.get(a.row.id)
+    let charged = r
+    let extraShift: DepreciationPreviewRow['extraShift'] = null
+    if (shift && (shift.doubleDays > 0 || shift.tripleDays > 0)) {
+      if (!allowed) {
+        shiftBlocked ??= `${a.row.name}: its Schedule II class is marked NESD — no extra-shift depreciation (Sch II Notes para 6)`
+      } else if (shift.doubleDays + shift.tripleDays > r.daysUsed) {
+        shiftBlocked ??= `${a.row.name}: ${shift.doubleDays + shift.tripleDays} extra-shift days, but it is depreciated for ${r.daysUsed} days in this period`
+      } else {
+        charged = companiesActPeriod({ ...input, extraShift: shift }, { from, to })
+        extraShift = { ...shift, extra: charged.depreciation - r.depreciation }
+      }
+    }
     perAsset.push({
       a,
       row: {
         assetId: a.row.id, assetName: a.row.name, groupId: a.group.id, groupName: a.group.name, method: a.row.method,
-        openingWdv: r.openingWdv, additions: r.additions, depreciation: r.depreciation, closingWdv: r.closingWdv,
-        daysUsed: r.daysUsed, fullyDepreciated: r.fullyDepreciated, ratePpb: r.ratePpb
+        openingWdv: charged.openingWdv, additions: charged.additions, depreciation: charged.depreciation, closingWdv: charged.closingWdv,
+        daysUsed: charged.daysUsed, fullyDepreciated: charged.fullyDepreciated, ratePpb: charged.ratePpb,
+        extraShiftAllowed: allowed, extraShift
       }
     })
   }
@@ -772,7 +804,9 @@ function computeRun(db: DB, from: string, to: string): ComputedRun {
   const total = perAsset.reduce((s, p) => s + p.row.depreciation, 0)
   const existing = overlappingRun(db, from, to)
   let blocked: string | null = null
-  if (existing) {
+  if (shiftBlocked && !existing) {
+    blocked = shiftBlocked
+  } else if (existing) {
     const num = (db.prepare('SELECT number FROM vouchers WHERE id = ?').get(existing.voucherId) as { number: string }).number
     blocked = `Depreciation for ${fmtDate(existing.from)} to ${fmtDate(existing.to)} is already posted (Journal ${num}) — move that voucher to the bin to run this period again`
   } else {
@@ -807,16 +841,16 @@ function runJournalPreview(db: DB, perAsset: ComputedRun['perAsset']): JournalPr
   return [...dr.values(), ...cr.values()]
 }
 
-export function previewRun(db: DB, from: string, to: string): DepreciationPreview {
-  return computeRun(db, from, to).preview
+export function previewRun(db: DB, from: string, to: string, shifts: ExtraShiftInput[] = []): DepreciationPreview {
+  return computeRun(db, from, to, shifts).preview
 }
 
 /** Post a depreciation run: ONE journal (dated the period end) + the run and its lines, in one
  *  transaction (saveVoucher nests as a savepoint). Refused while a live run overlaps the period,
  *  inside a locked period or closed year, or when there is nothing to charge. */
-export function postRun(db: DB, from: string, to: string): DepreciationRunRow {
-  const tx = db.transaction((): number => {
-    const { preview, perAsset } = computeRun(db, from, to)
+export function postRun(db: DB, from: string, to: string, shifts: ExtraShiftInput[] = []): DepreciationRunRow {
+  const tx = db.transaction((): { runId: number; shifts: { assetId: number; doubleDays: number; tripleDays: number; extra: number }[] } => {
+    const { preview, perAsset } = computeRun(db, from, to, shifts)
     if (preview.blocked) throw new Error(preview.blocked)
     const lines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number; costAllocations: [] }[] = []
     const dr = new Map<number, number>()
@@ -833,11 +867,15 @@ export function postRun(db: DB, from: string, to: string): DepreciationRunRow {
     for (const [ledgerId, amount] of dr) lines.push({ ledgerId, drCr: 'dr', amount, costAllocations: [] })
     for (const c of crLines) lines.push({ ledgerId: c.ledgerId, drCr: 'cr', amount: c.amount, costAllocations: [] })
     const count = perAsset.filter((p) => p.row.depreciation > 0).length
+    const shifted = perAsset.filter((p) => p.row.extraShift && p.row.extraShift.extra > 0)
+    const shiftNote = shifted.length
+      ? `; extra shift (Sch II Notes para 6): ${shifted.map((p) => `${p.row.assetName} ${p.row.extraShift!.doubleDays} double / ${p.row.extraShift!.tripleDays} triple-shift days`).join(', ')}`
+      : ''
     const voucher = saveVoucher(db, {
       voucherTypeId: journalTypeId(db),
       date: to,
       partyLedgerId: null,
-      narration: `Depreciation ${fmtDate(from)} to ${fmtDate(to)} — Companies Act 2013, Schedule II (${count} asset${count === 1 ? '' : 's'})`,
+      narration: `Depreciation ${fmtDate(from)} to ${fmtDate(to)} — Companies Act 2013, Schedule II (${count} asset${count === 1 ? '' : 's'})${shiftNote}`.slice(0, 1000),
       reference: null,
       lines,
       inventory: [],
@@ -852,11 +890,12 @@ export function postRun(db: DB, from: string, to: string): DepreciationRunRow {
       if (row.depreciation <= 0) continue
       ins.run(runId, row.assetId, row.openingWdv + row.additions, row.depreciation, row.closingWdv, row.daysUsed)
     }
-    return runId
+    return { runId, shifts: shifted.map((p) => ({ assetId: p.row.assetId, ...p.row.extraShift! })) }
   })
-  const runId = tx()
+  const { runId, shifts: shiftsPosted } = tx()
   const run = listRuns(db).find((r) => r.id === runId)!
-  writeAudit(db, 'depreciation_run', runId, 'create', null, run)
+  // The shift days have no column: they are kept in the run's audit row (and the narration).
+  writeAudit(db, 'depreciation_run', runId, 'create', null, shiftsPosted.length ? { ...run, extraShift: shiftsPosted } : run)
   return run
 }
 
@@ -888,8 +927,8 @@ export function runLines(db: DB, runId: number): DepreciationPreviewRow[] {
             dl.opening_wdv AS openingWdv, dl.depreciation, dl.closing_wdv AS closingWdv, dl.days_used AS daysUsed
        FROM depreciation_lines dl JOIN fixed_assets a ON a.id = dl.asset_id JOIN fixed_asset_groups g ON g.id = a.asset_group_id
       WHERE dl.run_id = ? ORDER BY a.name`
-  ).all(runId) as Omit<DepreciationPreviewRow, 'additions' | 'fullyDepreciated' | 'ratePpb'>[]).map((r) => ({
-    ...r, additions: 0, fullyDepreciated: false, ratePpb: null
+  ).all(runId) as Omit<DepreciationPreviewRow, 'additions' | 'fullyDepreciated' | 'ratePpb' | 'extraShiftAllowed' | 'extraShift'>[]).map((r) => ({
+    ...r, additions: 0, fullyDepreciated: false, ratePpb: null, extraShiftAllowed: false, extraShift: null
   }))
 }
 

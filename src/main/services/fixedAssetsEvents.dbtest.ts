@@ -1,6 +1,6 @@
 // Fixed-asset events beyond WP 3.6's whole-asset disposal: a partial disposal (a quantity / share
 // split off and disposed of); GST on the sale of a capital good (CGST Act s.18(6)); the rule 25(2)
-// 40% cap of the Income-tax Rules, 2026. Figures are hand-worked in the comments (integer paise); statutory
+// 40% cap of the Income-tax Rules, 2026; extra-shift depreciation (Schedule II Notes para 6). Figures are hand-worked in the comments (integer paise); statutory
 // text in src/shared/fixedAssetSources.ts.
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { DB } from '../db/connection'
@@ -297,5 +297,41 @@ describe('Income-tax Rules, 2026 rule 25(2) — 40% cap for the concessional reg
     fa.saveAsset(db, laptops())
     const y25 = fa.itStatement(db, 2025).blocks
     expect(fa.itStatement(db, 2025, { concessionalRegime: true }).blocks).toEqual(y25)
+  })
+})
+
+describe('extra-shift depreciation (Schedule II Notes para 6)', () => {
+  it('raises the charge by 50% / 100% for the double / triple-shift days, refuses NESD classes and too many days', () => {
+    const plant = ledger(db, 'Plant and Machinery', 'Fixed Assets')
+    const press = fa.saveAsset(db, laptops({
+      name: 'Press', ledgerId: plant, purchaseVoucherId: null, costPaise: R(100000), assetGroupId: faGroup(db, 'Plant and machinery'), lifeMonths: 180, itBlockId: null
+    }))
+    const laptop = fa.saveAsset(db, laptops())
+    // Single shift: (1,00,000 − 5,000) ÷ 15 = 6,333.33 (633,333 paise) for the 365 days.
+    const base = fa.previewRun(db, '2025-04-01', '2026-03-31')
+    expect(base.rows.find((r) => r.assetId === press.id)).toMatchObject({ depreciation: 633333, extraShiftAllowed: true, extraShift: null })
+    expect(base.rows.find((r) => r.assetId === laptop.id)!.extraShiftAllowed).toBe(false) // Computers: XII NESD
+    // 100 double-shift days + 50 triple-shift days: extra = 633,333 × (100 + 2 × 50) ÷ (2 × 365)
+    //   = 126,666,600 ÷ 730 = 173,516.03 → 173,516 ⇒ 806,849.
+    const shifts = [{ assetId: press.id, doubleShiftDays: 100, tripleShiftDays: 50 }]
+    const p = fa.previewRun(db, '2025-04-01', '2026-03-31', shifts)
+    expect(p.blocked).toBeNull()
+    expect(p.rows.find((r) => r.assetId === press.id)).toMatchObject({ depreciation: 806849, extraShift: { doubleDays: 100, tripleDays: 50, extra: 173516 } })
+    expect(p.total).toBe(806849 + R(19000))
+
+    // NESD class, and more shift days than days depreciated, are refused (nothing posted).
+    expect(fa.previewRun(db, '2025-04-01', '2026-03-31', [{ assetId: laptop.id, doubleShiftDays: 10 }]).blocked).toMatch(/NESD/)
+    expect(fa.previewRun(db, '2025-04-01', '2025-06-30', [{ assetId: press.id, doubleShiftDays: 60, tripleShiftDays: 40 }]).blocked).toMatch(/100 extra-shift days.*91 days/)
+    expect(() => fa.postRun(db, '2025-04-01', '2026-03-31', [{ assetId: laptop.id, doubleShiftDays: 10 }])).toThrow(/NESD/)
+    expect(fa.listRuns(db)).toEqual([])
+
+    const run = fa.postRun(db, '2025-04-01', '2026-03-31', shifts)
+    expect(run.total).toBe(806849 + R(19000))
+    const v = getVoucher(db, run.voucherId!)!
+    expect(v.narration).toContain('extra shift (Sch II Notes para 6): Press 100 double / 50 triple-shift days')
+    const audit = db.prepare("SELECT after_json AS a FROM audit_log WHERE entity = 'depreciation_run' ORDER BY id DESC LIMIT 1").get() as { a: string }
+    expect(JSON.parse(audit.a).extraShift).toEqual([{ assetId: press.id, doubleDays: 100, tripleDays: 50, extra: 173516 }])
+    // The next year is single shift again: the same 633,333 a year (SLM).
+    expect(fa.previewRun(db, '2026-04-01', '2027-03-31').rows.find((r) => r.assetId === press.id)!.depreciation).toBe(633333)
   })
 })

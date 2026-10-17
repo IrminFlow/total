@@ -6,7 +6,7 @@ import type { Role } from './services/roles'
 import * as fa from './services/fixedAssets'
 import { isoDate } from '@shared/schemas'
 import {
-  assetAdditionInputSchema, assetGroupInputSchema, caClassInputSchema, depreciationPeriodSchema, disposalInputSchema,
+  assetAdditionInputSchema, assetGroupInputSchema, caClassInputSchema, depreciationPeriodSchema, depreciationRunSchema, disposalInputSchema,
   fixedAssetInputSchema, itBlockInputSchema, itBlockOpeningInputSchema, itBlockRateInputSchema, itStatementQuerySchema,
   scheduleQuerySchema
 } from '@shared/fixedAssets'
@@ -72,12 +72,12 @@ export function registerFixedAssetIpc(handle: Handle, db: () => DB): void {
 
   // Depreciation
   handle('fa:runPreview', (p) => {
-    const { from, to } = depreciationPeriodSchema.parse(p)
-    return fa.previewRun(db(), from, to)
+    const { from, to, shifts } = depreciationRunSchema.parse(p)
+    return fa.previewRun(db(), from, to, shifts)
   }, 'viewer')
   handle('fa:runPost', (p) => {
-    const { from, to } = depreciationPeriodSchema.parse(p)
-    return fa.postRun(db(), from, to)
+    const { from, to, shifts } = depreciationRunSchema.parse(p)
+    return fa.postRun(db(), from, to, shifts)
   })
   handle('fa:runs', () => fa.listRuns(db()), 'viewer')
   handle('fa:runLines', (p) => fa.runLines(db(), idSchema.parse(p).id), 'viewer')
