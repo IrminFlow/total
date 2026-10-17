@@ -111,6 +111,20 @@ export const assetAdditionInputSchema = z.object({
 })
 export type AssetAdditionInput = z.input<typeof assetAdditionInputSchema>
 
+/** Split a significant part off as its own record with its own useful life (Schedule II Notes
+ *  para 4, fixedAssetSources 'SCH2-N4'). Only before any depreciation is booked on the asset. */
+export const componentSplitSchema = z
+  .object({
+    assetId: id,
+    name: z.string().trim().min(1).max(200),
+    costPaise: paise.min(1),
+    lifeMonths: z.number().int().min(1).max(1200),
+    /** Defaults to the asset's. */
+    residualBp: z.number().int().min(0).max(10_000).nullable().default(null),
+    method: z.enum(['slm', 'wdv']).nullable().default(null)
+  })
+export type ComponentSplitInput = z.input<typeof componentSplitSchema>
+
 export const depreciationPeriodSchema = z
   .object({ from: isoDate, to: isoDate })
   .refine((p) => p.to >= p.from, { message: 'The period ends before it starts', path: ['to'] })

@@ -2,7 +2,7 @@
 // src/main/ipcFixedAssets.ts. Kept beside client.ts so the register's surface stays in one place.
 import { call } from './client'
 import type {
-  AssetAdditionInput, AssetAdditionRow, AssetGroupInput, AssetGroupRow, AssetSchedule, CaClassInput, CaClassRow,
+  AssetAdditionInput, AssetAdditionRow, AssetGroupInput, AssetGroupRow, AssetSchedule, CaClassInput, CaClassRow, ComponentSplitInput,
   DepreciationPreview, DepreciationPreviewRow, DepreciationRunRow, DepreciationYearStatus, DisposalInput, DisposalPreview, ExtraShiftInput,
   FixedAssetInput, FixedAssetRow, ItBlockInput, ItBlockOpeningInput, ItBlockRateInput, ItBlockRateRow, ItBlockRow,
   ItStatement, PurchaseCandidate
@@ -29,6 +29,7 @@ export const faApi = {
   remove: (id: number) => call<null>('fa:delete', { id }),
   additionSave: (data: AssetAdditionInput, id?: number) => call<AssetAdditionRow>('fa:additionSave', { data, id }),
   additionDelete: (id: number) => call<null>('fa:additionDelete', { id }),
+  componentSplit: (data: ComponentSplitInput) => call<{ asset: FixedAssetRow; component: FixedAssetRow }>('fa:componentSplit', data),
   purchaseCandidates: (from: string, to: string) => call<PurchaseCandidate[]>('fa:purchaseCandidates', { from, to }),
   fromVoucher: (id: number) => call<PurchaseCandidate | null>('fa:fromVoucher', { id }),
 

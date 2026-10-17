@@ -275,6 +275,7 @@ export function AssetFormModal({
         </Field>
 
         {asset && <AdditionsPanel asset={asset} />}
+        {asset && asset.status === 'active' && !asset.hasDepreciation && asset.openingAccDepPaise === 0 && <ComponentPanel asset={asset} />}
 
         {error && <p className="text-body-sm text-danger" role="alert" data-testid="fixed-assets-form-error">{error}</p>}
         <div className="flex justify-end gap-2">
@@ -394,5 +395,55 @@ export function PurchasePickerModal({
       </div>
       <p className="mt-2 text-hint text-muted">Amounts are the voucher&apos;s debit to the asset ledger ({formatPaise(rows.reduce((s, r) => s + r.line.amount, 0))} in all).</p>
     </Modal>
+  )
+}
+
+/** Schedule II Notes para 4: a significant part with a different useful life is depreciated on its
+ *  own — split it off before the first run. "8 years" for a 10-year asset's motor, say. */
+function ComponentPanel({ asset }: { asset: FixedAssetRow }): React.JSX.Element {
+  const toast = useToasts()
+  const refresh = useRefreshFixedAssets()
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState('')
+  const [cost, setCost] = useState<number | null>(null)
+  const [lifeText, setLifeText] = useState('')
+  const [busy, setBusy] = useState(false)
+  const life = /^\s*\d{1,4}\s*$/.test(lifeText) ? Number(lifeText) : null
+  const ok = name.trim() !== '' && cost != null && cost > 0 && cost < asset.costPaise && life != null && life >= 1
+  const split = async (): Promise<void> => {
+    if (!ok) return
+    setBusy(true)
+    try {
+      const r = await faApi.componentSplit({ assetId: asset.id, name: name.trim(), costPaise: cost!, lifeMonths: life! })
+      await refresh()
+      toast.push('success', `${r.component.name} is now its own record (${formatLife(r.component.lifeMonths)})`)
+      setOpen(false)
+    } catch (e) {
+      toast.push('error', (e as Error).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+  if (!open) {
+    return (
+      <div>
+        <Button size="sm" data-testid="btn-fixed-assets-component" onClick={() => setOpen(true)}>Split off a component…</Button>
+      </div>
+    )
+  }
+  return (
+    <div className="grid grid-cols-3 gap-3 rounded-md border border-line p-3" data-testid="fixed-assets-component">
+      <p className="col-span-3 text-hint text-muted">
+        Schedule II Notes para 4: a part whose cost is significant and whose useful life differs is depreciated over its own life.
+        Its cost leaves this asset; both stay on the same ledger. Only before the first depreciation run.
+      </p>
+      <Field label="Component"><TextInput data-testid="input-fixed-assets-component-name" value={name} onChange={(e) => setName(e.target.value)} /></Field>
+      <Field label="Its cost"><AmountInput testId="input-fixed-assets-component-cost" paise={cost} onPaise={setCost} /></Field>
+      <Field label="Its useful life (months)"><TextInput data-testid="input-fixed-assets-component-life" className="num" value={lifeText} onChange={(e) => setLifeText(e.target.value)} /></Field>
+      <div className="col-span-3 flex justify-end gap-2">
+        <Button size="sm" onClick={() => setOpen(false)}>Cancel</Button>
+        <Button size="sm" variant="primary" data-testid="btn-fixed-assets-component-save" disabled={!ok} loading={busy} onClick={() => void split()}>Split off</Button>
+      </div>
+    </div>
   )
 }

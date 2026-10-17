@@ -20,11 +20,11 @@ import {
   type CaAssetInput, type CostLayer, type DepMethod
 } from '@shared/depreciation'
 import {
-  assetAdditionInputSchema, assetGroupInputSchema, caClassInputSchema, disposalInputSchema, fixedAssetInputSchema,
+  assetAdditionInputSchema, assetGroupInputSchema, caClassInputSchema, componentSplitSchema, disposalInputSchema, fixedAssetInputSchema,
   itBlockInputSchema, itBlockOpeningInputSchema, itBlockRateInputSchema,
   type AssetAdditionInput, type AssetAdditionRow, type AssetGroupInput, type AssetGroupRow, type AssetSchedule,
   EXTRA_SHIFT_SEEDED_CLASS_CODES,
-  type CaClassInput, type CaClassRow, type DepreciationPreview, type DisposalGstPreview, type DisposalPart, type ExtraShiftInput, type DepreciationPreviewRow, type DepreciationRunRow,
+  type CaClassInput, type CaClassRow, type ComponentSplitInput, type DepreciationPreview, type DisposalGstPreview, type DisposalPart, type ExtraShiftInput, type DepreciationPreviewRow, type DepreciationRunRow,
   type DepreciationYearStatus, type DisposalInput, type DisposalKind, type DisposalPreview, type FixedAssetInput,
   type FixedAssetRow, type ItBlockInput, type ItBlockOpeningInput, type ItBlockRateInput, type ItBlockRateRow,
   type ItBlockRow, type ItStatement, type ItStatementBlockRow, type JournalPreviewLine, type PurchaseCandidate,
@@ -1271,6 +1271,49 @@ function splitAsset(db: DB, a: AssetRec, part: DisposalPart, name: string): numb
   writeAudit(db, 'fixed_asset', r.id, 'update', before, { ...after, split: { part, partAssetId: partId } })
   writeAudit(db, 'fixed_asset', partId, 'create', null, { ...getAsset(db, partId, '9999-12-31'), splitFrom: { assetId: r.id, part } })
   return partId
+}
+
+/**
+ * Component accounting (Schedule II Notes para 4 — FIXED_ASSET_EVENT_SOURCES 'SCH2-N4'): a part
+ * whose cost is significant and whose useful life differs is split off as its own record with its
+ * own life (and, optionally, residual % and method); the asset keeps the rest of the cost. Allowed
+ * only while nothing is depreciated on the asset (no run, no opening accumulated depreciation) —
+ * after that a change of life is the prospective change of estimate on the asset form. The new
+ * record copies the asset's group, ledgers, dates, IT block and purchase voucher; additions stay on
+ * the asset. Nothing is posted (both records sit on the same ledger). Audited: the asset's update
+ * and the component's create.
+ */
+export function splitComponent(db: DB, raw: ComponentSplitInput): { asset: FixedAssetRow; component: FixedAssetRow } {
+  const input = componentSplitSchema.parse(raw)
+  const tx = db.transaction((): number => {
+    const a = getAssetRec(db, input.assetId)
+    const r = a.row
+    if (a.disposed) throw new Error('This asset is disposed')
+    if (a.lines.length > 0 || r.opening_acc_dep_paise > 0) {
+      throw new Error('Depreciation is booked for this asset — split components before the first run (or bin the runs first)')
+    }
+    if (input.costPaise >= r.cost_paise) throw new Error('A component must cost less than the asset')
+    const method = input.method ?? r.method
+    const residualBp = input.residualBp ?? r.residual_pct_bp
+    if (method === 'wdv' && residualBp <= 0) throw new Error('WDV needs a residual value above zero')
+    const before = getAsset(db, r.id, '9999-12-31')
+    const id = Number(db.prepare(
+      `INSERT INTO fixed_assets (name, asset_group_id, ledger_id, purchase_voucher_id, purchase_date, put_to_use_date,
+         cost_paise, residual_pct_bp, useful_life_months, method, basis_date, it_block_id, it_additional_eligible,
+         location, identifier, acc_dep_ledger_id, opening_acc_dep_paise, opening_acc_dep_as_of, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, NULL, ?)`
+    ).run(
+      input.name, r.asset_group_id, r.ledger_id, r.purchase_voucher_id, r.purchase_date, r.put_to_use_date, input.costPaise,
+      residualBp, input.lifeMonths, method, r.put_to_use_date, r.it_block_id, r.it_additional_eligible, r.location, r.identifier,
+      r.acc_dep_ledger_id, `Component of ${r.name} (asset #${r.id}) with its own useful life — Schedule II Notes para 4`
+    ).lastInsertRowid)
+    db.prepare('UPDATE fixed_assets SET cost_paise = ? WHERE id = ?').run(r.cost_paise - input.costPaise, r.id)
+    writeAudit(db, 'fixed_asset', r.id, 'update', before, { ...getAsset(db, r.id, '9999-12-31'), component: { assetId: id, costPaise: input.costPaise } })
+    writeAudit(db, 'fixed_asset', id, 'create', null, { ...getAsset(db, id, '9999-12-31'), componentOf: r.id })
+    return id
+  })
+  const componentId = tx()
+  return { asset: getAsset(db, input.assetId, '9999-12-31'), component: getAsset(db, componentId, '9999-12-31') }
 }
 
 function partName(a: AssetRec, part: DisposalPart): string {

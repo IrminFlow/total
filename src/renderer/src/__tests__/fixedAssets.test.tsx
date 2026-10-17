@@ -8,7 +8,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { AssetGroupRow, DepreciationPreview, FixedAssetRow, PurchaseCandidate } from '@shared/fixedAssets'
 import { FixedAssetsScreen } from '../screens/FixedAssets'
 import { YearEndScreen } from '../screens/YearEnd'
-import { blankDraft, draftFromCandidate, draftToInput } from '../screens/fixedAssets/AssetForm'
+import { AssetFormModal, blankDraft, draftFromAsset, draftFromCandidate, draftToInput } from '../screens/fixedAssets/AssetForm'
 import { FA_QUERY_FAMILIES } from '../screens/fixedAssets/common'
 import { gstRateOf, partOf } from '../screens/fixedAssets/DisposalWizard'
 import { SCREENS, invalidationFamilies } from '../lib/screens'
@@ -88,6 +88,7 @@ beforeEach(() => {
           }
         }
       }
+      case 'fa:componentSplit': return { ok: true, data: { asset: { ...ASSET, costPaise: 4_800_000 }, component: { ...ASSET, id: 13, name: 'Battery', costPaise: 1_200_000, lifeMonths: 24 } } }
       case 'fa:itStatement': {
         const q = payload as { fyStartYear: number; concessionalRegime: boolean }
         return {
@@ -278,6 +279,25 @@ describe('income-tax statement', () => {
     await waitFor(() => expect(screen.getByTestId('fixed-assets-it-capped-3')).toBeTruthy())
     expect(calls.filter((c) => c.channel === 'fa:itStatement').at(-1)!.payload).toMatchObject({ concessionalRegime: true })
     expect(screen.getByTestId('rows-fixed-assets-it').textContent).toContain('40.00%')
+  })
+})
+
+describe('component lives', () => {
+  it('an asset with no depreciation offers "Split off a component" and sends name, cost and life', async () => {
+    const fresh = { ...ASSET, hasDepreciation: false, depreciatedThrough: null, accumulatedPaise: 0 }
+    renderUi(<AssetFormModal asset={fresh} initial={draftFromAsset(fresh)} onClose={() => undefined} />)
+    fireEvent.click(await screen.findByTestId('btn-fixed-assets-component'))
+    fireEvent.change(screen.getByTestId('input-fixed-assets-component-name'), { target: { value: 'Battery' } })
+    fireEvent.change(screen.getByTestId('input-fixed-assets-component-cost'), { target: { value: '12000' } })
+    fireEvent.change(screen.getByTestId('input-fixed-assets-component-life'), { target: { value: '24' } })
+    fireEvent.click(screen.getByTestId('btn-fixed-assets-component-save'))
+    await waitFor(() => expect(calls.find((c) => c.channel === 'fa:componentSplit')?.payload).toEqual({ assetId: 11, name: 'Battery', costPaise: 1_200_000, lifeMonths: 24 }))
+  })
+
+  it('is not offered once depreciation is booked', async () => {
+    renderUi(<AssetFormModal asset={ASSET} initial={draftFromAsset(ASSET)} onClose={() => undefined} />)
+    await screen.findByTestId('fixed-assets-form')
+    expect(screen.queryByTestId('btn-fixed-assets-component')).toBeNull()
   })
 })
 

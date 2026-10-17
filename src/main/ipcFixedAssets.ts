@@ -6,7 +6,7 @@ import type { Role } from './services/roles'
 import * as fa from './services/fixedAssets'
 import { isoDate } from '@shared/schemas'
 import {
-  assetAdditionInputSchema, assetGroupInputSchema, caClassInputSchema, depreciationPeriodSchema, depreciationRunSchema, disposalInputSchema,
+  assetAdditionInputSchema, assetGroupInputSchema, caClassInputSchema, componentSplitSchema, depreciationPeriodSchema, depreciationRunSchema, disposalInputSchema,
   fixedAssetInputSchema, itBlockInputSchema, itBlockOpeningInputSchema, itBlockRateInputSchema, itStatementQuerySchema,
   scheduleQuerySchema
 } from '@shared/fixedAssets'
@@ -64,6 +64,7 @@ export function registerFixedAssetIpc(handle: Handle, db: () => DB): void {
     return fa.saveAddition(db(), data, id)
   })
   handle('fa:additionDelete', (p) => fa.deleteAddition(db(), idSchema.parse(p).id))
+  handle('fa:componentSplit', (p) => fa.splitComponent(db(), componentSplitSchema.parse(p)))
   handle('fa:purchaseCandidates', (p) => {
     const { from, to } = depreciationPeriodSchema.parse(p)
     return fa.purchaseCandidates(db(), from, to)

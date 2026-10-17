@@ -255,6 +255,14 @@ export const FIXED_ASSET_UNVERIFIED: readonly { key: string; text: string }[] = 
     text: 'NESD is checked for the seeded Schedule II classes only (of those, only general plant and machinery IV(i)(a) allows extra shift). A class you add, or a group without a class, is not checked — Part C\'s NESD marks decide.'
   },
   {
+    key: 'component-when',
+    text:
+      'Components (Sch II Notes para 4) are split off only before the asset\'s first depreciation run (no opening accumulated ' +
+      'depreciation either): afterwards a different life for a part is a change of estimate, and re-allocating booked ' +
+      'depreciation between parts is not modelled. "Significant" is not tested — it is the company\'s judgement. The component ' +
+      'keeps no stored link to its asset (no column); its notes name the asset.'
+  },
+  {
     key: 's50-text',
     text: 'Income-tax Act, 1961 s.50 was read through the department\'s section page in a search result, not opened directly, and s.43(6)(c) (moneys payable reduce the block, FY 2025-26 and earlier) was not re-read — the block computation is WP 3.6\'s; the 2025 Act s.41(1)(c) / s.74 text is from the Bill as passed by Lok Sabha.'
   }

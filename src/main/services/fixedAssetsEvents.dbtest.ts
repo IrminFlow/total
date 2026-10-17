@@ -1,6 +1,7 @@
 // Fixed-asset events beyond WP 3.6's whole-asset disposal: a partial disposal (a quantity / share
 // split off and disposed of); GST on the sale of a capital good (CGST Act s.18(6)); the rule 25(2)
-// 40% cap of the Income-tax Rules, 2026; extra-shift depreciation (Schedule II Notes para 6). Figures are hand-worked in the comments (integer paise); statutory
+// 40% cap of the Income-tax Rules, 2026; extra-shift depreciation (Schedule II Notes para 6);
+// component lives (Schedule II Notes para 4). Figures are hand-worked in the comments (integer paise); statutory
 // text in src/shared/fixedAssetSources.ts.
 import { describe, it, expect, beforeEach } from 'vitest'
 import type { DB } from '../db/connection'
@@ -333,5 +334,31 @@ describe('extra-shift depreciation (Schedule II Notes para 6)', () => {
     expect(JSON.parse(audit.a).extraShift).toEqual([{ assetId: press.id, doubleDays: 100, tripleDays: 50, extra: 173516 }])
     // The next year is single shift again: the same 633,333 a year (SLM).
     expect(fa.previewRun(db, '2026-04-01', '2027-03-31').rows.find((r) => r.assetId === press.id)!.depreciation).toBe(633333)
+  })
+})
+
+describe('component lives (Schedule II Notes para 4)', () => {
+  it('splits a significant part off with its own life before the first run; the cost stays whole on the ledger', () => {
+    const plant = ledger(db, 'Plant and Machinery', 'Fixed Assets')
+    const machine = fa.saveAsset(db, laptops({
+      name: 'Bottling line', ledgerId: plant, purchaseVoucherId: null, costPaise: R(1000000), assetGroupId: faGroup(db, 'Plant and machinery'), lifeMonths: 180, itBlockId: null
+    }))
+    const auditBefore = auditCount(db, 'fixed_asset')
+    const { asset, component } = fa.splitComponent(db, { assetId: machine.id, name: 'Bottling line — motor', costPaise: R(120000), lifeMonths: 96 })
+    expect(auditCount(db, 'fixed_asset') - auditBefore).toBe(2)
+    expect(asset).toMatchObject({ costPaise: R(880000), lifeMonths: 180 })
+    expect(component).toMatchObject({ costPaise: R(120000), lifeMonths: 96, residualBp: 500, method: 'slm', ledgerId: plant, putToUseDate: '2025-04-01', lifeEnd: '2033-03-31' })
+    expect(fa.listAssets(db, '2025-04-01').filter((a) => a.ledgerId === plant).reduce((s, a) => s + a.grossPaise, 0)).toBe(R(1000000))
+    // FY 2025-26: the rest (8,80,000 − 44,000) ÷ 15 = 55,733.33 (5,573,333 paise); the motor
+    // (1,20,000 − 6,000) ÷ 8 = 14,250 ⇒ 6,998,333 paise (as one asset it was 63,333.33).
+    const run = fa.previewRun(db, '2025-04-01', '2026-03-31')
+    expect(run.rows.find((r) => r.assetId === machine.id)!.depreciation).toBe(5573333)
+    expect(run.rows.find((r) => r.assetId === component.id)!.depreciation).toBe(R(14250))
+    fa.postRun(db, '2025-04-01', '2026-03-31')
+    // Once depreciation is booked the split is refused; a component can't cost the whole asset.
+    expect(() => fa.splitComponent(db, { assetId: machine.id, name: 'Conveyor', costPaise: R(10000), lifeMonths: 60 })).toThrow(/Depreciation is booked/)
+    const other = fa.saveAsset(db, laptops({ name: 'Second line', ledgerId: plant, purchaseVoucherId: null, purchaseDate: '2026-04-01', putToUseDate: '2026-04-01' }))
+    expect(() => fa.splitComponent(db, { assetId: other.id, name: 'All of it', costPaise: R(60000), lifeMonths: 60 })).toThrow(/less than the asset/)
+    expect(() => fa.splitComponent(db, { assetId: other.id, name: 'WDV part', costPaise: R(1000), lifeMonths: 60, method: 'wdv', residualBp: 0 })).toThrow(/WDV/)
   })
 })

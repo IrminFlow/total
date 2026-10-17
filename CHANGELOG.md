@@ -493,6 +493,13 @@ Read these before filing from the next release.
   narration and the run's audit row. A run without shift days is unchanged. UNVERIFIED: the formula
   with several cost layers, classes you add are not checked — `src/shared/fixedAssetSources.ts`.
   [#PR](https://github.com/IrminFlow/total/pull/PR)
+- **Fixed assets: component lives** (Schedule II Notes para 4). "Split off a component…" on an asset
+  with no depreciation booked yet makes a significant part (a machine's motor, say) its own record
+  with its own cost and useful life; the asset keeps the rest of the cost and both stay on the same
+  ledger, so the books don't change — only the depreciation each is charged. After the first run a
+  different life is a change of estimate on the asset form. UNVERIFIED / not modelled: splitting
+  after depreciation is booked, a stored link between the two records —
+  `src/shared/fixedAssetSources.ts`. [#PR](https://github.com/IrminFlow/total/pull/PR)
 
 ### For developers
 
