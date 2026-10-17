@@ -7,6 +7,7 @@
 // GSTR-3B exactly as theirs; owner in / drawings / a loan taken / a move between accounts equal
 // the hand-entered entries; the money list and an entry's view; the setup defaults (memory); the
 // TDS hint uses the existing eligibility; lock / closed year / viewer refusals leave no trace.
+import { TRUSTED_EVENT } from '../ipcSender.testutil'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
@@ -594,7 +595,7 @@ describe('refusals leave no trace', () => {
   it('a viewer reads the Money screens but can’t save (simple:post refused, nothing written)', async () => {
     const ipc = await import('../ipc')
     ipc.registerIpc()
-    const call = async (ch: string, p?: unknown) => handlers.get(ch)!({}, p)
+    const call = async (ch: string, p?: unknown) => handlers.get(ch)!(TRUSTED_EVENT, p)
     const ok = async <T,>(ch: string, p?: unknown): Promise<T> => {
       const res = await call(ch, p)
       if (!res.ok) throw new Error(`${ch}: ${res.error}`)

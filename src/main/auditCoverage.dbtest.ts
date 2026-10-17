@@ -3,6 +3,7 @@
 // vocabulary (source scan), and a sample of write channels driven end to end through
 // registerIpc() must really write a row of a mapped entity, attributed to the right user, with
 // the hash chain intact. Electron is mocked (only what the touched handlers use).
+import { TRUSTED_EVENT } from './ipcSender.testutil'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync, readdirSync, readFileSync, statSync } from 'fs'
 import { tmpdir } from 'os'
@@ -29,7 +30,7 @@ process.env.TOTAL_SUPPRESS_SYNC_WARNING = '1'
 async function call<T = unknown>(channel: string, payload?: unknown): Promise<{ ok: boolean; data?: T; error?: string }> {
   const h = handlers.get(channel)
   if (!h) throw new Error(`no handler ${channel}`)
-  return (await h({}, payload)) as { ok: boolean; data?: T; error?: string }
+  return (await h(TRUSTED_EVENT, payload)) as { ok: boolean; data?: T; error?: string }
 }
 async function ok<T = unknown>(channel: string, payload?: unknown): Promise<T> {
   const res = await call<T>(channel, payload)

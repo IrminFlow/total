@@ -3,6 +3,7 @@
 // is owner-only, merges, is audited as a company update with the whole before / after (null
 // before while the key was missing), and writes nothing when unchanged; the language it stores
 // is the one `companyT` reads.
+import { TRUSTED_EVENT } from './ipcSender.testutil'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
@@ -30,7 +31,7 @@ process.env.TOTAL_SUPPRESS_SYNC_WARNING = '1'
 async function call(channel: string, payload?: unknown): Promise<{ ok: boolean; data?: unknown; error?: string }> {
   const h = handlers.get(channel)
   if (!h) throw new Error(`no handler ${channel}`)
-  return h({}, payload)
+  return h(TRUSTED_EVENT, payload)
 }
 async function ok<T>(channel: string, payload?: unknown): Promise<T> {
   const r = await call(channel, payload)

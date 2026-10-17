@@ -8,6 +8,7 @@
 //  - a plaintext copy an interrupted "take the lock off" left beside the books goes on the next open;
 //  - a locked business's attachments are stored encrypted and a viewer opens one only by id — no
 //    reply hands the renderer a stored path (the decrypted copy goes straight to the OS viewer).
+import { TRUSTED_EVENT } from './ipcSender.testutil'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -51,7 +52,7 @@ process.env.TOTAL_INSECURE_TEST_SECRETS = '1'
 async function call(channel: string, payload?: unknown): Promise<Result> {
   const h = handlers.get(channel)
   if (!h) throw new Error(`no handler ${channel}`)
-  return h({}, payload)
+  return h(TRUSTED_EVENT, payload)
 }
 async function ok<T>(channel: string, payload?: unknown): Promise<T> {
   const r = await call(channel, payload)

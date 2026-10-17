@@ -14,6 +14,7 @@
 //   - the recipe editor's Save = the BOM version the accountant editor saves (bom.saveBomVersion
 //     with the same dates), row for row and audit row for audit row; Made goods after it = the
 //     hand-entered manufacture with the new recipe; refusals and unchanged answers leave no trace.
+import { TRUSTED_EVENT } from '../ipcSender.testutil'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -585,7 +586,7 @@ describe('roles', () => {
   it('a viewer reads the Stock screens but can’t count or make (simple:post refused, nothing written)', async () => {
     const ipc = await import('../ipc')
     ipc.registerIpc()
-    const call = async (ch: string, p?: unknown) => handlers.get(ch)!({}, p)
+    const call = async (ch: string, p?: unknown) => handlers.get(ch)!(TRUSTED_EVENT, p)
     const ok = async <T,>(ch: string, p?: unknown): Promise<T> => {
       const res = await call(ch, p)
       if (!res.ok) throw new Error(`${ch}: ${res.error}`)

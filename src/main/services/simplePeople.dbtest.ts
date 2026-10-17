@@ -8,6 +8,7 @@
 // nothing is late); phone / WhatsApp / days to pay go through masters.updateLedger (one audited
 // `ledger` update; a bad number refused on its field, nothing written); a viewer reads the
 // People channels and can't write through them.
+import { TRUSTED_EVENT } from '../ipcSender.testutil'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
@@ -225,7 +226,7 @@ describe('roles', () => {
   it('a viewer reads People but can’t change a phone or log a reminder', async () => {
     const ipc = await import('../ipc')
     ipc.registerIpc()
-    const call = async (ch: string, p?: unknown) => handlers.get(ch)!({}, p)
+    const call = async (ch: string, p?: unknown) => handlers.get(ch)!(TRUSTED_EVENT, p)
     const ok = async <T,>(ch: string, p?: unknown): Promise<T> => {
       const res = await call(ch, p)
       if (!res.ok) throw new Error(`${ch}: ${res.error}`)

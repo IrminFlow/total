@@ -1,6 +1,7 @@
 // WP 10.3 review: `help:openLink` is the help panel's only way to the system browser. Main checks
 // the allow-list itself (the renderer's check is not trusted): exact GST portal / CBIC hosts over
 // https, a strict { url } payload, and the browser is handed the parser's normalised URL.
+import { TRUSTED_EVENT } from './ipcSender.testutil'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
@@ -23,7 +24,7 @@ vi.mock('./updater', () => ({ checkForUpdatesInteractive: async () => null }))
 process.env.TOTAL_DATA_DIR = mkdtempSync(join(tmpdir(), 'total-help-link-'))
 process.env.TOTAL_SUPPRESS_SYNC_WARNING = '1'
 
-const call = (payload: unknown): Promise<{ ok: boolean; error?: string }> => handlers.get('help:openLink')!({}, payload)
+const call = (payload: unknown): Promise<{ ok: boolean; error?: string }> => handlers.get('help:openLink')!(TRUSTED_EVENT, payload)
 
 // WP 7.3: the ipc module graph is imported at collection, not inside the hook — on Windows CI the
 // import alone (most of the hook's time, measured) ran past the 10 s hookTimeout.

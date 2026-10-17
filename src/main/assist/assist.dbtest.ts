@@ -7,6 +7,7 @@
 //     simple flow's save (simple:post + aiDraftId) consumes; a viewer can ask but never draft;
 //   - an unknown question gets suggestions; an ambiguous name is asked about, never guessed;
 //   - assist:ask writes nothing (audit_log, ai_drafts unchanged).
+import { TRUSTED_EVENT } from '../ipcSender.testutil'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
@@ -40,7 +41,7 @@ process.env.TOTAL_SUPPRESS_SYNC_WARNING = '1'
 async function call(channel: string, payload?: unknown): Promise<{ ok: boolean; data?: unknown; error?: string; code?: string }> {
   const h = handlers.get(channel)
   if (!h) throw new Error(`no handler ${channel}`)
-  return h({}, payload)
+  return h(TRUSTED_EVENT, payload)
 }
 async function ok<T>(channel: string, payload?: unknown): Promise<T> {
   const r = await call(channel, payload)

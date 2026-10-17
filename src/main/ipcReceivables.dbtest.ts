@@ -1,5 +1,6 @@
 // WP 4.2 review: receivables:setHold is owner-only (an accountant is refused, an owner allowed),
 // and "show in Finder" only reveals files that resolve inside the company's exports folder.
+import { TRUSTED_EVENT } from './ipcSender.testutil'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
@@ -26,7 +27,7 @@ process.env.TOTAL_SUPPRESS_SYNC_WARNING = '1'
 async function call(channel: string, payload?: unknown): Promise<{ ok: boolean; data?: unknown; error?: string }> {
   const h = handlers.get(channel)
   if (!h) throw new Error(`no handler ${channel}`)
-  return h({}, payload)
+  return h(TRUSTED_EVENT, payload)
 }
 async function ok<T>(channel: string, payload?: unknown): Promise<T> {
   const r = await call(channel, payload)

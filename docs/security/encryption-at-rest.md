@@ -285,6 +285,30 @@ Opt-in per business, off by default, never pre-ticked (`services/companyKeys.ts`
   yet (the payload field is there for it); member charts and pair suggestions still skip a locked
   member that is not open.
 
+## Electron window hardening (D7, PR #161)
+
+The passphrase lock protects the files; these rules protect the running app from a page that is
+not its own. They live in two pure, unit-tested modules applied by `main/index.ts`:
+
+- **IPC sender check** (`main/ipcSender.ts`, run first in `ipc.ts` `handle()`): a call is answered
+  only when `event.senderFrame` is the sender's main frame (no parent) and shows the app's renderer
+  page — `out/renderer/index.html` over file:// (inside app.asar when packaged; query / hash
+  ignored) or, in dev only, the dev server's origin. Anything else — another file, a web page, a
+  child frame, a webview, an event without a frame — is refused with `not_permitted` before the
+  payload is parsed, and logged once per sender (scheme + host, never the path). Until main sets
+  the trusted page every call is refused.
+- **Sandboxed renderer** (`main/windowPolicy.ts` `mainWindowWebPreferences`): `sandbox: true`,
+  `contextIsolation: true`, `nodeIntegration: false` (also in sub-frames and workers),
+  `webSecurity: true`, `allowRunningInsecureContent: false`, `webviewTag: false`. The preload
+  imports only `electron` and reads only the sandbox's `process.platform` / `process.argv`
+  (`src/preload/preloadBoundary.test.ts`); the renderer reaches main only through
+  `window.total.invoke`.
+- **Window rules for every web contents** (`applyWindowPolicy`, through `web-contents-created`, so
+  the hidden PDF window too): no new window is ever opened — only the allow-listed links
+  (`shared/externalLinks.ts`: help pages, `mailto:`, a WhatsApp chat) go to the OS; navigation and
+  redirects away from the app are refused (the dev server's origin excepted in dev); webviews are
+  never attached. The CSP (`object-src 'none'; base-uri 'none'`) is unchanged.
+
 ## Not covered (deferred)
 
 - Exports, logs, the capture inbox and the temporary plaintext snapshot inside an encrypted export

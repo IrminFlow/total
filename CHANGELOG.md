@@ -294,6 +294,7 @@ what you typed, and a **Back to simple** button.
   paid out for an expense asks "Do you have a GST bill?" as Money out does, and "Bank charges" can
   say "The charge includes GST" so the GST on it counts toward what you claim back.
   [#139](https://github.com/IrminFlow/total/pull/139)
+- **The app window is locked down further.** Nothing changes in what you see or do. [#161](https://github.com/IrminFlow/total/pull/161)
 
 ### For accountants (figures that changed)
 
@@ -530,6 +531,25 @@ Read these before filing from the next release.
   share of the interest. [#156](https://github.com/IrminFlow/total/pull/156)
 
 ### For developers
+
+- **Electron hardening (D7)** (to-do §4 Security), [#161](https://github.com/IrminFlow/total/pull/161): every IPC
+  call is checked against its sender before anything else (`main/ipcSender.ts`, in `handle()`): only
+  the main frame (`senderFrame` is the sender's `mainFrame`, no parent) of the app's own renderer
+  page — `out/renderer/index.html` over file:// (query / hash ignored), or the dev server's origin in
+  dev — is answered; any other page, a child frame or a frame-less event gets `not_permitted`
+  before the payload is Zod-parsed, logged once per sender (`ipc-sender-refused`, scheme + host
+  only). The trusted page is set by `main/index.ts` (`configureTrustedRenderer`) before any window
+  loads; unset = everything refused. dbtests that call handlers directly pass `TRUSTED_EVENT` from
+  `main/ipcSender.testutil.ts` (never `{}`); `ipcSender.dbtest.ts` drives every registered channel
+  with foreign / child / frame-less events. The renderer now runs **sandboxed** (`sandbox: true`,
+  `webSecurity: true` explicit, `webviewTag: false`, no Node in sub-frames / workers): the preload
+  already used only `electron` and the sandbox's `process.platform` / `process.argv`;
+  `src/preload/preloadBoundary.test.ts` keeps it so (sources and the built `out/preload/index.js`
+  require only `electron`). `main/windowPolicy.ts` holds the window rules in one place — the
+  webPreferences, `setWindowOpenHandler` (always deny; only `shared/externalLinks.ts` URLs reach the
+  OS), `will-navigate` / `will-redirect` (refused except the dev server's origin) and
+  `will-attach-webview` (refused) — applied to EVERY web contents through `web-contents-created`
+  (the hidden PDF window too); `windowPolicy.test.ts`.
 
 - **Export gate sweep covers every role.** `securityReview.dbtest` now scans every IPC handler under `src/main` that writes a file or audits an `export` (directly or through a helper in its file; viewer-role ones included, which the audit-coverage registry does not list), plus every channel whose name says file / print / export, and requires each in `EXPORT_CHANNELS`, `NOT_EXPORTS` or a listed read / input; review: the bank reconciliation PDF (`banking:brsPdf`, written with no gate and no audit row) is now a `canExport` channel with an export audit row, and report packs (`pack:runNow`, `pack:save`) are `canExport` channels; Form 16 / 16A / 27D, self-invoice, barcode-label prints and the template export are listed as non-exports with reasons. The data-folder-move locked case no longer sleeps 1.7 s, and the e-invoicing Company details test waits for the loaded switch (Windows flake). [#155](https://github.com/IrminFlow/total/pull/155)
 

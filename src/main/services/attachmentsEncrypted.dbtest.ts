@@ -10,6 +10,7 @@
 //  - the .totalbak export carries the DECRYPTED files;
 //  - lock off → every file plaintext again, byte-identical;
 //  - the renderer never receives a stored path (a viewer opens by id; the reply carries none).
+import { TRUSTED_EVENT } from '../ipcSender.testutil'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -65,7 +66,7 @@ afterAll(() => {
 async function call(channel: string, payload?: unknown): Promise<Result> {
   const h = handlers.get(channel)
   if (!h) throw new Error(`no handler ${channel}`)
-  return h({}, payload)
+  return h(TRUSTED_EVENT, payload)
 }
 async function ok<T>(channel: string, payload?: unknown): Promise<T> {
   const r = await call(channel, payload)

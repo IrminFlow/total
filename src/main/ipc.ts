@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, Notification, shell } from 'electron'
+import { checkSender, firstRefusalOf } from './ipcSender'
 import { allowedHelpUrl } from '@shared/helpLinks'
 import { nextRegistrationFacts } from '@shared/gst/registration'
 import { readFileSync, writeFileSync, copyFileSync, rmSync, unlinkSync, mkdtempSync, existsSync, appendFileSync } from 'fs'
@@ -499,7 +500,15 @@ function notifyMastersChanged(channel: string): void {
 
 function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): void {
   CHANNEL_ROLES.set(channel, minRole)
-  ipcMain.handle(`total:${channel}`, async (_event, payload: unknown) => {
+  ipcMain.handle(`total:${channel}`, async (event, payload: unknown) => {
+    // D7: only the app's own renderer (main frame, out/renderer/index.html or the dev server) may
+    // call — checked before anything else, the payload included (ipcSender.ts).
+    const sender = checkSender(event)
+    if (!sender.ok) {
+      const seen = firstRefusalOf(event, sender.reason)
+      if (seen.first) log('warn', 'ipc-sender-refused', { channel, reason: sender.reason, scheme: seen.scheme, host: seen.host, senderId: seen.senderId })
+      return { ok: false, error: 'You do not have permission to do that', code: 'not_permitted' }
+    }
     const t0 = TRACE_IPC ? performance.now() : 0
     ipcInFlight++
     lastIpcAt = Date.now()

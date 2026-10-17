@@ -7,6 +7,7 @@
 //   - unregistered → nothing to file; composition → CMP-08 / GSTR-4 dates (rule 62);
 //   - "I've filed" round-trips through meta gstFiled with one audit row (none when unchanged),
 //     refuses a bad ARN / date on their fields; a viewer reads but can't note a filing.
+import { TRUSTED_EVENT } from './ipcSender.testutil'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -44,7 +45,7 @@ process.env.TOTAL_SUPPRESS_SYNC_WARNING = '1'
 async function call(channel: string, payload?: unknown): Promise<{ ok: boolean; data?: unknown; error?: string; code?: string; field?: string }> {
   const h = handlers.get(channel)
   if (!h) throw new Error(`no handler ${channel}`)
-  return h({}, payload)
+  return h(TRUSTED_EVENT, payload)
 }
 async function ok<T>(channel: string, payload?: unknown): Promise<T> {
   const r = await call(channel, payload)
