@@ -6,9 +6,9 @@ merged into the main copy of the code. Nothing here has been published. No versi
 raised, no tag, no release, no website change.
 
 Thirty-one PRs were merged after the plan was written (#117 to #147). Two of them only changed
-documents (#117, #147). The test DMG on your Desktop, `Total-dev-6f90647f.dmg`, holds everything up
-to #145. One later change, #146 (the cheque register), is **not** in that DMG. Three more PRs
-(#148, #149, #150) are still open and not merged.
+documents (#117, #147). The test DMG on your Desktop, `Total-dev-bdf44fa0.dmg`, holds everything up
+to #159 (see the last line of this note). Three PRs
+(#148, #149, #150) were open when this was first written and have since merged.
 
 ---
 
