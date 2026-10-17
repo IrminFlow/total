@@ -267,16 +267,16 @@ export function openBills(db: DB, partyLedgerId: number, asOn: string): Outstand
 /** One party's full bill allocation as of `asOn` (open bills + unapplied credit + warnings) —
  *  the same engine run as `outstandings` / `openBills` (WP 4.2 statements read the advance). */
 export function partyAllocation(db: DB, partyLedgerId: number, asOn: string): AllocateBillsResult {
-  const { credits: _credits, ...result } = partyAllocationWithCredits(db, partyLedgerId, asOn)
+  const { credits: _credits, creditNames: _names, ...result } = partyAllocationWithCredits(db, partyLedgerId, asOn)
   return result
 }
 
 /** partyAllocation plus the party's named credits still open (WP 9.1: bill names in use). */
-export function partyAllocationWithCredits(db: DB, partyLedgerId: number, asOn: string): AllocateBillsResult & { credits: { name: string; amount: number }[] } {
+export function partyAllocationWithCredits(db: DB, partyLedgerId: number, asOn: string): AllocateBillsResult & { credits: { name: string; amount: number }[]; creditNames: string[] } {
   const ledger = db.prepare('SELECT group_id, opening_balance, credit_days FROM ledgers WHERE id = ?').get(partyLedgerId) as
     | { group_id: number; opening_balance: number; credit_days: number | null }
     | undefined
-  if (!ledger) return { bills: [], unappliedCredit: 0, warnings: [], credits: [] }
+  if (!ledger) return { bills: [], unappliedCredit: 0, warnings: [], credits: [], creditNames: [] }
   const debtorIds = descendantIdsByName(db, ['Sundry Debtors'])
   const sign = debtorIds.has(ledger.group_id) ? 1 : -1
   const eventsByParty = partyEventsBatch(db, [partyLedgerId], asOn, sign)

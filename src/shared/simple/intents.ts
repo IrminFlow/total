@@ -106,7 +106,9 @@ const base = {
   narration: z.string().trim().max(500).optional()
 }
 
-const billSettleSchema = z.object({ name: z.string().trim().min(1).max(80), amount: amountIn.optional() }).strict()
+/** `billId` (optional, additive): the entry the bill is from (its voucher id) — picks THAT bill
+ *  when the party has two open bills of the same name (numbering restarts every year). */
+const billSettleSchema = z.object({ name: z.string().trim().min(1).max(80), amount: amountIn.optional(), billId: z.number().int().positive().optional() }).strict()
 
 export const saleIntentSchema = z
   .object({
@@ -277,7 +279,7 @@ export interface NItemLine { itemId: number; qtyMilli: number; rate: number | nu
 export interface NAmountLine { amount: number; accountId: number | null; gstRate: number | null; billTotal?: number | null }
 export interface NPayment { how: PaidHow; amount: number | null; accountId: number | null; reference: string | null }
 export interface NMoneyAccount { how: MoneyHow; accountId: number | null; reference: string | null }
-export interface NBill { name: string; amount: number | null }
+export interface NBill { name: string; amount: number | null; billId?: number | null }
 
 interface NBase { clientId: string; date: string; narration: string; number: string | null }
 
@@ -348,7 +350,7 @@ const nMoney = (p: z.infer<typeof moneyAccountSchema>): NMoneyAccount => ({ how:
 /** Omitted = oldest first; an EMPTY list (WP 9.4: the user unticked every bill) = none of them —
  *  the whole amount is the advance (with the flag), else refused as short. */
 const nBills = (b: z.infer<typeof billSettleSchema>[] | undefined): NBill[] | null =>
-  b ? b.map((x, i) => ({ name: x.name.trim(), amount: x.amount != null ? readAmount(x.amount, `bills.${i}.amount`) : null })) : null
+  b ? b.map((x, i) => ({ name: x.name.trim(), amount: x.amount != null ? readAmount(x.amount, `bills.${i}.amount`) : null, ...(x.billId != null ? { billId: x.billId } : {}) })) : null
 function nItems(items: z.infer<typeof itemLineSchema>[] | undefined): NItemLine[] | null {
   if (!items) return null
   return items.map((l, i) => ({
@@ -921,18 +923,29 @@ export function allocateToBills(
   chosen: NBill[] | null,
   advance: boolean,
   advanceName: string
-): { refs: VoucherBillRef[]; settled: { name: string; amount: number }[]; advance: number } {
+): { refs: VoucherBillRef[]; settled: { name: string; amount: number }[]; advance: number; picked: IntentOpenBill[] } {
   const refs: VoucherBillRef[] = []
-  // A settlement names a bill and applies to the OLDEST open bill of that name (shared/outstanding.ts).
-  const firstByName = new Map<string, IntentOpenBill>()
-  for (const b of open) if (b.pending > 0 && !firstByName.has(b.name)) firstByName.set(b.name, b)
+  // The open bills oldest first. A settlement names a bill and applies to the OLDEST open bill of
+  // that name (shared/outstanding.ts), so two bills of one name (numbering restarts every year)
+  // are reached in turn: a ref settles the older in full, the next ref of that name the newer.
+  const live = [...open].filter((b) => b.pending > 0).sort((a, b) => a.date.localeCompare(b.date))
+  const picked: IntentOpenBill[] = []
   if (chosen) {
+    // Each chosen bill is one open bill: by its entry (`billId`) when given, else the oldest of that
+    // name not chosen yet. A newer bill that shares its name with an older open one can be paid
+    // only once the older is paid off in full by this entry, named before it.
+    const paid = new Map<IntentOpenBill, number>()
     chosen.forEach((c, i) => {
-      const b = firstByName.get(c.name)
+      const twins = live.filter((b) => b.name === c.name)
+      const b = c.billId != null ? twins.find((x) => x.voucherId === c.billId) : twins.find((x) => !paid.has(x))
       if (!b) fail('simple_bill_unknown', `There is no open bill “${c.name}”`, `bills.${i}`, { bill: c.name })
-      if (refs.some((r) => r.name === b!.name)) fail('simple_bill_unknown', `Bill ${c.name} is named twice`, `bills.${i}`, { bill: c.name })
+      if (paid.has(b!)) fail('simple_bill_unknown', `Bill ${c.name} is named twice`, `bills.${i}`, { bill: c.name })
       const amt = c.amount ?? b!.pending
       if (amt > b!.pending) fail('simple_bill_over', `Only ${formatPaise(b!.pending, { symbol: true })} is due on bill ${b!.name}`, `bills.${i}`, { bill: b!.name, amount: formatPaise(b!.pending, { symbol: true }) })
+      const blocking = twins.slice(0, twins.indexOf(b!)).find((x) => paid.get(x) !== x.pending)
+      if (blocking) fail('simple_bill_older_first', `An older bill ${b!.name} (${blocking.date}) is still open — bills of one name are paid oldest first`, `bills.${i}`, { bill: b!.name, date: blocking.date })
+      paid.set(b!, amt)
+      picked.push(b!)
       refs.push({ kind: 'against', name: b!.name, amount: amt, dueDate: null })
     })
     const sum = refs.reduce((s, r) => s + r.amount, 0)
@@ -940,20 +953,20 @@ export function allocateToBills(
     if (sum < amount && !advance) fail('simple_bills_short', `The bills (${formatPaise(sum, { symbol: true })}) are less than the amount — tick more, or keep the rest as an advance`, 'bills', { amount: formatPaise(sum, { symbol: true }) })
   } else {
     let left = amount
-    const ordered = [...firstByName.values()].sort((a, b) => a.date.localeCompare(b.date))
-    for (const b of ordered) {
+    for (const b of live) {
       if (left <= 0) break
       const amt = Math.min(left, b.pending)
+      picked.push(b)
       refs.push({ kind: 'against', name: b.name, amount: amt, dueDate: null })
       left -= amt
     }
   }
   const settled = refs.map((r) => ({ name: r.name, amount: r.amount }))
   const extra = amount - refs.reduce((s, r) => s + r.amount, 0)
-  if (extra <= 0) return { refs, settled, advance: 0 }
-  if (advance) return { refs: [...refs, { kind: 'new', name: advanceName, amount: extra, dueDate: null }], settled, advance: extra }
+  if (extra <= 0) return { refs, settled, advance: 0, picked }
+  if (advance) return { refs: [...refs, { kind: 'new', name: advanceName, amount: extra, dueDate: null }], settled, advance: extra, picked }
   // Oldest first with money left over: on account (the engine settles the same bills, FIFO).
-  return { refs: [], settled, advance: extra }
+  return { refs: [], settled, advance: extra, picked }
 }
 
 /** A refund received against a supplier's named credits — or paid against a customer's — oldest first. The Outstandings engine

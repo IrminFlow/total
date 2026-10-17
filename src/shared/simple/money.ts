@@ -10,7 +10,7 @@
 // through pricing.ts `solveTaxable` (the editor's calculation), and what was recorded is said by
 // simple:preview's sentences.
 
-import type { MessageKey } from '../i18n'
+import type { MessageKey, Translate } from '../i18n'
 import { supplyTypeFor } from '../gst/calc'
 import { chargesGstOn, type GstRegistrationFacts } from '../gst/registration'
 import { solveTaxable } from '../pricing'
@@ -83,7 +83,8 @@ export interface MoneyInForm extends MoneyFormBase {
   /** "They are paying us for something else" (a supplier's money that is not a refund): kept on
    *  their account even when they owe us nothing back (intent `onAccount`). */
   refundOther: boolean
-  /** null = untouched (the bills are settled oldest first); else the bill names the user ticked. */
+  /** null = untouched (the bills are settled oldest first); else the bills the user ticked — tick
+   *  keys (`billKey`: entry + name); a bill NAME is still read (the oldest open bill of that name). */
   ticks: string[] | null
   /** "Is this for a bill you haven't made yet?" — what the bills don't take is an advance. */
   advance: boolean
@@ -167,39 +168,92 @@ export interface MoneyOpenBill extends IntentOpenBill {
   overdueDays: number
 }
 
+/** One open bill's tick key: its entry + name (`v:<voucher id>:<name>`, an opening bill
+ *  `o:<name>`) — never the name alone: a party can have two open bills of one name (numbering
+ *  restarts every year), and each is ticked on its own. */
+export const billKey = (b: Pick<IntentOpenBill, 'name' | 'voucherId'>): string => (b.voucherId != null ? `v:${b.voucherId}:${b.name}` : `o:${b.name}`)
+
+const liveBills = (open: readonly MoneyOpenBill[]): MoneyOpenBill[] => [...open].filter((b) => b.pending > 0).sort((x, y) => x.date.localeCompare(y.date))
+
+/** The open bills of the same name dated before this one (still open). */
+const olderTwins = (live: readonly MoneyOpenBill[], b: MoneyOpenBill): MoneyOpenBill[] => live.slice(0, live.indexOf(b)).filter((x) => x.name === b.name)
+
+/** The ticked bills, oldest first. A tick is a bill key — or, from before keys (a prefill, a
+ *  carry-back), a bill NAME, read as the oldest open bill of that name not ticked yet. Bills of one
+ *  name are settled oldest first (bill refs name a bill, shared/outstanding.ts), so a ticked newer
+ *  bill brings its older open namesakes with it. */
+function tickedBills(open: readonly MoneyOpenBill[], ticks: readonly string[]): MoneyOpenBill[] {
+  const live = liveBills(open)
+  const on = new Set<MoneyOpenBill>()
+  for (const tk of ticks) {
+    const b = live.find((x) => billKey(x) === tk) ?? live.find((x) => x.name === tk && !on.has(x))
+    if (b) on.add(b)
+  }
+  for (const b of [...on]) for (const o of olderTwins(live, b)) on.add(o)
+  return live.filter((b) => on.has(b))
+}
+
+/** The ticks as keys (oldest first, older namesakes included); null = untouched. */
+export function tickKeys(open: readonly MoneyOpenBill[], ticks: readonly string[] | null): string[] | null {
+  return ticks == null ? null : tickedBills(open, ticks).map(billKey)
+}
+
+/** A tick or untick: ticking a bill ticks its older open namesakes too (they are paid first);
+ *  unticking one unticks its newer namesakes. */
+export function toggleBillTick(open: readonly MoneyOpenBill[], ticks: readonly string[], key: string, on: boolean): string[] {
+  const live = liveBills(open)
+  const b = live.find((x) => billKey(x) === key)
+  const cur = new Set(tickKeys(open, ticks) ?? [])
+  if (!b) return [...cur]
+  if (on) {
+    cur.add(key)
+    for (const o of olderTwins(live, b)) cur.add(billKey(o))
+  } else {
+    cur.delete(key)
+    for (const x of live.slice(live.indexOf(b) + 1)) if (x.name === b.name) cur.delete(billKey(x))
+  }
+  return live.filter((x) => cur.has(billKey(x))).map(billKey)
+}
+
+/** The older open bill of the same name this bill is paid after (the screen says so); null = none. */
+export function billPaidAfter(open: readonly MoneyOpenBill[], b: MoneyOpenBill): MoneyOpenBill | null {
+  const live = liveBills(open)
+  return live.includes(b) ? (olderTwins(live, b).at(-1) ?? null) : null
+}
+
 /** Which bills an amount settles and how much each, plus what is left as an advance — intents.ts
  *  `allocateToBills`, the same function simple:post runs (untouched = oldest first). A tick list
- *  is applied oldest first up to the amount; a ticked bill the amount doesn't reach is dropped. */
+ *  is applied oldest first up to the amount; a ticked bill the amount doesn't reach is dropped.
+ *  `keys` = each settled bill's tick key (parallel to `settled`). */
 export function billAllocation(
   open: readonly MoneyOpenBill[],
   amount: number | null,
   ticks: string[] | null,
   advance: boolean
-): { settled: { name: string; amount: number }[]; advance: number; short: boolean } {
-  if (amount == null || amount <= 0) return { settled: [], advance: 0, short: false }
+): { settled: { name: string; amount: number }[]; keys: string[]; advance: number; short: boolean } {
+  if (amount == null || amount <= 0) return { settled: [], keys: [], advance: 0, short: false }
   const chosen = ticksToBills(open, amount, ticks)
   const tickedPending = chosen ? chosen.reduce((s, b) => s + b.amount, 0) : null
+  const r = allocateToBills(open, amount, chosen, advance || (chosen != null && tickedPending! < amount), '')
+  const keys = r.picked.map(billKey)
   // Ticked bills that come to less than the amount need the advance answer (simple_bills_short).
-  if (chosen && tickedPending! < amount && !advance) return { settled: chosen, advance: 0, short: true }
-  const r = allocateToBills(open, amount, chosen, advance, '')
-  return { settled: r.settled, advance: r.advance, short: false }
+  if (chosen && tickedPending! < amount && !advance) return { settled: r.settled, keys, advance: 0, short: true }
+  return { settled: r.settled, keys, advance: r.advance, short: false }
 }
 
 /** The ticked bills as the intent names them — oldest first, each at what is still due on it,
- *  the last one only up to what the amount still covers. null = untouched (oldest first). */
-export function ticksToBills(open: readonly MoneyOpenBill[], amount: number, ticks: string[] | null): { name: string; amount: number }[] | null {
+ *  the last one only up to what the amount still covers. null = untouched (oldest first). A bill
+ *  whose name another open bill shares carries its entry (`billId`) so main settles THAT one. */
+export function ticksToBills(open: readonly MoneyOpenBill[], amount: number, ticks: string[] | null): { name: string; amount: number; billId?: number }[] | null {
   if (ticks == null) return null
-  const want = new Set(ticks)
-  const seen = new Set<string>()
-  const out: { name: string; amount: number }[] = []
+  const live = liveBills(open)
+  const out: { name: string; amount: number; billId?: number }[] = []
   let left = amount
-  for (const b of [...open].sort((x, y) => x.date.localeCompare(y.date))) {
-    // A settlement by name applies to the OLDEST open bill of that name.
-    if (!want.has(b.name) || seen.has(b.name) || b.pending <= 0) continue
-    seen.add(b.name)
+  for (const b of tickedBills(open, ticks)) {
     if (left <= 0) break
     const take = Math.min(left, b.pending)
-    out.push({ name: b.name, amount: take })
+    const twin = live.some((x) => x !== b && x.name === b.name)
+    out.push({ name: b.name, amount: take, ...(twin && b.voucherId != null ? { billId: b.voucherId } : {}) })
     left -= take
   }
   return out
@@ -209,15 +263,27 @@ export function ticksToBills(open: readonly MoneyOpenBill[], amount: number, tic
  *  name may carry the FY when the party had that name open already), else by name; null = no
  *  longer open (the form falls back to oldest first). */
 export function linkedBillName(open: readonly MoneyOpenBill[], bill: string | null | undefined, billId: number | null | undefined): string | null {
-  const byId = billId != null ? open.find((b) => b.voucherId === billId && b.pending > 0) : undefined
-  if (byId) return byId.name
-  if (billId != null) return null
-  return bill && open.some((b) => b.name === bill && b.pending > 0) ? bill : null
+  return linkedBill(open, bill, billId)?.name ?? null
 }
 
-/** The bills a fresh pick shows ticked: the ones the amount settles oldest first. */
+/** The same bill's tick key (Money in / out pre-tick it by key). */
+export function linkedBillKey(open: readonly MoneyOpenBill[], bill: string | null | undefined, billId: number | null | undefined): string | null {
+  const b = linkedBill(open, bill, billId)
+  return b ? billKey(b) : null
+}
+
+function linkedBill(open: readonly MoneyOpenBill[], bill: string | null | undefined, billId: number | null | undefined): MoneyOpenBill | null {
+  const live = liveBills(open)
+  // By its entry (the name too when the entry holds several bills); its open name may carry the FY.
+  const byId = billId != null ? (live.find((b) => b.voucherId === billId && b.name === bill) ?? live.find((b) => b.voucherId === billId)) : undefined
+  if (byId) return byId
+  if (billId != null) return null
+  return (bill && live.find((b) => b.name === bill)) || null
+}
+
+/** The bills a fresh pick shows ticked: the ones the amount settles oldest first (tick keys). */
 export function defaultTicks(open: readonly MoneyOpenBill[], amount: number | null): string[] {
-  return billAllocation(open, amount, null, false).settled.map((s) => s.name)
+  return billAllocation(open, amount, null, false).keys
 }
 
 // ---------------------------------------------------------------- intents
@@ -416,6 +482,9 @@ export interface MoneyRow {
   direction: MoneyDirection
   /** Who paid / was paid (a party or the other account); for a move, where it went. */
   who: string
+  /** A payment of a supplier's GST bill for an expense: that expense account ("Electricity"), read
+   *  from the bill it settles — shown as "Electricity (Bharat Power)". Optional (absent = none). */
+  forWhat?: string
   partyId: number | null
   /** The cash / bank account (a move: where it came from). */
   account: string
@@ -432,6 +501,11 @@ export interface MoneyRow {
  *  simple:post accepted is listed at once), or the period's end when the working date is past it. */
 export function moneyListUntil(workingDate: string, periodEnd: string): string {
   return workingDate > periodEnd ? periodEnd : addDaysISO(workingDate, SIMPLE_MAX_DAYS_AHEAD)
+}
+
+/** The list's / view's "who": "Electricity (Bharat Power)" for a GST-bill expense, else the name. */
+export function moneyWho(r: Pick<MoneyRow, 'who' | 'forWhat'>, t: Translate): string {
+  return r.forWhat ? t('simple.money.whoFor', { what: r.forWhat, name: r.who }) : r.who
 }
 
 export interface MoneyEntryView extends MoneyRow {

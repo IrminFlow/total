@@ -25,7 +25,7 @@ import { GST_RATE_TABLE } from '../gst/rateTable'
 import { roundToRupee } from '../money'
 import { solveTaxable } from '../pricing'
 import { amountToBasis, exclusiveLines, qtyMilliOf, switchSellBasis, type SellContext, type SellForm, type SellLine } from './sell'
-import { buyGst, buyIntentLines, switchBuyBasis, type BuyContext, type BuyForm, type BuyLine } from './buy'
+import { buyGst, buyIntentLines, buyTotals, switchBuyBasis, type BuyContext, type BuyForm, type BuyLine } from './buy'
 import { ticksToBills, type MoneyInForm, type MoneyOpenBill, type MoneyOutForm, type MoveForm } from './money'
 import { returnQtyOf, type ReturnForm } from './returns'
 
@@ -456,15 +456,22 @@ function buyAmount(input: CarryInput<'simple-buy'>, ctx: CarryContext, dropped: 
   if (g === 'claim') {
     const rate = rateFor(now.taxable, now.tax, supply, [base.gstRate, ctx.ledgers.get(now.accountId)?.gstRate])
     if (rate == null) return refuse('gst')
-    dropped.add('rounding', now.total !== roundedBill(now.taxable, rate, supply))
-    if (untouched) return head
-    return { ...head, gstRate: rate, ...amountIn(now.taxable, rate, supply, base.ratesIncludeGst) }
+    // An amount typed WITH GST is the printed bill total (purchaseIntentFrom's `billTotal`): the
+    // editor's total is carried back as typed when its value before GST is solveTaxable's.
+    const form: BuyForm = untouched
+      ? head
+      : base.ratesIncludeGst && solveTaxable(now.total, rate, 0, supply).taxablePaise === now.taxable
+        ? { ...head, gstRate: rate, amount: now.total, ratesIncludeGst: true }
+        : { ...head, gstRate: rate, ...amountIn(now.taxable, rate, supply, base.ratesIncludeGst) }
+    // The round off the form would post (buyTotals = what simple:post saves) vs the editor's.
+    dropped.add('rounding', now.total !== buyTotals(form, bctx).total)
+    return form
   }
   if (now.tax.cgst + now.tax.sgst + now.tax.igst + now.tax.cess !== 0) return refuse('gst')
-  dropped.add('rounding', now.total !== roundedBill(now.taxable, 0, supply))
-  if (untouched) return head
   // No GST on the bill, or a company that can't claim: the editor's figure is the cost itself.
-  return { ...head, amount: now.taxable, ...(g === 'none' ? {} : { ratesIncludeGst: true }) }
+  const form: BuyForm = untouched ? head : { ...head, amount: now.taxable, ...(g === 'none' ? {} : { ratesIncludeGst: true }) }
+  dropped.add('rounding', now.total !== buyTotals(form, bctx).total)
+  return form
 }
 
 function billNoFrom(o: AccountingFormState, c: AccountingFormState, fallback: string): string {
@@ -514,7 +521,7 @@ function ticksFor(
   for (const t of tries) {
     let got: AccountingFormState['billRefs']
     try {
-      got = allocateToBills(open, amount, ticksToBills(open, amount, t.ticks)?.map((b) => ({ name: b.name, amount: b.amount })) ?? null, t.advance, '').refs
+      got = allocateToBills(open, amount, ticksToBills(open, amount, t.ticks)?.map((b) => ({ name: b.name, amount: b.amount, ...(b.billId != null ? { billId: b.billId } : {}) })) ?? null, t.advance, '').refs
     } catch {
       continue
     }

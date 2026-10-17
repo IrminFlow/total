@@ -296,6 +296,15 @@ what you typed, and a **Back to simple** button.
   say "The charge includes GST" so the GST on it counts toward what you claim back.
   [#139](https://github.com/IrminFlow/total/pull/139)
 - **The app window is locked down further.** Nothing changes in what you see or do. [#161](https://github.com/IrminFlow/total/pull/161)
+- **Purchases, Money list and bill ticks: three small fixes.** Record a purchase: an amount typed
+  with GST is now the bill's printed total to the paisa (₹1,180.50 stays ₹1,180.50; the paisa left
+  over after GST is its round off), as Money out's GST bill already was. The Money list now says
+  what a GST bill was for: "Electricity (Bharat Power)" with an Expense tag, read from the bill the
+  payment settled. In Money in / out, two open bills with the same number (one from each year) are
+  ticked one at a time; ticking the newer one ticks the older too, because a payment always settles
+  the older bill of that number first (the newer one says so). A new bill never takes the number of
+  an advance or kept credit that has been used up; it gets the year added ("ADV1/25-26").
+  [#171](https://github.com/IrminFlow/total/pull/171)
 
 ### For accountants (figures that changed)
 
@@ -595,6 +604,16 @@ Read these before filing from the next release.
 
 ### For developers
 
+- **Simple mode small batch** (to-do §4 Simple mode), [#171](https://github.com/IrminFlow/total/pull/171): Buy's
+  `purchaseIntentFrom` sends the WP 9.1 amount line's `billTotal` when the amount is typed with GST
+  (claim / paid) and `buyTotals` / carry-back follow it. `MoneyRow.forWhat` (optional) comes from
+  the purchase a payment's `against` ref settles (its ONE expense account outside Purchase Accounts, a round off aside — a bill split over two, or bills of different expenses, name none);
+  key `simple.money.whoFor`. Money ticks are keyed by `billKey` (`v:<voucher>:<name>` /
+  `o:<name>`, names still read); `bills[].billId` (optional, additive) picks one of two open bills
+  of a name; `allocateToBills` reaches same-named bills in turn (oldest in full, then the next —
+  bill refs settle by name, so a newer namesake alone is refused, `simple_bill_older_first`);
+  `allocateBillsWithCredits` adds `creditNames` (stripped from `allocateBills` /
+  `partyAllocation`, figures unchanged) and simple:post's taken names include them. No migration.
 - **Electron hardening (D7)** (to-do §4 Security), [#161](https://github.com/IrminFlow/total/pull/161): every IPC
   call is checked against its sender before anything else (`main/ipcSender.ts`, in `handle()`): only
   the main frame (`senderFrame` is the sender's `mainFrame`, no parent) of the app's own renderer

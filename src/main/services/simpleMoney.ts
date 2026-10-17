@@ -12,7 +12,10 @@
 // - moneyBills: a party's open bills oldest first, as on the entry's date — the Outstandings
 //   allocation (analysis.openBills), the same list simple:post settles;
 // - moneyList / moneyEntry: in-books receipts, payments and moves between accounts with who / how
-//   and what they settled (their bill refs), never stored.
+//   and what they settled (their bill refs), never stored. A payment of a GST-bill expense (a
+//   purchase on an expense account outside Purchase Accounts — Money out's "Do you have a GST
+//   bill?") also names that account (`forWhat`, "Electricity (Bharat Power)") and carries the
+//   expense chip: read from the bill its `against` refs settle, never a stored label.
 import type { DB } from '../db/connection'
 import type { MoneyHow } from '@shared/simple/intents'
 import type { MoneyChip, MoneyEntryView, MoneyOpenBill, MoneyRow, MoneySetup } from '@shared/simple/money'
@@ -118,9 +121,32 @@ interface Head { id: number; number: string; date: string; kind: VoucherKind; pa
 const OTHER_CHIP: Partial<Record<LedgerClass, MoneyChip>> = { expense: 'expense', income: 'income' }
 
 /** One money entry as the list / its view show it (from its own lines and bill refs). */
-function describe(db: DB, h: Head, cls: ReturnType<typeof ledgerClassifier>, groupOf: (id: number) => number | undefined, groups: { capital: Set<number>; loans: Set<number> }): MoneyEntryView {
+/** The expense account a GST bill was booked on (WP 9.4 Money out → a purchase of just an amount
+ *  on an expense account): the purchase whose `new` ref the payment's `against` ref names — the
+ *  party's latest in-books purchase of that name dated on / before the payment — and its one
+ *  expense account outside Purchase Accounts (a round off aside). Null for goods / Purchases bills
+ *  and for a bill split over several expense accounts. */
+function billExpenseAccount(db: DB, partyId: number, name: string, onOrBefore: string, cls: ReturnType<typeof ledgerClassifier>, groupOf: (id: number) => number | undefined, purchaseGroups: Set<number>): number | null {
+  const bill = db
+    .prepare(
+      `SELECT v.id FROM bill_refs br JOIN vouchers v ON v.id = br.voucher_id JOIN voucher_types vt ON vt.id = v.voucher_type_id
+       WHERE br.party_ledger_id = ? AND br.name = ? AND br.kind = 'new' AND vt.kind = 'purchase' AND v.date <= ? AND ${IN_BOOKS}
+       ORDER BY v.date DESC, v.id DESC LIMIT 1`
+    )
+    .get(partyId, name, onOrBefore) as { id: number } | undefined
+  if (!bill) return null
+  const lines = db.prepare("SELECT ledger_id AS ledgerId, amount FROM voucher_lines WHERE voucher_id = ? AND dr_cr = 'dr' ORDER BY amount DESC, line_order").all(bill.id) as { ledgerId: number; amount: number }[]
+  // One expense account only: a bill split over two (rent + electricity) names neither. A round
+  // off (< ₹1, the billTotal / rupee rounding line) is not what the bill was for.
+  const exp = [...new Set(lines.filter((l) => cls.cls(l.ledgerId) === 'expense' && l.amount >= 100).map((l) => l.ledgerId))]
+  if (exp.length !== 1) return null
+  const g = groupOf(exp[0]!)
+  return g != null && purchaseGroups.has(g) ? null : exp[0]!
+}
+
+function describe(db: DB, h: Head, cls: ReturnType<typeof ledgerClassifier>, groupOf: (id: number) => number | undefined, groups: { capital: Set<number>; loans: Set<number>; purchases: Set<number> }): MoneyEntryView {
   const lines = db.prepare('SELECT ledger_id AS ledgerId, dr_cr AS drCr, amount FROM voucher_lines WHERE voucher_id = ? ORDER BY line_order').all(h.id) as { ledgerId: number; drCr: 'dr' | 'cr'; amount: number }[]
-  const refs = db.prepare('SELECT kind, name, amount FROM bill_refs WHERE voucher_id = ? ORDER BY id').all(h.id) as { kind: 'new' | 'against'; name: string; amount: number }[]
+  const refs = db.prepare('SELECT kind, name, amount, party_ledger_id AS partyId FROM bill_refs WHERE voucher_id = ? ORDER BY id').all(h.id) as { kind: 'new' | 'against'; name: string; amount: number; partyId: number }[]
   const name = (id: number): string => cls.name(id) ?? ''
   const money = (l: { ledgerId: number }): boolean => {
     const c = cls.cls(l.ledgerId)
@@ -136,10 +162,20 @@ function describe(db: DB, h: Head, cls: ReturnType<typeof ledgerClassifier>, gro
   const chips: MoneyChip[] = []
   const against = refs.filter((r) => r.kind === 'against')
   const advance = refs.filter((r) => r.kind === 'new')
+  let forWhat: string | null = null
   if (direction !== 'move') {
     const c = other != null ? cls.cls(other) : 'other'
     if (c === 'debtor' || c === 'creditor') {
       if (against.length) chips.push('bills')
+      // Paying a supplier's GST bill for an expense: say what it was for (one account for all its bills).
+      if (c === 'creditor' && direction === 'out' && against.length) {
+        const accounts = new Set(against.map((r) => billExpenseAccount(db, r.partyId, r.name, h.date, cls, groupOf, groups.purchases)))
+        const only = accounts.size === 1 ? [...accounts][0] : null
+        if (only != null) {
+          forWhat = name(only)
+          chips.push('expense')
+        }
+      }
       if (advance.length) chips.push('advance')
       if (!refs.length) chips.push('onAccount')
       if ((c === 'creditor' && direction === 'in') || (c === 'debtor' && direction === 'out')) chips.push('refund')
@@ -157,6 +193,7 @@ function describe(db: DB, h: Head, cls: ReturnType<typeof ledgerClassifier>, gro
     direction,
     kind: h.kind as MoneyEntryView['kind'],
     who: other != null ? name(other) : '',
+    ...(forWhat ? { forWhat } : {}),
     partyId: h.party,
     account: accountLine ? name(accountLine.ledgerId) : '',
     amount,
@@ -168,12 +205,12 @@ function describe(db: DB, h: Head, cls: ReturnType<typeof ledgerClassifier>, gro
   }
 }
 
-function context(db: DB): { cls: ReturnType<typeof ledgerClassifier>; groupOf: (id: number) => number | undefined; groups: { capital: Set<number>; loans: Set<number> } } {
+function context(db: DB): { cls: ReturnType<typeof ledgerClassifier>; groupOf: (id: number) => number | undefined; groups: { capital: Set<number>; loans: Set<number>; purchases: Set<number> } } {
   const gmap = new Map((db.prepare('SELECT id, group_id AS g FROM ledgers').all() as { id: number; g: number }[]).map((r) => [r.id, r.g]))
   return {
     cls: ledgerClassifier(db),
     groupOf: (id) => gmap.get(id),
-    groups: { capital: descendantIdsByName(db, ['Capital Account']), loans: descendantIdsByName(db, ['Loans (Liability)']) }
+    groups: { capital: descendantIdsByName(db, ['Capital Account']), loans: descendantIdsByName(db, ['Loans (Liability)']), purchases: descendantIdsByName(db, ['Purchase Accounts']) }
   }
 }
 

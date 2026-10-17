@@ -56,13 +56,15 @@ function daysBetween(fromDate: string, toDate: string): number {
  * one; null means no default (due date stays null unless a ref says otherwise).
  */
 export function allocateBills(events: BillEvent[], asOn: string, creditDays: number | null): AllocateBillsResult {
-  const { credits: _credits, ...result } = allocateBillsWithCredits(events, asOn, creditDays)
+  const { credits: _credits, creditNames: _names, ...result } = allocateBillsWithCredits(events, asOn, creditDays)
   return result
 }
 
 /** allocateBills plus the named credits still open (advances / notes' own bills, by name) — for
- *  callers that must not reuse a name that is still open (WP 9.1 simple intents). */
-export function allocateBillsWithCredits(events: BillEvent[], asOn: string, creditDays: number | null): AllocateBillsResult & { credits: { name: string; amount: number }[] } {
+ *  callers that must not reuse a name that is still open (WP 9.1 simple intents) — and every name a
+ *  named credit has had, used up or not (`creditNames`: a later bill must not reuse a settled
+ *  credit's name either, or the ref that used the credit would look like it rests on that bill). */
+export function allocateBillsWithCredits(events: BillEvent[], asOn: string, creditDays: number | null): AllocateBillsResult & { credits: { name: string; amount: number }[]; creditNames: string[] } {
   const open: OutstandingBill[] = []
   let credit = 0
   const warnings: string[] = []
@@ -71,6 +73,7 @@ export function allocateBillsWithCredits(events: BillEvent[], asOn: string, cred
   // event's 'against' ref uses it; counted in unappliedCredit. Never netted off refless bills
   // (that path is unchanged), so the legacy inference stays byte-identical.
   const namedCredits: { name: string; amount: number }[] = []
+  const creditNames = new Set<string>()
 
   const dueDateFor = (date: string, ref?: BillRef): string | null => {
     if (ref?.dueDate) return ref.dueDate
@@ -134,6 +137,7 @@ export function allocateBillsWithCredits(events: BillEvent[], asOn: string, cred
       for (const ref of ev.refs) {
         if (ref.kind === 'new' && ev.amount < 0) {
           namedCredits.push({ name: ref.name, amount: ref.amount })
+          creditNames.add(ref.name)
         } else if (ref.kind === 'against' && ev.amount > 0 && namedCredits.some((c) => c.name === ref.name)) {
           const left = useNamedCredit(ref.name, ref.amount)
           if (left > 0) {
@@ -176,7 +180,7 @@ export function allocateBillsWithCredits(events: BillEvent[], asOn: string, cred
     bill.overdueDays = Math.max(0, daysBetween(dueBasis, asOn))
   }
 
-  return { bills: open, unappliedCredit: credit + namedCredits.reduce((t, c) => t + c.amount, 0), warnings, credits: namedCredits.map((c) => ({ ...c })) }
+  return { bills: open, unappliedCredit: credit + namedCredits.reduce((t, c) => t + c.amount, 0), warnings, credits: namedCredits.map((c) => ({ ...c })), creditNames: [...creditNames] }
 }
 
 export interface ReminderCompany {

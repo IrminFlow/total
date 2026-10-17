@@ -5,7 +5,7 @@ import type { MessageKey } from '@shared/i18n'
 import { toPlainDate } from '@shared/dates'
 import { categoriesFor, type AccountContext } from '@shared/simple/accountKinds'
 import {
-  billAllocation, emptyMoneyInForm, linkedBillName, MONEY_IN_WHO, moneyInErrors, moneyInIntentFrom,
+  billAllocation, emptyMoneyInForm, linkedBillKey, tickKeys, toggleBillTick, MONEY_IN_WHO, moneyInErrors, moneyInIntentFrom,
   type MoneyInField, type MoneyInForm, type MoneyInWho
 } from '@shared/simple/money'
 import { api } from '../../lib/client'
@@ -90,8 +90,9 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
   // the FY); one no longer open falls back to oldest first.
   useEffect(() => {
     if (!(bill || billId != null) || !bills || form.ticks?.length !== 1 || form.ticks[0] !== bill) return
-    const name = linkedBillName(bills, bill, billId)
-    if (name !== bill) setForm((f) => ({ ...f, ticks: name ? [name] : null }))
+    // Ticks are bill keys (entry + name): two open bills may share a name.
+    const key = linkedBillKey(bills, bill, billId)
+    setForm((f) => ({ ...f, ticks: key ? [key] : null }))
   }, [bills]) // eslint-disable-line react-hooks/exhaustive-deps
   const sources = { ownerId: setup?.ownerId ?? null }
   const defaults = setup?.defaultsIn ?? { cash: null, upi: null, card: null, bank: null }
@@ -122,12 +123,10 @@ export function MoneyIn({ party, amount, bill, billId, date, bankId, reference, 
   })
 
   const newLoan = (): void => setCreating({ what: 'loan', name: '' }) // i18n-technical
-  const ticked = form.ticks ?? alloc.settled.map((s) => s.name)
-  const gets = new Map(alloc.settled.map((s) => [s.name, s.amount]))
-  const toggle = (name: string, on: boolean): void => {
-    const cur = form.ticks ?? ticked
-    update({ ticks: on ? [...cur.filter((n) => n !== name), name] : cur.filter((n) => n !== name) })
-  }
+  // Ticks are keyed by bill (entry + name), never the name: two open bills may share one.
+  const ticked = tickKeys(open, form.ticks) ?? alloc.keys
+  const gets = new Map(alloc.keys.map((k, i) => [k, alloc.settled[i]!.amount]))
+  const toggle = (key: string, on: boolean): void => update({ ticks: toggleBillTick(open, ticked, key, on) })
   const showAdvance = form.who === 'customer' && form.customerId != null && (form.amount ?? 0) > 0 && (open.length === 0 || alloc.advance > 0 || alloc.short || form.advance)
 
   // WP 9.10: the saved entry, or the full receipt editor with these answers filled in.

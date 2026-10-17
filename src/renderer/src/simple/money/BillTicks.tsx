@@ -1,6 +1,6 @@
 import { formatPaise } from '@shared/money'
 import { toPlainDate } from '@shared/dates'
-import type { MoneyOpenBill } from '@shared/simple/money'
+import { billKey, billPaidAfter, type MoneyOpenBill } from '@shared/simple/money'
 import { useT } from '../../lib/i18n'
 import { FieldError } from '../../components/ui'
 
@@ -26,9 +26,9 @@ export function BillTicks({
 }: {
   side: 'in' | 'out'
   bills: MoneyOpenBill[]
-  /** Bill names shown ticked. */
+  /** The bills shown ticked (tick keys — money.ts `billKey`: entry + name). */
   ticked: readonly string[]
-  /** What each ticked bill gets from this amount. */
+  /** What each ticked bill gets from this amount, by tick key. */
   gets: ReadonlyMap<string, number>
   /** What the bills don't take (paise). */
   leftOver: number
@@ -37,7 +37,7 @@ export function BillTicks({
   /** The user's ticks come to less than the amount (and no advance yet): "No" would be refused. */
   short?: boolean
   error: string | null
-  onToggle: (name: string, on: boolean) => void
+  onToggle: (key: string, on: boolean) => void
   onAdvance: (on: boolean) => void
 }): React.JSX.Element {
   const t = useT()
@@ -52,14 +52,17 @@ export function BillTicks({
           <p className="mb-2 text-small text-muted">{t('simple.money.billsHint')}</p>
           <ul className="divide-y divide-line" data-testid="money-bill-list">
             {bills.map((b, i) => {
-              const on = ticked.includes(b.name)
-              const got = gets.get(b.name)
+              const key = billKey(b)
+              const on = ticked.includes(key)
+              const got = gets.get(key)
+              // Another open bill has this number and is older: it is paid first (bill-wise refs name a bill).
+              const after = billPaidAfter(bills, b)
               return (
-                <li key={`${b.name}-${i}`} className="flex items-center gap-3 py-1.5">
+                <li key={`${key}-${i}`} className="flex items-center gap-3 py-1.5">
                   <input
                     type="checkbox"
                     checked={on}
-                    onChange={(e) => onToggle(b.name, e.target.checked)}
+                    onChange={(e) => onToggle(key, e.target.checked)}
                     data-testid={`money-bill-${i}`}
                     data-bill={b.name}
                     aria-label={t('simple.money.billName', { bill: b.name })}
@@ -71,6 +74,11 @@ export function BillTicks({
                       {t('simple.money.billDated', { date: toPlainDate(b.date, t.lang) })}
                       {b.overdueDays > 0 && ` · ${t('simple.money.billOverdue', { days: b.overdueDays })}`}
                     </span>
+                    {after && (
+                      <span className="block text-small text-muted" data-testid={`money-bill-after-${i}`}>
+                        {t('simple.money.billPaidAfter', { date: toPlainDate(after.date, t.lang) })}
+                      </span>
+                    )}
                   </span>
                   <span className="num text-detail text-muted">{t('simple.money.billDue', { amount: money(b.pending) })}</span>
                   <span className="num w-32 text-right text-detail font-medium text-ink" data-testid={`money-bill-gets-${i}`} data-paise={got ?? 0}>
