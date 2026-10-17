@@ -15,6 +15,7 @@ developer documentation.
 - `05-dependabot-triage.md`: the open security alerts and Dependabot PRs sorted by whether they reach users, with a recommendation for each group.
 - `06-announcement-draft.md`: a DRAFT (nothing published) for the 1.0 announcement: WhatsApp, LinkedIn, a CA note and a 2-minute "first bill" video shot list.
 - `07-beginner-study-kit.md`: everything for the real beginner study (D5): who to recruit, the script, the tasks, the note sheet, scoring and consent.
+- `08-what-changed-16-17-oct.md`: one page on what the overnight batch of 31 changes did (16 and 17 October), grouped by what you will notice while testing, plus what is still not done.
 
 These files are for the owner. Review notes about them are kept outside the repository and are not
 committed here.
