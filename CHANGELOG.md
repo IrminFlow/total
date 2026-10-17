@@ -63,6 +63,13 @@ what you typed, and a **Back to simple** button.
   Reports and Taxes have the "Always open the full app for this" menu. People and the Reports page
   have their own Accountant view. ⌘K results say Accounts / Products / Entries.
   [#122](https://github.com/IrminFlow/total/pull/122)
+- **Changes made in the full editor come back.** If you open the full editor from a simple form,
+  change something there (a quantity, the customer, the note, which bill a payment is for) and
+  press "Back to simple" without saving, the simple form now shows your changes instead of your
+  earlier answers, and it no longer asks you to discard them. Anything the simple form has no
+  place for, such as an entry number, TDS or transport details, is listed in a short note so you
+  know to save it in the full app. Prices you typed with GST stay as you typed them.
+  [#157](https://github.com/IrminFlow/total/pull/157)
 - **Ask Total** (no key needed). Type a question or a short entry ("who owes me?", "paid 2,500 rent
   in cash") and Total answers from the same figures the screens show, or opens the right form
   pre-filled. It also understands some Hinglish and Hindi words. It does not guess a name: it asks
@@ -573,7 +580,9 @@ Read these before filing from the next release.
   for `simple:post`. [#85](https://github.com/IrminFlow/total/pull/85) Migrations 046 to 049 shipped
   in 0.11.0 (below). WP 9.2 to 9.10 and 10.1 to 10.6 added no migration.
 - **IPC.** `simple:post` (accountant+, audited as `simple_intent`), `simple:preview` (viewer,
-  rehearsed and rolled back), `simple:intentForm` (the hand-off), `simple:handoffTarget`; per
+  rehearsed and rolled back), `simple:intentForm` (the hand-off), `simple:handoffTarget`,
+  `simple:carryBack` (viewer: the unsaved editor's changes back into the simple form, rolled back;
+  [#157](https://github.com/IrminFlow/total/pull/157)); per
   section: `simple:sell:setup`, `simple:sales`, `simple:sale`, `simple:buy:setup`,
   `simple:purchases`, `simple:purchase`, `simple:money:setup|bills|list|entry`,
   `simple:returns:bills|bill`, `simple:bank:setup|lines|accept`,
