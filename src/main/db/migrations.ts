@@ -3581,5 +3581,30 @@ export const MIGRATIONS: string[] = [
   DROP TABLE loan_vouchers;
   ALTER TABLE loan_vouchers_new RENAME TO loan_vouchers;
   CREATE INDEX idx_loan_vouchers_loan ON loan_vouchers(loan_id);
+  `,
+  // To-do §4 GST (last — after the voucher text index; number by position) — tax-fact snapshots.
+  // GST readers took a document's rate, cess, HSN and the party's class (GSTIN, state, SEZ /
+  // export type, reverse charge) from the MASTERS at query time, so editing an item, a ledger or
+  // a party rewrote old returns and prints. saveVoucher now copies those facts onto the voucher
+  // and its lines as it saves (services/taxFacts.ts); every reader prefers them when
+  // `snap_tax_facts = 1` and reads the masters as before when it is NULL. Nullable columns only,
+  // NO backfill: a voucher saved before this migration keeps following the masters until it is
+  // re-saved. Rates are the masters' REAL percent, copied as is (lossless — a basis-point integer
+  // would round an imported 12.345 %). Inside a snapshot a NULL fact means the master had none
+  // (a rate-less ledger, an item without HSN, a party without GSTIN) — the marker on vouchers
+  // tells that apart from "no snapshot". Place of supply is not stored: the readers derive it from
+  // the voucher's own pos_override and the snapshotted party state, as before.
+  `
+  ALTER TABLE vouchers ADD COLUMN snap_tax_facts INTEGER CHECK (snap_tax_facts IS NULL OR snap_tax_facts = 1);
+  ALTER TABLE vouchers ADD COLUMN snap_party_gstin TEXT;
+  ALTER TABLE vouchers ADD COLUMN snap_party_state TEXT;
+  ALTER TABLE vouchers ADD COLUMN snap_party_export_type TEXT CHECK (snap_party_export_type IS NULL OR snap_party_export_type IN ('sez_wp', 'sez_wop', 'exp_wp', 'exp_wop'));
+  ALTER TABLE vouchers ADD COLUMN snap_party_rcm INTEGER;
+  ALTER TABLE voucher_lines ADD COLUMN snap_gst_rate REAL;
+  ALTER TABLE voucher_lines ADD COLUMN snap_cess_rate REAL;
+  ALTER TABLE voucher_lines ADD COLUMN snap_hsn TEXT;
+  ALTER TABLE inventory_lines ADD COLUMN snap_gst_rate REAL;
+  ALTER TABLE inventory_lines ADD COLUMN snap_cess_rate REAL;
+  ALTER TABLE inventory_lines ADD COLUMN snap_hsn TEXT;
   `
 ]
