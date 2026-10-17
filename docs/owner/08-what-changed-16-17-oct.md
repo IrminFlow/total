@@ -93,3 +93,5 @@ These are in `to-do.md`. Only you or someone outside can do them.
 - **A CA review** of the tax points marked UNVERIFIED, plus the figure changes listed in `to-do.md` section 2.
 - **Signing.** No Apple Developer ID and no Windows certificate yet, so both builds trigger a warning on first open.
 - **NIC portal and live AI.** No portal login and no AI key have been used yet, so those paths are only tested with fakes.
+
+The newer test copy `Total-dev-bdf44fa0.dmg` also includes #146 and #148 to #159: cheque register fill-in, Hindi help on demand, trade challan / GRN lists and convert, faster voucher search, locked attachments, fixed-asset disposals and GST on asset sales, MSME due dates in the cash forecast, edits carried back from the full editor, and follow-up fixes.
