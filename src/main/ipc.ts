@@ -7,6 +7,7 @@ import { tmpdir } from 'os'
 import { join, basename } from 'path'
 import { decodeTextFile } from '@shared/textFiles'
 import { fitFileName, portableFileName } from '@shared/fileNames'
+import { EWB_CANCEL_REMARK_MAX, EWB_EXTEND_MODES, EWB_EXTEND_REASONS, IRN_CANCEL_REMARK_MAX, NIC_CANCEL_REASONS } from '@shared/gst/nicRecord'
 import { z } from 'zod'
 import { LANGUAGES } from '@shared/i18n'
 import { forgetFolderKey, isEncryptedFile, keyForPath, keyOfHandle, openDb, plainCopy, rekeyFile, removeDbFiles, rememberFolderKey } from './db/encryption'
@@ -3066,6 +3067,16 @@ export function registerIpc(): void {
     const { voucherId } = z.object({ voucherId: z.number().int().positive() }).parse(p)
     const c = requireCompany()
     return nic.generateEwbByIrn(c.db, c.slug, c.info, voucherId)
+  }, 'owner')
+  // Cancel IRN ([CNL] /eicore/v1.03/Invoice/Cancel): within 24 h of the ack, reasons 1–4, remark ≤ 100.
+  handle('nic:cancelIrn', async (p) => {
+    const { voucherId, reason, remark } = z.object({
+      voucherId: z.number().int().positive(),
+      reason: z.enum(NIC_CANCEL_REASONS),
+      remark: z.string().trim().min(1).max(IRN_CANCEL_REMARK_MAX)
+    }).strict().parse(p)
+    const c = requireCompany()
+    return nic.cancelIrn(c.db, c.slug, c.info, voucherId, reason, remark)
   }, 'owner')
   // The stored IRP / EWB answers for one voucher (signed invoice + QR, ack, cancel state, e-way
   // history) — read-only, no network.

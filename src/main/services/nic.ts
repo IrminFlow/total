@@ -13,7 +13,10 @@ import type { CompanyInfo } from '@shared/domain'
 import { nicCredentialsSchema, type NicCredentials } from '@shared/schemas'
 import { buildEInvoiceJson, buildEwbByIrnPayload, type EdocCompany } from '@shared/gst/edocs'
 import { einvoiceIssues } from '@shared/gst/einvoiceSchema'
-import type { EwbEvent, NicRecord } from '@shared/gst/nicRecord'
+import {
+  ewbCancelWindow, ewbExtendWindow, irnCancelWindow, nicTimestampMs, IRN_CANCEL_REMARK_MAX, EWB_CANCEL_REMARK_MAX,
+  type EwbEvent, type EwbExtendReasonCode, type NicCancelReason, type NicRecord
+} from '@shared/gst/nicRecord'
 import { outwardDebitNoteIds } from './gst'
 import { extractEdocInvoices, goodsMovedOnChallan, movedOnChallanReason } from './edocs'
 import { writeAudit } from './audit'
@@ -385,13 +388,9 @@ function sessionKey(creds: NicCredentials, gstin: string): string {
 
 const baseUrl = (creds: NicCredentials): string => creds.baseUrlEinvoice.replace(/\/+$/, '')
 
-/** 'yyyy-MM-dd HH:mm:ss' read as IST (UTC+05:30 — UNVERIFIED, [AUTH] gives only the format). */
-export function parseNicTimestamp(s: unknown): number | null {
-  const m = typeof s === 'string' ? /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(s) : null
-  if (!m) return null
-  const [, y, mo, d, h, mi, se] = m.map(Number) as [number, number, number, number, number, number, number]
-  return Date.UTC(y, mo - 1, d, h, mi, se) - 330 * 60 * 1000
-}
+/** 'yyyy-MM-dd HH:mm:ss' read as IST (UTC+05:30 — UNVERIFIED, [AUTH] gives only the format); the
+ *  EWB API's 'dd/MM/yyyy hh:mm:ss AM' too (shared/gst/nicRecord.ts). */
+export const parseNicTimestamp = nicTimestampMs
 
 /** e-Invoice header set ([GEN]/[CNL]/[GET]/[EWB] request-header tables). The secrets ride only
  *  in headers and the RSA-encrypted login body — never in a URL, a log line or an error. */
@@ -767,19 +766,18 @@ export async function generateEwbByIrn(db: DB, slug: string, company: CompanyInf
   return { ewbNo, validUpto }
 }
 
-/** Why a document is being cancelled. The two systems number these DIFFERENTLY:
- *  IRN [CNL] CnlRsn: 1 Duplicate, 2 Data entry mistake, 3 Order cancelled, 4 Others;
- *  EWB [MASTER] "Reason Codes": 1 Duplicate, 2 Order Cancelled, 3 Data Entry mistake, 4 Others. */
-export type NicCancelReason = 'duplicate' | 'data_entry_mistake' | 'order_cancelled' | 'other'
+export type { NicCancelReason }
 const IRN_CANCEL_CODE: Record<NicCancelReason, string> = { duplicate: '1', data_entry_mistake: '2', order_cancelled: '3', other: '4' }
 const EWB_CANCEL_CODE: Record<NicCancelReason, number> = { duplicate: 1, order_cancelled: 2, data_entry_mistake: 3, other: 4 }
 
 /**
- * Cancel a voucher's IRN ([CNL]: within 24 h, not while an e-way bill is active). On success the
- * IRN/ack columns are cleared (the voucher is no longer e-invoiced) and the cancelled IRN, date
- * and reason are kept in the audit row — there is no column for a cancelled IRN and WP 3.5 adds
- * no migration. NIC will not issue a new IRN for the same document number ([GEN] validation 12,
- * error 2278). Service-level only: no IPC channel / UI yet.
+ * Cancel a voucher's IRN ([CNL] POST /eicore/v1.03/Invoice/Cancel {Irn, CnlRsn, CnlRem}; within 24 h
+ * of AckDt, not while an e-way bill is active). Refused locally — before any call — outside that
+ * window or with a live e-way bill. On success the IRN, ack and signed copies are KEPT and the
+ * cancel recorded (irn_cancelled_at = the portal's CancelDate, reason, remark), audited with the
+ * whole before / after: from then on the voucher can be edited and binned again (saveVoucher /
+ * deleteVoucher), and NIC will not issue a new IRN for the same document number ([GEN]
+ * validation 12, error 2278).
  */
 export async function cancelIrn(
   db: DB, slug: string, company: CompanyInfo, voucherId: number, reason: NicCancelReason, remark = '', deps: NicDeps = {}
@@ -787,18 +785,38 @@ export async function cancelIrn(
   const ctx = context(db, slug, company, deps)
   const v = voucherForNic(db, voucherId)
   if (!v.irn) throw new NicError('This invoice has no IRN to cancel', [], 'config')
+  if (v.irn_cancelled_at) throw new NicError('This IRN is already cancelled', [], 'config')
   if (v.ewb_no) throw new NicError('Cancel the e-way bill first — an IRN with an active e-way bill cannot be cancelled', ['2230'], 'config')
+  const now = (deps.now ?? Date.now)()
+  const win = irnCancelWindow({ irn: v.irn, irnCancelledAt: null, ackDate: v.irn_ack_date, ewbNo: null }, now)
+  if (!win.allowed) throw new NicError(win.reason!, ['2270'], 'config')
+  const rem = remark.trim().slice(0, IRN_CANCEL_REMARK_MAX)
   const { data } = await einvCall(ctx.creds, ctx.gstin, 'POST', '/eicore/v1.03/Invoice/Cancel', {
-    Irn: v.irn, CnlRsn: IRN_CANCEL_CODE[reason], CnlRem: remark.slice(0, 100)
+    Irn: v.irn, CnlRsn: IRN_CANCEL_CODE[reason], CnlRem: rem
   }, ctx.deps)
-  const cancelDate = str(data.CancelDate)
-  const before = { irn: v.irn, irnAckNo: v.irn_ack_no, irnAckDate: v.irn_ack_date }
+  // [CNL] response: Irn, CancelDate. A missing CancelDate (UNVERIFIED) is stamped with our clock in IST.
+  const cancelDate = str(data.CancelDate) || istNow(now)
+  const before = nicAuditFacts(v)
   db.transaction(() => {
-    db.prepare('UPDATE vouchers SET irn = NULL, irn_ack_no = NULL, irn_ack_date = NULL WHERE id = ?').run(voucherId)
-    writeAudit(db, 'voucher', voucherId, 'update', before, { irn: null, irnAckNo: null, irnAckDate: null, cancelledIrn: v.irn, irnCancelDate: cancelDate, irnCancelReason: reason })
+    db.prepare('UPDATE vouchers SET irn_cancelled_at = ?, irn_cancel_reason = ?, irn_cancel_remark = ? WHERE id = ?').run(cancelDate, reason, rem || null, voucherId)
+    writeAudit(db, 'voucher', voucherId, 'update', before, { ...before, irnCancelledAt: cancelDate, irnCancelReason: reason, irnCancelRemark: rem || null })
   })()
   log('info', 'nic-irn-cancelled', { voucherId })
   return { irn: str(data.Irn) || v.irn, cancelDate }
+}
+
+/** 'yyyy-MM-dd HH:mm:ss' in IST. */
+function istNow(ms: number): string {
+  return new Date(ms + 330 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ')
+}
+
+/** The e-document facts of a voucher as audited (signed copies by presence only). */
+function nicAuditFacts(v: NicVoucherRow): Record<string, unknown> {
+  return {
+    irn: v.irn, irnAckNo: v.irn_ack_no, irnAckDate: v.irn_ack_date, signedInvoice: !!v.irn_signed_invoice, signedQrCode: !!v.irn_signed_qr,
+    irnCancelledAt: v.irn_cancelled_at, irnCancelReason: v.irn_cancel_reason, irnCancelRemark: v.irn_cancel_remark,
+    ewbNo: v.ewb_no, ewbDate: v.ewb_date, ewbValidUpto: v.ewb_valid_upto
+  }
 }
 
 /** Get IRN details ([GET], GET /eicore/v1.03/Invoice/irn/{irn}; within 3 days of generation). */
@@ -912,7 +930,7 @@ export function decodeJwsPayload(jws: string | null): Record<string, unknown> | 
 }
 
 /** Everything the IRP / EWB system returned for one voucher, as stored. QUERY — writes nothing. */
-export function nicRecord(db: DB, voucherId: number): NicRecord {
+export function nicRecord(db: DB, voucherId: number, now: number = Date.now()): NicRecord {
   const v = nicRow(db, voucherId)
   if (!v) throw new NicError('Voucher not found', [], 'config')
   return {
@@ -926,10 +944,17 @@ export function nicRecord(db: DB, voucherId: number): NicRecord {
     signedQrCode: v.irn_signed_qr,
     signedInvoiceData: decodeJwsPayload(v.irn_signed_invoice),
     signedQrData: decodeJwsPayload(v.irn_signed_qr),
+    irnCancelledAt: v.irn_cancelled_at,
+    irnCancelReason: (v.irn_cancel_reason as NicCancelReason | null) ?? null,
+    irnCancelRemark: v.irn_cancel_remark,
+    irnLive: irnLive(v),
     ewbNo: v.ewb_no,
     ewbDate: v.ewb_date,
     ewbValidUpto: v.ewb_valid_upto,
-    ewbHistory: readEwbHistory(v.ewb_history)
+    ewbHistory: readEwbHistory(v.ewb_history),
+    cancelIrn: irnCancelWindow({ irn: v.irn, irnCancelledAt: v.irn_cancelled_at, ackDate: v.irn_ack_date, ewbNo: v.ewb_no }, now),
+    cancelEwb: ewbCancelWindow({ ewbNo: v.ewb_no, ewbDate: v.ewb_date }, now),
+    extendEwb: ewbExtendWindow({ ewbNo: v.ewb_no, ewbValidUpto: v.ewb_valid_upto }, now)
   }
 }
 

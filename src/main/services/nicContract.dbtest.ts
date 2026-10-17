@@ -405,20 +405,46 @@ describe('IRN and e-way bill: payloads, persistence, cancel, extend', () => {
     const c = await cancelIrn(b.db, SLUG, COMPANY, id, 'order_cancelled', 'buyer cancelled the order', deps())
     expect(fake.calls.at(-1)!.plain).toEqual({ Irn: irn, CnlRsn: '3', CnlRem: 'buyer cancelled the order' }) // IRN: 3 = order cancelled
     expect(c).toEqual({ irn, cancelDate: fake.irns.get(irn)!.cancelDate })
-    expect(voucherRow(b.db, id)).toEqual({ irn: null, ackNo: null, ackDate: null, ewbNo: null, ewbValidUpto: null })
-    const audit = b.db.prepare("SELECT after_json AS a FROM audit_log WHERE entity = 'voucher' AND entity_id = ? ORDER BY id DESC LIMIT 1").get(id) as { a: string }
-    expect(JSON.parse(audit.a)).toMatchObject({ irn: null, cancelledIrn: irn, irnCancelReason: 'order_cancelled' })
+    // The IRN, ack and signed copies are KEPT; the cancel is recorded beside them ([CNL] CancelDate).
+    const kept = voucherRow(b.db, id)
+    expect(kept).toMatchObject({ irn, ackNo: fake.irns.get(irn)!.ackNo, ewbNo: null, ewbValidUpto: null })
+    expect(b.db.prepare('SELECT irn_cancelled_at AS at, irn_cancel_reason AS r, irn_cancel_remark AS m, irn_signed_qr AS q FROM vouchers WHERE id = ?').get(id))
+      .toEqual({ at: fake.irns.get(irn)!.cancelDate, r: 'order_cancelled', m: 'buyer cancelled the order', q: fake.irns.get(irn)!.signedQr })
+    const audit = b.db.prepare("SELECT before_json AS b, after_json AS a FROM audit_log WHERE entity = 'voucher' AND entity_id = ? ORDER BY id DESC LIMIT 1").get(id) as { b: string; a: string }
+    expect(JSON.parse(audit.b)).toMatchObject({ irn, irnCancelledAt: null })
+    expect(JSON.parse(audit.a)).toMatchObject({ irn, irnCancelledAt: fake.irns.get(irn)!.cancelDate, irnCancelReason: 'order_cancelled', irnCancelRemark: 'buyer cancelled the order' })
+    // The record says so; the list, the e-invoice extract and the print no longer treat it as e-invoiced.
+    expect(nicRecord(b.db, id, clock)).toMatchObject({ irn, irnLive: false, irnCancelReason: 'order_cancelled', cancelIrn: { allowed: false, reason: 'The IRN is already cancelled' } })
+    expect(listSalesInvoices(b.db, '2026-08-01', '2026-08-31', COMPANY).find((x) => x.voucherId === id)).toMatchObject({ irn: null, irnCancelledAt: fake.irns.get(irn)!.cancelDate })
+    expect(extractEdocInvoices(b.db, COMPANY, '2026-08-01', '2026-08-31', id)[0]!.irn).toBeNull()
+    const printed = loadPrintDocument(b.db, COMPANY, id)
+    expect(printed.shape === 'invoice' && printed.einvoice).toMatchObject({ irn: null, ackNo: null })
+    expect(printed.shape === 'invoice' && printed.einvoice && 'signedQr' in printed.einvoice).toBe(false)
+    // Cancelling twice is refused locally; so is an e-way bill against a cancelled IRN.
+    const calls = fake.calls.length
+    await expect(cancelIrn(b.db, SLUG, COMPANY, id, 'other', 'again', deps())).rejects.toThrow('This IRN is already cancelled')
+    await expect(generateEwbByIrn(b.db, SLUG, COMPANY, id, deps())).rejects.toThrow(/IRN was cancelled/)
+    expect(fake.calls.length).toBe(calls)
     // NIC 2278: the cancelled document number can't be e-invoiced again.
     await expect(generateIrn(b.db, SLUG, COMPANY, id, deps())).rejects.toThrow(/cancelled number cannot be e-invoiced again.*\(NIC 2278/)
   })
 
-  it('IRN cancellation after 24 h maps NIC 2270', async () => {
+  it('IRN cancellation after 24 h is refused locally (no call); a portal 2270 maps to the same advice', async () => {
     const b = books()
     const id = b2bInvoice(b)
-    await generateIrn(b.db, SLUG, COMPANY, id, deps())
+    const { ackDate } = await generateIrn(b.db, SLUG, COMPANY, id, deps())
+    // Inside the window: the record offers it, with the deadline = AckDt + 24 h (IST).
+    expect(nicRecord(b.db, id, clock).cancelIrn).toMatchObject({ allowed: true, closesAt: Date.parse(`${ackDate.replace(' ', 'T')}+05:30`) + 24 * 3600 * 1000 })
     clock += 25 * 3600 * 1000
-    await expect(cancelIrn(b.db, SLUG, COMPANY, id, 'data_entry_mistake', '', deps())).rejects.toThrow(/24-hour window to cancel this IRN has passed.*\(NIC 2270/)
+    expect(nicRecord(b.db, id, clock).cancelIrn).toMatchObject({ allowed: false, reason: expect.stringMatching(/24-hour window to cancel this IRN closed on .* — issue a credit note instead/) })
+    const calls = fake.calls.length
+    await expect(cancelIrn(b.db, SLUG, COMPANY, id, 'data_entry_mistake', 'late', deps())).rejects.toThrow(/24-hour window to cancel this IRN closed/)
+    expect(fake.calls.length).toBe(calls)
     expect(voucherRow(b.db, id).irn).not.toBeNull()
+    // An unreadable ack date leaves the window to the portal, whose 2270 is mapped.
+    b.db.prepare("UPDATE vouchers SET irn_ack_date = 'unknown' WHERE id = ?").run(id)
+    await expect(cancelIrn(b.db, SLUG, COMPANY, id, 'data_entry_mistake', 'late', deps())).rejects.toThrow(/24-hour window to cancel this IRN has passed.*\(NIC 2270/)
+    expect(b.db.prepare('SELECT irn_cancelled_at AS at FROM vouchers WHERE id = ?').get(id)).toEqual({ at: null })
   })
 
   it('an export without a GSTIN is e-invoiced as URP / 96 / 999999 with zero IGST (export without payment)', async () => {

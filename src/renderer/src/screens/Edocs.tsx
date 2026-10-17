@@ -552,6 +552,7 @@ function EdocsDocuments(): React.JSX.Element {
       {detailsFor !== null && (
         <EinvoiceDetailsModal
           voucherId={detailsFor}
+          live={live}
           onClose={() => {
             setDetailsFor(null)
             void queryClient.invalidateQueries({ queryKey: ['edocList'] })
