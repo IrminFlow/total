@@ -67,8 +67,9 @@ what you typed, and a **Back to simple** button.
   change something there (a quantity, the customer, the note, which bill a payment is for) and
   press "Back to simple" without saving, the simple form now shows your changes instead of your
   earlier answers, and it no longer asks you to discard them. Anything the simple form has no
-  place for, such as an entry number, TDS or transport details, is listed in a short note so you
-  know to save it in the full app. Prices you typed with GST stay as you typed them.
+  place for, such as an entry number, TDS or transport details, is listed in a note that stays
+  until you close it or save, so you know to save it in the full app. Prices you typed with GST
+  stay as you typed them.
   [#157](https://github.com/IrminFlow/total/pull/157)
 - **Ask Total** (no key needed). Type a question or a short entry ("who owes me?", "paid 2,500 rent
   in cash") and Total answers from the same figures the screens show, or opens the right form
