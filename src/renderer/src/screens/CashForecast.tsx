@@ -6,9 +6,10 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   buildForecast, forecastPeriods, SCENARIO_PRESETS, SOURCE_LABELS,
-  type ForecastContribution, type ForecastPeriodRow, type ForecastScenario, type ForecastSource, type ForecastUnit, type ScenarioName
+  type ForecastContribution, type ForecastMsmeInterestLine, type ForecastPeriodRow, type ForecastScenario, type ForecastSource, type ForecastUnit, type ScenarioName
 } from '@shared/cashForecast'
 import type { ForecastItem, ForecastItemInput } from '@shared/cashFinance'
+import { MSME_SOURCES } from '@shared/payables/msmeSources'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { formatPaise, formatPaiseCompact } from '@shared/money'
 import { cfApi } from '../lib/cashFinanceClient'
@@ -61,7 +62,9 @@ const DEFAULT_OPTIONS = {
   emis: true,
   items: true,
   /** Pending post-dated cheques (off by default: the figures stay as they always were). */
-  pdc: false
+  pdc: false,
+  /** Micro / small suppliers' bills on their MSMED Act s.15 deadline (off by default, like PDCs). */
+  msmeDue: false
 }
 type Options = typeof DEFAULT_OPTIONS
 
@@ -133,6 +136,9 @@ const PERIOD_COLUMNS = defineColumns<PeriodView>([
 /** The PDC columns show only while post-dated cheques are included. */
 const PERIOD_COLUMNS_NO_PDC = PERIOD_COLUMNS.filter((c) => c.id !== 'pdcIn' && c.id !== 'pdcOut')
 
+/** The s.15 deadline rule as cited on the MSME report (msmeSources.ts). */
+const MSME_RULE = MSME_SOURCES[0]!
+
 const SOURCE_OPTIONS = (Object.keys(SOURCE_LABELS) as ForecastSource[]).map((s) => ({ value: s, label: SOURCE_LABELS[s] }))
 
 const DETAIL_COLUMNS = defineColumns<ForecastContribution>([
@@ -140,11 +146,27 @@ const DETAIL_COLUMNS = defineColumns<ForecastContribution>([
   { id: 'source', header: 'Source', kind: 'enum', value: (c) => c.source, options: SOURCE_OPTIONS, width: 120 },
   {
     id: 'label', header: 'Item', kind: 'text', value: (c) => c.label, hideable: false, minWidth: 160,
-    cell: (c) => (c.voucherId ? <VoucherLink voucherId={c.voucherId} label={c.label} /> : c.ledgerId ? <LedgerLink ledgerId={c.ledgerId} name={c.label} /> : c.label)
+    cell: (c) => (
+      <span className="flex items-center gap-2">
+        {c.voucherId ? <VoucherLink voucherId={c.voucherId} label={c.label} /> : c.ledgerId ? <LedgerLink ledgerId={c.ledgerId} name={c.label} /> : c.label}
+        {c.msme && <Badge tone={c.msme.daysLate > 0 ? 'danger' : 'neutral'}>{c.msme.daysLate > 0 ? `s.15 · ${c.msme.daysLate} days late` : `s.15 by ${toDisplayDate(c.msme.payBy)}`}</Badge>}
+      </span>
+    )
   },
   { id: 'amount', header: 'Amount', kind: 'money', value: (c) => (c.direction === 'in' ? c.amount : -c.amount), width: 116 },
   { id: 'prob', header: 'Prob.', kind: 'number', value: (c) => c.effectiveBp / 100, text: (c) => `${Math.round(c.effectiveBp / 100)}%`, width: 70 },
   { id: 'weighted', header: 'Weighted', kind: 'money', value: (c) => (c.direction === 'in' ? c.weighted : -c.weighted), aggregate: 'sum', width: 116 }
+])
+
+const MSME_INTEREST_COLUMNS = defineColumns<ForecastMsmeInterestLine>([
+  {
+    id: 'label', header: 'Bill', kind: 'text', value: (l) => l.label, hideable: false, minWidth: 160,
+    cell: (l) => (l.voucherId ? <VoucherLink voucherId={l.voucherId} label={l.label} /> : l.ledgerId ? <LedgerLink ledgerId={l.ledgerId} name={l.label} /> : l.label)
+  },
+  { id: 'payBy', header: 's.15 pay by', kind: 'date', value: (l) => l.payBy, width: 104 },
+  { id: 'daysLate', header: 'Days late', kind: 'number', value: (l) => l.daysLate, width: 84 },
+  { id: 'pending', header: 'Pending', kind: 'money', value: (l) => l.pending, width: 116 },
+  { id: 'interest', header: 'Interest (indicative)', kind: 'money', value: (l) => l.interestPaise, aggregate: 'sum', width: 130 }
 ])
 
 export function CashForecastScreen(): React.JSX.Element {
@@ -212,6 +234,12 @@ export function CashForecastScreen(): React.JSX.Element {
                 <OptionToggle label="Loan EMIs" checked={o.emis} onChange={(v) => opts.set('emis', v)} testId="input-forecast-emis-on" />
                 <OptionToggle label="Known items and adjustments" checked={o.items} onChange={(v) => opts.set('items', v)} testId="input-forecast-items-on" />
                 <OptionToggle label="Pending post-dated cheques (in place of the bills they settle)" checked={o.pdc} onChange={(v) => opts.set('pdc', v)} testId="input-forecast-pdc-on" />
+                <OptionToggle label="MSME suppliers’ bills on their s.15 deadline" checked={o.msmeDue} onChange={(v) => opts.set('msmeDue', v)} testId="input-forecast-msme-on" />
+                <p className="text-hint text-muted" data-testid="forecast-msme-note">
+                  {MSME_RULE.citation}: pay a registered micro / small supplier within the agreed period (max 45 days), or 15 days
+                  with no written agreement. Late bills are expected now; their s.16 interest is indicative and not in the totals.
+                  A pending cheque’s date wins over the deadline.
+                </p>
               </DrawerSection>
               <OptionsTable area="cash-forecast" label="Forecast table" />
               <DrawerSection title="How it works">
@@ -220,6 +248,8 @@ export function CashForecastScreen(): React.JSX.Element {
                   history shows for their ageing bucket, orders by the conversion slider, everything else at 100 %. Overdue items
                   are expected now. Amounts are taxable values for orders (GST nets out against output tax). Pending post-dated
                   cheques, when included, count on their date at 100 % and take their amount off the same party’s open bills.
+                  With MSME deadlines on, a registered micro / small supplier’s bills move to their s.15 pay-by date; the
+                  s.16 interest on late ones is shown separately and never counted.
                 </p>
               </DrawerSection>
             </>
@@ -273,9 +303,9 @@ function ForecastTab({ options: o, set }: { options: Options; set: ReturnType<ty
     ...(o.items ? [] : (['item', 'adjustment'] as const))
   ]
   const result = useMemo(
-    () => (base ? buildForecast({ asOn, unit: def.unit, count: def.count, openingCash: base.openingCash, flows: base.flows, scenario, minBalance: o.minBalance, exclude, includePdc: o.pdc }) : null),
+    () => (base ? buildForecast({ asOn, unit: def.unit, count: def.count, openingCash: base.openingCash, flows: base.flows, scenario, minBalance: o.minBalance, exclude, includePdc: o.pdc, msmeDue: o.msmeDue }) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [base, def.unit, def.count, scenario.collectionPct, scenario.orderPct, scenario.delayDays, o.minBalance, exclude.join(), o.pdc]
+    [base, def.unit, def.count, scenario.collectionPct, scenario.orderPct, scenario.delayDays, o.minBalance, exclude.join(), o.pdc, o.msmeDue]
   )
   const rows = useMemo(() => (result ? periodViews(result.periods, result.contributions) : []), [result])
   const categories: ChartCategory[] = rows.map((r) => ({ key: r.key, label: def.unit === 'week' ? r.label.split(' · ')[1]! : r.label.slice(0, 3), long: r.label }))
@@ -360,6 +390,24 @@ function ForecastTab({ options: o, set }: { options: Options; set: ReturnType<ty
           exportOptions={{ title: 'Cash-flow forecast', periodLabel: `${def.label} from ${toDisplayDate(asOn)} · ${SCENARIOS.find((s) => s.value === o.scenario)!.label} case`, filename: 'cash-forecast' }}
         />
       </Panel>
+
+      {result?.msmeInterest && result.msmeInterest.lines.length > 0 && (
+        <Panel testId="forecast-msme-interest-panel">
+          <div className="flex items-baseline justify-between px-3 pt-2">
+            <span className="text-detail font-medium text-ink">Indicative s.16 interest on MSME bills past their s.15 date</span>
+            <span className="num text-detail text-cr" data-testid="forecast-msme-interest-total">{formatPaise(result.msmeInterest.total, { symbol: true })}</span>
+          </div>
+          <p className="px-3 text-hint text-muted">Compound, monthly rests, three times the RBI bank rate, up to today — not in the forecast totals and never posted.</p>
+          <DataTable
+            testId="forecast-msme-interest"
+            ariaLabel="Indicative s.16 interest on late MSME bills"
+            columns={MSME_INTEREST_COLUMNS}
+            rows={result.msmeInterest.lines}
+            rowKey={(l) => `${l.ledgerId}|${l.voucherId}|${l.label}`}
+            maxHeight="40vh"
+          />
+        </Panel>
+      )}
 
       {detail && result && (
         <Drawer title={detail.label} subtitle={`${toDisplayDate(detail.from)} – ${toDisplayDate(detail.to)}`} onClose={() => setDetail(null)} width={720} testId="forecast-detail">

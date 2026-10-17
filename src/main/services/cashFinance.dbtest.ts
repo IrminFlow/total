@@ -20,6 +20,9 @@ import { cashNext30 } from './simpleReports'
 import { closeWarnings, financeReminders } from './cashFinanceChecks'
 import { buildForecast, SCENARIO_PRESETS } from '@shared/cashForecast'
 import { emiFor } from '@shared/loanSchedule'
+import { payablesPlan } from './payables'
+import { createToolRegistry } from '../ai/tools'
+import type { ToolContext } from '../ai/tools/registry'
 
 const gid = (db: DB, name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
 const lid = (db: DB, name: string): number => (db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number }).id
@@ -120,6 +123,60 @@ describe('cash-flow forecast — pending post-dated cheques', () => {
     expect(rec.map((c) => c.amount)).toEqual([40_000_00])
     expect(on.contributions.some((c) => c.source === 'payable')).toBe(false)
     expect(on.contributions.filter((c) => c.source === 'pdc').map((c) => [c.effectiveDate, c.weighted])).toEqual([['2026-06-20', 60_000_00], ['2026-06-25', 40_000_00]])
+  })
+})
+
+describe('cash-flow forecast — MSME s.15 deadlines (msmeDue)', () => {
+  it('off by default: the forecast, the simple Cash next 30 days and the AI tool are unchanged; on: bills on the s.15 date, interest = payablesPlan', async () => {
+    const { db, bank } = company()
+    const creditors = gid(db, 'Sundry Creditors')
+    const micro = createLedger(db, { name: 'Micro Castings', groupId: creditors, creditDays: 60 }).id
+    const later = createLedger(db, { name: 'Late Registrant', groupId: creditors, creditDays: 60 }).id
+    const purchases = ledger(db, 'Purchases', 'Purchase Accounts')
+    // Bill 1 on 1 May: s.15 date 16 May (no written agreement → 15 days), own due 30 Jun.
+    const bill1 = post(db, 'journal', '2026-05-01', [dr(purchases, 40_000_00), cr(micro, 40_000_00)], { partyLedgerId: micro })
+    // Bill 2 on 25 May: s.15 date 9 Jun, own due 24 Jul.
+    post(db, 'journal', '2026-05-25', [dr(purchases, 10_000_00), cr(micro, 10_000_00)], { partyLedgerId: micro })
+    // Accepted before the supplier's registration date: not covered.
+    post(db, 'journal', '2026-05-10', [dr(purchases, 5_000_00), cr(later, 5_000_00)], { partyLedgerId: later })
+    void bank
+    const AS_ON = '2026-06-01'
+    const registry = createToolRegistry()
+    const ctx = { db, company: TEST_INFO, role: 'viewer', userName: null, threadId: null, messageId: null, today: AS_ON, period: { from: '2026-04-01', to: '2027-03-31' } } as unknown as ToolContext
+    const snapshot = async () => {
+      const base = forecastBase(db, TEST_INFO, AS_ON, '2026-08-31')
+      const f = buildForecast({ asOn: AS_ON, unit: 'week', count: 13, openingCash: base.openingCash, flows: base.flows, scenario: SCENARIO_PRESETS.expected })
+      const tool = await registry.run('forecast_summary', '{}', ctx)
+      return { base, forecast: JSON.stringify(f), simple: JSON.stringify(cashNext30(db, TEST_INFO, AS_ON)), tool: JSON.stringify(tool.ok ? tool.data : tool) }
+    }
+    const before = await snapshot()
+    expect(before.base.flows.some((x) => x.msme)).toBe(false)
+    // Register both suppliers as micro (Late Registrant only from 15 May).
+    db.prepare("UPDATE ledgers SET msme_registered = 1, msme_category = 'micro' WHERE id IN (?, ?)").run(micro, later)
+    db.prepare("UPDATE ledgers SET msme_registered_from = '2026-05-15' WHERE id = ?").run(later)
+    const after = await snapshot()
+    // Default (msmeDue off): byte-identical everywhere.
+    expect(after.forecast).toBe(before.forecast)
+    expect(after.simple).toBe(before.simple)
+    expect(after.tool).toBe(before.tool)
+
+    // The base carries the s.15 facts on the micro supplier's bills only.
+    const pay = after.base.flows.filter((x) => x.source === 'payable')
+    const plan = payablesPlan(db, AS_ON).rows
+    const b1 = pay.find((x) => x.voucherId === bill1)!
+    const plan1 = plan.find((r) => r.voucherId === bill1)!
+    expect(b1.msme).toEqual({ payBy: '2026-05-16', daysLate: 16, interestPaise: plan1.interestIndicative, pending: 40_000_00 })
+    expect(plan1.s15!.payBy).toBe('2026-05-16')
+    expect(pay.filter((x) => x.ledgerId === micro).map((x) => x.msme?.payBy)).toEqual(['2026-05-16', '2026-06-09'])
+    expect(pay.find((x) => x.ledgerId === later)!.msme).toBeUndefined()
+
+    // On: bill 1 is overdue (expected today), bill 2 on 9 Jun; its interest is a separate line.
+    const on = buildForecast({ asOn: AS_ON, unit: 'week', count: 13, openingCash: after.base.openingCash, flows: after.base.flows, scenario: SCENARIO_PRESETS.expected, msmeDue: true })
+    expect(on.contributions.filter((c) => c.ledgerId === micro).map((c) => [c.effectiveDate, c.weighted])).toEqual([[AS_ON, 40_000_00], ['2026-06-09', 10_000_00]])
+    expect(on.contributions.find((c) => c.ledgerId === later)!.effectiveDate).toBe('2026-07-09')
+    expect(plan1.interestIndicative).toBeGreaterThan(0)
+    expect(on.msmeInterest!.lines.map((l) => [l.voucherId, l.interestPaise])).toEqual([[bill1, plan1.interestIndicative]])
+    expect(on.totals.outflow).toBe(JSON.parse(after.forecast).totals.outflow)
   })
 })
 
