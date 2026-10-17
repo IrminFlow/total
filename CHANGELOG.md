@@ -592,7 +592,7 @@ Read these before filing from the next release.
 - **Simple mode small batch** (to-do §4 Simple mode), [#171](https://github.com/IrminFlow/total/pull/171): Buy's
   `purchaseIntentFrom` sends the WP 9.1 amount line's `billTotal` when the amount is typed with GST
   (claim / paid) and `buyTotals` / carry-back follow it. `MoneyRow.forWhat` (optional) comes from
-  the purchase a payment's `against` ref settles (an expense account outside Purchase Accounts);
+  the purchase a payment's `against` ref settles (its ONE expense account outside Purchase Accounts, a round off aside — a bill split over two, or bills of different expenses, name none);
   key `simple.money.whoFor`. Money ticks are keyed by `billKey` (`v:<voucher>:<name>` /
   `o:<name>`, names still read); `bills[].billId` (optional, additive) picks one of two open bills
   of a name; `allocateToBills` reaches same-named bills in turn (oldest in full, then the next —
