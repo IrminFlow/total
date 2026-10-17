@@ -105,6 +105,26 @@ describe('voucher text index migration', () => {
     expect(indexed(db)).toEqual([])
   })
 
+  it('a narration edit while binned shows after the restore; FTS query syntax in a term never throws', () => {
+    const db = seededDb()
+    const a = postSimpleVoucher(db, { date: '2025-05-01', amount: 500_00, kind: 'receipt' }).id
+    withNarration(db, a, 'nar zeta')
+    deleteVoucher(db, a)
+    db.prepare("UPDATE vouchers SET narration = 'nar omega (p) AND NOT * : ^ a:b \"q\"' WHERE id = ?").run(a)
+    integrity(db)
+    expect(found(db, 'omega')).toEqual([])
+    restoreVoucher(db, a)
+    integrity(db)
+    expect(found(db, 'omega')).toEqual([a])
+    expect(found(db, 'zeta')).toEqual([])
+    for (const q of ['"', '"""', '(', '((', 'AND', 'NOT', 'NEAR(a b)', '*', '***', ':', 'a:b', 'x:y:z', '^ab', '---', '{c}', '\\"', 'a"b', 'end"', 'NOT *', 'narration:end', '\u0000ab', 'ab\u0000cd', '\uD800abc']) {
+      expect(() => found(db, q), JSON.stringify(q)).not.toThrow()
+    }
+    expect(found(db, '(p) AND')).toEqual([a])
+    expect(found(db, 'a:b')).toEqual([a])
+    expect(db.pragma('integrity_check', { simple: true })).toBe('ok')
+  })
+
   it('a party rename needs no index change: the voucher is found by the new name', () => {
     const db = seededDb()
     const v = postSimpleVoucher(db, { date: '2025-05-01', amount: 500_00, kind: 'receipt' })

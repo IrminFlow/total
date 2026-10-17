@@ -358,9 +358,10 @@ function itemLine(ids: number[], drive = false): { sql: string; params: unknown[
   return { sql: `${ix(drive)}v.id IN (SELECT voucher_id FROM inventory_lines WHERE stock_item_id IN (${idList(ids)}))`, params: [] }
 }
 
-/** Shortest term the trigram index can look up (shorter ones scan, as before the index). */
+/** Shortest term the trigram index can look up (shorter ones scan, as before the index). A term
+ *  holding a NUL also scans: FTS5's query parser stops at it ("unterminated string"). */
 const FTS_MIN_CHARS = 3
-const indexable = (term: string): boolean => [...term].length >= FTS_MIN_CHARS
+const indexable = (term: string): boolean => [...term].length >= FTS_MIN_CHARS && !term.includes('\u0000')
 
 /** The term as one FTS5 string (a phrase of its trigrams); quotes doubled, nothing else special. */
 const ftsPhrase = (term: string): string => '"' + term.split('"').join('""') + '"'
