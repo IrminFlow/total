@@ -348,6 +348,17 @@ export type TcsSuggestion = Omit<TdsSuggestion, 'sectionFrom' | 'candidates'> & 
   sectionFrom: 'party' | 'goods' | 'ledger' | 'chosen' | 'credits'
   candidates: { sectionId: number; code: string; from: 'party' | 'goods' | 'ledger' | 'credits' }[]
   gstInBase: boolean
+  /** s.206C(1G) tour package slab split (FY 2025-26); null otherwise. Optional: older mains omit it. */
+  slab?: { limitPaise: number; priorPaise: number; belowPaise: number; abovePaise: number; lowerRateBp: number; upperRateBp: number } | null
+}
+
+/** Mirrors src/main/services/tcs.ts TcsStatutoryStatus: a statutory TCS section and whether the company has it. */
+export interface TcsStatutoryStatus {
+  code: string
+  description: string
+  legacyCode: string
+  newReference: string
+  sectionId: number | null
 }
 
 /** tcs:suggest payload (src/shared/schemas.ts tcsSuggestSchema). */
@@ -1221,6 +1232,8 @@ export const api = {
   tcs: {
     sections: () => call<TdsSection[]>('tcs:sections'),
     sectionSave: (data: TdsSectionInput) => call<TdsSection>('tcs:sectionSave', data),
+    statutory: () => call<TcsStatutoryStatus[]>('tcs:statutory'),
+    statutoryAdd: (codes?: string[]) => call<TdsSection[]>('tcs:statutoryAdd', codes ? { codes } : {}),
     suggest: (input: TcsSuggestRequest) => call<TcsSuggestion | null>('tcs:suggest', input),
     rates: (sectionId?: number) => call<TdsRate[]>('tcs:rates', { sectionId }),
     rateSave: (data: TdsRateInput) => call<TdsRate>('tcs:rateSave', data),

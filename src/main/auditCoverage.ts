@@ -380,6 +380,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'tds:suggest': QUERY,
   'tds:export26q': EXPORT,
   'tcs:sectionSave': a('tdsSection'),
+  'tcs:statutoryAdd': a('tdsSection', 'tdsRate'),
   'tcs:rateSave': a('tdsRate'),
   'tcs:rateDelete': a('tdsRate'),
   'tcs:certificateSave': a('tdsCertificate'),

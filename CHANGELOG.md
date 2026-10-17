@@ -530,6 +530,33 @@ Read these before filing from the next release.
   own date wins, so a bill counts once; only what the cheque leaves stays on the s.15 date, with its
   share of the interest. [#156](https://github.com/IrminFlow/total/pull/156)
 
+- **TCS: s.206C(1G) overseas tour packages — the 20 % slab** (to-do §4). For FY 2025-26 the seller
+  collects 5 % on a buyer's aggregate for the year up to ₹10 lakh and 20 % on the excess (FA 2023
+  s.94, FA 2025 s.72(b); the 2025 Act Table Sl. 8 restates it). One sale that crosses ₹10 lakh is
+  collected in two parts and rounded once (₹6,30,000 already + ₹4,20,000 now: ₹3,70,000 × 5 % +
+  ₹50,000 × 20 % = ₹28,500); no PAN: each part the higher of twice its rate and 5 %, at most 20 %.
+  Before, every tour collection was 5 % and the 20 % had to be entered as a manual amount — a sale
+  above the limit saved at 5 % is now refused (re-apply TCS or mark it manual); one already in the
+  books keeps its recorded figure when edited without changing the collection (same party, date,
+  base and amount) and 27EQ flags it "recorded …, the slab now gives …". Applies only while
+  the rate row in force is the seeded, cited one (a row you added yourself is used as it stands);
+  FY 2026-27 is unchanged, a flat 2 % (FA 2026 s.85(f)). Form 27EQ: such a collection is written as
+  two rows of the one entry (5 % / 20 %, code O), flagged in a trailing Note column the CSV adds only
+  to a quarter that has such a row (every other quarter's file is unchanged). The slab is counted
+  per buyer ledger — keep one ledger per buyer.
+  LRS remittances (s.206C(1G)(a)) are not modelled — only an authorised dealer (a bank) collects
+  them. UNVERIFIED (the 1961 text could not be opened; the 27EQ split; Form 143 code 1089):
+  `src/shared/tcsSources.ts`, listed on TCS → Sections. [#163](https://github.com/IrminFlow/total/pull/163)
+- **TCS: s.206C(1C) parking lot / toll plaza / mine or quarry** (to-do §4). TCS → Sections →
+  Statutory sections → Add (owner) creates three sections — 206C(1C) PARKING / TOLL / MINE, 2 % of
+  the amount payable by the licensee or lessee, collected at debit or receipt whichever is earlier,
+  no PAN 5 % — with cited rows from 1 Apr 2025 (27EQ codes F / G / H) and from 1 Apr 2026 (2025 Act
+  s.394(1) Sl. 9, Form 143 codes 1090 / 1091 / 1092). Flag the licensee with the section (or give
+  the licence-fee ledger a default section): the banner, the Eligible list, the TCS payable ledger
+  and the returns work as for any TCS section. Not applied by itself: a PSU licensee and mineral-oil
+  mining are excluded by the Act — mark those "Not applicable". UNVERIFIED (1961 wording read via a
+  search index; GST in the base): `src/shared/tcsSources.ts`. [#163](https://github.com/IrminFlow/total/pull/163)
+
 ### For developers
 
 - **Electron hardening (D7)** (to-do §4 Security), [#161](https://github.com/IrminFlow/total/pull/161): every IPC
@@ -550,6 +577,15 @@ Read these before filing from the next release.
   OS), `will-navigate` / `will-redirect` (refused except the dev server's origin) and
   `will-attach-webview` (refused) — applied to EVERY web contents through `web-contents-created`
   (the hidden PDF window too); `windowPolicy.test.ts`.
+
+- **TCS after WP 3.3** ([#163](https://github.com/IrminFlow/total/pull/163)), no migration:
+  `src/shared/tcsSources.ts` (quoted sources with URL / where read / access date, `TCS_SLABS`,
+  `TCS_STATUTORY_SECTIONS`, `TCS_NOT_MODELLED`, `TCS_UNVERIFIED`); `slabbedTcs` / `tcsSlabOn` in
+  `shared/tcs.ts`, applied in `tds.resolveTds` (so suggestion, save-time check, Eligible and Move to
+  TCS share it; `ResolvedTds.slab` and `TcsSuggestion.slab` are additive); IPC `tcs:statutory`
+  (viewer) and `tcs:statutoryAdd` (owner, Zod-strict `{ codes? }`, audited `tdsSection` / `tdsRate`
+  creates, idempotent); `Form26qDeducteeRow.note` (optional). Tests: `shared/tcsSlab.test.ts`,
+  `services/tcs206c.dbtest.ts`, `__tests__/tcs206c.test.tsx`; the WP 3.3 tests are unchanged.
 
 - **Export gate sweep covers every role.** `securityReview.dbtest` now scans every IPC handler under `src/main` that writes a file or audits an `export` (directly or through a helper in its file; viewer-role ones included, which the audit-coverage registry does not list), plus every channel whose name says file / print / export, and requires each in `EXPORT_CHANNELS`, `NOT_EXPORTS` or a listed read / input; review: the bank reconciliation PDF (`banking:brsPdf`, written with no gate and no audit row) is now a `canExport` channel with an export audit row, and report packs (`pack:runNow`, `pack:save`) are `canExport` channels; Form 16 / 16A / 27D, self-invoice, barcode-label prints and the template export are listed as non-exports with reasons. The data-folder-move locked case no longer sleeps 1.7 s, and the e-invoicing Company details test waits for the loaded switch (Windows flake). [#155](https://github.com/IrminFlow/total/pull/155)
 

@@ -11,7 +11,7 @@ import {
   thresholdPeriod, thresholdStatus, validateTdsEntries,
   type ApplicableRate, type CertificateUse, type DeducteeType, type TdsCertificate, type TdsRateRow
 } from '@shared/tds'
-import { TCS_NO_PAN_MULTIPLE, validateTcsEntries } from '@shared/tcs'
+import { slabbedTcs, tcsSlabOn, TCS_NO_PAN_MULTIPLE, validateTcsEntries, type SlabbedTcs } from '@shared/tcs'
 import { KIND, type WithholdingKind } from './withholdingKind'
 import type { PostingError } from '@shared/posting'
 import { fyFromStartYear, fyOf, todayISO } from '@shared/dates'
@@ -382,6 +382,9 @@ export interface ResolvedTds {
   panAvailable: boolean
   /** Prior base for this party + section in the rate row's threshold period (excl. this voucher). */
   priorPaise: number
+  /** TCS on a slabbed section (s.206C(1G) tour package, FY 2025-26 — src/shared/tcsSources.ts):
+   *  how the base split across the slab. Absent for every other section. */
+  slab?: SlabbedTcs
 }
 
 /** What the rate table says this deduction should be (rate, certificate, excess-only base,
@@ -403,6 +406,13 @@ export function resolveTds(
   const priorPaise = kind === 'tcs'
     ? tcsPriorBase(db, partyLedgerId, sectionId, rate.row.thresholdBasis, dateISO, excludeVoucherId)
     : priorBase(db, partyLedgerId, sectionId, rate.row.thresholdBasis, dateISO, excludeVoucherId)
+  // The 1G tour slab (5% up to Rs 10 lakh a year, 20% above) applies only while the row in force
+  // is a cited statutory one — a row the user added (no source) is taken as it stands.
+  const slabDef = kind === 'tcs' && rate.row.source != null ? tcsSlabOn(rules.code, dateISO) : null
+  if (slabDef) {
+    const slab = slabbedTcs(rate, slabDef, basePaise, priorPaise, TCS_NO_PAN_OPTS)
+    return { rate, tdsPaise: slab.tcsPaise, deducteeType, panAvailable, priorPaise, slab }
+  }
   return { rate, tdsPaise: expectedTdsPaise(rate, basePaise, priorPaise), deducteeType, panAvailable, priorPaise }
 }
 
@@ -609,6 +619,30 @@ export function prepareVoucherTds(db: DB, input: VoucherInputParsed, existingId?
 }
 
 /**
+ * A tour-package collection saved before the s.206C(1G) slab was modelled (flat 5 % on the whole
+ * base, the only figure the save then accepted) round-trips unchanged through an edit that leaves
+ * the collection itself alone — same section, party, date, base and amount, still automatic, and
+ * equal to the flat-rate figure — like GST's `legacyTax`. Only a new or changed collection is held
+ * to the slab; Form 27EQ flags the kept figure ("recorded …, the slab now gives …").
+ */
+function keepPreSlabCollection(
+  db: DB, resolved: ResolvedTds, e: { sectionId: number; baseAmount: number; amount: number },
+  input: VoucherInputParsed, existingId: number
+): ResolvedTds {
+  if (resolved.tdsPaise === e.amount) return resolved
+  const stored = db.prepare(
+    `SELECT te.party_ledger_id AS party, te.base_amount AS base, te.tds_amount AS amount, te.is_manual AS manual, v.date AS date
+       FROM tds_entries te JOIN vouchers v ON v.id = te.voucher_id
+      WHERE te.voucher_id = ? AND te.section_id = ?`
+  ).get(existingId, e.sectionId) as { party: number; base: number; amount: number; manual: number; date: string } | undefined
+  if (!stored || stored.manual || stored.party !== input.partyLedgerId || stored.date !== input.date ||
+    stored.base !== e.baseAmount || stored.amount !== e.amount) return resolved
+  const flat = expectedTdsPaise(resolved.rate!, e.baseAmount, resolved.priorPaise)
+  if (flat !== e.amount) return resolved
+  return { ...resolved, tdsPaise: flat, slab: undefined }
+}
+
+/**
  * The same for either kind (WP 3.3). `lines` is the line set built so far (TCS runs after TDS
  * on the output of prepareVoucherTds). TDS checks the deduction's payable credit; TCS also that
  * the buyer's debit includes the collection (src/shared/tcs.ts validateTcsEntries). An entry
@@ -638,6 +672,7 @@ export function prepareVoucherWithholding(
   let resolved: ResolvedTds | null = null
   if (rules && input.partyLedgerId != null && e.baseAmount > 0) {
     resolved = resolveTds(db, e.sectionId, input.partyLedgerId, e.baseAmount, input.date, existingId)
+    if (resolved.slab && existingId != null && !e.isManual) resolved = keepPreSlabCollection(db, resolved, e, input, existingId)
   }
   const facts = (): { code: string; expectedPaise: number | null } | null =>
     rules ? { code: rules.code, expectedPaise: resolved?.tdsPaise ?? null } : null
@@ -661,7 +696,8 @@ export function prepareVoucherWithholding(
   const basis = {
     rateBp: e.isManual || !resolved?.rate
       ? null
-      : resolved.rate.basis === 'certificate' ? resolved.rate.certificateRateBp : resolved.rate.rateBp,
+      : resolved.slab && resolved.slab.abovePaise > 0 ? resolved.slab.upperRateBp
+        : resolved.rate.basis === 'certificate' ? resolved.rate.certificateRateBp : resolved.rate.rateBp,
     deducteeType: resolved?.deducteeType ?? null,
     certificateId: e.isManual ? null : (resolved?.rate?.certificateId ?? null),
     gstInBase: kind === 'tcs' && resolved?.rate ? !!resolved.rate.row.baseIncludesGst : null

@@ -17,9 +17,10 @@ import { addTcsToLines, candidateTcsSections, isDeclarationReason, removeTcsFrom
 import { quarterBounds } from '@shared/withholding'
 import { undeductedCreditsBefore } from '@shared/tdsEligibility'
 import type { Form16aData, Form26qData, TdsEligibleRow } from '@shared/tdsTypes'
+import { tcsSlabOn } from '@shared/tcs'
 import { voucherToPayload } from '@shared/voucherEdit'
 import { rowsToCsv } from '@shared/csv'
-import { plainRupees } from '@shared/money'
+import { formatPaise, plainRupees, roundToRupee } from '@shared/money'
 import { companyExportsDir } from '../paths'
 import {
   buildTcsEventGroups, classifyLoaded, eventBase, loadTcsVouchers, tcsContext, tcsPartySectionWalk, walkTcsGroup,
@@ -224,10 +225,54 @@ export function form27eqData(db: DB, fyStartYear: number, quarter: 1 | 2 | 3 | 4
       challanSerial: null, bsrCode: null, challanDate: null, challanNo: null
     })
   }
+  data.deductees = splitTourSlabRows(db, data.deductees)
   data.deductees.sort((a, b) => a.paymentDate.localeCompare(b.paymentDate) || a.voucherId - b.voucherId)
   data.deductees.forEach((d, i) => (d.serial = i + 1))
   data.totals.amountPaise = data.deductees.reduce((s, d) => s + d.amountPaise, 0)
   return data
+}
+
+/**
+ * s.206C(1G) tour package, FY 2025-26: 27EQ has one rate per collectee row and code O for both
+ * slabs, so a collection that crossed the buyer's ₹10 lakh is written as two rows of the same
+ * entry — the part inside at the lower rate and the part above at the higher, the TCS of the first
+ * rounded to the rupee and the second the rest — and one wholly above the limit is noted. The
+ * split is re-derived from the rate table (resolveTds, excluding the voucher itself), never stored;
+ * a recorded figure the table no longer gives is exported as recorded, with a note.
+ * UNVERIFIED (TCS_UNVERIFIED "tour-27eq-split"). Manual entries are left as recorded.
+ */
+function splitTourSlabRows(db: DB, rows: Form26qData['deductees']): Form26qData['deductees'] {
+  const entry = db.prepare('SELECT section_id AS sectionId, is_manual AS manual FROM tds_entries WHERE id = ?')
+  const out: Form26qData['deductees'] = []
+  for (const r of rows) {
+    if (r.entryId <= 0 || r.rateBp == null || !tcsSlabOn(r.sectionCode, r.paymentDate)) {
+      out.push(r)
+      continue
+    }
+    const e = entry.get(r.entryId) as { sectionId: number; manual: number } | undefined
+    const slab = e && !e.manual ? resolveTds(db, e.sectionId, r.partyLedgerId, r.amountPaise, r.paymentDate, r.voucherId).slab : undefined
+    if (!slab || slab.abovePaise <= 0) {
+      out.push(r)
+      continue
+    }
+    const limit = formatPaise(slab.limitPaise, { symbol: true })
+    if (slab.tcsPaise !== r.tdsPaise) {
+      // An earlier sale changed since this one was saved: the recorded figure stands, flagged.
+      out.push({ ...r, note: `1G slab: recorded ${formatPaise(r.tdsPaise, { symbol: true })}, the slab now gives ${formatPaise(slab.tcsPaise, { symbol: true })} — check` })
+      continue
+    }
+    if (slab.belowPaise <= 0 || slab.certificatePaise > 0) {
+      out.push({ ...r, note: `1G slab: above ${limit} for the year — ${slab.upperRateBp / 100}%` })
+      continue
+    }
+    const lowerTcs = roundToRupee(Math.round((slab.belowPaise * slab.lowerRateBp) / 10000))
+    const split = `1G slab: one collection split at ${limit} (UNVERIFIED)`
+    out.push(
+      { ...r, amountPaise: slab.belowPaise, tdsPaise: lowerTcs, rateBp: slab.lowerRateBp, note: `${split} — part up to the limit` },
+      { ...r, amountPaise: slab.abovePaise, tdsPaise: r.tdsPaise - lowerTcs, rateBp: slab.upperRateBp, note: `${split} — part above the limit` }
+    )
+  }
+  return out
 }
 
 /** Data for Form 27D (TCS certificate, rule 37D; Form 133 under the 2026 Rules) per collectee. */
@@ -244,14 +289,18 @@ export function export27eqCsv(db: DB, slug: string, fyStartYear: number, quarter
   const data = form27eqData(db, fyStartYear, quarter)
   const numbers = db.prepare('SELECT number FROM vouchers WHERE id = ?')
   const challanAmount = new Map(data.challans.map((c) => [c.serial, c.amountPaise]))
+  // The trailing "Note" column (the s.206C(1G) slab rows) appears only when a row carries a note,
+  // so every other quarter's file keeps the exact columns it always had.
+  const withNote = data.deductees.some((r) => r.note)
   let csv = rowsToCsv(
     ['Collectee', 'PAN', 'Collectee Code', 'Section', 'Return Code', 'Date', 'Voucher No', 'Amount (Rs)', 'Rate (%)', 'TCS (Rs)',
-      'Remark', 'Challan BSR', 'Challan Date', 'Challan Serial', 'Challan Amount (Rs)'],
+      'Remark', 'Challan BSR', 'Challan Date', 'Challan Serial', 'Challan Amount (Rs)', ...(withNote ? ['Note'] : [])],
     data.deductees.map((r) => [
       r.partyName, r.pan ?? '', r.deducteeCode, r.sectionCode, r.returnCode ?? '', r.paymentDate,
       (numbers.get(r.voucherId) as { number: string } | undefined)?.number ?? '',
       plainRupees(r.amountPaise), r.rateBp != null ? (r.rateBp / 100).toFixed(2) : '', plainRupees(r.tdsPaise), r.reasonCode,
-      r.bsrCode ?? '', r.challanDate ?? '', r.challanNo ?? '', r.challanSerial != null ? plainRupees(challanAmount.get(r.challanSerial) ?? 0) : ''
+      r.bsrCode ?? '', r.challanDate ?? '', r.challanNo ?? '', r.challanSerial != null ? plainRupees(challanAmount.get(r.challanSerial) ?? 0) : '',
+      ...(withNote ? [r.note ?? ''] : [])
     ])
   )
   if (data.challans.length > 0) {

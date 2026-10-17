@@ -837,6 +837,10 @@ export const tdsChallanFromPaymentSchema = z.object({
 })
 export type TdsChallanFromPaymentInput = z.infer<typeof tdsChallanFromPaymentSchema>
 // WP 3.3 — TCS (the kind-agnostic calls reuse the TDS schemas below)
+/** tcs:statutoryAdd — add the statutory TCS sections a company lacks (src/shared/tcsSources.ts
+ *  TCS_STATUTORY_SECTIONS); no codes = every missing one. */
+export const tcsStatutoryAddSchema = z.object({ codes: z.array(z.string().trim().min(1).max(20)).max(20).optional() }).strict()
+
 export const tcsSuggestSchema = z.object({
   partyLedgerId: id,
   date: isoDate,

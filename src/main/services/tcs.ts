@@ -5,11 +5,14 @@
  * workbench (eligible list, Move to TCS, 27EQ / 27D) is tcsWorkbench.ts.
  */
 import type { DB } from '../db/connection'
-import { fyOf } from '@shared/dates'
+import { fyOf, todayISO } from '@shared/dates'
 import { sectionReferenceOn, thresholdStatus, rateRowOn } from '@shared/withholding'
 import { tcsBasePaise } from '@shared/tcs'
 import { undeductedCreditsBefore } from '@shared/tdsEligibility'
-import { findPayableLedger, resolveTds, type TdsSuggestion } from './tds'
+import { findPayableLedger, listRates, listSections, resolveTds, type TdsSuggestion } from './tds'
+import { TCS_STATUTORY_SECTIONS } from '@shared/tcsSources'
+import type { TdsSection } from '@shared/domain'
+import { writeAudit } from './audit'
 import { buildTcsEventGroups, loadTcsVouchers, tcsContext, tcsPartySectionWalk } from './tcsEvents'
 import { KIND } from './withholdingKind'
 
@@ -59,6 +62,9 @@ export type TcsSuggestion = Omit<TdsSuggestion, 'sectionFrom' | 'candidates'> & 
   sectionFrom: 'party' | 'goods' | 'ledger' | 'chosen' | 'credits'
   candidates: { sectionId: number; code: string; from: 'party' | 'goods' | 'ledger' | 'credits' }[]
   gstInBase: boolean
+  /** s.206C(1G) tour package (FY 2025-26): how the base splits across the ₹10 lakh slab
+   *  (src/shared/tcsSources.ts TCS_SLABS); null for every other section. */
+  slab: { limitPaise: number; priorPaise: number; belowPaise: number; abovePaise: number; lowerRateBp: number; upperRateBp: number } | null
 }
 
 /**
@@ -147,7 +153,9 @@ export function tcsSuggestion(db: DB, input: TcsSuggestInput): TcsSuggestion | n
   if (!resolved.rate || resolved.tdsPaise == null) return null
   const status = thresholdStatus(resolved.rate.row, input.date, base, resolved.priorPaise)
   const payable = findPayableLedger(db, sectionId)
-  const effectiveBp = resolved.rate.basis === 'certificate' ? resolved.rate.certificateRateBp! : resolved.rate.rateBp
+  const effectiveBp = resolved.slab && resolved.slab.abovePaise > 0
+    ? resolved.slab.upperRateBp
+    : resolved.rate.basis === 'certificate' ? resolved.rate.certificateRateBp! : resolved.rate.rateBp
   const cert = resolved.rate.certificateId != null
     ? (db.prepare('SELECT id, certificate_no, rate_bp, valid_to FROM tds_certificates WHERE id = ?').get(resolved.rate.certificateId) as
       { id: number; certificate_no: string; rate_bp: number; valid_to: string })
@@ -175,6 +183,75 @@ export function tcsSuggestion(db: DB, input: TcsSuggestInput): TcsSuggestion | n
     sectionFrom,
     candidates,
     payment,
-    gstInBase: !!row.baseIncludesGst && input.voucherKind === 'sales'
+    gstInBase: !!row.baseIncludesGst && input.voucherKind === 'sales',
+    slab: resolved.slab
+      ? {
+          limitPaise: resolved.slab.limitPaise, priorPaise: resolved.priorPaise, belowPaise: resolved.slab.belowPaise,
+          abovePaise: resolved.slab.abovePaise, lowerRateBp: resolved.slab.lowerRateBp, upperRateBp: resolved.slab.upperRateBp
+        }
+      : null
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Statutory sections a company can add (s.206C(1C) — src/shared/tcsSources.ts)
+// ---------------------------------------------------------------------------------------------
+
+export interface TcsStatutoryStatus {
+  code: string
+  description: string
+  legacyCode: string
+  newReference: string
+  /** The company's section of that code, or null when it has none yet. */
+  sectionId: number | null
+}
+
+/** Each statutory section of TCS_STATUTORY_SECTIONS and whether the company has it (by code). */
+export function statutoryTcsSections(db: DB): TcsStatutoryStatus[] {
+  const have = new Map(listSections(db, 'tcs').map((s) => [s.code, s.id]))
+  return TCS_STATUTORY_SECTIONS.map((s) => ({
+    code: s.code, description: s.description, legacyCode: s.legacyCode, newReference: s.newReference, sectionId: have.get(s.code) ?? null
+  }))
+}
+
+/**
+ * Add the statutory sections the company lacks (all of them, or only `codes`) with their cited,
+ * effective-dated rate rows — base incl. GST like every WP 3.3 row (UNVERIFIED for 1C, listed in
+ * tcsSources.ts). No migration: an owner action that writes the same rows the Sections editor
+ * would, each audited (tdsSection / tdsRate create). Idempotent — a code the company already has
+ * (seeded, added before, or made by hand) is left alone. Returns the sections created.
+ */
+export function addStatutoryTcsSections(db: DB, codes?: readonly string[]): TdsSection[] {
+  const wanted = codes ? new Set(codes) : null
+  const unknown = codes?.filter((c) => !TCS_STATUTORY_SECTIONS.some((s) => s.code === c)) ?? []
+  if (unknown.length > 0) throw new Error(`Not a statutory TCS section Total can add: ${unknown.join(', ')}`)
+  return db.transaction(() => {
+    const have = new Set((db.prepare('SELECT code FROM tds_sections').all() as { code: string }[]).map((r) => r.code))
+    const created: TdsSection[] = []
+    const today = todayISO()
+    for (const def of TCS_STATUTORY_SECTIONS) {
+      if ((wanted && !wanted.has(def.code)) || have.has(def.code)) continue
+      // The legacy rate column mirrors the row in force today (else the latest row), as saveRate keeps it.
+      const now = def.rates.find((r) => r.effectiveFrom <= today && (r.effectiveTo == null || today <= r.effectiveTo)) ?? def.rates[def.rates.length - 1]!
+      const res = db.prepare(
+        `INSERT INTO tds_sections (code, description, rate, threshold_single, threshold_annual, nature, act, legacy_code, new_reference, kind)
+         VALUES (?, ?, ?, 0, 0, ?, 'it_act_1961', ?, ?, 'tcs')`
+      ).run(def.code, def.description, now.rateBp / 100, def.nature, def.legacyCode, def.newReference)
+      const sectionId = Number(res.lastInsertRowid)
+      const section = listSections(db, 'tcs').find((s) => s.id === sectionId)!
+      writeAudit(db, 'tdsSection', sectionId, 'create', null, { ...section, via: 'tcs:statutoryAdd' })
+      for (const r of def.rates) {
+        const rr = db.prepare(
+          `INSERT INTO tds_section_rates (section_id, effective_from, effective_to, deductee_type, rate_bp,
+             threshold_single_paise, threshold_annual_paise, threshold_basis, threshold_excess_only, return_code, no_pan_rate_bp,
+             base_includes_gst, source)
+           VALUES (?, ?, ?, 'any', ?, 0, 0, 'fy', 0, ?, ?, 1, ?)`
+        ).run(sectionId, r.effectiveFrom, r.effectiveTo, r.rateBp, r.returnCode, r.noPanRateBp, r.source)
+        const rateId = Number(rr.lastInsertRowid)
+        writeAudit(db, 'tdsRate', rateId, 'create', null, listRates(db, sectionId).find((x) => x.id === rateId)!)
+      }
+      created.push(section)
+    }
+    return created
+  })()
 }

@@ -38,7 +38,12 @@ export function deducteeReturnColumns(kind: WithholdingKind) {
   { id: 'reason', header: kind === 'tcs' ? 'Remark' : 'Reason', kind: 'text', value: (r) => r.reasonCode, width: kind === 'tcs' ? 150 : 104, text: (r) => reasons[r.reasonCode] ?? '—' },
   { id: 'challanSerial', header: 'Challan #', kind: 'number', value: (r) => r.challanSerial, width: 100, text: (r) => (r.challanSerial == null ? 'None' : String(r.challanSerial)) },
   { id: 'bsr', header: 'BSR', kind: 'text', value: (r) => r.bsrCode, width: 90, className: 'num', defaultHidden: true },
-  { id: 'challanDate', header: 'Challan date', kind: 'date', value: (r) => r.challanDate, defaultHidden: true }
+  { id: 'challanDate', header: 'Challan date', kind: 'date', value: (r) => r.challanDate, defaultHidden: true },
+  ...(kind === 'tcs'
+    ? defineColumns<Form26qDeducteeRow>([
+        { id: 'note', header: 'Note', kind: 'text', value: (r) => r.note ?? null, minWidth: 200, text: (r) => r.note ?? '', className: 'text-muted' }
+      ])
+    : [])
   ])
 }
 
@@ -146,7 +151,7 @@ export function ReturnsTab({ fyStartYear, initialQuarter, kind = 'tds' }: { fySt
           columns={deducteeCols}
           rows={data?.deductees ?? []}
           loading={isLoading}
-          rowKey={(r) => r.entryId}
+          rowKey={(r) => r.serial}
           maxHeight="50vh"
           empty={{ title: `No ${w.noun}s in ${label}` }}
           exportOptions={{ title: `Form ${returnName} ${w.party.toLowerCase()}s`, periodLabel: label, filename: `${k}-${tcs ? '27eq' : '26q'}-${w.party.toLowerCase()}s-${fyStartYear}-q${quarter}` }}
