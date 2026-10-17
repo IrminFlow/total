@@ -23,6 +23,8 @@ is why wall time varied 3x. Run 3 is the closest to a quiet machine.
    named `NN-<report title>.pdf` (`packFileBase`, #150 "pack file names"), but the scenario still looked for
    `sales-by-party-by-month.pdf`. Fixed in the scenario: it matches `\d\d-Sales by party by month.pdf`.
    Passes 5/5 (13.9-15.9 s).
+   Update: main fixed the same regression meanwhile (#154, a title-based regex); this PR dropped its duplicate
+   fix and keeps main's version of the scenario.
 2. **12-theme-a11y — 127 s / 300 s (killed by the runner) / 116 s.** Not a race: one scenario did the
    whole classic sweep (every sidebar screen x 2 themes, 12 Tab stops + Options drawer each) AND the whole
    simple-shell sweep (WP 10.5, 4 theme/size combinations + toast layout), about two minutes of work on a
