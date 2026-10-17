@@ -171,6 +171,40 @@ export function taxFactsFrom(value: unknown): VoucherTaxFacts | null {
   }
 }
 
+/**
+ * What a re-save changed in a voucher's snapshot (review of #172): the party facts are not in the
+ * editor's form, so saving an old bill after the customer moved state or changed GSTIN would move
+ * its place of supply in GSTR-1 silently — saveVoucher reports these as a warning. Line facts are
+ * compared per line only while the line count is unchanged (an edit that adds or removes lines
+ * changed the bill itself). Plain sentences, one per changed fact.
+ */
+export function taxFactsDiff(before: VoucherTaxFacts, after: VoucherTaxFacts): string[] {
+  const out: string[] = []
+  const show = (x: string | number | null): string => (x === null || x === '' ? 'none' : String(x))
+  const pct = (x: number | null): string => (x === null ? 'none' : `${x} %`)
+  const p0 = before.party
+  const p1 = after.party
+  if (p0.gstin !== p1.gstin) out.push(`party GSTIN ${show(p0.gstin)} → ${show(p1.gstin)}`)
+  if (p0.state !== p1.state) out.push(`party state ${show(p0.state)} → ${show(p1.state)}`)
+  if (p0.exportType !== p1.exportType) out.push(`SEZ / export type ${show(p0.exportType)} → ${show(p1.exportType)}`)
+  if ((p0.rcm ?? 0) !== (p1.rcm ?? 0)) out.push(`reverse charge ${p0.rcm ? 'on' : 'off'} → ${p1.rcm ? 'on' : 'off'}`)
+  const lines = (label: string, a: LineTaxFacts[], b: LineTaxFacts[]): void => {
+    if (a.length !== b.length) return
+    a.forEach((l0, i) => {
+      const l1 = b[i]!
+      if (l0.gstRate !== l1.gstRate) out.push(`${label} ${i + 1} GST rate ${pct(l0.gstRate)} → ${pct(l1.gstRate)}`)
+      if (l0.cessRate !== l1.cessRate) out.push(`${label} ${i + 1} cess ${pct(l0.cessRate)} → ${pct(l1.cessRate)}`)
+      if (l0.hsn !== l1.hsn) out.push(`${label} ${i + 1} HSN ${show(l0.hsn)} → ${show(l1.hsn)}`)
+    })
+  }
+  lines('item line', before.inventory, after.inventory)
+  lines('account line', before.lines, after.lines)
+  return out
+}
+
+/** The voucher kinds whose GST facts the returns, e-documents and prints read. */
+export const TAX_FACT_KINDS: ReadonlySet<string> = new Set(['sales', 'purchase', 'credit_note', 'debit_note'])
+
 /** A snapshotted voucher's party class (the columns of `partySnapSql`). */
 export interface PartySnap { gstin: string | null; state: string | null; exportType: string | null; rcm: number }
 
