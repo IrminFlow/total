@@ -116,7 +116,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Historical documents depend on mutable masters (item / ledger rates, HSN, party class): changing a master can change an old return or print; snapshot tax facts per document — GPT review, `services/gst.ts`, `services/edocs.ts`
 - Invoice calc rounds tax per rate group, return extraction per line (paise can differ); percentages and FX use float intermediates — GPT review, `shared/voucherEdit/invoice.ts`, `shared/money.ts`
 - An IRN doesn't freeze amount / party edits and binning doesn't cancel the IRN; needs a correction workflow (24 h cancel window) — GPT review, `services/vouchers.ts`
-- e-invoice applicability needs a business profile (PAN-wide turnover, ₹5 cr mandate, 30-day rule at ₹10 cr) — GPT review, `shared/compliance.ts`
+- ~~e-invoice applicability needs a business profile (PAN-wide turnover, ₹5 cr mandate, 30-day rule at ₹10 cr) — GPT review, `shared/compliance.ts`~~ DONE — PR #PRNUM (`shared/gst/einvoiceApplicability.ts`; UNVERIFIED list there)
 - Advance GST treats any new receipt reference from a rate-tagged party as a taxable advance (goods advances are generally exempt under N. 66/2017) — GPT review, `services/gst.ts` extractAdvances
 - MSME deadlines run from the bill date; the law uses acceptance / deemed acceptance — GPT review, `shared/payables/msme.ts`
 - Several rate-less lines at different true rates in one voucher get one blended rate (flagged off-slab); discounts debited to a ledger under Sales Accounts are ignored in the taxable value — PR #93
