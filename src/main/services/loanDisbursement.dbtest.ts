@@ -7,6 +7,7 @@ import type { DB } from '../db/connection'
 import { createLedger, getLedger } from './masters'
 import { deleteVoucher, getVoucher, purgeVoucher, restoreVoucher, saveVoucher, setLockDate } from './vouchers'
 import { trialBalance } from './reports'
+import { readCompanyInfo, writeCompanyInfo } from '../db/seed'
 import { addPrepayment, deleteLoan, getLoan, postEmi, recordDisbursement, saveLoan } from './loans'
 import type { VoucherInput } from '@shared/schemas'
 
@@ -133,6 +134,27 @@ describe('Record the disbursement — a loan taken before the books began', () =
     postEmi(db, { scheduleId: d.schedule[2]!.id })
     const l = getLoan(db, d.loan.id, '2025-04-30').loan
     expect(l.ledgerBalance).toBe(d.schedule[2]!.closing)
+  })
+
+  it('the opening is the hand-worked outstanding: ₹1,00,000 at 1 % a month, EMI ₹8,884.88', () => {
+    const { d } = books({ disbursedOn: '2025-01-10', firstDueDate: '2025-02-10' })
+    // Feb: interest ₹1,000.00, principal 8,884.88 − 1,000 = ₹7,884.88 → ₹92,115.12.
+    // Mar: interest 1 % of 92,115.12 = ₹921.15, principal ₹7,963.73 → ₹84,151.39 (the opening).
+    expect(d.schedule.slice(0, 2).map((r) => [r.interest, r.principal, r.closing])).toEqual([[1_000_00, 7_884_88, 92_115_12], [921_15, 7_963_73, 84_151_39]])
+    expect(d.loan.disbursementAmount).toBe(84_151_39)
+  })
+
+  it('refuses while an instalment due before the books is posted (it would count twice)', () => {
+    const { db, loanLedger, d } = books({ disbursedOn: '2025-01-10', firstDueDate: '2025-02-10' })
+    // Post EMI had no before-the-books rule: an instalment posted then is still live.
+    const info = readCompanyInfo(db)
+    writeCompanyInfo(db, { ...info, booksBeginDate: '2024-04-01' })
+    const feb = postEmi(db, { scheduleId: d.schedule[0]!.id })
+    writeCompanyInfo(db, info)
+    expect(() => recordDisbursement(db, { loanId: d.loan.id })).toThrow(/#1 .*before the books began.*bin first/)
+    expect(getLedger(db, loanLedger)!.openingBalance).toBe(0)
+    deleteVoucher(db, feb.voucherId!)
+    expect(recordDisbursement(db, { loanId: d.loan.id }).loan.disbursement).toEqual({ mode: 'opening', amount: 84_151_39 })
   })
 
   it('refuses when the loan ledger already carries an opening on the other side', () => {

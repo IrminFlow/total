@@ -392,7 +392,14 @@ export function recordDisbursement(db: DB, raw: LoanDisbursementInput): LoanDeta
       if (ledger.openingBalance !== 0) {
         throw new Error(`${ledger.name} already has an opening balance of ${formatPaise(Math.abs(ledger.openingBalance), { symbol: true })} Dr — change it in the ledger itself`)
       }
-      const amount = disbursementAmountOf(loan, scheduleRows(db, loan.id).map(mapSchedule), begin)
+      // An instalment due before the books that is already posted (Post EMI allowed it before this
+      // rule) would be counted twice — in the opening and by its own voucher.
+      const rows = scheduleRows(db, loan.id).map(mapSchedule)
+      const early = rows.filter((r) => r.posted && r.dueDate < begin)
+      if (early.length) {
+        throw new Error(`Instalment${early.length === 1 ? '' : 's'} ${early.map((r) => `#${r.seq} (voucher ${r.voucherNumber})`).join(', ')} fell due before the books began (${toDisplayDate(begin)}) and ${early.length === 1 ? 'is' : 'are'} posted — the opening already includes ${early.length === 1 ? 'it' : 'them'}; move ${early.length === 1 ? 'that voucher' : 'those vouchers'} to the bin first`)
+      }
+      const amount = disbursementAmountOf(loan, rows, begin)
       updateLedger(db, ledger.id, ledgerInputSchema.parse({ ...ledger, openingBalance: -amount }))
       writeAudit(db, 'loan', loan.id, 'update', { disbursement: null }, { disbursement: { mode: 'opening', ledgerId: ledger.id, amount, asOf: begin } })
       return
