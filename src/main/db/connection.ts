@@ -96,6 +96,21 @@ export function closeCompanyDb(db: DB): void {
 
 const MAX_BACKUPS = 20
 
+/** meta key: the names of open backups still waiting for their quick_check verdict (JSON array;
+ *  services/backupOpen.ts writes it). */
+export const OPEN_BACKUP_UNVERIFIED_KEY = 'backup.openUnverified'
+
+export function unverifiedOpenBackups(db: DB): string[] {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(OPEN_BACKUP_UNVERIFIED_KEY) as { value: string } | undefined
+  if (!row) return []
+  try {
+    const v = JSON.parse(row.value) as unknown
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
 /** Where a backup tagged `tag` taken now goes. */
 export const backupDestFor = (slug: string, tag: string): string => join(companyBackupsDir(slug), `${backupStamp()}-${tag}.db`)
 
@@ -115,7 +130,7 @@ export async function backupCompany(db: DB, slug: string, tag = 'auto', auditUse
     rmSync(dest, { force: true })
     throw new Error('Backup verification failed (quick_check) — the snapshot was discarded')
   }
-  stashAndAuditBackup(db, slug, dest, tag, auditUser, { beforeAudit: () => pruneCompanyBackups(slug) })
+  stashAndAuditBackup(db, slug, dest, tag, auditUser, { beforeAudit: () => pruneCompanyBackups(slug, db) })
   return dest
 }
 
@@ -145,8 +160,9 @@ export function stashAndAuditBackup(db: DB, slug: string, dest: string, tag: str
 /** Keep the newest MAX_BACKUPS (only automatic ones are ever removed), and drop the attachment
  *  copies no remaining backup needs. Run only after a backup that just passed its quick_check —
  *  a copy that did not (or has not yet) must never push a good one out of the window. */
-export function pruneCompanyBackups(slug: string): void {
-  pruneBackupsIn(companyBackupsDir(slug), MAX_BACKUPS)
+export function pruneCompanyBackups(slug: string, db?: DB): void {
+  // PR #175 review: open backups still waiting for their verdict do not take a slot.
+  pruneBackupsIn(companyBackupsDir(slug), MAX_BACKUPS, new Set(db ? unverifiedOpenBackups(db) : []))
   try {
     pruneBackupAttachmentStore(companyBackupsDir(slug), companyBackupAttachmentsDir(slug))
   } catch {

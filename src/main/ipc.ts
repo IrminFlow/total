@@ -329,6 +329,8 @@ export function scheduleBackupCheck(db: DB, dest: string, tag: string): void {
 interface OpenFollowUp {
   db: DB
   dest: string
+  /** The copy whose quick_check runs now (the open's own, or an earlier one being re-checked). */
+  checking: string
   cancelled: boolean
   done: Promise<OpenBackupSettled | null>
 }
@@ -345,7 +347,9 @@ async function cancelOpenFollowUp(): Promise<void> {
   const f = openFollowUp
   if (!f) return
   f.cancelled = true
-  await stopChecks(f.dest)
+  // PR #175 review: the check running may be the re-check of an EARLIER copy, not this open's.
+  await Promise.all([stopChecks(f.dest), f.checking !== f.dest ? stopChecks(f.checking) : undefined])
+  await f.done
 }
 
 /** The signed-in user's view of themselves (auth:login / auth:current): role, flags and the
@@ -1166,12 +1170,12 @@ export function registerIpc(): void {
    *  on-open housekeeping — company:open, and the passphrase on / off flows that reopen the file. */
   /** The open backup's second half, after company:open replied (see openCompanyNow). */
   function startOpenFollowUp(db: DB, slug: string, dest: string): void {
-    const f: OpenFollowUp = { db, dest, cancelled: false, done: Promise.resolve(null) }
+    const f: OpenFollowUp = { db, dest, checking: dest, cancelled: false, done: Promise.resolve(null) }
     const stillCurrent = (): boolean => !f.cancelled && current?.db === db
     f.done = new Promise<void>((r) => setImmediate(r)).then(async () => {
       const t0 = performance.now()
       try {
-        const settled = await settleOpenBackup(db, slug, dest, { stillCurrent })
+        const settled = await settleOpenBackup(db, slug, dest, { stillCurrent, onCheck: (p) => { f.checking = p } })
         if (TRACE_IPC) console.log(`[ipc] (after reply) open backup check ${settled.verdict} ${(performance.now() - t0).toFixed(0)} ms`)
         if (settled.verdict === 'damaged') log('warn', 'backup-on-open-failed', { slug, error: 'quick_check failed — the snapshot was discarded' })
         else if (settled.verdict === 'unverified') log('warn', 'backup-on-open-unverified', { slug, file: basename(dest) })

@@ -21,7 +21,7 @@
 import { existsSync, rmSync } from 'fs'
 import { basename, join } from 'path'
 import type { DB } from '../db/connection'
-import { backupDestFor, pruneCompanyBackups, stashAndAuditBackup } from '../db/connection'
+import { OPEN_BACKUP_UNVERIFIED_KEY, backupDestFor, pruneCompanyBackups, stashAndAuditBackup, unverifiedOpenBackups } from '../db/connection'
 import { snapshotTo, tagOf } from '../db/backup'
 import { CheckStoppedError, pragmaCheck } from '../db/checkHost'
 import { isEncryptedFile, keyOfHandle } from '../db/encryption'
@@ -29,21 +29,9 @@ import { companyBackupsDir } from '../paths'
 import { recordBackupCheck } from './backupVerify'
 import type { BackupCheck } from '@shared/backupCheck'
 
-/** meta key: the names of open backups still waiting for their quick_check verdict (JSON array). */
-export const OPEN_BACKUP_UNVERIFIED_KEY = 'backup.openUnverified'
+export { OPEN_BACKUP_UNVERIFIED_KEY, unverifiedOpenBackups }
 
 export type OpenBackupVerdict = 'ok' | 'damaged' | 'unverified' | 'stopped'
-
-export function unverifiedOpenBackups(db: DB): string[] {
-  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(OPEN_BACKUP_UNVERIFIED_KEY) as { value: string } | undefined
-  if (!row) return []
-  try {
-    const v = JSON.parse(row.value) as unknown
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
-  } catch {
-    return []
-  }
-}
 
 function writeUnverified(db: DB, files: string[]): void {
   if (files.length === 0) db.prepare('DELETE FROM meta WHERE key = ?').run(OPEN_BACKUP_UNVERIFIED_KEY)
@@ -107,11 +95,12 @@ export interface OpenBackupSettled {
 /** The half after the reply: the verdict on `dest` (and on any earlier copy still unverified),
  *  then the prune — only on ok. `stillCurrent` is asked after every wait: once it says no (the
  *  company closed, a restore / delete / lock change began) nothing more is written or removed. */
-export async function settleOpenBackup(db: DB, slug: string, dest: string, opts: { stillCurrent: () => boolean }): Promise<OpenBackupSettled> {
+export async function settleOpenBackup(db: DB, slug: string, dest: string, opts: { stillCurrent: () => boolean; onCheck?: (path: string) => void }): Promise<OpenBackupSettled> {
   const live = (): boolean => db.open && opts.stillCurrent()
   const out: OpenBackupSettled = { verdict: 'stopped', pruned: false, rechecked: [] }
   if (!live()) return out
   const key = keyOfHandle(db)
+  opts.onCheck?.(dest)
   const own = await quickCheckVerdict(dest, key)
   out.verdict = own.verdict
   if (!live()) {
@@ -131,6 +120,7 @@ export async function settleOpenBackup(db: DB, slug: string, dest: string, opts:
       clearUnverified(db, file)
       continue
     }
+    opts.onCheck?.(path)
     const r = await quickCheckVerdict(path, isEncryptedFile(path) ? key : null)
     if (!live()) return out
     out.rechecked.push({ file, verdict: r.verdict })
@@ -142,7 +132,7 @@ export async function settleOpenBackup(db: DB, slug: string, dest: string, opts:
     }
   }
   if (own.verdict === 'ok' && live()) {
-    pruneCompanyBackups(slug)
+    pruneCompanyBackups(slug, db)
     out.pruned = true
   }
   return out

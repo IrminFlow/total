@@ -89,19 +89,19 @@ async function until(cond: () => boolean, ms = 10_000): Promise<void> {
   }
 }
 
-let ipc: typeof import('./ipc')
-let checkHost: typeof import('./db/checkHost')
-let backupOpen: typeof import('./services/backupOpen')
-let vouchers: typeof import('./services/vouchers')
+// IPC dbtests import ./ipc at COLLECTION, never inside beforeAll (WP 7.3: the import was ~95 % of the
+// hook and broke the 10 s hookTimeout on Windows).
+const ipc = await import('./ipc')
+const checkHost = await import('./db/checkHost')
+const backupOpen = await import('./services/backupOpen')
+const vouchers = await import('./services/vouchers')
+const encryption = await import('./db/encryption')
+const { newDataKey } = await import('./db/keyEnvelope')
 
-beforeAll(async () => {
-  ipc = await import('./ipc')
-  checkHost = await import('./db/checkHost')
-  backupOpen = await import('./services/backupOpen')
-  vouchers = await import('./services/vouchers')
+beforeAll(() => {
   ipc.registerIpc()
   checkHost.setCheckWorkerFile(WORKER)
-}, 120_000)
+})
 
 afterEach(async () => {
   // Let nothing from one case run into the next.
@@ -136,7 +136,7 @@ async function prepared(name: string): Promise<string> {
   d.prepare("UPDATE vouchers SET number = 'J-OLD', deleted_at = datetime('now', '-40 days') WHERE id = ?").run(v.id)
   d.close()
   // 21 older automatic backups, oldest first (the prune goes by mtime).
-  const seedCopy = join(backupsDir(slug), allBackups(slug)[0])
+  const seedCopy = join(backupsDir(slug), allBackups(slug)[0]!)
   for (let i = 0; i < 21; i++) {
     const f = join(backupsDir(slug), `2020-01-${String(i + 1).padStart(2, '0')}T00-00-00-auto.db`)
     copyFileSync(seedCopy, f)
@@ -289,6 +289,87 @@ describe('company:open waits for the snapshot only (to-do §4)', () => {
     expect(await pending).toMatchObject({ verdict: 'stopped' })
     expect(checkHost.runningChecks(path)).toBe(0)
     expect(existsSync(join(DATA_DIR, 'companies', slug))).toBe(false)
+  }, 60_000)
+})
+
+describe('PR #175 review', () => {
+  it('a backup taken while the open copy waits for its verdict does not count that copy toward the 20', async () => {
+    const slug = await prepared('Manual During Check')
+    await sleep(1100)
+    const before = allBackups(slug).length // 1 open (setup) + 21 auto
+    await ok('company:open', { slug })
+    const file = newestOpen(slug)
+    await until(() => asked(file))
+    // A manual backup now prunes the automatic ones past the window — the pending open copy is
+    // kept without taking a slot, so only before + 2 - 21 (20 counted + the pending one) are kept.
+    const run = ok('backup:run')
+    // backupCompany's own quick_check of the manual copy (the stand-in waits for every backups/ file).
+    await until(() => readdirSync(CTL).some((f) => f.endsWith('-manual.db.asked')))
+    verdict(readdirSync(CTL).find((f) => f.endsWith('-manual.db.asked'))!.replace(/\.asked$/, ''), 'ok')
+    await run
+    expect(allBackups(slug)).toContain(file)
+    expect(allBackups(slug).length).toBe(21)
+    expect(before + 2 - allBackups(slug).length).toBe(3)
+    verdict(file, 'ok')
+    expect(await ipc.pendingOpenFollowUp()).toMatchObject({ verdict: 'ok', pruned: true })
+    expect(allBackups(slug).length).toBe(20)
+    expect(allBackups(slug)).toContain(file)
+    ipc.closeCurrentCompany()
+  }, 60_000)
+
+  it('a new open stops the re-check of an EARLIER copy too, and the stale run writes nothing', async () => {
+    const slug = await prepared('Reopen During Recheck')
+    await sleep(1100)
+    await ok('company:open', { slug })
+    const first = newestOpen(slug)
+    await until(() => asked(first))
+    ipc.closeCurrentCompany()
+    verdict(first, 'ok') // the closed open's late answer
+    expect(await ipc.pendingOpenFollowUp()).toMatchObject({ verdict: 'stopped' })
+    rmSync(join(CTL, `${first}.verdict`))
+    rmSync(join(CTL, `${first}.asked`))
+    await sleep(1100)
+    await ok('company:open', { slug })
+    const second = newestOpen(slug)
+    await until(() => asked(second))
+    verdict(second, 'ok')
+    await until(() => asked(first)) // the earlier copy's re-check is running
+    const firstPath = join(backupsDir(slug), first)
+    expect(checkHost.runningChecks(firstPath)).toBe(1)
+    await sleep(1100)
+    await ok('company:open', { slug }) // reopen: the second open's follow-up is cancelled
+    expect(checkHost.runningChecks(firstPath)).toBe(0)
+    const third = newestOpen(slug)
+    expect(unverified(slug)).toEqual(expect.arrayContaining([first, third]))
+    await until(() => asked(third))
+    verdict(third, 'ok')
+    verdict(first, 'ok') // the third open re-checks the earlier copy again
+    const settled = await ipc.pendingOpenFollowUp()
+    expect(settled).toMatchObject({ verdict: 'ok', pruned: true })
+    ipc.closeCurrentCompany()
+    expect(unverified(slug)).toEqual([])
+  }, 60_000)
+
+  it('an encrypted copy checked without its key, or with a wrong one, is "could not finish" — never damaged, never removed', async () => {
+    const worker = checkHost.checkWorkerFile()
+    checkHost.setCheckWorkerFile(null) // the in-process check: the real driver's answer
+    try {
+      const dir = mkdtempSync(join(tmpdir(), 'total-openwait-enc-'))
+      const plain = testFileDb(join(dir, 'plain.db'))
+      plain.exec('CREATE TABLE t (x); INSERT INTO t VALUES (1)')
+      const key = newDataKey()
+      const copy = join(dir, 'copy.db')
+      encryption.copyWithKey(plain, copy, key)
+      plain.close()
+      expect(encryption.isEncryptedFile(copy)).toBe(true)
+      expect(await backupOpen.quickCheckVerdict(copy, key)).toMatchObject({ verdict: 'ok' })
+      expect((await backupOpen.quickCheckVerdict(copy, null)).verdict).toBe('unverified')
+      expect((await backupOpen.quickCheckVerdict(copy, newDataKey())).verdict).toBe('unverified')
+      expect(existsSync(copy)).toBe(true)
+      rmSync(dir, { recursive: true, force: true })
+    } finally {
+      checkHost.setCheckWorkerFile(worker)
+    }
   }, 60_000)
 })
 
