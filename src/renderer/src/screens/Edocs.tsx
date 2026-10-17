@@ -7,7 +7,8 @@ import { SelfInvoiceOptions, SelfInvoicesTab } from './gst/SelfInvoicesTab'
 import { OptionsExport, OptionsPeriod, OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import type { EdocListRow } from '@shared/reports'
-import { gstPeriodOf, toDisplayDate } from '@shared/dates'
+import { gstPeriodOf, toDisplayDate, todayISO } from '@shared/dates'
+import { EINVOICE_APPLICABILITY_UNVERIFIED, irpDaysLeft, irpLastReportingDay, reportingWindowApplies } from '@shared/gst/einvoiceApplicability'
 import { TransportModal } from './voucher/TransportModal'
 import { LedgerLink } from '../components/links'
 import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../lib/capabilities'
@@ -140,6 +141,42 @@ export const EDOC_COLUMNS = defineColumns<EdocListRow>([
   }
 ])
 
+/** To-do §4: the IRP accepts an e-invoice only within 30 days of its date (GSTN advisory,
+ *  AATO ≥ ₹10 crore, from 1 April 2025 — shared/gst/einvoiceApplicability.ts). While the
+ *  switch is on and the profile's turnover puts the business there, an invoice / note to a
+ *  registered buyer without an IRN shows how many days are left. A chip only — nothing stored. */
+export function irpCountdown(r: EdocListRow, windowFor: (date: string) => boolean, today: string): { days: number; text: string } | null {
+  if (r.irn || r.docType === 'CHL' || !r.partyGstin || !windowFor(r.date)) return null
+  const days = irpDaysLeft(r.date, today)
+  const text = days < 0 ? '30-day IRP window passed' : days === 0 ? 'Report to the IRP today' : `Report to the IRP in ${days} day${days === 1 ? '' : 's'}`
+  return { days, text }
+}
+
+export function edocColumnsWithIrpWindow(windowFor: ((date: string) => boolean) | null, today: string): typeof EDOC_COLUMNS {
+  if (!windowFor) return EDOC_COLUMNS
+  return EDOC_COLUMNS.map((c) => {
+    if (c.id !== 'irnEwb') return c
+    const base = c.cell!
+    return {
+      ...c,
+      width: 190,
+      cell: (r: EdocListRow) => {
+        const cd = irpCountdown(r, windowFor, today)
+        return (
+          <>
+            {base(r)}
+            {cd && (
+              <span className="ml-1" title={`Last day ${toDisplayDate(irpLastReportingDay(r.date))} — GSTN advisory 5 Nov 2024 (AATO ₹10 crore and above). ${EINVOICE_APPLICABILITY_UNVERIFIED[1]}`}>
+                <Badge tone={cd.days < 0 ? 'danger' : cd.days <= 7 ? 'warning' : 'neutral'} testId={`chip-irp-window-${r.voucherId}`}>{cd.text}</Badge>
+              </span>
+            )}
+          </>
+        )
+      }
+    }
+  })
+}
+
 /** Per-session "don't ask again" for the live-API confirm gate — module-level so it survives
  *  remounts of this screen but resets on app restart (never persisted to disk). */
 let liveApiConfirmed = false
@@ -213,6 +250,14 @@ function EdocsDocuments(): React.JSX.Element {
   )
   const period = gstPeriodOf(to)
   const live = nicStatus?.configured ?? false
+  // To-do §4: the IRP 30-day countdown — only while the switch is on (einvoiceStatus.enabled).
+  const { data: einvoiceStatus } = useQuery({ queryKey: ['einvoiceStatus'], queryFn: api.gst.einvoiceStatus })
+  const { data: gstProfile } = useQuery({ queryKey: ['gstProfile'], queryFn: api.gstProfile.get, enabled: einvoiceStatus?.enabled === true })
+  const today = todayISO()
+  const columns = useMemo(
+    () => edocColumnsWithIrpWindow(einvoiceStatus?.enabled && gstProfile?.turnover ? (date: string) => reportingWindowApplies(gstProfile.turnover, date) : null, today),
+    [einvoiceStatus?.enabled, gstProfile, today]
+  )
 
   // to-do §4: the e-invoice JSON for part of the period (blank = the period's own first / last day).
   const [einvFrom, setEinvFrom] = useState('')
@@ -379,7 +424,7 @@ function EdocsDocuments(): React.JSX.Element {
           viewId="edocs"
           testId="edocs"
           ariaLabel="e-Invoice and e-way bill documents"
-          columns={EDOC_COLUMNS}
+          columns={columns}
           rows={rows}
           rowKey={(r) => r.voucherId}
           rowAttrs={(r) => ({ 'data-row-id': r.voucherId })}

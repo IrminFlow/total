@@ -664,7 +664,8 @@ import type { BackupCheck } from '@shared/backupCheck'
 import type { SecurityChangeResult, SecurityView } from '@shared/security'
 import type { Capability, CapabilityFlags } from '@shared/capabilities'
 import type { OpeningsResult, OpeningsState, SimpleOpeningsInput } from '@shared/simple/openings'
-import type { GstProfile } from '@shared/gst/filing'
+import type { GstProfile, GstProfilePatch } from '@shared/gst/filing'
+import type { EinvoiceStatus } from '@shared/compliance'
 import type { UpdateAction, UpdateCheckResult, UpdateNotice, UpdatesView } from '@shared/updates'
 import type { DataFolderMoved, DataFolderPick, DataFolderView } from '@shared/dataFolder'
 /** A failed IPC call (WP 8.5): `message` is the service's wording, unchanged; the structured
@@ -818,7 +819,8 @@ export const api = {
   /** WP 8.3: GSTR-1 filing frequency (meta `gstProfile`; missing = monthly). `set` is owner-only. */
   gstProfile: {
     get: () => call<GstProfile>('gstProfile:get'),
-    set: (p: GstProfile) => call<GstProfile>('gstProfile:set', p)
+    /** A patch (absent = keep, null = clear) — filing, and the e-invoice turnover / exemption. */
+    set: (p: GstProfilePatch) => call<GstProfile>('gstProfile:set', p)
   },
   /** WP 9.6: the simple Bank screen — accounts, one bank's lines with suggestions + the sentence's
    *  facts, and accepting lines (each its own transaction; failures come back per line). */
@@ -1127,6 +1129,9 @@ export const api = {
      *  the books' history, read live; nothing is stored on a read). `setEinvoicing` is owner-only, audited. */
     einvoicing: () => call<{ enabled: boolean }>('gst:einvoicing'),
     setEinvoicing: (enabled: boolean) => call<{ enabled: boolean }>('einvoicing:set', { enabled }),
+    /** To-do §4: the business profile's e-invoice applicability (shared/gst/einvoiceApplicability.ts),
+     *  the switch, the "turn it on" notice and the IRP 30-day window. Read-only. */
+    einvoiceStatus: () => call<EinvoiceStatus>('gst:einvoiceStatus'),
     get3bManual: (period: string) => call<Gst3bManualInput>('gst:3bManualGet', { period }),
     set3bManual: (period: string, data: Gst3bManualInput) =>
       call<Gst3bManualInput>('gst:3bManualSet', { period, data }),
