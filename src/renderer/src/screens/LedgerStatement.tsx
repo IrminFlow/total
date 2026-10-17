@@ -13,6 +13,7 @@ import { FirstLedgerLink, VoucherLink } from '../components/links'
 import { groupAncestryNames } from '../components/LedgerFormModal'
 import { useGroups, useLedgers } from '../components/pickers'
 import { openLedgerEdit, useCanEditMasters } from '../lib/drill'
+import { formatFc, microToRateText } from '@shared/forex'
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -160,6 +161,11 @@ export function LedgerStatementScreen({ ledgerId }: { ledgerId: number }): React
         <div className="flex justify-between border-b border-line px-4 py-2 text-small text-muted">
           <span>
             Opening balance · <Money paise={data.opening} signed />
+            {data.foreignOpening && (
+              <span data-testid="ledger-statement-foreign-opening">
+                {' '}· books-begin opening {formatFc(data.foreignOpening.fc, data.foreignOpening.currencyCode)} at ₹{microToRateText(data.foreignOpening.rateMicro)} = <Money paise={data.foreignOpening.inr} signed />
+              </span>
+            )}
           </span>
           <span>
             Closing balance · <Money paise={data.closing} signed />

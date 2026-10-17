@@ -4,6 +4,7 @@ import type { VoucherKind } from '@shared/domain'
 import { fyFromStartYear, fyOf } from '@shared/dates'
 import { cashBankGroupIds, descendantIdsByName } from './masters'
 import { getLockDate, NOT_DELETED } from './vouchers'
+import { readCompanyInfo } from '../db/seed'
 
 /** The system voucher type of a kind (Payment, Receipt, Journal …). */
 export function systemVoucherTypeId(db: DB, kind: VoucherKind): number {
@@ -27,6 +28,13 @@ export function postingBlock(db: DB, date: string): string | null {
   const fy = fyOf(date)
   if (fyIsClosed(db, fy.startYear)) return `FY ${fy.label} is closed — bin its closing journal to reopen the year`
   return null
+}
+
+/** The day the books begin: the setup's chosen day (WP 8.3 booksBeginDate), else the first FY's
+ *  start — the day openings are dated on (the same rule as services/openings.ts booksBeginOf). */
+export function booksBeginDay(db: DB): string {
+  const info = readCompanyInfo(db)
+  return info.booksBeginDate ?? fyFromStartYear(info.booksFrom).from
 }
 
 export interface LedgerInfo {

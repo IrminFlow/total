@@ -62,7 +62,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 4.1 | MT940 / Excel / CAMT.053 statements, re-import dedupe, post-dated cheques (mature / bounce) | 72 (gap filled) | parsers: `bankFormats.test.ts` |
 | 4.2 | Statements, reminders, interest notes, credit hold, follow-ups | 32 | |
 | 4.3 | Payment plan, MSME s.15 / s.16, payment runs, Form 1 | 33 | |
-| 4.4 | Cash-flow forecast, loans + EMI, forex revaluation, budgets vs actuals | 34 | |
+| 4.4 | Cash-flow forecast, loans + EMI, forex revaluation, budgets vs actuals (disbursement + foreign openings: dbtests only, not in 34 yet) | 34 | |
 | — | Cost centres, cash flow statement, exceptions, CA pack | 69 (gap filled) | |
 
 ## Phase 5 — AI agent

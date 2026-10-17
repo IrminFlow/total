@@ -408,6 +408,20 @@ function DesignateModal({ codes, onClose, onDone }: { codes: string[]; onClose: 
     }
   }
   const opening = openingText.trim() === '' ? null : /^-?\d+(\.\d{1,2})?$/.test(openingText.trim()) ? Math.round(Number(openingText.trim()) * 100) : NaN
+  const [rateText, setRateText] = useState('')
+  const rateMicro = rateText.trim() === '' ? undefined : parseRateMicro(rateText) ?? NaN
+  // The opening entered in its currency: the rupee opening becomes foreign amount × the rate on
+  // the books-begin day (typed here, else the closing rate stored for that day).
+  const setOpening = async (): Promise<void> => {
+    if (!ledgerId || opening == null || Number.isNaN(opening)) return
+    try {
+      const r = await cfApi.fx.setForeignOpening({ ledgerId, currencyCode: code, fc: opening, ...(rateMicro ? { rateMicro } : {}) })
+      toast.push('success', `Opening set: ${formatFc(r.fc, r.currencyCode)} at ₹${microToRateText(r.rateMicro)} = ₹ ${formatPaise(Math.abs(r.openingInr))} ${r.openingInr < 0 ? 'Cr' : 'Dr'}`)
+      await onDone()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    }
+  }
   return (
     <Modal title="Foreign-currency ledgers" onClose={onClose}>
       <div className="flex flex-col gap-3">
@@ -428,8 +442,12 @@ function DesignateModal({ codes, onClose, onDone }: { codes: string[]; onClose: 
         <Field label="Foreign amount of its opening balance (optional)" hint="For an opening entered in rupees (e.g. imported from Tally): the foreign amount behind it, negative for a credit balance. Leave blank when the opening is rupee money.">
           <TextInput value={openingText} onChange={(e) => setOpeningText(e.target.value)} inputMode="decimal" placeholder="e.g. 1200.00" data-testid="input-forex-opening-fc" />
         </Field>
+        <Field label="Rate on the books-begin day (₹ per unit, optional)" hint="To enter the opening in its currency: “Set the rupee opening” makes the ledger's opening balance the foreign amount × this rate (blank = the closing rate stored for that day or the last one before it).">
+          <TextInput value={rateText} onChange={(e) => setRateText(e.target.value)} inputMode="decimal" placeholder="e.g. 83.25" data-testid="input-forex-opening-rate" />
+        </Field>
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Close</Button>
+          <Button data-testid="btn-forex-opening-set" onClick={() => void setOpening()} disabled={!ledgerId || code.length !== 3 || opening == null || Number.isNaN(opening) || Number.isNaN(rateMicro)}>Set the rupee opening</Button>
           <Button variant="primary" onClick={() => ledgerId && void save(ledgerId, code, Number.isNaN(opening) ? null : opening)} disabled={!ledgerId || code.length !== 3 || Number.isNaN(opening)}>Mark</Button>
         </div>
       </div>

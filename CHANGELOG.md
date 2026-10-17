@@ -560,6 +560,28 @@ Read these before filing from the next release.
   own date wins, so a bill counts once; only what the cheque leaves stays on the s.15 date, with its
   share of the interest. [#156](https://github.com/IrminFlow/total/pull/156)
 - **Barcode labels** are now priced and dated as on the working date, not the end of the working period. [#170](https://github.com/IrminFlow/total/pull/170)
+- **Loans: Record the disbursement.** A loan can now put its disbursement in the books from the
+  Loans screen: a Receipt Dr the bank / Cr the loan ledger, dated the disbursement date, for the
+  principal — the same entry as a hand-entered receipt, so the loan ledger agrees with the
+  schedule from day one. Like the instalments it is bin-only (edit refused; restore refused once
+  the disbursement was recorded again or the loan's principal / date / ledger changed), and a
+  schedule regeneration (prepayment) keeps it. A loan taken BEFORE the books began gets no voucher:
+  the loan ledger's opening balance becomes what the schedule says was still owed on the
+  books-begin day, and the instalments that fell due before then are part of that opening (Post
+  EMI refuses them and no longer waits for them; while one of them is already posted — from
+  before this rule — setting the opening is refused until that voucher is binned). Existing loans and figures are unchanged until
+  the button is used. [#162](https://github.com/IrminFlow/total/pull/162)
+- **Forex: foreign-currency openings in their currency.** Forex → foreign-currency ledgers → "Set
+  the rupee opening": a customer's, supplier's or bank's opening entered as a foreign amount
+  becomes the rupee opening at the rate on the books-begin day (typed, else the closing rate
+  stored for that day), through the ledger itself (audited; WP 8.7 opening bills that no longer add
+  up are cleared, or the change is refused when a bill already has a payment against it). The
+  revaluation counts that opening first, so e.g. USD 1,000 at ₹82 plus a USD 500 invoice at ₹84
+  revalued at ₹83 gives a ₹500 gain. A foreign party's opening bills each carry their share of the
+  foreign amount at that one rate, so a settlement relieves them bill by bill under the names
+  Outstandings uses; the ledger statement shows the opening in both currencies. A ledger without a
+  foreign opening is unchanged (every report hash and forex test as before); the simple opening
+  setup stays rupees only. [#162](https://github.com/IrminFlow/total/pull/162)
 
 - **TCS: s.206C(1G) overseas tour packages — the 20 % slab** (to-do §4). For FY 2025-26 the seller
   collects 5 % on a buyer's aggregate for the year up to ₹10 lakh and 20 % on the excess (FA 2023
@@ -650,6 +672,14 @@ Read these before filing from the next release.
   (owner, audited `voucher`). Windows and the UNVERIFIED list are pure in `shared/gst/nicRecord.ts`.
   `saveVoucher` / `deleteVoucher` raise `irn_frozen` / `irn_live` (ERROR_MAP). The books workbook
   carries the columns (`irn_cancelled_at` is exempt from the export's `_at` skip).
+- **Loan disbursement link + foreign openings** (to-do §4, WP 4.4), [#162](https://github.com/IrminFlow/total/pull/162):
+  migration 055 "loan disbursement" (last, after #153's 054) rebuilds `loan_vouchers` so its kind
+  CHECK accepts `'disbursement'` (seq 0; every row kept, `migrationLoanDisbursement.dbtest.ts`).
+  New IPC `loan:recordDisbursement` (audited `loan` + `voucher` / `ledger`) and
+  `fx:setForeignOpening` (audited `fx_ledger_currency` + `ledger` / `opening_bills`); no column for
+  the opening rate — it is implied by `opening_fc` and the rupee opening. `LoanSummary` gains
+  `disbursement` / `beforeBooks` / `disbursementAmount` / `booksBegin`; `LedgerStatement` an
+  optional `foreignOpening`. Tests: `loanDisbursement.dbtest.ts`, `forexOpening.dbtest.ts`.
 
 - **TCS after WP 3.3** ([#163](https://github.com/IrminFlow/total/pull/163)), no migration:
   `src/shared/tcsSources.ts` (quoted sources with URL / where read / access date, `TCS_SLABS`,

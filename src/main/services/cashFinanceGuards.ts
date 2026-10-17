@@ -16,12 +16,13 @@ import { openBills } from './forex'
 
 type Owner =
   | { kind: 'loan'; loanId: number; seq: number }
+  | { kind: 'disbursement'; loanId: number }
   | { kind: 'revaluation' | 'reversal'; revaluationId: number; asOf: string; partner: number | null }
   | { kind: 'settlement'; settlementId: number; partyLedgerId: number }
 
 function ownerOf(db: DB, voucherId: number): Owner | null {
-  const loan = db.prepare('SELECT loan_id AS loanId, seq FROM loan_vouchers WHERE voucher_id = ?').get(voucherId) as { loanId: number; seq: number } | undefined
-  if (loan) return { kind: 'loan', ...loan }
+  const loan = db.prepare('SELECT loan_id AS loanId, seq, kind FROM loan_vouchers WHERE voucher_id = ?').get(voucherId) as { loanId: number; seq: number; kind: string } | undefined
+  if (loan) return loan.kind === 'disbursement' ? { kind: 'disbursement', loanId: loan.loanId } : { kind: 'loan', loanId: loan.loanId, seq: loan.seq }
   const rev = db
     .prepare('SELECT id, as_of AS asOf, voucher_id AS v, reversal_voucher_id AS r FROM fx_revaluations WHERE voucher_id = ? OR reversal_voucher_id = ?')
     .get(voucherId, voucherId) as { id: number; asOf: string; v: number | null; r: number | null } | undefined
@@ -36,6 +37,7 @@ function ownerOf(db: DB, voucherId: number): Owner | null {
 
 const EDIT_REFUSED: Record<Owner['kind'], string> = {
   loan: 'This voucher was posted from Loans (an instalment) — move it to the bin and post the instalment again',
+  disbursement: 'This voucher was posted from Loans (the disbursement) — move it to the bin and record the disbursement again',
   revaluation: 'This is a forex revaluation journal — move it to the bin (its reversal goes with it) and revalue again',
   reversal: 'This reverses a forex revaluation — move it to the bin (the revaluation goes with it) and revalue again',
   settlement: 'This is a forex settlement from the Forex screen — move it to the bin and settle again'
@@ -73,6 +75,27 @@ export function cashFinanceRestorePlan(db: DB, voucherId: number): number[] {
     const row = db.prepare('SELECT 1 FROM loan_schedules WHERE loan_id = ? AND voucher_id = ?').get(o.loanId, voucherId)
     if (!loan || !row) {
       throw new Error(`Instalment ${o.seq} was posted again or the schedule changed since — this voucher can't come back (purge it from the bin)`)
+    }
+    return []
+  }
+  if (o.kind === 'disbursement') {
+    // Refused when it would double-count (recorded again since) or no longer fits the loan.
+    const loan = db.prepare('SELECT principal, disbursed_on AS disbursedOn, loan_ledger_id AS loanLedgerId FROM loans WHERE id = ?').get(o.loanId) as
+      | { principal: number; disbursedOn: string; loanLedgerId: number }
+      | undefined
+    const again = db
+      .prepare(
+        `SELECT v.number FROM loan_vouchers lv JOIN vouchers v ON v.id = lv.voucher_id
+         WHERE lv.loan_id = ? AND lv.kind = 'disbursement' AND lv.voucher_id <> ? AND v.deleted_at IS NULL LIMIT 1`
+      )
+      .get(o.loanId, voucherId) as { number: string } | undefined
+    if (!loan || again) {
+      throw new Error(`The disbursement was recorded again or the loan was deleted since — this voucher can't come back (purge it from the bin)`)
+    }
+    const v = db.prepare('SELECT date FROM vouchers WHERE id = ?').get(voucherId) as { date: string }
+    const onLoan = db.prepare("SELECT COALESCE(SUM(amount), 0) AS n FROM voucher_lines WHERE voucher_id = ? AND ledger_id = ? AND dr_cr = 'cr'").get(voucherId, loan.loanLedgerId) as { n: number }
+    if (v.date !== loan.disbursedOn || onLoan.n !== loan.principal) {
+      throw new Error(`The loan's principal, date or ledger changed since — this disbursement voucher can't come back (purge it from the bin and record the disbursement again)`)
     }
     return []
   }

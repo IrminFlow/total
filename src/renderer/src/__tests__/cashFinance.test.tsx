@@ -45,7 +45,8 @@ const LOAN: LoanSummary = {
   interestLedgerId: null, interestLedgerName: null, principal: 1_00_000_00, annualRateMilli: 12_000, tenureMonths: 12, disbursedOn: '2026-04-01',
   firstDueDate: '2026-05-05', method: 'reducing', moratoriumMonths: 0, moratoriumMode: 'capitalise', emiOverride: null, status: 'active', notes: null,
   emi: 8_884_88, outstanding: 1_00_000_00, ledgerBalance: 1_00_000_00, postedCount: 0, pendingCount: 12,
-  nextDue: { scheduleId: 101, dueDate: '2026-05-05', payment: 8_884_88 }, overdueCount: 1, interestThisFy: 6_618_55, totalInterest: 6_618_55
+  nextDue: { scheduleId: 101, dueDate: '2026-05-05', payment: 8_884_88 }, overdueCount: 1, interestThisFy: 6_618_55, totalInterest: 6_618_55,
+  disbursement: null, beforeBooks: false, disbursementAmount: 1_00_000_00, booksBegin: '2025-04-01'
 }
 const DETAIL: LoanDetail = {
   loan: LOAN,
@@ -95,7 +96,10 @@ beforeEach(() => {
       case 'forecast:items': return { ok: true, data: [] }
       case 'loan:list': return { ok: true, data: [LOAN] }
       case 'loan:get': return { ok: true, data: DETAIL }
+      case 'loan:recordDisbursement': return { ok: true, data: DETAIL }
       case 'loan:postEmi': return { ok: true, data: { ...DETAIL.schedule[0], posted: true, voucherId: 500, voucherNumber: '12' } }
+      case 'fx:ledgerCurrencies': return { ok: true, data: [] }
+      case 'fx:setForeignOpening': return { ok: true, data: { ledgerId: 40, currencyCode: 'USD', fc: 1000_00, openingInr: 82_000_00, rateMicro: 82_000_000, rateDate: null, booksBegin: '2025-04-01' } }
       case 'fx:preview': return { ok: true, data: FX }
       case 'fx:rates': return { ok: true, data: [{ id: 1, date: TODAY, currencyCode: 'USD', rateMicro: 83_250_000, note: null }] }
       case 'fx:revaluations': return { ok: true, data: [] }
@@ -172,9 +176,36 @@ describe('loans', () => {
     fireEvent.click(screen.getByTestId('btn-loan-post-confirm'))
     await waitFor(() => expect(calls.find((c) => c.channel === 'loan:postEmi')?.payload).toEqual({ scheduleId: 101, date: '2026-05-05', bankLedgerId: 2 }))
   }, 20_000)
+
+  it('records the disbursement (Dr bank / Cr loan) into the loan’s bank', async () => {
+    renderUi(<LoansScreen />)
+    fireEvent.click(await screen.findByTestId('btn-loan-disburse'))
+    const modal = await screen.findByTestId('loan-disburse-modal')
+    expect(modal.textContent).toContain('Cr HDFC Term Loan')
+    expect(modal.textContent).toContain('1,00,000.00')
+    fireEvent.click(screen.getByTestId('btn-loan-disburse-confirm'))
+    await waitFor(() => expect(calls.find((c) => c.channel === 'loan:recordDisbursement')?.payload).toEqual({ loanId: 1, bankLedgerId: 2 }))
+  }, 20_000)
 })
 
 describe('forex', () => {
+  it('sets a foreign opening from the foreign amount and the books-begin rate', async () => {
+    renderUi(<ForexScreen />)
+    await screen.findByTestId('btn-forex-revalue')
+    fireEvent.click(document.querySelector('button[aria-haspopup="dialog"][data-testid$="-options"]')!)
+    fireEvent.click(await screen.findByTestId('btn-forex-designate'))
+    const picker = await screen.findByTestId('picker-forex-designate')
+    fireEvent.focus(picker)
+    fireEvent.change(picker, { target: { value: 'HDFC Cur' } })
+    await waitFor(() => expect(screen.getAllByRole('option').some((o) => o.textContent?.includes('HDFC Current'))).toBe(true))
+    fireEvent.keyDown(picker, { key: 'Enter' })
+    await waitFor(() => expect((picker as HTMLInputElement).value).toBe('HDFC Current'))
+    fireEvent.change(screen.getByTestId('input-forex-opening-fc'), { target: { value: '1000.00' } })
+    fireEvent.change(screen.getByTestId('input-forex-opening-rate'), { target: { value: '82' } })
+    fireEvent.click(screen.getByTestId('btn-forex-opening-set'))
+    await waitFor(() => expect(calls.find((c) => c.channel === 'fx:setForeignOpening')?.payload).toEqual({ ledgerId: 2, currencyCode: 'USD', fc: 1000_00, rateMicro: 82_000_000 }))
+  }, 20_000)
+
   it('lists the USD exposure with its unrealised gain and posts the revaluation with auto-reversal', async () => {
     renderUi(<ForexScreen />)
     const rows = await screen.findByTestId('rows-forex-exposures')

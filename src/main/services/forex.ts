@@ -25,17 +25,26 @@
 //   are rupee money: they are not part of the foreign balance and are never revalued.
 // - Tally-imported or hand-entered openings: the ledger's rupee opening counts as foreign money
 //   only when its foreign amount is entered on Forex → foreign-currency ledgers (opening_fc).
+// - An opening entered IN its currency (setForeignOpening): foreign amount × the rate on the
+//   books-begin day = the rupee opening, written through masters.updateLedger (so WP 8.7's opening
+//   bills follow it: cleared + audited, or the change refused when one is in use), the foreign
+//   amount in opening_fc. The rate is not stored separately — it is the one the two amounts imply.
+//   Revaluation folds the opening in first (foldExposure); the opening bills of a foreign party
+//   each carry their share of the foreign amount at that one rate (openingBillsFc) for settlement.
 import type { DB } from '../db/connection'
 import {
-  fxRateInputSchema, fxRevaluePostSchema, fxSettleInputSchema,
-  type FxExposureRow, type FxRate, type FxRateInput, type FxRevaluationPreview, type FxRevaluationRow, type FxSettleInput, type FxSettleResult
+  fxForeignOpeningSchema, fxRateInputSchema, fxRevaluePostSchema, fxSettleInputSchema,
+  type FxExposureRow, type FxForeignOpeningInput, type FxForeignOpeningResult, type FxRate, type FxRateInput, type FxRevaluationPreview, type FxRevaluationRow, type FxSettleInput, type FxSettleResult
 } from '@shared/cashFinance'
-import { allocateFifo, foldExposure, openForeignBills, revalue, settleBills, rateToMicro, fcFromInr, type ForeignBill, type ForeignEntry, type FxLine } from '@shared/forex'
+import { allocateFifo, foldExposure, openForeignBills, openingBillsFc, revalue, settleBills, rateToMicro, fcFromInr, inrFromFc, type ForeignBill, type ForeignEntry, type FxLine } from '@shared/forex'
+import { ledgerInputSchema } from '@shared/schemas'
+import { OPENING_BALANCE_NAME } from '@shared/simple/openings'
 import { toDisplayDate } from '@shared/dates'
 import { writeAudit } from './audit'
-import { descendantIdsByName, cashBankGroupIds } from './masters'
+import { descendantIdsByName, cashBankGroupIds, getLedger, updateLedger } from './masters'
+import { openingBillsByParty } from './openingBills'
 import { IN_BOOKS, saveVoucher } from './vouchers'
-import { addDays, ledgerInfo, postingBlock, systemVoucherTypeId } from './cashFinanceCommon'
+import { addDays, booksBeginDay, ledgerInfo, postingBlock, systemVoucherTypeId } from './cashFinanceCommon'
 
 export const UNREALISED_GAIN = { name: 'Unrealised Forex Gain', group: 'Indirect Incomes' }
 export const UNREALISED_LOSS = { name: 'Unrealised Forex Loss', group: 'Indirect Expenses' }
@@ -117,6 +126,31 @@ export function setLedgerCurrency(db: DB, ledgerId: number, currencyCode: string
   }
   writeAudit(db, 'fx_ledger_currency', ledgerId, before ? (currencyCode ? 'update' : 'delete') : 'create',
     before ? { ledgerId, ...before } : null, currencyCode ? { ledgerId, currencyCode, openingFc } : null)
+}
+
+/** Enter a ledger's opening in its currency: the rupee opening (ledgers.opening_balance, through
+ *  masters.updateLedger — audited, opening bills follow it) = `fc` × the rate on the books-begin
+ *  day (given, else the closing rate stored on or before that day), and the foreign amount is
+ *  kept as opening_fc. A customer / supplier or a cash / bank ledger only. One transaction. */
+export function setForeignOpening(db: DB, raw: FxForeignOpeningInput): FxForeignOpeningResult {
+  const input = fxForeignOpeningSchema.parse(raw)
+  if (input.currencyCode === 'INR') throw new Error('Pick a foreign currency')
+  return db.transaction((): FxForeignOpeningResult => {
+    const l = ledgerInfo(db, input.ledgerId)
+    if (!l) throw new Error('Ledger not found')
+    const party = descendantIdsByName(db, ['Sundry Debtors', 'Sundry Creditors']).has(l.groupId)
+    if (!party && !cashBankGroupIds(db).has(l.groupId)) throw new Error(`${l.name} is not a customer, supplier or bank account — only those carry a foreign-currency opening`)
+    const begin = booksBeginDay(db)
+    const stored = input.rateMicro == null ? rateOn(db, input.currencyCode, begin) : null
+    const rateMicro = input.rateMicro ?? stored?.rateMicro
+    if (!rateMicro) throw new Error(`Enter the ${input.currencyCode} rate on ${toDisplayDate(begin)}, the day the books begin`)
+    const openingInr = inrFromFc(input.fc, rateMicro)
+    if (openingInr === 0) throw new Error('That foreign amount is less than a paisa at this rate')
+    const ledger = getLedger(db, input.ledgerId)!
+    if (ledger.openingBalance !== openingInr) updateLedger(db, ledger.id, ledgerInputSchema.parse({ ...ledger, openingBalance: openingInr }))
+    setLedgerCurrency(db, input.ledgerId, input.currencyCode, input.fc)
+    return { ledgerId: input.ledgerId, currencyCode: input.currencyCode, fc: input.fc, openingInr, rateMicro, rateDate: stored?.date ?? null, booksBegin: begin }
+  })()
 }
 
 export function listLedgerCurrencies(db: DB): { ledgerId: number; ledgerName: string; currencyCode: string; openingFc: number | null; openingInr: number }[] {
@@ -361,7 +395,14 @@ export function openBills(db: DB, partyLedgerId: number, asOf: string): { curren
     .all(partyLedgerId, asOf, ex.currencyCode) as { voucherId: number; date: string; number: string; rate: number; amount: number; billName: string | null }[]
   const bills: ForeignEntry[] = []
   const reductions: { fc: number }[] = []
-  if (ex.opening) bills.push({ name: 'Opening', voucherId: null, date: '0000-01-01', fc: Math.abs(ex.opening.fc), inr: Math.abs(ex.opening.inr) })
+  if (ex.opening) {
+    // A party whose opening is split into bills (WP 8.7): each bill at the opening's one rate,
+    // named as Outstandings names it; otherwise the one 'Opening' bill, as before.
+    const split = openingBillsByParty(db, [partyLedgerId]).get(partyLedgerId)
+    if (split?.length) {
+      for (const b of openingBillsFc(ex.opening, split, OPENING_BALANCE_NAME)) bills.push({ name: b.name, voucherId: null, date: b.date, fc: b.fc, inr: b.inr })
+    } else bills.push({ name: 'Opening', voucherId: null, date: '0000-01-01', fc: Math.abs(ex.opening.fc), inr: Math.abs(ex.opening.inr) })
+  }
   for (const r of rows) {
     const fc = Math.abs(fcFromInr(r.amount, rateToMicro(r.rate)))
     if (fc === 0) continue

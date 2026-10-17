@@ -112,6 +112,19 @@ export const postEmiSchema = z.object({
 })
 export type PostEmiInput = z.input<typeof postEmiSchema>
 
+export const loanDisbursementSchema = z.object({
+  loanId: id,
+  /** The bank the money came into; defaults to the loan's bank ledger. */
+  bankLedgerId: id.optional()
+})
+export type LoanDisbursementInput = z.input<typeof loanDisbursementSchema>
+
+/** How a loan's disbursement is in the books: a voucher posted from Loans (Dr bank / Cr the loan
+ *  ledger), or — for a loan taken before the books began — the loan ledger's opening balance. */
+export type LoanDisbursement =
+  | { mode: 'voucher'; voucherId: number; voucherNumber: string; date: string; amount: number }
+  | { mode: 'opening'; amount: number }
+
 export interface LoanSummary {
   id: number
   name: string
@@ -146,6 +159,15 @@ export interface LoanSummary {
   /** Interest falling due in the current financial year (posted or not). */
   interestThisFy: number
   totalInterest: number
+  /** The disbursement as recorded (null = not in the books from Loans yet). */
+  disbursement: LoanDisbursement | null
+  /** The loan was taken before the books began: its disbursement is an opening balance, not a voucher. */
+  beforeBooks: boolean
+  /** What "Record the disbursement" would put in the books: the principal, or for a loan taken
+   *  before the books began the schedule's outstanding on the books-begin day. */
+  disbursementAmount: number
+  /** The books-begin day (instalments due before it, on a loan taken before it, are in the opening). */
+  booksBegin: string
 }
 
 export interface LoanScheduleRow {
@@ -204,6 +226,20 @@ export const fxLedgerCurrencySchema = z.object({
   /** Foreign amount (hundredths, dr-positive) behind the ledger's rupee opening; null = none. */
   openingFc: z.number().int().safe().nullable().default(null)
 })
+
+/** A foreign-currency opening entered in its currency: the rupee opening (ledgers.opening_balance)
+ *  becomes fc × the rate on the books-begin day (`rateMicro`, else the closing rate stored for
+ *  that day or the latest before it). */
+export const fxForeignOpeningSchema = z.object({
+  ledgerId: id,
+  currencyCode,
+  /** Foreign amount (hundredths, dr-positive: negative = a credit opening). */
+  fc: z.number().int().safe().refine((v) => v !== 0, 'Enter the foreign amount'),
+  rateMicro: z.number().int().positive().safe().optional()
+})
+export type FxForeignOpeningInput = z.input<typeof fxForeignOpeningSchema>
+
+export interface FxForeignOpeningResult { ledgerId: number; currencyCode: string; fc: number; openingInr: number; rateMicro: number; rateDate: string | null; booksBegin: string }
 
 export interface FxOpenBill { name: string; voucherId: number | null; date: string; fcOpen: number; bookOpen: number }
 

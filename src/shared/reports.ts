@@ -61,6 +61,10 @@ export interface LedgerStatement {
   totalCredit: number
   /** Columnar month matrix (v0.3 #55) — present when requested with groupBy: 'month'. */
   months?: LedgerMonthRow[]
+  /** The stored opening's foreign amount (Forex → foreign-currency ledgers), present only when the
+   *  ledger has one and the statement's opening includes the stored opening. `fc` dr-positive;
+   *  `inr` = ledgers.opening_balance; `rateMicro` = the rate they imply. */
+  foreignOpening?: { currencyCode: string; fc: number; inr: number; rateMicro: number }
 }
 
 export interface TrialBalanceRow {

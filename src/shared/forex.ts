@@ -227,6 +227,40 @@ export function settleBills(
   return { lines, fcTotal, bankInr, partyInr, gainLoss: side === 'receivable' ? bankInr - partyInr : partyInr - bankInr }
 }
 
+/**
+ * A foreign opening split over the party's opening bills (WP 8.7 bill-wise openings) — the same
+ * rule as the opening itself: every bill is at the opening's ONE rate (the rate on the books-begin
+ * day), so each bill's foreign amount is its rupee share of the opening (round half away from
+ * zero), the last covered bill taking what rounding leaves so the bills add up to the foreign
+ * opening exactly. A part of the opening the bills don't cover (never through the app) is its own
+ * entry named `restName`. Magnitudes in, magnitudes out; `bills` in date order.
+ */
+export function openingBillsFc(
+  opening: { fc: number; inr: number },
+  bills: readonly { name: string; date: string; amount: number }[],
+  restName: string
+): { name: string; date: string; fc: number; inr: number }[] {
+  const fcAll = Math.abs(opening.fc)
+  const inrAll = Math.abs(opening.inr)
+  if (inrAll === 0) return []
+  const covered = bills.reduce((s, b) => s + b.amount, 0)
+  const out: { name: string; date: string; fc: number; inr: number }[] = []
+  let fcUsed = 0
+  bills.forEach((b, i) => {
+    const last = i === bills.length - 1 && covered === inrAll
+    const fc = last ? fcAll - fcUsed : mulDivRound(fcAll, b.amount, inrAll)
+    fcUsed += fc
+    out.push({ name: b.name, date: b.date, fc, inr: b.amount })
+  })
+  if (covered !== inrAll) out.push({ name: restName, date: '0000-01-01', fc: fcAll - fcUsed, inr: inrAll - covered })
+  return out.filter((b) => b.fc > 0 || b.inr > 0)
+}
+
+/** The rate behind a foreign opening (micro-rupees per unit), from its two amounts. */
+export function impliedRateMicro(fc: number, inr: number): number | null {
+  return fc !== 0 ? Math.abs(mulDivRound(inr, 1_000_000, fc)) : null
+}
+
 /** Format fc minor with two decimals and the code: 1234567 → "12,345.67 USD". */
 export function formatFc(fcMinor: number, code: string): string {
   const neg = fcMinor < 0
