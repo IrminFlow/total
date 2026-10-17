@@ -448,6 +448,20 @@ Read these before filing from the next release.
   unchanged, no longer adds an audit row** (the same rule as other settings). No figure changed.
   [#150](https://github.com/IrminFlow/total/pull/150)
 
+- **Cash forecast: MSME suppliers' bills on their s.15 deadline** (Options → Include, off by
+  default; off, every figure is as before, and the simple "Cash in the next 30 days" and the AI
+  forecast keep the default). On, each open bill of a registered micro / small supplier (accepted
+  on or after its registration date) falls due on the EARLIER of its own due date and its MSMED
+  Act s.15 pay-by date (the agreed period in writing, at most 45 days, else 15 days, counted from
+  the bill date — the MSME report's date): s.15 caps the terms, exactly as the Payables plan's
+  pay-by date does. Payables keep their 100 % weight. Pinned: with the option off the forecast, the
+  simple screen and the AI tool equal a fixture generated from the pre-option code. A bill already past that date is expected now (first period), and its
+  indicative s.16 interest (three times the bank rate, monthly rests, up to today — the Payables
+  plan's figure) is listed separately under the table: it is in no total and is never posted. With
+  post-dated cheques on as well, a cheque takes its amount off the supplier's bills first and its
+  own date wins, so a bill counts once; only what the cheque leaves stays on the s.15 date, with its
+  share of the interest. [#156](https://github.com/IrminFlow/total/pull/156)
+
 ### For developers
 
 - **Export gate sweep covers every role.** `securityReview.dbtest` now scans every IPC handler under `src/main` that writes a file or audits an `export` (directly or through a helper in its file; viewer-role ones included, which the audit-coverage registry does not list), plus every channel whose name says file / print / export, and requires each in `EXPORT_CHANNELS`, `NOT_EXPORTS` or a listed read / input; review: the bank reconciliation PDF (`banking:brsPdf`, written with no gate and no audit row) is now a `canExport` channel with an export audit row, and report packs (`pack:runNow`, `pack:save`) are `canExport` channels; Form 16 / 16A / 27D, self-invoice, barcode-label prints and the template export are listed as non-exports with reasons. The data-folder-move locked case no longer sleeps 1.7 s, and the e-invoicing Company details test waits for the loaded switch (Windows flake). [#155](https://github.com/IrminFlow/total/pull/155)

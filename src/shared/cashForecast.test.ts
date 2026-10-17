@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { payByDate } from './payables/planning'
 import {
   billHistory, buildForecast, netPdcAgainstBills, collectionProfile, DEFAULT_BUCKET_BP, forecastPeriods, itemFlows, itemOccurrences, payableFlows,
   receivableFlows, scenarioProbability, SCENARIO_PRESETS, type ForecastFlow, type HistoryBill
@@ -195,5 +196,107 @@ describe('pending post-dated cheques (includePdc)', () => {
     const r = buildForecast({ asOn: ASON, unit: 'week', count: 3, openingCash: 0, scenario: SCENARIO_PRESETS.expected, flows, includePdc: true, exclude: ['pdc'] })
     const without = buildForecast({ asOn: ASON, unit: 'week', count: 3, openingCash: 0, scenario: SCENARIO_PRESETS.expected, flows: flows.filter((f) => f.source !== 'pdc') })
     expect(r.totals).toEqual(without.totals)
+  })
+})
+
+describe('MSME s.15 deadlines (msmeDue)', () => {
+  // As on 7 Oct 2026; weeks 7–13, 14–20, 21–27 Oct.
+  const mA = { payBy: '2026-10-16', daysLate: 0, interestPaise: 0, pending: 1_000_00 }
+  const mB = { payBy: '2026-09-30', daysLate: 7, interestPaise: 12_34, pending: 500_00 }
+  const msmeFlows: ForecastFlow[] = [
+    flow({ source: 'receivable', date: '2026-10-08', amount: 600_00, probabilityBp: 8_000, ledgerId: 7 }),
+    // Supplier 9 (micro): bill A due 25 Oct on its terms, s.15 date 16 Oct; bill B due 24 Oct, s.15 date 30 Sep (late).
+    flow({ source: 'payable', direction: 'out', date: '2026-10-25', amount: 1_000_00, ledgerId: 9, label: 'Micro · A', msme: mA }),
+    flow({ source: 'payable', direction: 'out', date: '2026-10-24', amount: 500_00, ledgerId: 9, label: 'Micro · B', msme: mB }),
+    // Supplier 10: not MSME.
+    flow({ source: 'payable', direction: 'out', date: '2026-10-22', amount: 200_00, ledgerId: 10, label: 'Other · C' })
+  ]
+  const plain = msmeFlows.map(({ msme: _m, ...f }) => f)
+  const run = (extra: Partial<Parameters<typeof buildForecast>[0]> = {}, flows = msmeFlows) =>
+    buildForecast({ asOn: ASON, unit: 'week', count: 3, openingCash: 0, scenario: SCENARIO_PRESETS.expected, flows, ...extra })
+
+  it('off (default or false): byte-identical to the same flows without the s.15 facts', () => {
+    const before = JSON.stringify(run({}, plain))
+    expect(JSON.stringify(run())).toBe(before)
+    expect(JSON.stringify(run({ msmeDue: false }))).toBe(before)
+    expect(run().msmeInterest).toBeUndefined()
+    // Off, all three bills sit on their own due dates in week 3.
+    expect(run().periods.map((p) => p.outflow)).toEqual([0, 0, 1_700_00])
+  })
+
+  it('on: each MSME bill moves to its s.15 date; a late one is expected now; weights unchanged', () => {
+    const r = run({ msmeDue: true })
+    // Week 1: bill B (past 30 Sep → today) ₹500; week 2: bill A on 16 Oct ₹1,000; week 3: C ₹200 on its own date.
+    expect(r.periods.map((p) => p.outflow)).toEqual([500_00, 1_000_00, 200_00])
+    expect(r.periods.map((p) => p.inflow)).toEqual([480_00, 0, 0])
+    const b = r.contributions.find((c) => c.label === 'Micro · B')!
+    expect(b).toMatchObject({ date: '2026-09-30', effectiveDate: ASON, effectiveBp: 10_000, weighted: 500_00, periodKey: 'w1', msme: mB })
+    expect(r.contributions.find((c) => c.label === 'Other · C')).toMatchObject({ effectiveDate: '2026-10-22', periodKey: 'w3' })
+    expect(r.contributions.find((c) => c.label === 'Other · C')!.msme).toBeUndefined()
+    // Same money, different weeks: the totals are unchanged.
+    expect(r.totals).toEqual(run().totals)
+  })
+
+  it('on: the late bill\'s indicative s.16 interest is a separate line, outside every total', () => {
+    const r = run({ msmeDue: true })
+    expect(r.msmeInterest).toEqual({
+      total: 12_34,
+      lines: [{ label: 'Micro · B', ledgerId: 9, voucherId: null, payBy: '2026-09-30', daysLate: 7, pending: 500_00, interestPaise: 12_34 }]
+    })
+    expect(r.totals.outflow).toBe(1_700_00)
+    expect(r.contributions.reduce((s, c) => s + (c.direction === 'out' ? c.weighted : 0), 0)).toBe(1_700_00)
+  })
+
+  it('on with payables excluded: no bills, no interest lines', () => {
+    const r = run({ msmeDue: true, exclude: ['payable'] })
+    expect(r.msmeInterest).toEqual({ total: 0, lines: [] })
+  })
+
+  it('PDC precedence: a cheque covers the earliest bill by its s.15 date and its own date wins — each bill counts once', () => {
+    const cheque = flow({ source: 'pdc', direction: 'out', date: '2026-10-20', amount: 700_00, ledgerId: 9, label: 'Micro · cheque 1' })
+    const r = run({ msmeDue: true, includePdc: true }, [...msmeFlows, cheque])
+    // B (30 Sep) is covered in full (₹500), A (16 Oct) by ₹200 → ₹800 left on 16 Oct; the cheque ₹700 on 20 Oct.
+    expect(r.periods.map((p) => p.outflow)).toEqual([0, 1_500_00, 200_00])
+    expect(r.contributions.filter((c) => c.ledgerId === 9).map((c) => [c.source, c.effectiveDate, c.weighted])).toEqual([
+      ['payable', '2026-10-16', 800_00], ['pdc', '2026-10-20', 700_00]
+    ])
+    // B is paid by the cheque: no interest line for it.
+    expect(r.msmeInterest).toEqual({ total: 0, lines: [] })
+    // Same total out as without the cheque: ₹1,700.
+    expect(r.totals.outflow).toBe(1_700_00)
+  })
+
+  it('PDC precedence: a cheque covering part of a late bill leaves the interest on what is left, pro rata', () => {
+    const cheque = flow({ source: 'pdc', direction: 'out', date: '2026-10-20', amount: 300_00, ledgerId: 9, label: 'Micro · cheque 2' })
+    const r = run({ msmeDue: true, includePdc: true }, [...msmeFlows, cheque])
+    // ₹300 off B leaves ₹200: interest 12.34 × 200 / 500 = 4.936 → ₹4.94.
+    expect(r.msmeInterest!.lines).toEqual([expect.objectContaining({ label: 'Micro · B', pending: 200_00, interestPaise: 4_94 })])
+    expect(r.periods.map((p) => p.outflow)).toEqual([200_00, 1_000_00 + 300_00, 200_00])
+  })
+
+  it('on: s.15 caps the terms — a bill due sooner on its own terms keeps its own date (= payByDate)', () => {
+    // Bill D: own due 10 Oct (week 1), s.15 date 20 Oct (a 45-day written agreement) → stays 10 Oct.
+    const mD = { payBy: '2026-10-20', daysLate: 0, interestPaise: 0, pending: 300_00 }
+    const d = flow({ source: 'payable', direction: 'out', date: '2026-10-10', amount: 300_00, ledgerId: 9, label: 'Micro · D', msme: mD })
+    const r = run({ msmeDue: true }, [...msmeFlows, d])
+    const got = r.contributions.find((c) => c.label === 'Micro · D')!
+    expect(got).toMatchObject({ date: '2026-10-10', effectiveDate: '2026-10-10', periodKey: 'w1', weighted: 300_00 })
+    expect(got.date).toBe(payByDate('2026-09-01', '2026-10-10', mD.payBy))
+    // A and B still move to their (earlier) s.15 dates.
+    expect(r.contributions.find((c) => c.label === 'Micro · A')!.effectiveDate).toBe(payByDate('2026-09-01', '2026-10-25', mA.payBy))
+    expect(r.periods.map((p) => p.outflow)).toEqual([800_00, 1_000_00, 200_00])
+  })
+
+  it('PDC larger than every open bill of the supplier: the bills are gone, no interest, the cheque counts once', () => {
+    const cheque = flow({ source: 'pdc', direction: 'out', date: '2026-10-20', amount: 2_000_00, ledgerId: 9, label: 'Micro · cheque 3' })
+    const r = run({ msmeDue: true, includePdc: true }, [...msmeFlows, cheque])
+    expect(r.contributions.filter((c) => c.ledgerId === 9).map((c) => [c.source, c.weighted])).toEqual([['pdc', 2_000_00]])
+    expect(r.msmeInterest).toEqual({ total: 0, lines: [] })
+    expect(r.periods.map((p) => p.outflow)).toEqual([0, 2_000_00, 200_00])
+  })
+
+  it('PDCs on, MSME off: the netting is exactly as before (earliest by the bills\' own dates)', () => {
+    const cheque = flow({ source: 'pdc', direction: 'out', date: '2026-10-20', amount: 700_00, ledgerId: 9, label: 'Micro · cheque 1' })
+    expect(JSON.stringify(run({ includePdc: true }, [...msmeFlows, cheque]))).toBe(JSON.stringify(run({ includePdc: true }, [...plain, cheque])))
   })
 })

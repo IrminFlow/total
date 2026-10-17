@@ -20,6 +20,14 @@
  *   one out, on the cheque's date at 100 %. A PDC is not in the books, so the bills it settles are
  *   still open — with PDCs on, each one takes its amount off the same party's receivable (in) /
  *   payable (out) flows, earliest first (`netPdcAgainstBills`), so nothing is counted twice.
+ * - MSME s.15 deadlines (OFF unless `msmeDue`): a payable bill of a registered micro / small
+ *   supplier (the service attaches `msme` — the payables helpers' s.15 date, the bill accepted on
+ *   or after `msme_registered_from`) is placed on the EARLIER of its own due date and its s.15
+ *   pay-by date (s.15 caps the terms, as in the Payables plan), at the same 100 % weight; one already past it is overdue (expected now) and its INDICATIVE s.16
+ *   interest is listed separately (`msmeInterest`) — never added to the cash totals, never posted.
+ *   With PDCs on as well, a cheque takes its amount off the bill first and its own date wins
+ *   (the cheque exists); only what the cheque leaves stays on the s.15 date, with its share of the
+ *   interest.
  * Anything dated before today lands in the first period (it is overdue — expected now). Flows
  * past the horizon are reported as "beyond" and left out of the periods.
  *
@@ -232,6 +240,33 @@ export interface ForecastFlow {
   itemId?: number | null
   /** Ageing bucket for receivables (drives the probability). */
   bucket?: 0 | 1 | 2 | 3
+  /** Payables of a covered micro / small supplier only: the s.15 facts (read by `msmeDue`). */
+  msme?: ForecastMsme
+}
+
+/** A payable bill's MSMED Act facts as on the forecast date (computed in main from
+ *  shared/payables/msme.ts `s15Deadline` / `s16Interest` — sources in msmeSources.ts). */
+export interface ForecastMsme {
+  /** s.15 last day to pay (inclusive). */
+  payBy: string
+  /** Days past `payBy` on the forecast date (0 = still in time). */
+  daysLate: number
+  /** INDICATIVE s.16 interest on `pending` up to the forecast date (0 while in time) — never posted. */
+  interestPaise: number
+  /** The pending amount the interest was computed on (= the flow's amount as read). */
+  pending: number
+}
+
+/** One line of indicative s.16 interest on an MSME bill already past its s.15 date. */
+export interface ForecastMsmeInterestLine {
+  label: string
+  ledgerId: number | null
+  voucherId: number | null
+  payBy: string
+  daysLate: number
+  /** The bill amount still in the forecast (after any PDC took its share). */
+  pending: number
+  interestPaise: number
 }
 
 export interface OpenBillInput {
@@ -370,6 +405,9 @@ export interface ForecastResult {
   /** First period whose closing dips below the minimum balance. */
   firstShortfall: string | null
   beyond: { inflow: number; outflow: number }
+  /** Only with `msmeDue`: indicative s.16 interest on MSME bills past their s.15 date — shown
+   *  beside the forecast, NOT in any total or closing balance. */
+  msmeInterest?: { total: number; lines: ForecastMsmeInterestLine[] }
 }
 
 export interface ForecastInput {
@@ -386,6 +424,10 @@ export interface ForecastInput {
   /** Pending post-dated cheques count (netted against the bills they settle). Default false:
    *  `pdc` flows are ignored and every other flow is exactly as before. */
   includePdc?: boolean
+  /** Place micro / small suppliers' bills on their MSMED Act s.15 deadline (flows carrying
+   *  `msme`). Default false: `msme` is ignored (and not copied into contributions) and every flow
+   *  is exactly as before. */
+  msmeDue?: boolean
 }
 
 const emptyBySource = (): Record<ForecastSource, number> => ({
@@ -427,6 +469,34 @@ export function netPdcAgainstBills(flows: readonly ForecastFlow[]): ForecastFlow
   return out
 }
 
+/**
+ * With MSME deadlines on: a payable flow carrying `msme` is dated the EARLIER of its own due date
+ * (the flow's date — the credit-terms due date, else the bill date) and its s.15 pay-by date,
+ * exactly as the Payables plan does (`payByDate` in shared/payables/planning.ts). s.15 is a CAP,
+ * not a replacement: the buyer pays "on or before the date agreed upon between him and the
+ * supplier in writing" and that period may "in no case ... exceed forty-five days" (msmeSources.ts,
+ * "Payment deadline (agreed period, max 45 days; 15 days with no written agreement)") — a bill due
+ * sooner on its own terms stays on its own date.
+ */
+export function placeOnMsmeDeadline(flows: readonly ForecastFlow[]): ForecastFlow[] {
+  return flows.map((f) => (f.source === 'payable' && f.msme && f.msme.payBy < f.date ? { ...f, date: f.msme.payBy } : f))
+}
+
+/** The indicative s.16 interest lines for the MSME payables still counted (`counted` = the flows
+ *  after PDC netting): a bill a cheque covered in part keeps the interest on what is left, pro
+ *  rata; one it covered fully has none. */
+export function msmeInterestLines(counted: readonly ForecastFlow[]): ForecastMsmeInterestLine[] {
+  const out: ForecastMsmeInterestLine[] = []
+  for (const f of counted) {
+    const m = f.msme
+    if (f.source !== 'payable' || !m || m.interestPaise <= 0 || m.pending <= 0) continue
+    const interestPaise = f.amount === m.pending ? m.interestPaise : mulDivRound(m.interestPaise, f.amount, m.pending)
+    if (interestPaise <= 0) continue
+    out.push({ label: f.label, ledgerId: f.ledgerId ?? null, voucherId: f.voucherId ?? null, payBy: m.payBy, daysLate: m.daysLate, pending: f.amount, interestPaise })
+  }
+  return out.sort((a, b) => a.payBy.localeCompare(b.payBy) || b.interestPaise - a.interestPaise)
+}
+
 export function buildForecast(input: ForecastInput): ForecastResult {
   const periods = forecastPeriods(input.asOn, input.unit, input.count)
   const min = input.minBalance ?? 0
@@ -438,9 +508,21 @@ export function buildForecast(input: ForecastInput): ForecastResult {
 
   // Netting only while the cheques themselves count — excluding 'pdc' must not drop the bills too.
   const withPdc = !!input.includePdc && !excluded.has('pdc')
-  const flows = withPdc ? netPdcAgainstBills(input.flows) : input.flows
-  for (const f of flows) {
-    if (excluded.has(f.source) || (f.source === 'pdc' && !withPdc)) continue
+  const withMsme = !!input.msmeDue
+  // MSME dates first, then the PDC netting: a cheque still covers the earliest bill (by its s.15
+  // date) and the cheque's own date wins for what it covers — each bill counts once.
+  const placed = withMsme ? placeOnMsmeDeadline(input.flows) : input.flows
+  const flows = withPdc ? netPdcAgainstBills(placed) : placed
+  const counted: ForecastFlow[] = []
+  for (const raw of flows) {
+    if (excluded.has(raw.source) || (raw.source === 'pdc' && !withPdc)) continue
+    let f = raw
+    if (withMsme) counted.push(f)
+    else if (f.msme) {
+      // Off: the s.15 facts are not part of the output (byte-identical to before).
+      const { msme: _msme, ...rest } = f
+      f = rest
+    }
     const delayed = f.direction === 'in' && (f.source === 'receivable' || f.source === 'sales_order') ? addDaysISO(f.date, input.scenario.delayDays) : f.date
     const effectiveDate = delayed < input.asOn ? input.asOn : delayed
     const effectiveBp = scenarioProbability(f, input.scenario)
@@ -473,7 +555,7 @@ export function buildForecast(input: ForecastInput): ForecastResult {
     return { ...p, opening, inflow: acc.inflow, outflow: acc.outflow, net, closing, bySource: acc.bySource, shortfall }
   })
   contributions.sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate) || b.weighted - a.weighted)
-  return {
+  const result: ForecastResult = {
     periods: rows,
     contributions,
     totals: { inflow: rows.reduce((s, r) => s + r.inflow, 0), outflow: rows.reduce((s, r) => s + r.outflow, 0), closing: running },
@@ -481,4 +563,9 @@ export function buildForecast(input: ForecastInput): ForecastResult {
     firstShortfall,
     beyond
   }
+  if (withMsme) {
+    const lines = msmeInterestLines(counted)
+    result.msmeInterest = { total: lines.reduce((s, l) => s + l.interestPaise, 0), lines }
+  }
+  return result
 }

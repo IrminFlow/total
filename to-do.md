@@ -106,7 +106,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Fixed assets not done: partial disposals, GST on asset sale, extra-shift depreciation, component lives, rule 25(2) 40 % cap — WP 3.6
 - Trade cycle not done: ~~16-char invoice-number warning~~ DONE — PR #140 (NIC DocDtls.No warning for e-invoicing companies: gstValidate + the sales editor; an explicit e-invoicing switch in Company details; unset = the history heuristic — PR #144), ~~challan / GRN list screens, convert-to-invoice~~ DONE — PR #149 (Trade → Challans / GRNs lists, "Convert to invoice / bill", several challans of one party onto one invoice), live NIC e-way for challans — WP 2.5b
 - TCS not modelled: 206C(1G) 20 % slab, 206C(1C), LRS — WP 3.3
-- Cash & finance not done: MSME deadlines in the forecast, loan disbursement posting, foreign opening balances — WP 4.4
+- Cash & finance not done: ~~MSME deadlines in the forecast~~ DONE — PR #156 (Options → Include, off by default; earlier of own due / s.15 date (from the bill date), overdue + indicative s.16 interest line, PDC date wins), loan disbursement posting, foreign opening balances — WP 4.4
 - NIC follow-ups needing a migration: store signed QR / signed invoice; cancel IRN / cancel + extend e-way UI — WP 3.5
 - ~~ITC-reversal apply has no audit row of its own~~ DONE — `itc_reversal` rows on apply and post — PR #120; ~~an apply with nothing changed still writes a row~~ DONE — no-op, and so is an unchanged `setGst3bManual` — PR #150
 - ~~Backup file names use UTC timestamps~~ DONE — local time since PR #114; one stamp helper + old-name test PR #118 (the list reads mtime) — PR #111

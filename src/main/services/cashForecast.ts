@@ -13,6 +13,9 @@
 //                            PF / ESI / PT: payrollStatutory.statutoryDues (outstanding per run)
 //   loan EMIs                loans.dueInstalments (unposted, active loans)
 //   known items              forecast_items
+//   MSME s.15 / s.16         shared/payables/msme.ts s15Deadline / s16Interest on each open payable
+//                            bill of a covered supplier (payables.listBankRates; read by the
+//                            engine only with `msmeDue` — off by default)
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import {
@@ -29,6 +32,8 @@ import { listGroups, descendantIdsByName } from './masters'
 import { pendingOrders, pendingStockNotes } from './tradeReports'
 import { statutoryDues } from './payrollStatutory'
 import { dueInstalments } from './loans'
+import { listBankRates } from './payables'
+import { daysBetween, isMsmeCovered, s15Deadline, s16Interest, type MsmeCategory } from '@shared/payables/msme'
 import { IN_BOOKS, NOT_DELETED } from './vouchers'
 import { addDays } from './cashFinanceCommon'
 
@@ -298,6 +303,36 @@ function unbilledNoteFlows(db: DB, asOn: string, profile: ReturnType<typeof coll
   return out
 }
 
+// ---------- MSME s.15 deadlines ----------
+
+/**
+ * Attaches the MSMED Act facts to every payable bill flow of a covered supplier (registered
+ * micro / small — s.2(n), `isMsmeCovered`) accepted on or after its `msme_registered_from`
+ * (payables.ts `coveredOn`, the same rule): the s.15 pay-by date (`s15Deadline` on the bill date
+ * with the WRITTEN agreed credit days) and, once past it, the indicative s.16 interest up to
+ * `asOn` (`s16Interest` with the editable bank rates — as payablesPlan computes it). Read always;
+ * the engine uses it only with `msmeDue`. Bills of other suppliers are returned untouched.
+ */
+export function withMsmeFacts(db: DB, bills: readonly OpenBillInput[], flows: ForecastFlow[], asOn: string): ForecastFlow[] {
+  const terms = new Map(
+    (db.prepare('SELECT id, msme_registered AS registered, msme_category AS category, msme_registered_from AS registeredFrom, agreed_credit_days AS agreedDays FROM ledgers WHERE msme_registered = 1').all() as {
+      id: number; registered: number; category: MsmeCategory | null; registeredFrom: string | null; agreedDays: number | null
+    }[]).filter((r) => isMsmeCovered({ registered: !!r.registered, category: r.category })).map((r) => [r.id, r])
+  )
+  if (terms.size === 0) return flows
+  const rates = listBankRates(db)
+  // payableFlows maps the bills with pending > 0 one to one, in order.
+  const open = bills.filter((b) => b.pending > 0)
+  return flows.map((f, i) => {
+    const b = open[i]
+    const t = b ? terms.get(b.ledgerId) : undefined
+    if (!b || !t || (t.registeredFrom != null && b.date < t.registeredFrom)) return f
+    const s15 = s15Deadline(b.date, t.agreedDays)
+    const interestPaise = asOn >= s15.interestFrom ? s16Interest(b.pending, s15.interestFrom, asOn, rates).interestPaise : 0
+    return { ...f, msme: { payBy: s15.payBy, daysLate: Math.max(0, daysBetween(s15.payBy, asOn)), interestPaise, pending: b.pending } }
+  })
+}
+
 // ---------- the base ----------
 
 const toBill = (p: { ledgerId: number; name: string }, b: { voucherId: number | null; number: string; date: string; dueDate: string | null; pending: number; overdueDays: number }): OpenBillInput => ({
@@ -323,7 +358,8 @@ export function forecastBase(db: DB, company: CompanyInfo, asOn: string, to: str
   })
   attempt('Payables', () => {
     const bills = outstandings(db, 'payable', asOn).flatMap((p) => p.bills.map((b) => toBill(p, b)))
-    flows.push(...payableFlows(bills))
+    // The s.15 facts ride along on MSME bills; counted only when the screen turns on msmeDue.
+    flows.push(...withMsmeFacts(db, bills, payableFlows(bills), asOn))
   })
   attempt('Open orders', () => flows.push(...orderFlows(db, asOn)))
   attempt('Unbilled challans and GRNs', () => flows.push(...unbilledNoteFlows(db, asOn, profile)))
