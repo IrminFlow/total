@@ -14,13 +14,17 @@ Things to know about the version numbers:
 - 0.6.0 and 0.9.0 were never tagged. The Phase 2 and 3 work shipped together as 0.7.0, and the
   Phase 5 and 6 work shipped together as 0.10.0.
 - Versions before 0.5.0 (0.1.0 to 0.4.0, August 2026) are on the releases page and not repeated here.
-- `package.json` still says 0.11.0. Nothing under "Unreleased" has a tag yet.
+- 0.12.0 (2026-10-22) is the first release after 0.11.0; it carries Phases 7, 9 and 10 together.
 - Anything this file calls "unverified" is marked UNVERIFIED in the code or in the release notes it
   was taken from. The privacy-related ones are in [docs/ai-and-privacy.md](docs/ai-and-privacy.md).
 
 ## [Unreleased]
 
-Everything merged after v0.11.0 (2026-10-13): Phase 9 (simple screens for the daily jobs), the
+Nothing yet.
+
+## [0.12.0] - 2026-10-22
+
+Everything merged after v0.11.0 (2026-10-13), 143 pull requests: Phase 9 (simple screens for the daily jobs), the
 Phase 10 simple-mode work (Ask Total, "Why?", help, Hindi, keyboard and accessibility, the plain AI
 helper, the beginner-study fixes), the Phase 7 work (performance, security, Windows, end-to-end
 tests, documentation) and several correctness fixes.

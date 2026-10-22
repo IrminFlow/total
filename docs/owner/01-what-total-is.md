@@ -4,7 +4,7 @@
 
 This document explains Total from the top: what it is, who it is for, the two ways of using it, everything each way can do, what makes it different, and what it cannot do yet. It ends with a short word list.
 
-The latest tagged version is 0.11.0 (13 October 2026). Much of what is described below is already merged into the main code but not yet in a tagged release. The changelog's "Unreleased" section lists those parts.
+The latest tagged version is 0.12.0 (22 October 2026), which carries everything described below. The changelog lists each part under that version.
 
 ---
 

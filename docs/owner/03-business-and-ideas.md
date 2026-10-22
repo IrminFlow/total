@@ -31,7 +31,7 @@ Both modes write to **the same books**. A shopkeeper records sales in simple mod
 
 What is already in the box (both modes together): bills and invoices with PDF printing, purchases, money in and out, bank statement import and matching, stock and simple manufacturing, customers and suppliers with reminders, GST workings (GSTR-1, GSTR-3B, GSTR-9, GSTR-2B check), e-invoice and e-way bill files, TDS and TCS, payroll with PF/ESI/PT, multi-currency, budgets, loans, Tally import, Excel import/export, backups (with an optional passphrase lock), users and roles, an audit trail of every change, and an optional AI helper that uses the user's own key.
 
-Today the version on GitHub is 0.11.0. A large amount of finished work (the simple screens for selling, buying, money, bank, stock, people, reports, taxes, Ask Total, Hindi) is on the main branch but not yet in a release.
+Today the version on GitHub is 0.12.0 (22 October 2026): the simple screens for selling, buying, money, bank, stock, people, reports, taxes, Ask Total and Hindi are all in that release.
 
 ---
 

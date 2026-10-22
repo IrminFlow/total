@@ -137,7 +137,7 @@ cd site && npm run dev / npm run build   # marketing site
 ## Release steps (auto-update pipeline)
 
 ```bash
-npm version patch|minor  # bumps version, commits, tags vX.Y.Z (minor for a phase release; latest tag: v0.11.0)
+npm version patch|minor  # bumps version, commits, tags vX.Y.Z (minor for a phase release; latest tag: v0.12.0)
 git push --follow-tags # → GitHub Actions: tests, DMG+ZIP build, publishes the release
 ```
 
