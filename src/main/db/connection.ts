@@ -96,13 +96,31 @@ export function closeCompanyDb(db: DB): void {
 
 const MAX_BACKUPS = 20
 
+/** meta key: the names of open backups still waiting for their quick_check verdict (JSON array;
+ *  services/backupOpen.ts writes it). */
+export const OPEN_BACKUP_UNVERIFIED_KEY = 'backup.openUnverified'
+
+export function unverifiedOpenBackups(db: DB): string[] {
+  const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(OPEN_BACKUP_UNVERIFIED_KEY) as { value: string } | undefined
+  if (!row) return []
+  try {
+    const v = JSON.parse(row.value) as unknown
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []
+  } catch {
+    return []
+  }
+}
+
+/** Where a backup tagged `tag` taken now goes. */
+export const backupDestFor = (slug: string, tag: string): string => join(companyBackupsDir(slug), `${backupStamp()}-${tag}.db`)
+
 /**
  * WAL-safe snapshot of an already-open company DB into backups/, tagged (e.g. 'open', 'manual',
  * 'auto', 'pre-tally-import', 'pre-restore', 'quit'). Uses better-sqlite3's native online backup
  * so uncheckpointed WAL content is always captured — a raw file copy would not see it.
  */
 export async function backupCompany(db: DB, slug: string, tag = 'auto', auditUser: string = SYSTEM_AUDIT_USER): Promise<string> {
-  const dest = join(companyBackupsDir(slug), `${backupStamp()}-${tag}.db`)
+  const dest = backupDestFor(slug, tag)
   await snapshotTo(db, dest)
   // Post-write verification (task Q3 #99): a backup that doesn't pass quick_check is worse than
   // no backup — it silently displaces a good one in the pruning window. Remove it and fail loudly
@@ -112,10 +130,19 @@ export async function backupCompany(db: DB, slug: string, tag = 'auto', auditUse
     rmSync(dest, { force: true })
     throw new Error('Backup verification failed (quick_check) — the snapshot was discarded')
   }
-  // WP 6.4: the snapshot's attachments get a copy in backups/attachments/ (shared by every
-  // snapshot), and copies no remaining backup needs go with the pruned ones.
-  // A failure there (disk full, a read-only folder) never loses the backup or its audit row: it is
-  // recorded on the row instead, like the quit backup does.
+  stashAndAuditBackup(db, slug, dest, tag, auditUser, { beforeAudit: () => pruneCompanyBackups(slug, db) })
+  return dest
+}
+
+/** The rest of a backup once its snapshot is written: the snapshot's attachments copied into
+ *  backups/attachments/ (shared by every snapshot) and the audit row. A failure copying the
+ *  attachments (disk full, a read-only folder) never loses the backup or its audit row: it is
+ *  recorded on the row instead, like the quit backup does. `beforeAudit` runs between the two
+ *  (backupCompany prunes there, as it always did). WP 3.8: every backup is in the trail — it is a
+ *  full copy of the books AND of this audit log (written after the copy, so the row itself lives
+ *  only in the live file). Automatic backups (open, every 30 min, pre-import, quit) are 'system';
+ *  a manual one names the user. */
+export function stashAndAuditBackup(db: DB, slug: string, dest: string, tag: string, auditUser: string = SYSTEM_AUDIT_USER, opts: { beforeAudit?: () => void } = {}): void {
   let stash: StashResult = { copied: 0, missing: [] }
   let attachmentsError: string | null = null
   try {
@@ -123,20 +150,24 @@ export async function backupCompany(db: DB, slug: string, tag = 'auto', auditUse
   } catch (err) {
     attachmentsError = err instanceof Error ? err.message : String(err)
   }
-  pruneBackupsIn(companyBackupsDir(slug), MAX_BACKUPS)
+  opts.beforeAudit?.()
+  writeAudit(db, 'backup', 0, 'backup', null, {
+    tag, file: basename(dest), ...(stash.copied || stash.missing.length ? { attachmentsCopied: stash.copied, attachmentsMissing: stash.missing.length } : {}),
+    ...(attachmentsError ? { attachmentsError } : {})
+  }, { user: auditUser })
+}
+
+/** Keep the newest MAX_BACKUPS (only automatic ones are ever removed), and drop the attachment
+ *  copies no remaining backup needs. Run only after a backup that just passed its quick_check —
+ *  a copy that did not (or has not yet) must never push a good one out of the window. */
+export function pruneCompanyBackups(slug: string, db?: DB): void {
+  // PR #175 review: open backups still waiting for their verdict do not take a slot.
+  pruneBackupsIn(companyBackupsDir(slug), MAX_BACKUPS, new Set(db ? unverifiedOpenBackups(db) : []))
   try {
     pruneBackupAttachmentStore(companyBackupsDir(slug), companyBackupAttachmentsDir(slug))
   } catch {
     // pruning is housekeeping; the next backup tries again
   }
-  // WP 3.8: every backup is in the trail — it is a full copy of the books AND of this audit log
-  // (written after the copy, so the row itself lives only in the live file). Automatic backups
-  // (open, every 30 min, pre-import, quit) are 'system'; a manual one names the user.
-  writeAudit(db, 'backup', 0, 'backup', null, {
-    tag, file: basename(dest), ...(stash.copied || stash.missing.length ? { attachmentsCopied: stash.copied, attachmentsMissing: stash.missing.length } : {}),
-    ...(attachmentsError ? { attachmentsError } : {})
-  }, { user: auditUser })
-  return dest
 }
 
 /** WP 6.4: copy the attachments a snapshot in backups/ references into backups/attachments/. */

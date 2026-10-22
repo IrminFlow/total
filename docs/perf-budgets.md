@@ -82,6 +82,25 @@ Why the budgets differ from the proposal (100k ≤ 1 s per report, ≤ 300 ms sa
   cache the file (`PRAGMA quick_check` of the 500k file: 28 s with the old 256 MB map, 0.9 s with
   the file mapped and cached — see "What changed").
 
+## Company open: what the reply waits for (to-do §4)
+
+company:open waits for the open backup's snapshot only; its quick_check, the prune of older backups
+and the bin purge / attachment sweep run after the reply, once the check says ok
+(`services/backupOpen.ts`). `npm run perf -- --data <100k copy> --open-steps`, a cold (empty)
+backups folder, laptop under load (~25), one run each — every step timed alone, in-process:
+
+| Step | Before ms | After ms |
+|---|---:|---:|
+| openCompanyDb | 56 | 100 |
+| open path: backup (before: snapshot + quick_check + stash + prune + audit; after: snapshot + stash + audit) | 2559 | 2037 |
+| open path: checkIntegrity (runs beside the backup) | 709 | 1369 |
+| open path: purgeOldDeleted + sweepAttachments | 14 | — (after reply) |
+| after reply: quick_check of the copy + prune | — | 1412 |
+| (probe) online snapshot alone / quick_check of a snapshot alone | 3386 / 7123 | 2563 / 1627 |
+
+The quick_check of the copy (1.4–7 s here, longer on a slow disk) leaves the open path; the snapshot
+stays in it and is not bounded — a copy given up half way is no backup.
+
 ## Before → after (100k, laptop)
 
 Two interleaved rounds per side on copies of the same 100k seed (`before` = origin/main's services with

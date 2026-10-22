@@ -10,6 +10,7 @@ import { checkIntegrity } from '../db/integrity'
 import { quickCheckOk, runWeeklyIntegrityCheck, snapshotTo } from '../db/backup'
 import { maturePostDated, purgeOldDeleted } from '../services/vouchers'
 import { sweepAttachments } from '../services/attachments'
+import { settleOpenBackup, snapshotOnOpen } from '../services/backupOpen'
 import { readCompanyInfo } from '../db/seed'
 import { upsertCompany } from '../registry'
 import { companyAttachmentsDir, companyDbPath, ensureDataTree } from '../paths'
@@ -188,13 +189,16 @@ export async function perfOpenSteps(opts: { data: string }): Promise<{ step: str
     await time('  of which: online snapshot (db.backup)', () => snapshotTo(db, probe))
     await time('  of which: quick_check of the snapshot', () => quickCheckOk(probe))
     rmSync(probe, { force: true })
-    await time('backupCompany open (snapshot + quick_check + stash + prune + audit)', () => backupCompany(db, PERF_SLUG, 'open'))
+    // To-do §4: company:open waits for the snapshot half only; the rest runs after the reply.
+    const dest = await time('open path: snapshotOnOpen (snapshot + stash + audit)', () => snapshotOnOpen(db, PERF_SLUG))
     await time('  of which: quick_check of the live DB', () => db.pragma('quick_check', { simple: true }))
-    await time('checkIntegrity (quick_check + balance)', () => checkIntegrity(db))
-    await time('runWeeklyIntegrityCheck (first run of the week)', () => runWeeklyIntegrityCheck(db, new Date(Date.now() + 8 * 86_400_000)))
-    await time('purgeOldDeleted', () => purgeOldDeleted(db, 30))
-    await time('sweepAttachments', () => sweepAttachments(db, companyAttachmentsDir(PERF_SLUG)))
-    await time('maturePostDated', () => maturePostDated(db, PERF_TODAY))
+    await time('open path: checkIntegrity (quick_check + balance)', () => checkIntegrity(db))
+    await time('open path: maturePostDated', () => maturePostDated(db, PERF_TODAY))
+    await time('after reply: settleOpenBackup (quick_check of the copy + prune)', () => settleOpenBackup(db, PERF_SLUG, dest, { stillCurrent: () => true }))
+    await time('after reply: purgeOldDeleted', () => purgeOldDeleted(db, 30))
+    await time('after reply: sweepAttachments', () => sweepAttachments(db, companyAttachmentsDir(PERF_SLUG)))
+    await time('after reply: runWeeklyIntegrityCheck (first run of the week)', () => runWeeklyIntegrityCheck(db, new Date(Date.now() + 8 * 86_400_000)))
+    await time('(before: backupCompany open, snapshot + quick_check + stash + prune + audit, all awaited)', () => backupCompany(db, PERF_SLUG, 'open'))
   } finally {
     closeCompanyDb(db)
   }
