@@ -11,6 +11,7 @@ import {
   confirmRoundTrip, EMPTY_PASSTHROUGH, passthroughOf, qtyText,
   type BuildResult, type HeaderPassthrough, type Representation, type VoucherPayload
 } from './payload'
+import { parseQtyText } from '../qty'
 
 /**
  * The shape the engine's 'transfer' costing rule (WP 2.4) applies to: no ledger lines, and the
@@ -73,7 +74,7 @@ export function emptyTransferState(date: string): TransferFormState {
   return { date, number: '', rows: [blankTransferRow()], narration: '', passthrough: EMPTY_PASSTHROUGH, isOptional: undefined }
 }
 
-export const transferQtyMilli = (r: TransferRowState): number => Math.round(parseFloat(r.qtyText || '0') * 1000)
+export const transferQtyMilli = (r: TransferRowState): number => (parseQtyText(r.qtyText) ?? 0)
 
 /** Rows that will post (an item picked). */
 export const transferRowsToPost = (state: TransferFormState): TransferRowState[] => state.rows.filter((r) => r.itemId != null)

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolvePostedRates } from './postedRate'
+import { ratedLinesUnexplained, resolvePostedRates } from './postedRate'
 
 const D = '2026-07-05'
 // Before the 22 Sep 2025 change 12 % / 28 % are slabs of the date (rateTable.ts).
@@ -63,10 +63,45 @@ describe('resolvePostedRates', () => {
     // Hand-edited: 18% tax + ₹50 typed on top.
     expect(resolvePostedRates([{ taxable: 100000, rate: null }], 23000, 'intra', D)).toEqual({ rates: [23], derived: true, offSlab: true })
   })
+  const TIES = { valueTies: true }
+  it('a rated account whose rate does not explain the posted tax takes the slab the tax implies', () => {
+    // Sales account 18 %, a "just an amount" bill charged at 5 %: CGST 25 + SGST 25 on 1,000.
+    expect(resolvePostedRates([{ taxable: 100000, rate: 18 }], 5000, 'intra', D, TIES)).toEqual({ rates: [5], derived: true, offSlab: false })
+    // Inter-state at 40 % on an 18 % account.
+    expect(resolvePostedRates([{ taxable: 100000, rate: 18 }], 40000, 'inter', D, TIES)).toEqual({ rates: [40], derived: true, offSlab: false })
+    // An explicit 0 % line beside it stays nil.
+    expect(resolvePostedRates([{ taxable: 100000, rate: 18 }, { taxable: 100000, rate: 0 }], 5000, 'intra', D, TIES).rates).toEqual([5, 0])
+  })
+  it('a rated account is re-rated only when a slab explains the posted tax (otherwise its rate stays)', () => {
+    // 18 % + ₹2 typed on top fits no slab: reported at 18 % as before (the value check flags it).
+    expect(resolvePostedRates([{ taxable: 100000, rate: 18 }], 18200, 'intra', D, TIES)).toEqual({ rates: [18], derived: false, offSlab: false })
+    // Rounded to the rupee per head is still its own rate.
+    expect(resolvePostedRates([{ taxable: 123456, rate: 18 }], 22200, 'intra', D, TIES)).toEqual({ rates: [18], derived: false, offSlab: false })
+  })
+  // Review of #187: coincidences must not re-rate.
+  it('a document whose value does not tie (a discount debited elsewhere) keeps its rate', () => {
+    // Cr Sales (18 %) 10,000, Dr Discount 3,333.33, tax 18 % on the net 6,666.67 = 1,200 — looks like 12 %.
+    expect(resolvePostedRates([{ taxable: 1_000_000, rate: 18 }], 120_000, 'intra', D, { valueTies: false })).toEqual({ rates: [18], derived: false, offSlab: false })
+    // Not told the value ties: unchanged too.
+    expect(resolvePostedRates([{ taxable: 1_000_000, rate: 18 }], 120_000, 'intra', D)).toEqual({ rates: [18], derived: false, offSlab: false })
+  })
+  it('two rated lines (tax on only one of them) or lines at different master rates keep their rates', () => {
+    // 18 % on 1,000 = 180 over 3,600 looks like 5 %.
+    expect(resolvePostedRates([{ taxable: 100_000, rate: 18 }, { taxable: 260_000, rate: 18 }], 18_000, 'intra', D, TIES).rates).toEqual([18, 18])
+    // An 18 % account plus a rate-less line, the whole bill charged 5 %: one rate can't be told per line.
+    expect(resolvePostedRates([{ taxable: 100000, rate: 18 }, { taxable: 100000, rate: null }], 10000, 'intra', D, TIES).rates).toEqual([18, 0])
+  })
   it('the implied rate is exact on large amounts (no float overflow) and rounds half-up at 4 decimals', () => {
     // ₹5,000 crore taxable, ₹170.0017 crore tax -> 3.400034% -> 3.4
     expect(resolvePostedRates([{ taxable: 5_000_000_000_000, rate: null }], 170_001_700_000, 'inter', D).rates).toEqual([3.4])
     // 1/3 % -> 0.3333
     expect(resolvePostedRates([{ taxable: 300000, rate: null }], 1000, 'inter', D).rates).toEqual([0.3333])
+  })
+  it('ratedLinesUnexplained: the value is read only for a rated line its master rate does not explain', () => {
+    expect(ratedLinesUnexplained([{ taxable: 100000, rate: 18 }], 5000, 'intra')).toBe(true)
+    expect(ratedLinesUnexplained([{ taxable: 100000, rate: 18 }], 18000, 'intra')).toBe(false)
+    expect(ratedLinesUnexplained([{ taxable: 123456, rate: 18 }], 22200, 'intra')).toBe(false)
+    expect(ratedLinesUnexplained([{ taxable: 100000, rate: null }], 18000, 'intra')).toBe(false)
+    expect(ratedLinesUnexplained([{ taxable: 100000, rate: 18 }], 0, 'intra')).toBe(false)
   })
 })

@@ -11,6 +11,7 @@ import type { VoucherKind } from '@shared/domain'
 import type { PriceSource } from '@shared/pricing'
 import { pricingApi } from '../../lib/pricingClient'
 import { Popover } from '../../components/kit'
+import { parseQtyText } from '@shared/qty'
 
 export interface RowPricing {
   /** 'auto' = the resolver owns rate + discount; 'manual' = typed by hand. */
@@ -50,8 +51,8 @@ export function useInvoicePricing(kind: VoucherKind, partyId: number | null, dat
 }
 
 const qtyMilliOf = (qtyText: string): number => {
-  const q = Math.round(parseFloat(qtyText || '0') * 1000)
-  return Number.isFinite(q) && q > 0 ? q : 0
+  const q = parseQtyText(qtyText) ?? 0
+  return q > 0 ? q : 0
 }
 
 /** The resolver owns this row's price. */

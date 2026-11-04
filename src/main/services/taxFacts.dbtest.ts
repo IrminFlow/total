@@ -125,7 +125,9 @@ describe('tax-fact snapshots (to-do §4 GST)', () => {
 
     editMasters(s.db, s)
     const follows = readers(s.db, [a, b])
-    expect(follows.docs.map((d: { items: { rate: number }[] }) => d.items.map((i) => i.rate))).toEqual([[12], [5]])
+    // The item line follows the item master (12 %); the service bill's ledger now says 5 % but the
+    // bill posts 18 % tax: the posted-tax rule (bug hunt 2026-11) reports the slab its tax implies.
+    expect(follows.docs.map((d: { items: { rate: number }[] }) => d.items.map((i) => i.rate))).toEqual([[12], [18]])
     expect(follows.docs.map((d: { hsnLines: { hsn: string }[] }) => d.hsnLines.map((h) => h.hsn))).toEqual([['8471'], ['998312']])
     expect(follows.docs.map((d: { invTyp: string; pos: string; partyGstin: string }) => [d.invTyp, d.pos, d.partyGstin])).toEqual([['SEWP', '29', '29AABCF9012G1ZQ'], ['SEWP', '29', '29AABCF9012G1ZQ']])
     expect(follows.edocs.map((d: { supTyp: string }) => d.supTyp)).toEqual(['SEZWP', 'SEZWP'])
@@ -305,7 +307,9 @@ describe('tax-fact snapshots — the snapshot path equals the masters path at sa
     expect(d).not.toEqual(a)
     const dDocs = (d.regular as { docs: typeof docs }).docs
     expect(dDocs.find((x) => x.voucherId === c.ids[0])!.items.map((i) => i.rate)).toEqual([12, 18])
-    expect(dDocs.find((x) => x.voucherId === c.ids[1])!.items.map((i) => i.rate)).toEqual([5]) // the ledger is rated now: its rate stays, the posted tax only validates
+    // The ledger is rated 5 % now, but the bill posts 18 % tax: the slab the posted tax implies wins
+    // (bug hunt 2026-11 — a rated account's rate stays only while it explains the posted tax).
+    expect(dDocs.find((x) => x.voucherId === c.ids[1])!.items.map((i) => i.rate)).toEqual([18])
     expect((d.regular as { rcm: unknown[] }).rcm).toEqual([]) // the supplier is no longer flagged RCM
 
     c.ids.forEach((id, i) => writeTaxFacts(c.db, id, saved[i]!))

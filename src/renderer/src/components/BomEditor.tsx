@@ -11,6 +11,7 @@ import { useToasts } from '../state/stores'
 import { confirmDialog } from '../lib/dialogs'
 import { Button, Checkbox, DateInput, Field, Select, TextInput } from './ui'
 import { useStockItems } from './pickers'
+import { parseQtyText } from '@shared/qty'
 
 interface LineDraft {
   componentId: number | ''
@@ -66,10 +67,10 @@ export function BomVersionsEditor({ itemId }: { itemId: number }): React.JSX.Ele
   const save = async (): Promise<void> => {
     try {
       const lines = current.lines
-        .filter((l) => l.componentId !== '' && Number(l.qtyText) > 0)
+        .filter((l) => l.componentId !== '' && (parseQtyText(l.qtyText) ?? 0) > 0)
         .map((l) => ({
           componentId: l.componentId as number,
-          qtyMilliPerUnit: Math.round(Number(l.qtyText) * 1000),
+          qtyMilliPerUnit: parseQtyText(l.qtyText)!,
           scrapPctBp: l.scrapText.trim() ? Math.round(Number(l.scrapText) * 100) : null
         }))
       const saved = await api.bom.saveVersion({
