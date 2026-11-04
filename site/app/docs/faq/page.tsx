@@ -25,10 +25,11 @@ export default function FaqPage(): React.JSX.Element {
 
       <h2>Is my data safe and private?</h2>
       <p>
-        Nothing you enter ever leaves the machine. There is no account, no login, and no background sync — your books
-        are a folder of SQLite files that only your copy of Total touches. The only network call the app makes on its
-        own is a periodic check against the update endpoint to see whether a newer version exists; it sends nothing
-        about your company, ledgers, or transactions.
+        Your books stay on your machine unless you turn on a feature that sends something: the AI helper (questions
+        and bills go to the AI service with your key, identifiers masked by default), GST e-invoice / e-way bill filing
+        (the invoice goes to the government portal) and the update check (it sends no business data, and you can turn
+        it off). There is no account, no login, and no background sync — your books are a folder of SQLite files that
+        only your copy of Total touches.
       </p>
 
       <h2>Can my CA use it?</h2>
@@ -56,8 +57,9 @@ export default function FaqPage(): React.JSX.Element {
       <h2>What happens when I&rsquo;m offline?</h2>
       <p>
         Everything works. Vouchers, reports, GST computation, invoicing, payroll, banking reconciliation, backups —
-        all of it runs locally with no network required. The only feature that wants a connection is the periodic
-        update check, and if that fails the app just keeps running on the version you have.
+        all of it runs locally with no network required. Only the features you turn on yourself want a connection —
+        the AI helper, live e-invoice / e-way bill filing and the update check — and without one the rest of the app
+        keeps working.
       </p>
 
       <h2>macOS says the app is damaged and can&rsquo;t be opened — now what?</h2>
