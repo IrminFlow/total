@@ -2124,7 +2124,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'errors.accountMissing': 'यह खाता अब नहीं है। शायद हटा दिया गया है।',
   'errors.builtInAccount': 'पहले से बने खाते हटाए नहीं जा सकते।',
   'errors.accountInUse': 'इस खाते में एंट्रियाँ हैं। पहले उन्हें हटाएँ या कहीं और ले जाएँ।',
-  'errors.accountLoanEntries': 'यह खाता लोन “{loan}” का है, जिसकी एंट्रियाँ अभी बाकी हैं। पहले उन एंट्रियों को बिन में डालें।',
+  'errors.accountLoanEntries': 'यह खाता लोन “{loan}” ही है, जिसकी एंट्रियाँ अभी बाकी हैं। पहले उन एंट्रियों को बिन में डालें।',
   'errors.productMissing': 'यह सामान अब नहीं है। शायद हटा दिया गया है।',
   'errors.productInUse': 'इस सामान की एंट्रियाँ हैं। पहले उन्हें हटाएँ।',
   'errors.placeMissing': 'स्टॉक की यह जगह अब नहीं है।',

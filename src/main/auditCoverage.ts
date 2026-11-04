@@ -327,7 +327,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'importwiz:planPreview': r('dry run: applies inside a transaction that is always rolled back'),
   'importwiz:planRun': a('csv_import', 'company', 'costCentre', 'voucher_line', 'group', 'ledger', 'unit', 'stockGroup', 'godown', 'stockItem', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'voucher', 'trade_doc', 'backup', 'opening_bills'),
   'importwiz:batches': QUERY,
-  'importwiz:undo': a('import_batch', 'voucher', 'voucher_line', 'costCentre', 'trade_doc', 'ledger', 'stockItem', 'group', 'unit', 'stockGroup', 'godown', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'backup', 'opening_bills'),
+  'importwiz:undo': a('import_batch', 'voucher', 'voucher_line', 'costCentre', 'trade_doc', 'ledger', 'stockItem', 'group', 'unit', 'stockGroup', 'godown', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'backup', 'opening_bills', 'budget', 'loan'),
   'importwiz:templates': QUERY,
   'importwiz:templateSave': a('import_template'),
   'importwiz:templateDelete': a('import_template'),

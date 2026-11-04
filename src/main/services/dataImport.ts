@@ -36,6 +36,7 @@ import {
 } from '@shared/dataImport/targets'
 import { isSpecial, SPECIAL, type SpecialLedger } from '@shared/dataImport/invoiceBuild'
 import * as masters from './masters'
+import { removeLeftoverPlanning } from './leftoverPlanning'
 import { saveVoucher, deleteVoucher, getVoucher, nextVoucherNumber, getLockDate, setLockDate } from './vouchers'
 import { readTaxFacts, taxFactsFrom, type LineTaxFacts, type VoucherTaxFacts } from './taxFacts'
 import { saveTradeDoc, deleteTradeDoc, closeTradeDoc, cancelTradeDoc } from './tradeDocs'
@@ -1498,10 +1499,11 @@ export function undoImport(db: DB, batchId: number): UndoResult {
   const items = db.prepare('SELECT * FROM import_batch_items WHERE batch_id = ? AND undone_at IS NULL ORDER BY id DESC').all(batchId) as UndoItem[]
   const res: UndoResult = { binned: 0, deleted: 0, restored: 0, kept: [] }
   const used = (sql: string, id: number): boolean => !!db.prepare(sql).get(id)
-  const rawDelete = (table: string, entity: string, id: number, inUse: string[]): void => {
+  const rawDelete = (table: string, entity: string, id: number, inUse: string[], cleanup?: () => void): void => {
     for (const sql of inUse) if (used(sql, id)) throw new Error('in use')
     const before = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id)
     if (!before) return
+    cleanup?.()
     db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id)
     writeAudit(db, entity, id, 'delete', before, null)
   }
@@ -1587,19 +1589,31 @@ export function undoImport(db: DB, batchId: number): UndoResult {
               }
               return
             }
-            case 'ledger':
-              if (refusedInUse(() => masters.deleteLedger(db, it.entity_id), 'ledger_in_use', 'ledger_loan_in_use')) {
+            case 'ledger': {
+              // A leftover loan record (1.0 cleanup) whose entries are live keeps its ledger: the
+              // reason says which loan, not "purge the bin".
+              let loanRefusal: Error | null = null
+              const del = (): void => {
+                try {
+                  masters.deleteLedger(db, it.entity_id)
+                } catch (err) {
+                  if ((err as { code?: string }).code === 'ledger_loan_in_use') loanRefusal = err as Error
+                  throw err
+                }
+              }
+              if (refusedInUse(del, 'ledger_in_use', 'ledger_loan_in_use')) {
                 // Its vouchers (live or in the bin) keep it, but the opening the import gave it
                 // must go — or the undone books carry an opening with no contra (an unused
                 // balancing ledger IS deleted). Through updateLedger: audited, and the WP 8.7
                 // opening-bills guard clears (or refuses, when in use) its bills.
                 const l = masters.getLedger(db, it.entity_id)
-                if (!l || l.openingBalance === 0) throw new Error('in use')
+                if (!l || l.openingBalance === 0) throw loanRefusal ?? new Error('in use')
                 masters.updateLedger(db, it.entity_id, ledgerInputSchema.parse({ ...l, openingBalance: 0 }))
                 cleared = l.name
                 return
               }
               break
+            }
             case 'stockItem':
               if (refusedInUse(() => masters.deleteStockItem(db, it.entity_id), 'item_in_use')) {
                 // Same for an item with movements: its imported opening stock goes.
@@ -1629,7 +1643,8 @@ export function undoImport(db: DB, batchId: number): UndoResult {
               rawDelete('stock_groups', 'stockGroup', it.entity_id, ['SELECT 1 FROM stock_items WHERE group_id = ?', 'SELECT 1 FROM stock_groups WHERE parent_id = ?'])
               break
             case 'costCentre':
-              rawDelete('cost_centres', 'costCentre', it.entity_id, ['SELECT 1 FROM voucher_line_cost_allocations WHERE cost_centre_id = ?', 'SELECT 1 FROM cost_centres WHERE parent_id = ?'])
+              // + leftover budget lines split by it (1.0 cleanup; audited), as deleteCostCentre does.
+              rawDelete('cost_centres', 'costCentre', it.entity_id, ['SELECT 1 FROM voucher_line_cost_allocations WHERE cost_centre_id = ?', 'SELECT 1 FROM cost_centres WHERE parent_id = ?'], () => void removeLeftoverPlanning(db, { costCentreId: it.entity_id }))
               break
             case 'batch':
               rawDelete('batches', 'batch', it.entity_id, ['SELECT 1 FROM inventory_lines WHERE batch_id = ?'])

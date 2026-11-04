@@ -12,6 +12,8 @@ import { AppError } from '@shared/errors'
 import { createGroup, createLedger, deleteGroup, deleteLedger } from './masters'
 import { deleteCostCentre, saveCostCentre } from './costCentres'
 import { deleteVoucher, saveVoucher } from './vouchers'
+import { runImport, undoImport } from './dataImport'
+import { autoPlan, parseImportFile } from './importFiles'
 
 const gid = (db: DB, name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
 const ledger = (db: DB, name: string, group: string, openingBalance = 0): number => createLedger(db, { name, groupId: gid(db, group), openingBalance }).id
@@ -152,5 +154,32 @@ describe('deleting a ledger or group that leftover budgets / loans point at', ()
     expect(count(db, 'SELECT COUNT(*) AS n FROM budget_lines WHERE budget_id = ?', budget)).toBe(1)
     expect(JSON.parse(audit(db, 'budget', budget)!.b!).lines).toHaveLength(2)
     expect(JSON.parse(audit(db, 'costCentre', cc)!.b!).cascaded).toMatchObject({ budget_lines: 1 })
+  })
+
+  it('import undo: an imported cost centre a budget line is split by is deleted (budget audited); an imported loan ledger with live entries is kept, the reason naming the loan', () => {
+    const db = seededDb()
+    const csv = (text: string, profileId: string) => {
+      const f = parseImportFile('x.csv', new TextEncoder().encode(text))
+      const { steps, profile } = autoPlan(db, f, '27', { profileId })
+      return runImport(db, steps, {}, { source: profile.source, profileId: profile.id, fileName: 'x.csv' }, false)
+    }
+    const ccRun = csv('Name,Under\nPune office,', 'generic:costCentres')
+    const cc = (db.prepare("SELECT id FROM cost_centres WHERE name = 'Pune office'").get() as { id: number }).id
+    const budget = legacyBudget(db, ledger(db, 'Office Rent', 'Indirect Expenses'), gid(db, 'Indirect Expenses'))
+    db.prepare('UPDATE budget_lines SET cost_centre_id = ? WHERE budget_id = ? AND ledger_id IS NOT NULL').run(cc, budget)
+    expect(undoImport(db, ccRun.batchId!)).toMatchObject({ deleted: 1, kept: [] })
+    expect(count(db, 'SELECT COUNT(*) AS n FROM cost_centres WHERE id = ?', cc)).toBe(0)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM budget_lines WHERE budget_id = ?', budget)).toBe(1)
+    expect(audit(db, 'budget', budget)!.action).toBe('update')
+
+    const ledgerRun = csv('Name,Group\nImported Term Loan,Secured Loans', 'generic:ledgers')
+    const loanLedger = (db.prepare("SELECT id FROM ledgers WHERE name = 'Imported Term Loan'").get() as { id: number }).id
+    const bank = ledger(db, 'HDFC', 'Bank Accounts')
+    const loan = legacyLoan(db, loanLedger, bank, ledger(db, 'Interest on loan', 'Indirect Expenses'))
+    disbursement(db, loan, bank, ledger(db, 'Director loan', 'Unsecured Loans'))
+    const u = undoImport(db, ledgerRun.batchId!)
+    expect(u.kept).toEqual([expect.objectContaining({ id: loanLedger, reason: expect.stringContaining('Term loan') })])
+    expect(u.kept[0]!.reason).not.toMatch(/purge the bin/)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM loans WHERE id = ?', loan)).toBe(1)
   })
 })

@@ -2119,7 +2119,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'errors.accountMissing': 'Yeh account ab nahi hai. Shayad hata diya gaya hai.',
   'errors.builtInAccount': 'Pehle se bane accounts hataye nahi ja sakte.',
   'errors.accountInUse': 'Is account mein entries hain. Pehle unhe hatayein ya kahin aur le jayein.',
-  'errors.accountLoanEntries': 'Yeh account loan “{loan}” ka hai, jiski entries abhi baaki hain. Pehle un entries ko bin mein daalein.',
+  'errors.accountLoanEntries': 'Yeh account khud loan “{loan}” hai, jiski entries abhi baaki hain. Pehle un entries ko bin mein daalein.',
   'errors.productMissing': 'Yeh item ab nahi hai. Shayad hata diya gaya hai.',
   'errors.productInUse': 'Is item ki entries hain. Pehle unhe hatayein.',
   'errors.placeMissing': 'Stock ki yeh jagah ab nahi hai.',

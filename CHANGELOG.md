@@ -20,7 +20,7 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
-**Plain words.** Total is smaller. Seven rarely used tools are gone, and seven more stay out of
+**Plain words** (#194). Total is smaller. Seven rarely used tools are gone, and seven more stay out of
 sight until a business actually uses them. Nothing already in your books changes.
 
 - **Removed:** group consolidation (and the "Combined view" of several companies), the report
@@ -55,8 +55,9 @@ EMIs" switch and column are gone); its opening is still the trial balance's cash
 and disbursement vouchers posted from the old Loans screen are ordinary vouchers now (they can be
 edited like any other). Deleting a ledger, group or cost centre that an old budget line or loan
 record points at now removes those leftover rows (each audited with its whole before-image); a
-loan's bank or interest account can always go (the loan record just forgets it), and deleting a
-loan's own account is refused, naming the loan, while its entries are still in the books. Ratios and comparative P&L / balance sheet stay (without the budget column). The
+loan's bank or interest account with no entries of its own can go (the loan record just forgets
+it), and deleting a loan's own account is refused, naming the loan, while its entries are still in
+the books. Ratios and comparative P&L / balance sheet stay (without the budget column). The
 year-end close preview no longer warns about over-budget lines or unposted EMIs, and the Gateway no
 longer shows the over-budget chip or loan EMI reminders. Settings → Agent access keeps the read-only
 CSV / JSON mirror ("Refresh after each save" is the old inbox switch); any drafts the MCP server or
