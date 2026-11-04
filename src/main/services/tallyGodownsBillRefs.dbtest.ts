@@ -151,7 +151,7 @@ describe('Tally import: an Agst Ref naming no open bill', () => {
     expect([a.bills, a.unappliedCredit, a.warnings]).toEqual([[], 50_000, []])
   })
 
-  it('with no open bill at all, the receipt keeps no refs (oldest first, as before) — and says only that', () => {
+  it('with no open bill at all, the receipt keeps no refs (oldest first, as before) — and names the advance it could not keep', () => {
     const { db, summary, id } = run([tallyLedger('Cust', 'Sundry Debtors'),
       tallyReceipt('R-4', '20260405', 'Cust', 500, [{ name: 'OLD-9', type: 'Agst Ref', rupees: 300 }, { name: 'ADV-2', type: 'Advance', rupees: 200 }])])
     expect(getVoucher(db, id('R-4')!)!.billRefs).toEqual([])
@@ -159,6 +159,7 @@ describe('Tally import: an Agst Ref naming no open bill', () => {
     expect(about).toHaveLength(1)
     expect(about[0]).toMatch(/OLD-9.*as of this import.*not imported/)
     expect(about[0]).not.toMatch(/settled/)
+    expect(about[0]).toMatch(/ADV-2 \(₹200(\.00)?\) is not kept either/)
   })
 
   it('a supplier\'s refund (a receipt) Agst a missing advance keeps no refs — never a NEW ref on a receipt', () => {

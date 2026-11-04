@@ -158,7 +158,11 @@ function settleOnOpenBills(party: PartyBills, partyName: string, v: TallyVoucher
   const notFound = (names: string[], what: string): string =>
     `${label}: its Agst Ref ${names.join(', ')} ${names.length > 1 ? 'name' : 'names'} no open ${what} of ${partyName} as of this import (it may be in a file not imported yet)`
   const keepNone = (names: string[], what: string, why: string): ImportBillRef[] => {
-    warnings.push(`${notFound(names, what)}, and ${why} — its bill-wise details were not imported; Outstandings settles it oldest first`)
+    // A real Tally New Ref / Advance on the same voucher goes with them — say so by name, so a later
+    // "Agst Ref" to it is understood (final review of #191: the advance left GSTR-1 11A silently).
+    const lost = refs.filter((r) => r.kind === 'new').map((r) => `${r.name} (${formatPaise(r.amount, { symbol: true })})`)
+    const lostNote = lost.length ? `; its ${lost.length > 1 ? 'advances / new bills' : 'advance / new bill'} ${lost.join(', ')} ${lost.length > 1 ? 'are' : 'is'} not kept either (not in GSTR-1 advances) — record ${lost.length > 1 ? 'them' : 'it'} by hand if needed` : ''
+    warnings.push(`${notFound(names, what)}, and ${why} — its bill-wise details were not imported; Outstandings settles it oldest first${lostNote}`)
     return []
   }
   const notes: string[] = []
