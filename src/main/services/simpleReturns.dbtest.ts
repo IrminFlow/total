@@ -611,7 +611,7 @@ describe('a bill returned in parts: the screen and the post agree on the last re
     const totals: number[] = []
     for (let i = 0; i < 3; i++) {
       const bill = returnBill(db, INFO, 'sale', sale.voucherIds[0]!, TODAY)!
-      const form = formFor({ qty: { [bill.lines[0]!.lineUid]: '1' }, settle: 'keep', reason: 'Back' })
+      const form = formFor({ qty: { [bill.lines[0]!.lineUid]: '1' }, settle: 'credit', reason: 'Back' })
       const t = returnTotals(form, bill, ctxOf())
       const out = post(returnIntentFrom(form, bill, ctxOf(), sellSetup(db).defaults))
       expect(out.facts.total).toBe(t.total)
@@ -625,7 +625,7 @@ describe('a bill returned in parts: the screen and the post agree on the last re
     const totals: number[] = []
     for (let i = 0; i < 3; i++) {
       const bill = returnBill(db, INFO, 'sale', sale.voucherIds[0]!, TODAY)!
-      const form = formFor({ amount: 3_350, settle: 'keep', reason: 'Back' })
+      const form = formFor({ amount: 3_350, settle: 'credit', reason: 'Back' })
       const t = returnTotals(form, bill, ctxOf())
       expect(post(returnIntentFrom(form, bill, ctxOf(), sellSetup(db).defaults)).facts.total).toBe(t.total)
       totals.push(t.total)
