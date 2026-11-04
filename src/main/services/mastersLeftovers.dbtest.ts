@@ -32,11 +32,11 @@ function legacyBudget(db: DB, ledgerId: number, groupId: number): number {
 }
 
 /** A loan as the removed Loans screen stored it: schedule, a prepayment, an interest ledger. */
-function legacyLoan(db: DB, loanLedger: number, bank: number, interest: number): number {
+function legacyLoan(db: DB, loanLedger: number, bank: number, interest: number | null, name = 'Term loan'): number {
   const id = Number(db.prepare(
     `INSERT INTO loans (name, loan_ledger_id, bank_ledger_id, interest_ledger_id, principal, annual_rate_milli, tenure_months, disbursed_on, first_due_date)
-     VALUES ('Term loan', ?, ?, ?, 10000000, 12000, 12, '2026-05-01', '2026-06-05')`
-  ).run(loanLedger, bank, interest).lastInsertRowid)
+     VALUES (?, ?, ?, ?, 10000000, 12000, 12, '2026-05-01', '2026-06-05')`
+  ).run(name, loanLedger, bank, interest).lastInsertRowid)
   db.prepare("INSERT INTO loan_schedules (loan_id, seq, due_date, kind, opening, payment, interest, principal, closing) VALUES (?, 1, '2026-06-05', 'emi', 10000000, 888488, 100000, 788488, 9211512)").run(id)
   db.prepare("INSERT INTO loan_prepayments (loan_id, date, amount, effect) VALUES (?, '2026-08-01', 1000000, 'reduce_emi')").run(id)
   return id
@@ -172,14 +172,25 @@ describe('deleting a ledger or group that leftover budgets / loans point at', ()
     expect(count(db, 'SELECT COUNT(*) AS n FROM budget_lines WHERE budget_id = ?', budget)).toBe(1)
     expect(audit(db, 'budget', budget)!.action).toBe('update')
 
-    const ledgerRun = csv('Name,Group\nImported Term Loan,Secured Loans', 'generic:ledgers')
-    const loanLedger = (db.prepare("SELECT id FROM ledgers WHERE name = 'Imported Term Loan'").get() as { id: number }).id
+    // The realistic case: the disbursement credits the imported loan ledger itself (its own entries
+    // keep it — ledger_in_use); with an imported opening (cleared, kept) and without (kept as is):
+    // the reason names the loan, never "purge the bin".
+    const ledgerRun = csv('Name,Group\nImported Term Loan,Secured Loans\nSecond Term Loan,Secured Loans', 'generic:ledgers')
+    const idOf = (name: string): number => (db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number }).id
+    const [l1, l2] = [idOf('Imported Term Loan'), idOf('Second Term Loan')]
+    db.prepare('UPDATE ledgers SET opening_balance = -500000 WHERE id = ?').run(l2) // as the import gave it
     const bank = ledger(db, 'HDFC', 'Bank Accounts')
-    const loan = legacyLoan(db, loanLedger, bank, ledger(db, 'Interest on loan', 'Indirect Expenses'))
-    disbursement(db, loan, bank, ledger(db, 'Director loan', 'Unsecured Loans'))
+    const loan1 = legacyLoan(db, l1, bank, null)
+    const loan2 = legacyLoan(db, l2, bank, null, 'Second loan')
+    disbursement(db, loan1, bank, l1)
+    disbursement(db, loan2, bank, l2)
     const u = undoImport(db, ledgerRun.batchId!)
-    expect(u.kept).toEqual([expect.objectContaining({ id: loanLedger, reason: expect.stringContaining('Term loan') })])
-    expect(u.kept[0]!.reason).not.toMatch(/purge the bin/)
-    expect(count(db, 'SELECT COUNT(*) AS n FROM loans WHERE id = ?', loan)).toBe(1)
+    const reasonOf = (id: number): string => u.kept.find((k) => k.id === id)!.reason
+    expect(reasonOf(l1)).toContain('loan “Term loan”')
+    expect(reasonOf(l2)).toMatch(/opening cleared .*loan “Second loan”/)
+    for (const id of [l1, l2]) expect(reasonOf(id)).not.toMatch(/purge the bin/)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM loans WHERE id IN (?, ?)', loan1, loan2)).toBe(2)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM ledgers WHERE id IN (?, ?)', l1, l2)).toBe(2)
+    expect(JSON.parse(audit(db, 'costCentre', cc)!.b!).cascaded).toMatchObject({ budget_lines: 1 })
   })
 })

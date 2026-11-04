@@ -1499,13 +1499,13 @@ export function undoImport(db: DB, batchId: number): UndoResult {
   const items = db.prepare('SELECT * FROM import_batch_items WHERE batch_id = ? AND undone_at IS NULL ORDER BY id DESC').all(batchId) as UndoItem[]
   const res: UndoResult = { binned: 0, deleted: 0, restored: 0, kept: [] }
   const used = (sql: string, id: number): boolean => !!db.prepare(sql).get(id)
-  const rawDelete = (table: string, entity: string, id: number, inUse: string[], cleanup?: () => void): void => {
+  const rawDelete = (table: string, entity: string, id: number, inUse: string[], cleanup?: () => Record<string, number>): void => {
     for (const sql of inUse) if (used(sql, id)) throw new Error('in use')
-    const before = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id)
+    const before = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) as Record<string, unknown> | undefined
     if (!before) return
-    cleanup?.()
+    const cascaded = cleanup?.() ?? {}
     db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id)
-    writeAudit(db, entity, id, 'delete', before, null)
+    writeAudit(db, entity, id, 'delete', Object.keys(cascaded).length ? { ...before, cascaded } : before, null)
   }
   const editedAfter = (entity: string, id: number): boolean =>
     batch.last_audit_id !== null &&
@@ -1545,6 +1545,8 @@ export function undoImport(db: DB, batchId: number): UndoResult {
         continue
       }
       let cleared: string | null = null
+      // A leftover loan of the removed Loans screen whose own account this is (1.0 cleanup).
+      let loanOf: string | null = null
       try {
         db.transaction(() => {
           if (it.action === 'update') {
@@ -1590,24 +1592,17 @@ export function undoImport(db: DB, batchId: number): UndoResult {
               return
             }
             case 'ledger': {
-              // A leftover loan record (1.0 cleanup) whose entries are live keeps its ledger: the
-              // reason says which loan, not "purge the bin".
-              let loanRefusal: Error | null = null
-              const del = (): void => {
-                try {
-                  masters.deleteLedger(db, it.entity_id)
-                } catch (err) {
-                  if ((err as { code?: string }).code === 'ledger_loan_in_use') loanRefusal = err as Error
-                  throw err
-                }
-              }
-              if (refusedInUse(del, 'ledger_in_use', 'ledger_loan_in_use')) {
+              if (refusedInUse(() => masters.deleteLedger(db, it.entity_id), 'ledger_in_use', 'ledger_loan_in_use')) {
+                // A leftover loan record of the removed Loans screen (1.0 cleanup) on this ledger:
+                // the reason names it (its entries are in the books — "purge the bin" would mislead).
+                const loan = (db.prepare('SELECT name FROM loans WHERE loan_ledger_id = ? ORDER BY id LIMIT 1').get(it.entity_id) as { name: string } | undefined)?.name
+                if (loan) loanOf = loan
                 // Its vouchers (live or in the bin) keep it, but the opening the import gave it
                 // must go — or the undone books carry an opening with no contra (an unused
                 // balancing ledger IS deleted). Through updateLedger: audited, and the WP 8.7
                 // opening-bills guard clears (or refuses, when in use) its bills.
                 const l = masters.getLedger(db, it.entity_id)
-                if (!l || l.openingBalance === 0) throw loanRefusal ?? new Error('in use')
+                if (!l || l.openingBalance === 0) throw new Error('in use')
                 masters.updateLedger(db, it.entity_id, ledgerInputSchema.parse({ ...l, openingBalance: 0 }))
                 cleared = l.name
                 return
@@ -1644,7 +1639,7 @@ export function undoImport(db: DB, batchId: number): UndoResult {
               break
             case 'costCentre':
               // + leftover budget lines split by it (1.0 cleanup; audited), as deleteCostCentre does.
-              rawDelete('cost_centres', 'costCentre', it.entity_id, ['SELECT 1 FROM voucher_line_cost_allocations WHERE cost_centre_id = ?', 'SELECT 1 FROM cost_centres WHERE parent_id = ?'], () => void removeLeftoverPlanning(db, { costCentreId: it.entity_id }))
+              rawDelete('cost_centres', 'costCentre', it.entity_id, ['SELECT 1 FROM voucher_line_cost_allocations WHERE cost_centre_id = ?', 'SELECT 1 FROM cost_centres WHERE parent_id = ?'], () => removeLeftoverPlanning(db, { costCentreId: it.entity_id }))
               break
             case 'batch':
               rawDelete('batches', 'batch', it.entity_id, ['SELECT 1 FROM inventory_lines WHERE batch_id = ?'])
@@ -1660,13 +1655,26 @@ export function undoImport(db: DB, batchId: number): UndoResult {
         if (cleared !== null) {
           // Kept, and not marked undone. A retry never deletes it: the opening change just audited
           // reads as an edit after the import (left alone) — so the reason says what to do.
-          res.kept.push({ entity: it.entity, id: it.entity_id, reason: `kept ${cleared}, opening cleared — still in use by entries (the bin's too); delete it yourself once they are gone` })
+          res.kept.push({
+            entity: it.entity,
+            id: it.entity_id,
+            reason: loanOf
+              ? `kept ${cleared}, opening cleared — it is the account of the loan “${loanOf}” (from the removed Loans screen), whose entries are in the books; delete it yourself once they are gone`
+              : `kept ${cleared}, opening cleared — still in use by entries (the bin's too); delete it yourself once they are gone`
+          })
           continue
         }
         markDone.run(it.id)
       } catch (err) {
         const msg = (err as Error).message
-        res.kept.push({ entity: it.entity, id: it.entity_id, reason: msg === 'in use' || /vouchers|in use|movements/i.test(msg) ? 'still in use (purge the bin to remove it)' : msg })
+        const inUse = msg === 'in use' || /vouchers|in use|movements/i.test(msg)
+        res.kept.push({
+          entity: it.entity,
+          id: it.entity_id,
+          reason: loanOf
+            ? `still in use — it is the account of the loan “${loanOf}” (from the removed Loans screen), whose entries are in the books; move them to the bin to remove it`
+            : inUse ? 'still in use (purge the bin to remove it)' : msg
+        })
       }
     }
     for (const b of billsBack) {
