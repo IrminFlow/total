@@ -1,7 +1,7 @@
 // Scenario 34 — cash and finance (WP 4.4), driven through the UI: create a loan (live schedule
 // preview), post its first EMI (balanced principal / interest split), see the next EMI in the
 // cash-flow forecast, revalue a USD customer at a closing rate entered on the Forex screen
-// (journal + next-day reversal), and read a cost-centre budget's variance with drill-down.
+// (journal + next-day reversal).
 // Every screen is shot in both themes. Set WP44_SHOTS=/tmp/wp44 to copy the shots there.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -61,8 +61,6 @@ await scenario('34-cash-finance', async (h) => {
   const capital = await mkLedger('Owner Capital', 'Capital Account')
   const globex = await mkLedger('Globex Inc', 'Sundry Debtors')
   const sales = await mkLedger('Export Sales', 'Sales Accounts')
-  const rent = await mkLedger('Office Rent', 'Indirect Expenses')
-  const mumbai = await h.invoke('cc:save', { data: { name: 'Mumbai', parentId: null, active: true } })
   const types = await h.invoke('master:voucherTypes:list')
   const vt = (kind) => types.find((t) => t.kind === kind).id
   const save = (kind, date, lines, extra = {}) =>
@@ -172,39 +170,9 @@ await scenario('34-cash-finance', async (h) => {
   await page.waitForSelector('[data-testid="rows-fx-revaluations"] tr', { timeout: 10000 })
   await shot('11-forex-revalued-light')
 
-  // ---------- 5. budget variance by cost centre ----------
-  await save('payment', today, [L(rent.id, 'dr', 15_000_00, [{ costCentreId: mumbai.id, amount: 15_000_00 }]), L(bank.id, 'cr', 15_000_00)])
-  await h.goto('budgets')
-  await h.click('btn-budgets-new')
-  await h.fill('input-budget-name', 'Opex')
-  await h.click('btn-budget-create')
-  await page.waitForSelector('[data-testid="budget-lines"]')
-  await pick('picker-budget-ledger', 'Office Rent')
-  await page.selectOption('[data-testid="select-budget-cc"]', { label: 'Mumbai' })
-  await page.selectOption('[data-testid="select-budget-spread"]', 'even')
-  await h.fill('input-budget-amount', '120000')
-  await h.click('btn-budgets-save')
-  const lineRow = page.locator('[data-testid="rows-budget-variance"] [data-line-id]')
-  await lineRow.first().waitFor({ timeout: 10000 })
-  const text = await lineRow.first().textContent()
-  assert(text.includes('Mumbai') && text.includes('15,000.00') && text.includes('10,000.00'), 'month budget 10,000 vs actual 15,000 for Mumbai')
-  assertEq(await lineRow.first().locator('[data-favourable="false"]').count() > 0, true, 'the month is adverse')
-  const [budget] = await h.invoke('budget:list')
-  const report = await h.invoke('budget:monthly', { budgetId: budget.id, upToMonth: today.slice(0, 7) })
-  const cc = await h.invoke('cc:report', { from: `${fyStart}-04-01`, to: today })
-  assertEq(report.rows[0].ytd.actual, cc.find((r) => r.costCentreId === mumbai.id).expense, 'budget actual = cost-centre P&L')
-  await shot('12-budget-light')
-  await lineRow.first().click()
-  await page.waitForSelector('[data-testid="rows-budget-drill"] tr', { timeout: 10000 })
-  await shot('13-budget-drill-light')
-  await page.keyboard.press('Escape')
-  await h.click('seg-budget-view-months')
-  await shot('14-budget-months-light')
-  await h.click('seg-budget-view-summary')
-
-  // ---------- dashboard chip + year-end ----------
+  // ---------- dashboard ----------
   await h.goto('gateway')
-  await page.waitForSelector('[data-testid="dash-over-budget"]', { timeout: 15000 })
+  await h.waitIdle(15000)
   await shot('15-gateway-light')
 
   // ---------- dark theme pass ----------
@@ -226,11 +194,8 @@ await scenario('34-cash-finance', async (h) => {
   await h.goto('forex')
   await page.waitForSelector('[data-testid="rows-forex-exposures"] tr')
   await shot('20-forex-dark')
-  await h.goto('budgets')
-  await lineRow.first().waitFor()
-  await shot('21-budget-dark')
   await h.goto('gateway')
-  await page.waitForSelector('[data-testid="dash-over-budget"]')
+  await h.waitIdle(15000)
   await shot('22-gateway-dark')
   await setTheme('light')
 })

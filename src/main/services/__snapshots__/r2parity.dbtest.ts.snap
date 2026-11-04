@@ -1,28 +1,5 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`R2 parity — budgets & dashboard > budget variance is unchanged > budget variance 1`] = `
-[
-  {
-    "actual": 30000,
-    "budget": 100000,
-    "ledgerId": 6,
-    "month": null,
-    "pct": 30,
-    "targetName": "Rent",
-    "variance": -70000,
-  },
-  {
-    "actual": 30000,
-    "budget": 50000,
-    "ledgerId": null,
-    "month": "2025-05",
-    "pct": 60,
-    "targetName": "Indirect Expenses",
-    "variance": -20000,
-  },
-]
-`;
-
 exports[`R2 parity — budgets & dashboard > dashboard is unchanged > dashboard 1`] = `
 {
   "bankBalance": 530000,

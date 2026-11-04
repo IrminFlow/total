@@ -288,7 +288,7 @@ export function YearEndScreen(): React.JSX.Element {
           Nothing is posted automatically.
         </Banner>
       )}
-      {/* WP 4.4: unposted EMIs, unrevalued forex balances, over-budget departments (warn-only). */}
+      {/* WP 4.4: unposted EMIs and unrevalued forex balances (warn-only). */}
       <CashFinanceCloseWarnings fyStartYear={fyStartYear} closed={!!preview?.alreadyClosed} />
 
       {step === 1 && (

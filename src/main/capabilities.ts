@@ -4,7 +4,7 @@
 //   binning, restoring, importing, posting runs …) — derived from AUDIT_COVERAGE, so a new
 //   posting channel is covered the day it is mapped there (capabilities.dbtest.ts checks it).
 // - canSeeProfit: the screens that show profit / loss (the P&L, the balance sheet's profit line,
-//   comparatives, ratios, item profitability, cash flow, budget variance, the simple "How am I
+//   comparatives, ratios, item profitability, cash flow, the simple "How am I
 //   doing"). Dashboards and simple Home keep working with their profit figures left out (ipc.ts).
 // - canExport: the channels that write the books (or a report of them) to a file. The CA pack
 //   (export:caPack) writes the P&L and balance sheet too, so its handler also checks canSeeProfit.
@@ -24,7 +24,6 @@ export const PROFIT_CHANNELS: readonly string[] = [
   'report:ratios',
   'report:itemProfitability',
   'report:cashFlow',
-  'budget:variance',
   'simple:reports:doing',
   // PR #127 review: the year-end close preview IS the net profit to transfer.
   'yearend:preview',
@@ -37,7 +36,6 @@ export const EXPORT_CHANNELS: readonly string[] = [
   'audit:exportCsv',
   'audit:exportPdf',
   'backup:exportEncrypted',
-  'budget:exportCsv',
   // PR #144 review: the bank's bulk-payment upload file (each supplier's account number and the
   // amounts) — a file of the books, like the payables run CSV.
   'bulkPay:export',

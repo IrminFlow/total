@@ -2776,7 +2776,6 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.ai.from.made': 'आपका बनाया तैयार माल',
   'simple.ai.from.orders': 'खुले ऑर्डर',
   'simple.ai.from.bank': 'आपका बैंक',
-  'simple.ai.from.budget': 'आपका बजट',
   'simple.ai.from.cashAhead': 'आने वाले दिनों में नकद',
   'simple.ai.from.history': 'बदलावों का इतिहास',
   'simple.ai.from.monthEnd': 'महीने के आखिर की सूची',

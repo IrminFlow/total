@@ -270,7 +270,7 @@ This is the full app. It is built to match what an accountant expects from Tally
 
 #### Planning and analysis
 
-- Cost centres and budgets with budget-versus-actual.
+- Cost centres.
 - Cash-flow forecast.
 - Loans and EMI schedules.
 - Multi-currency and foreign-exchange revaluation.

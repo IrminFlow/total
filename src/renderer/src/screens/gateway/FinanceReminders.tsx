@@ -1,9 +1,9 @@
 // WP 4.4 — rows the Gateway's compliance card adds for cash and finance: loan EMIs due within a
-// week (or overdue, not yet posted) and the "over budget this month" chip. Self-fetching and
-// additive, so the card itself only gains one line.
+// week (or overdue, not yet posted). Self-fetching and additive, so the card itself only gains
+// one line.
 import { useQuery } from '@tanstack/react-query'
 import { formatPaise } from '@shared/money'
-import { toMonthLabel, todayISO } from '@shared/dates'
+import { todayISO } from '@shared/dates'
 import { cfApi } from '../../lib/cashFinanceClient'
 import { useNav } from '../../state/stores'
 import { Badge } from '../../components/ui'
@@ -21,8 +21,7 @@ export function FinanceReminderRows(): React.JSX.Element | null {
   const nav = useNav()
   const today = todayISO()
   const { data } = useQuery({ queryKey: ['dashboard', 'financeReminders', today], queryFn: cfApi.checks.reminders })
-  if (!data || (data.emis.length === 0 && data.overBudget.rows.length === 0)) return null
-  const over = data.overBudget.rows
+  if (!data || data.emis.length === 0) return null
   return (
     <>
       {data.emis.length > 0 && (
@@ -39,17 +38,6 @@ export function FinanceReminderRows(): React.JSX.Element | null {
               </span>
             ))}
             {data.emis.length > 3 && <span className="text-caption text-muted">+{data.emis.length - 3} more</span>}
-          </span>
-        </div>
-      )}
-      {over.length > 0 && (
-        <div data-testid="dash-over-budget" {...drillRowProps(() => nav.go({ name: 'budgets' }))} className={rowCls}>
-          <span className="flex items-center justify-between gap-2">
-            <span className="text-body-sm text-ink">Budgets · {toMonthLabel(data.overBudget.month, 'long')}</span>
-            <Badge tone="amber" testId="chip-over-budget">Over budget this month · {over.length}</Badge>
-          </span>
-          <span className="truncate text-caption text-muted" title={over.map((r) => `${r.costCentreName ? `${r.costCentreName} · ` : ''}${r.targetName}`).join(', ')}>
-            {over.slice(0, 2).map((r) => `${r.costCentreName ? `${r.costCentreName} · ` : ''}${r.targetName} +${formatPaise(r.actual - r.budget)}`).join(' · ')}
           </span>
         </div>
       )}

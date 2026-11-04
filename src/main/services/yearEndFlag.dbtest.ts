@@ -15,7 +15,6 @@ import { createLedger } from './masters'
 import { deleteVoucher, getVoucher, listVouchers, restoreVoucher, saveVoucher, setLockDate } from './vouchers'
 import { closePreview, postClose } from './yearEnd'
 import { balanceSheet, cashFlow, dashboard, dayBook, exceptions, ledgerStatement, profitAndLoss, trialBalance } from './reports'
-import { budgetVarianceReport, saveBudget } from './budgets'
 
 function ledger(db: DB, name: string, groupName: string, openingBalance = 0): number {
   const group = db.prepare('SELECT id FROM groups WHERE name = ?').get(groupName) as { id: number }
@@ -212,20 +211,6 @@ describe('year-end closing journal flag', () => {
     const two = exceptions(b.db, '2025-04-01', '2026-03-31').sections.find((s) => s.key === 'yearEndClose')!
     expect(two.rows.map((r) => r.voucherId ?? 0).sort((x, y) => x - y)).toEqual([voucherId, dup].sort((x, y) => x - y))
     expect(two.rows.every((r) => /more than one/.test(r.detail))).toBe(true)
-  })
-
-  it('budget variance actuals exclude closing journals', () => {
-    const b = books()
-    const budget = saveBudget(b.db, {
-      name: 'FY1', fyStartYear: 2025,
-      lines: [{ ledgerId: b.sales, groupId: null, month: '2026-03', amount: 1_00 }, { ledgerId: b.sales, groupId: null, month: null, amount: 1_00 }]
-    })
-    const before = budgetVarianceReport(b.db, budget.id, '2026-03')
-    postClose(b.db, TEST_INFO, 2025)
-    const after = budgetVarianceReport(b.db, budget.id, '2026-03')
-    expect(after).toEqual(before)
-    expect(after.find((r) => r.month === null)!.actual).toBe(30_000_00)
-    expect(after.find((r) => r.month === '2026-03')!.actual).toBe(0)
   })
 
   it('two consecutive closed years each keep their P&L; TB and BS balance at every boundary', () => {

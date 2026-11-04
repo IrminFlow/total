@@ -180,34 +180,6 @@ export interface CostCentre {
   active: boolean
 }
 
-/** One line of a Budget (task 2.6): a target amount for either a single ledger or a whole group
- *  (rolled up over its descendants at report time), for one month or the whole financial year. */
-export interface BudgetLine {
-  id: number
-  ledgerId: number | null
-  groupId: number | null
-  /** 'YYYY-MM' within the budget's FY, or null for an annual figure. */
-  month: string | null
-  /** Paise. */
-  amount: number
-  /** WP 4.4: cost-centre dimension (null = whole ledger / group). */
-  costCentreId: number | null
-  /** WP 4.4: monthly phasing of an annual line ('annual' = original annual-vs-YTD behaviour). */
-  phasing: 'annual' | 'even' | 'seasonal' | 'manual'
-  /** WP 4.4: 12 paise amounts (Apr..Mar) for 'manual' phasing. */
-  monthly: number[] | null
-}
-
-/** A named budget scoped to one financial year, with its lines. */
-export interface Budget {
-  id: number
-  name: string
-  fyStartYear: number
-  lines: BudgetLine[]
-  /** WP 4.4: 12 month weights (Apr..Mar) for seasonal lines; null = even. */
-  seasonal: number[] | null
-}
-
 /** Every voucher kind — mirrors the `voucher_kinds` lookup table (migration 024; a dbtest pins
  *  the two equal). Adding a kind = append here + one INSERT INTO voucher_kinds migration. */
 export const VOUCHER_KINDS = [

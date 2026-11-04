@@ -2885,7 +2885,6 @@ export const en = {
   'simple.ai.from.made': 'Goods you made',
   'simple.ai.from.orders': 'Open orders',
   'simple.ai.from.bank': 'Your bank',
-  'simple.ai.from.budget': 'Your budget',
   'simple.ai.from.cashAhead': 'Cash in the coming days',
   'simple.ai.from.history': 'The change history',
   'simple.ai.from.monthEnd': 'The month-end list',

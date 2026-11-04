@@ -226,7 +226,6 @@ const TOOL_PLACES: Record<string, MessageKey> = {
   manufacture_register: 'simple.ai.from.made',
   trade_pending: 'simple.ai.from.orders',
   bank_unreconciled: 'simple.ai.from.bank',
-  budget_variance: 'simple.ai.from.budget',
   forecast_summary: 'simple.ai.from.cashAhead',
   audit_log_recent: 'simple.ai.from.history',
   close_checklist: 'simple.ai.from.monthEnd',

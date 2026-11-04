@@ -1,17 +1,14 @@
 // WP 4.4 — cash and finance screens against a mocked IPC bridge: the forecast (periods, scenario
 // switch, shortfall highlighting), Loans (schedule, Post EMI payload), Forex (exposures, the
-// revaluation post), Budgets (editor → lines, favourable colouring, drill), the year-end
-// warnings and the Gateway reminder rows, plus the registry entries.
+// revaluation post), the year-end warnings and the Gateway reminder rows, plus the registry entries.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ForecastBase, FxRevaluationPreview, LoanDetail, LoanSummary, BudgetMonthlyReport, CashFinanceCloseWarnings as CloseWarningsData, FinanceReminders } from '@shared/cashFinance'
+import type { ForecastBase, FxRevaluationPreview, LoanDetail, LoanSummary, CashFinanceCloseWarnings as CloseWarningsData, FinanceReminders } from '@shared/cashFinance'
 import { DEFAULT_BUCKET_BP, buildForecast, SCENARIO_PRESETS } from '@shared/cashForecast'
-import { figure } from '@shared/budgetPhasing'
 import { CashForecastScreen, periodViews } from '../screens/CashForecast'
 import { LoansScreen } from '../screens/Loans'
 import { ForexScreen } from '../screens/Forex'
-import { BudgetsScreen, linesFromRows, type EditRow } from '../screens/Budgets'
 import { CashFinanceCloseWarnings } from '../screens/cashFinance/CloseWarnings'
 import { FinanceReminderRows } from '../screens/gateway/FinanceReminders'
 import { SCREENS } from '../lib/screens'
@@ -66,22 +63,6 @@ const FX: FxRevaluationPreview = {
   missingRates: [], gain: 1_250_00, loss: 0, blocked: null
 }
 
-const BUDGET = {
-  id: 3, name: 'Opex', fyStartYear: 2026, seasonal: null,
-  lines: [{ id: 9, ledgerId: 40, groupId: null, month: null, amount: 1_20_000_00, costCentreId: 4, phasing: 'even' as const, monthly: null }]
-}
-const months = ['2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09', '2026-10', '2026-11', '2026-12', '2027-01', '2027-02', '2027-03']
-const REPORT: BudgetMonthlyReport = {
-  budgetId: 3, fyStartYear: 2026, months, upToMonth: '2026-05',
-  rows: [{
-    lineId: 9, targetName: 'Rent', ledgerId: 40, groupId: null, costCentreId: 4, costCentreName: 'Mumbai', nature: 'expense', month: null, phasing: 'even',
-    annualBudget: 1_20_000_00,
-    months: months.map((m) => figure(10_000_00, m === '2026-05' ? 12_000_00 : m === '2026-04' ? 9_000_00 : 0, 'expense')),
-    current: figure(10_000_00, 12_000_00, 'expense'),
-    ytd: figure(20_000_00, 21_000_00, 'expense')
-  }]
-}
-
 beforeEach(() => {
   calls.length = 0
   localStorage.clear()
@@ -105,9 +86,6 @@ beforeEach(() => {
       case 'fx:revaluations': return { ok: true, data: [] }
       case 'fx:revalue': return { ok: true, data: { id: 1, asOf: TODAY, voucherId: 600, voucherNumber: '7', reversalVoucherId: 601, reversalVoucherNumber: '8', autoReverse: true, gain: 1_250_00, loss: 0, createdAt: '', live: true } }
       case 'currency:list': return { ok: true, data: [{ id: 1, code: 'USD', symbol: '$', name: 'US Dollar', decimals: 2 }] }
-      case 'budget:list': return { ok: true, data: [BUDGET] }
-      case 'budget:monthly': return { ok: true, data: REPORT }
-      case 'budget:drill': return { ok: true, data: [{ voucherId: 80, date: '2026-05-06', number: '4', voucherType: 'Payment', ledgerId: 40, ledgerName: 'Rent', amount: 12_000_00 }] }
       case 'cc:list': return { ok: true, data: [{ id: 4, name: 'Mumbai', parentId: null, active: true }] }
       case 'master:ledgers:list': return { ok: true, data: [{ id: 40, name: 'Rent', groupId: 8 }, { id: 2, name: 'HDFC Current', groupId: 9 }, { id: 20, name: 'HDFC Term Loan', groupId: 10 }] }
       case 'master:groups:list': return { ok: true, data: [{ id: 8, name: 'Indirect Expenses', parentId: null, nature: 'expense' }, { id: 9, name: 'Bank Accounts', parentId: null, nature: 'asset' }, { id: 10, name: 'Secured Loans', parentId: null, nature: 'liability' }] }
@@ -219,57 +197,25 @@ describe('forex', () => {
   }, 20_000)
 })
 
-describe('budgets', () => {
-  it('turns editor rows into lines: manual months sum, a single month, a cost centre', () => {
-    const base: Omit<EditRow, 'key'> = { targetType: 'ledger', ledgerId: 40, groupId: null, costCentreId: 4, spread: 'manual', month: null, amount: null, monthly: [1_00, 2_00, ...Array(10).fill(null)] }
-    const { lines, errors } = linesFromRows([
-      { key: 1, ...base },
-      { key: 2, ...base, spread: 'month', month: '2026-06', amount: 5_00, costCentreId: null },
-      { key: 3, ...base, ledgerId: null, spread: 'even', amount: null }
-    ], months)
-    expect(lines[0]).toMatchObject({ amount: 3_00, phasing: 'manual', costCentreId: 4, monthly: [1_00, 2_00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] })
-    expect(lines[1]).toMatchObject({ month: '2026-06', phasing: 'annual', amount: 5_00 })
-    expect(errors).toEqual([])
-    expect(linesFromRows([{ key: 4, ...base, spread: 'even', amount: 0 }], months).errors[0]).toMatch(/amount/)
-  })
-
-  it('shows month and YTD variance with unfavourable colouring and drills to the vouchers', async () => {
-    renderUi(<BudgetsScreen />)
-    const rows = await screen.findByTestId('rows-budget-variance')
-    await waitFor(() => expect(rows.querySelector('[data-line-id="9"]')).toBeTruthy())
-    const tr = rows.querySelector('[data-line-id="9"]')!
-    expect(tr.getAttribute('data-ytd-favourable')).toBe('false')
-    expect(tr.textContent).toContain('Mumbai')
-    expect(tr.querySelector('[data-favourable="false"]')!.className).toContain('text-cr')
-    fireEvent.click(within(tr as HTMLElement).getByText('Mumbai'))
-    const drill = await screen.findByTestId('rows-budget-drill')
-    await waitFor(() => expect(drill.textContent).toContain('12,000.00'))
-  }, 20_000)
-})
-
 describe('year-end and dashboard additions', () => {
-  it('warns about unposted EMIs, unrevalued balances and over-budget lines', async () => {
+  it('warns about unposted EMIs and unrevalued balances', async () => {
     const w: CloseWarningsData = {
       unpostedEmis: [{ loanId: 1, loanName: 'HDFC term loan', count: 2, amount: 17_769_76 }],
       unrevalued: [{ currencyCode: 'USD', ledgers: 1, fcBalance: 1000_00 }],
-      revaluedOnFyEnd: false,
-      overBudget: [{ budgetId: 3, budgetName: 'Opex', lineId: 9, targetName: 'Rent', costCentreName: 'Mumbai', budget: 10_00, actual: 12_00 }]
+      revaluedOnFyEnd: false
     }
     invoke.mockImplementation(async (channel: string) => (channel === 'yearEnd:cashFinanceWarnings' ? { ok: true, data: w } : { ok: false, error: channel }))
     renderUi(<CashFinanceCloseWarnings fyStartYear={2025} closed={false} />)
     expect((await screen.findByTestId('year-end-unposted-emis')).textContent).toContain('2 instalments')
     expect(screen.getByTestId('year-end-unrevalued').textContent).toContain('1,000.00 USD')
-    expect(screen.getByTestId('year-end-over-budget').textContent).toContain('Mumbai · Rent')
   })
 
-  it('the compliance card shows EMIs due and the over-budget chip', async () => {
+  it('the compliance card shows EMIs due', async () => {
     const r: FinanceReminders = {
-      emis: [{ loanId: 1, loanName: 'HDFC term loan', scheduleId: 101, dueDate: addDays(TODAY, -2), payment: 8_884_88, overdue: true }],
-      overBudget: { month: TODAY.slice(0, 7), rows: [{ budgetId: 3, budgetName: 'Opex', lineId: 9, targetName: 'Rent', costCentreName: null, budget: 10_00, actual: 12_00 }] }
+      emis: [{ loanId: 1, loanName: 'HDFC term loan', scheduleId: 101, dueDate: addDays(TODAY, -2), payment: 8_884_88, overdue: true }]
     }
     invoke.mockImplementation(async (channel: string) => (channel === 'dashboard:financeReminders' ? { ok: true, data: r } : { ok: false, error: channel }))
     renderUi(<FinanceReminderRows />)
     expect((await screen.findByTestId('chip-emi')).textContent).toBe('2 days overdue')
-    expect(screen.getByTestId('chip-over-budget').textContent).toContain('Over budget this month · 1')
   })
 })

@@ -100,7 +100,7 @@ export function BalanceSheetScreen(): React.JSX.Element {
         }}
       />
       {opts.options.comparative ? (
-        <ComparativeStatement kind="bs" from={sessionFrom <= asOn ? sessionFrom : asOn} to={asOn} budgetId={null} tree={tree} />
+        <ComparativeStatement kind="bs" from={sessionFrom <= asOn ? sessionFrom : asOn} to={asOn} tree={tree} />
       ) : (
       <div className={`grid grid-cols-2 gap-3 transition-opacity ${isPlaceholderData ? 'opacity-60' : ''}`}>
         <Panel className="p-4">

@@ -260,8 +260,6 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'currency:delete': a('currency'),
   'cc:save': a('costCentre'),
   'cc:delete': a('costCentre'),
-  'budget:save': a('budget'),
-  'budget:delete': a('budget'),
   'bom:set': a('bom'),
   'bom:saveVersion': a('bom'),
   'bom:deleteVersion': a('bom'),
@@ -538,8 +536,6 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'fx:revalue': a('fx_revaluation', 'voucher'),
   'fx:reverse': a('fx_revaluation', 'voucher'),
   'fx:settle': a('fx_settlement', 'voucher'),
-  'budget:importCsv': a('budget'),
-  'budget:exportCsv': EXPORT,
 
   // ---------- bulk edit, attachments, party notes (WP 6.4) ----------
   'bulk:preview': r('a dry run: every save runs inside a transaction that is rolled back — nothing is kept, not even its audit rows'),

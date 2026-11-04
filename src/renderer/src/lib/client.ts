@@ -1,5 +1,5 @@
 import type {
-  Batch, BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
+  Batch, BomLine, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
   PayrollLine, PayrollRun, PriceLevel, PriceListRate, StockGroup, StockItem, TdsSection, Unit,
   TdsRate, TdsCertificateRow, TdsChallan,
   Voucher, VoucherTransport, VoucherType, TradeDocType, SaveVoucherWarnings
@@ -23,7 +23,6 @@ import type { BuySetup, PurchaseRow, PurchaseView } from '@shared/simple/buy'
 import type { MadeGoodsSetup, SavedCountView, StockList, StockProductView, StockRecipe } from '@shared/simple/stock'
 import type { BusinessDoing, ReportPeriodKind, SimpleByMonth, SimpleCash, SimpleOwed } from '@shared/simple/reports'
 import type { GstFiledInput, GstFiledPeriod, SimpleTaxes } from '@shared/simple/taxes'
-import type { BudgetVarianceRow } from '@shared/budgets'
 import type { AiDraftDto, AiDraftStatus } from '@shared/ai'
 import type {
   TdsEligibleRow, TdsDeductedRow, TdsLedgerSummaryRow, TdsPaymentCandidate, TdsChallanRow, TdsChallanEntryInterest,
@@ -53,7 +52,7 @@ export type ImsDecisionPayload = Omit<ImsDecisionInput, 'note' | 'voucherId' | '
   Partial<Pick<ImsDecisionInput, 'note' | 'voucherId' | 'value' | 'taxable' | 'igst' | 'cgst' | 'sgst' | 'cess'>>
 import type {
   AgentExportInput,
-  AuditExportInput, AuditListInput, BankRuleInput, BatchInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
+  AuditExportInput, AuditListInput, BankRuleInput, BatchInput, BomInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
   CurrencyInput, EmployeeHeadsSetInput, EmployeeInputPayload, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials,
   PayHeadInput, PriceLevelInput,
   PriceRateInput,
@@ -1277,12 +1276,6 @@ export const api = {
     remove: (id: number) => call<null>('cc:delete', { id }),
     report: (from: string, to: string) => call<CcReportRow[]>('cc:report', { from, to }),
     statement: (ccId: number, from: string, to: string) => call<CcStatementRow[]>('cc:statement', { ccId, from, to })
-  },
-  budget: {
-    list: () => call<Budget[]>('budget:list'),
-    save: (data: BudgetInput, id?: number) => call<Budget>('budget:save', { id, data }),
-    remove: (id: number) => call<null>('budget:delete', { id }),
-    variance: (budgetId: number, upToMonth: string) => call<BudgetVarianceRow[]>('budget:variance', { budgetId, upToMonth })
   },
   bank: {
     ledgers: () => call<{ id: number; name: string }[]>('bank:ledgers'),

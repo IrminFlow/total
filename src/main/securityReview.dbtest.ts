@@ -489,7 +489,6 @@ describe('every export-audited channel is gated by canExport unless it is a prin
       'bankImport:pickFile': 'input: picks a statement',
       'bankImport:profile': 'a statement column mapping',
       'bankImport:saveProfile': 'a statement column mapping',
-      'budget:importCsv': 'input: a budget CSV',
       'pricing:importCsv': 'input: a price list'
     }
     const { readdirSync, readFileSync, statSync } = await import('fs')

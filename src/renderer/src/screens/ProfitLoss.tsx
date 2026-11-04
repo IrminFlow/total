@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
-import { Button, DateInput, DrawerSection, Money, Page, PageHeader, Panel, Select, SkeletonRows } from '../components/ui'
+import { Button, DateInput, DrawerSection, Money, Page, PageHeader, Panel, SkeletonRows } from '../components/ui'
 import { HeaderExport, OptionToggle, OptionsExport, useScreenOptions } from '../components/ScreenOptions'
 import { ComparativeStatement } from '../components/ComparativeStatement'
 import { StatementTree } from '../components/StatementTree'
@@ -40,8 +40,7 @@ export function ProfitLossScreen({ from: askedFrom, to: askedTo }: { from?: stri
     queryFn: () => api.reports.profitLoss(from, to),
     placeholderData: keepPreviousData
   })
-  const opts = useScreenOptions('profit-loss', { expandAll: false, hideZero: false, comparative: false, budgetId: '' })
-  const { data: budgets } = useQuery({ queryKey: ['budgets'], queryFn: api.budget.list })
+  const opts = useScreenOptions('profit-loss', { expandAll: false, hideZero: false, comparative: false })
   if (!data) return <ReportSkeleton title="Profit & Loss" />
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
@@ -116,9 +115,6 @@ export function ProfitLossScreen({ from: askedFrom, to: askedTo }: { from?: stri
               <ComparativeOptions
                 comparative={opts.options.comparative}
                 onComparative={(v) => opts.set('comparative', v)}
-                budgetId={opts.options.budgetId}
-                onBudget={(v) => opts.set('budgetId', v)}
-                budgets={budgets ?? []}
               />
               <OptionsExport>
                 <Button size="sm" onClick={exportPdf} data-testid="options-pnl-pdf">
@@ -134,7 +130,7 @@ export function ProfitLossScreen({ from: askedFrom, to: askedTo }: { from?: stri
       />
 
       {opts.options.comparative ? (
-        <ComparativeStatement kind="pnl" from={from} to={to} budgetId={opts.options.budgetId ? Number(opts.options.budgetId) : null} tree={tree} />
+        <ComparativeStatement kind="pnl" from={from} to={to} tree={tree} />
       ) : (
       <>
       <div className={`grid grid-cols-2 gap-3 transition-opacity ${isPlaceholderData ? 'opacity-60' : ''}`}>
@@ -193,16 +189,10 @@ export function StatementOptions({
 /** "Comparative" drawer section shared by the P&L and Balance sheet (WP 6.2). */
 export function ComparativeOptions({
   comparative,
-  onComparative,
-  budgetId,
-  onBudget,
-  budgets
+  onComparative
 }: {
   comparative: boolean
   onComparative: (v: boolean) => void
-  budgetId?: string
-  onBudget?: (v: string) => void
-  budgets?: { id: number; name: string }[]
 }): React.JSX.Element {
   return (
     <DrawerSection title="Comparative" testId="options-comparative">
@@ -213,15 +203,6 @@ export function ComparativeOptions({
         onChange={onComparative}
         testId="input-statement-comparative"
       />
-      {comparative && onBudget && budgets && budgets.length > 0 && (
-        <label className="flex flex-col gap-1 text-detail">
-          <span>Budget column</span>
-          <Select value={budgetId ?? ''} onChange={(e) => onBudget(e.target.value)} data-testid="input-statement-budget">
-            <option value="">No budget</option>
-            {budgets.map((b) => <option key={b.id} value={String(b.id)}>{b.name}</option>)}
-          </Select>
-        </label>
-      )}
     </DrawerSection>
   )
 }

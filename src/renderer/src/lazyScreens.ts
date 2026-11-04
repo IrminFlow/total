@@ -161,8 +161,6 @@ const load_screens_Tcs = () => import('./screens/Tcs')
 export const TcsScreen = lazyScreen(load_screens_Tcs, 'TcsScreen')
 const load_screens_CostCentres = () => import('./screens/CostCentres')
 export const CostCentresScreen = lazyScreen(load_screens_CostCentres, 'CostCentresScreen')
-const load_screens_Budgets = () => import('./screens/Budgets')
-export const BudgetsScreen = lazyScreen(load_screens_Budgets, 'BudgetsScreen')
 const load_screens_assistants_Assistants = () => import('./screens/assistants/Assistants')
 export const AssistantsScreen = lazyScreen(load_screens_assistants_Assistants, 'AssistantsScreen')
 const load_screens_Ratios = () => import('./screens/Ratios')
@@ -268,7 +266,6 @@ export const SCREEN_CHUNKS: { readonly [N in Screen['name']]?: readonly LazyComp
   'tds': [TdsScreen],
   'tcs': [TcsScreen],
   'cost-centres': [CostCentresScreen],
-  'budgets': [BudgetsScreen],
   'assistants': [AssistantsScreen],
   'ratios': [RatiosScreen],
   'cash-forecast': [CashForecastScreen],

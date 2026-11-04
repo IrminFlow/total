@@ -1,13 +1,11 @@
 /**
  * Cash and finance (WP 4.4) — IPC input schemas and the row shapes main returns, shared by main
- * and renderer. The maths lives in ./cashForecast.ts, ./loanSchedule.ts, ./forex.ts and
- * ./budgetPhasing.ts.
+ * and renderer. The maths lives in ./cashForecast.ts, ./loanSchedule.ts and ./forex.ts.
  */
 import { z } from 'zod'
 import { isoDate } from './schemas'
 import type { CollectionProfile, ForecastFlow, ItemCadence, ItemKind } from './cashForecast'
 import type { EmiMethod, MoratoriumMode, PrepaymentEffect, ScheduleKind } from './loanSchedule'
-import type { MonthlyVarianceRow } from './budgetPhasing'
 
 const id = z.number().int().positive()
 const paise = z.number().int().safe()
@@ -319,76 +317,6 @@ export interface FxSettleResult {
   gainLoss: number
 }
 
-// ---------- budgets ----------
-
-export const budgetMonthlySchema = z.object({ budgetId: id, upToMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Expected YYYY-MM') })
-
-export const budgetDrillSchema = z.object({
-  budgetId: id,
-  lineId: id,
-  /** 'YYYY-MM' for one month; null = April through upToMonth. */
-  month: z.string().regex(/^\d{4}-\d{2}$/).nullable(),
-  upToMonth: z.string().regex(/^\d{4}-\d{2}$/)
-})
-
-export const budgetCsvImportSchema = z.object({
-  budgetId: id,
-  csvText: z.string().max(2 * 1024 * 1024),
-  reason: z.string().trim().max(200).nullable().default(null)
-})
-
-export interface BudgetMonthlyReport {
-  budgetId: number
-  fyStartYear: number
-  months: string[]
-  upToMonth: string
-  rows: MonthlyVarianceRow[]
-}
-
-export interface BudgetDrillRow {
-  voucherId: number
-  date: string
-  number: string
-  voucherType: string
-  ledgerId: number
-  ledgerName: string
-  /** Signed in the target's natural direction (as counted in the actual). */
-  amount: number
-}
-
-export interface BudgetRevision {
-  id: number
-  budgetId: number
-  revisionNo: number
-  revisedAt: string
-  userName: string | null
-  reason: string | null
-  totalBefore: number
-  totalAfter: number
-  linesBefore: number
-  linesAfter: number
-}
-
-export interface BudgetCsvResult {
-  lines: number
-  errors: string[]
-}
-
-export interface OverBudgetRow {
-  budgetId: number
-  budgetName: string
-  lineId: number
-  targetName: string
-  costCentreName: string | null
-  budget: number
-  actual: number
-}
-
-export interface OverBudgetChip {
-  month: string
-  rows: OverBudgetRow[]
-}
-
 // ---------- year-end / dashboard ----------
 
 export interface CashFinanceCloseWarnings {
@@ -396,12 +324,9 @@ export interface CashFinanceCloseWarnings {
   unrevalued: { currencyCode: string; ledgers: number; fcBalance: number }[]
   /** No revaluation as on the FY's last day while foreign balances were open. */
   revaluedOnFyEnd: boolean
-  /** Lines (department / cost-centre lines first) whose full-year actual exceeds the budget. */
-  overBudget: OverBudgetRow[]
 }
 
-/** dashboard:financeReminders — the compliance card's EMI reminders and over-budget chip. */
+/** dashboard:financeReminders — the compliance card's EMI reminders. */
 export interface FinanceReminders {
   emis: EmiReminder[]
-  overBudget: OverBudgetChip
 }

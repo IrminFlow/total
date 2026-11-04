@@ -40,7 +40,7 @@ import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive, setAutoCheck, updateAction, updatesView } from './updater'
 import { UPDATE_ACTIONS, updatesCanSet, type UpdatesCanSet } from '@shared/updates'
 import {
-  backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
+  backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, ccStatementSchema,
   chequeConfigSchema, companyCreateSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
   isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, priceRateInputSchema, rendererLogSchema, reportPdfSchema,
   searchGlobalSchema, searchQuerySchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, stockCostAsOfSchema,
@@ -105,7 +105,6 @@ import * as tradeClosure from './services/tradeClosure'
 import * as priceLevels from './services/priceLevels'
 import { quickCreateItem } from './services/quickCreate'
 import { quickItemSchema } from '@shared/schemas'
-import * as budgets from './services/budgets'
 import * as yearEnd from './services/yearEnd'
 import * as yearEndRepair from './services/yearEndRepair'
 import { registerFixedAssetIpc } from './ipcFixedAssets'
@@ -2600,18 +2599,6 @@ export function registerIpc(): void {
   handle('cc:statement', (p) => {
     const { ccId, from, to } = ccStatementSchema.parse(p)
     return costCentres.ccStatement(requireCompany().db, ccId, from, to)
-  }, 'viewer')
-
-  // ---------- budgets ----------
-  handle('budget:list', () => budgets.listBudgets(requireCompany().db), 'viewer')
-  handle('budget:save', (p) => {
-    const { id, data } = z.object({ id: z.number().int().positive().optional(), data: budgetInputSchema }).parse(p)
-    return budgets.saveBudget(requireCompany().db, data, id)
-  })
-  handle('budget:delete', (p) => budgets.deleteBudget(requireCompany().db, idSchema.parse(p).id))
-  handle('budget:variance', (p) => {
-    const { budgetId, upToMonth } = budgetVarianceSchema.parse(p)
-    return budgets.budgetVarianceReport(requireCompany().db, budgetId, upToMonth)
   }, 'viewer')
 
   // ---------- banking ----------

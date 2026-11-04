@@ -186,7 +186,6 @@ export type Screen =
   | { name: 'tds' }
   | { name: 'tcs' }
   | { name: 'cost-centres' }
-  | { name: 'budgets' }
   // WP 5.5: the assistants (close checklist, GST 2B mismatches, anomalies).
   | { name: 'assistants'; tab?: 'close' | 'gst2b' | 'anomalies'; period?: string }
   // WP 6.2: ratio analysis with monthly trends.

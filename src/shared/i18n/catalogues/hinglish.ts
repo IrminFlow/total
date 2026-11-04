@@ -2771,7 +2771,6 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.ai.from.made': 'Aapka banaya taiyaar maal',
   'simple.ai.from.orders': 'Khule order',
   'simple.ai.from.bank': 'Aapka bank',
-  'simple.ai.from.budget': 'Aapka budget',
   'simple.ai.from.cashAhead': 'Aane wale dinon mein cash',
   'simple.ai.from.history': 'Badlaavon ki history',
   'simple.ai.from.monthEnd': 'Mahine ke aakhir ki list',

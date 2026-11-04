@@ -1,6 +1,6 @@
 // WP 4.4 review fixes: loan / revaluation / settlement vouchers are bin-only and restore safely;
 // rupee entries on a foreign party are not revalued; foreign openings; bill-wise settlement with
-// bill references; budget actuals = the P&L figure; CSV validation; challans in the forecast.
+// bill references; challans in the forecast.
 import { describe, expect, it } from 'vitest'
 import { seededDb, TEST_INFO } from '../db/testdb'
 import type { DB } from '../db/connection'
@@ -11,8 +11,6 @@ import { closingBalances, pnlLedgerAmounts } from './reports'
 import { outstandings } from './analysis'
 import { addPrepayment, deleteLoan, getLoan, postEmi, saveLoan } from './loans'
 import { listRevaluations, openBills, postRevaluation, revaluationPreview, saveRate, setLedgerCurrency, settle } from './forex'
-import { saveBudget } from './budgets'
-import { budgetMonthlyReport, parseBudgetCsv } from './budgetVariance'
 import { forecastBase } from './cashForecast'
 import { dc, item, tradeBooks } from './tradeFixture.testutil'
 
@@ -219,35 +217,6 @@ describe('bill-wise settlement', () => {
     const r = settle(db, { partyLedgerId: cust, bankLedgerId: bank, date: '2026-03-01', fcAmount: 1000_00, settleRateMicro: 83_000_000 })
     const gainLine = getVoucher(db, r.voucherId)!.lines.find((l) => l.drCr === 'cr' && l.ledgerId !== cust)!
     expect(gainLine.ledgerId).toBe(lid(db, 'Realised Forex Gain (forex)'))
-  })
-})
-
-describe('budgets', () => {
-  it('ledger actuals equal pnlLedgerAmounts for the month', () => {
-    const db = seededDb()
-    const cash = lid(db, 'Cash')
-    const rent = ledger(db, 'Rent', 'Indirect Expenses')
-    const income = ledger(db, 'Commission', 'Indirect Incomes')
-    post(db, 'payment', '2026-05-05', [L(rent, 'dr', 30_000_00), L(cash, 'cr', 30_000_00)])
-    post(db, 'receipt', '2026-05-06', [L(cash, 'dr', 7_000_00), L(income, 'cr', 7_000_00)])
-    const b = saveBudget(db, { name: 'B', fyStartYear: 2026, lines: [
-      { ledgerId: rent, groupId: null, month: null, amount: 1_20_000_00, phasing: 'even' },
-      { ledgerId: income, groupId: null, month: null, amount: 1_20_000_00, phasing: 'even' }
-    ] })
-    const rows = budgetMonthlyReport(db, b.id, '2026-05').rows
-    const pnl = pnlLedgerAmounts(db, '2026-05-01', '2026-05-31').amounts
-    expect(rows[0]!.current.actual).toBe(pnl.get(rent))
-    expect(rows[1]!.current.actual).toBe(-pnl.get(income)!)
-  })
-
-  it('CSV import reports bad month cells and duplicate lines', () => {
-    const db = seededDb()
-    ledger(db, 'Rent', 'Indirect Expenses')
-    const head = 'Target type,Target,Cost centre,Phasing,Month,Annual amount,Apr,May,Jun,Jul,Aug,Sep,Oct,Nov,Dec,Jan,Feb,Mar'
-    const bad = parseBudgetCsv(db, 2026, `${head}\nLedger,Rent,,manual,,,1000,abc,,,,,,,,,,\n`)
-    expect(bad.errors[0]).toMatch(/“abc” in May is not an amount/)
-    const dup = parseBudgetCsv(db, 2026, `${head}\nLedger,Rent,,even,,1200,,,,,,,,,,,,\nLedger,Rent,,annual,,500,,,,,,,,,,,,\n`)
-    expect(dup.errors[0]).toMatch(/repeats line 2/)
   })
 })
 

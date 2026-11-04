@@ -407,7 +407,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'profit-loss' },
     navSection: 'books',
     card: { sub: 'Trading + P&L account', key: 'P' },
-    invalidates: ['pnl', 'pnlComparative', 'budgets', 'budgetAmounts']
+    invalidates: ['pnl', 'pnlComparative']
   },
   {
     name: 'balance-sheet',
@@ -546,14 +546,6 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'analysis',
     feature: 'costCentres',
     invalidates: ['costCentres', 'ccReport', 'ccStatement']
-  },
-  {
-    name: 'budgets',
-    modes: ['accountant'],
-    title: 'Budgets',
-    screen: { name: 'budgets' },
-    navSection: 'analysis',
-    invalidates: ['budgets', 'budgetMonthly', 'budgetRevisions', 'budgetDrill', 'costCentres']
   },
   // WP 4.4: cash and finance.
   {

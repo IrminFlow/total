@@ -1,7 +1,6 @@
 // WP 4.4 — cash and finance against a real (in-memory) company: the forecast's opening equals the
 // trial balance's cash and bank, Post EMI books a balanced principal / interest split and marks
-// the schedule, forex revaluation posts and reverses, settlement books the realised difference,
-// and the budget variance by cost centre ties to the cost-centre P&L.
+// the schedule, forex revaluation posts and reverses and settlement books the realised difference.
 import { describe, expect, it } from 'vitest'
 import { seededDb, TEST_INFO } from '../db/testdb'
 import type { DB } from '../db/connection'
@@ -9,10 +8,6 @@ import type { VoucherInput } from '@shared/schemas'
 import { createLedger } from './masters'
 import { deleteVoucher, getVoucher, saveVoucher } from './vouchers'
 import { closingBalances, trialBalance, pnlLedgerAmounts } from './reports'
-import { ccReport } from './costCentres'
-import { saveCostCentre } from './costCentres'
-import { saveBudget } from './budgets'
-import { budgetCsv, budgetDrill, budgetMonthlyReport, budgetRevisions, importBudgetCsv, overBudgetThisMonth } from './budgetVariance'
 import { addPrepayment, getLoan, listLoans, postEmi, saveLoan, emiReminders } from './loans'
 import { postRevaluation, revaluationPreview, saveRate, settle, exposure, listRevaluations, reverseRevaluation, setLedgerCurrency } from './forex'
 import { forecastBase, saveForecastItem, listForecastItems } from './cashForecast'
@@ -332,66 +327,5 @@ describe('forex revaluation and settlement', () => {
     const w = closeWarnings(db, 2025)
     expect(w.revaluedOnFyEnd).toBe(false)
     expect(w.unrevalued).toEqual([{ currencyCode: 'USD', ledgers: 2, fcBalance: 1100_00 }])
-  })
-})
-
-describe('budgets vs actuals by cost centre', () => {
-  it('a cost-centre line’s actual equals the cost-centre P&L, month and YTD, with drill-down', () => {
-    const { db, cash } = company()
-    const mumbai = saveCostCentre(db, { name: 'Mumbai', parentId: null, active: true }).id
-    const pune = saveCostCentre(db, { name: 'Pune', parentId: null, active: true }).id
-    const rent = ledger(db, 'Rent', 'Indirect Expenses')
-    const power = ledger(db, 'Electricity', 'Indirect Expenses')
-    post(db, 'payment', '2026-04-05', [dr(rent, 30_000_00, [{ costCentreId: mumbai, amount: 20_000_00 }, { costCentreId: pune, amount: 10_000_00 }]), cr(cash, 30_000_00)])
-    post(db, 'payment', '2026-05-05', [dr(power, 8_000_00, [{ costCentreId: mumbai, amount: 8_000_00 }]), cr(cash, 8_000_00)])
-    post(db, 'payment', '2026-05-06', [dr(rent, 30_000_00, [{ costCentreId: mumbai, amount: 25_000_00 }]), cr(cash, 30_000_00)])
-    const b = saveBudget(db, {
-      name: 'Opex 26-27', fyStartYear: 2026,
-      lines: [
-        { ledgerId: null, groupId: gid(db, 'Indirect Expenses'), month: null, amount: 3_00_000_00, costCentreId: mumbai, phasing: 'even' },
-        { ledgerId: rent, groupId: null, month: null, amount: 3_60_000_00, phasing: 'seasonal' },
-        { ledgerId: null, groupId: gid(db, 'Indirect Expenses'), month: null, amount: 1_20_000_00, costCentreId: pune, phasing: 'annual' }
-      ],
-      seasonal: [2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0]
-    })
-    const rep = budgetMonthlyReport(db, b.id, '2026-05')
-    const [mum, rentLine, pun] = rep.rows
-    const cc = ccReport(db, '2026-04-01', '2026-05-31')
-    expect(mum!.ytd.actual).toBe(cc.find((r) => r.costCentreId === mumbai)!.expense)
-    expect(pun!.ytd.actual).toBe(cc.find((r) => r.costCentreId === pune)!.expense)
-    expect(mum!.current).toMatchObject({ budget: 25_000_00, actual: 33_000_00, favourable: false })
-    expect(mum!.ytd).toMatchObject({ budget: 50_000_00, actual: 53_000_00, pct: 106 })
-    // whole-ledger line ties to the P&L ledger amount
-    expect(rentLine!.ytd.actual).toBe(pnlLedgerAmounts(db, '2026-04-01', '2026-05-31').amounts.get(rent))
-    expect(rentLine!.months[0]!.budget).toBe(60_000_00) // weight 2 of 12
-    expect(pun!.current.budget).toBeNull()
-    expect(pun!.ytd.budget).toBe(1_20_000_00)
-    // drill-down adds up to the actual
-    const drill = budgetDrill(db, b.id, mum!.lineId, null, '2026-05')
-    expect(drill.reduce((s, r) => s + r.amount, 0)).toBe(mum!.ytd.actual)
-    expect(budgetDrill(db, b.id, mum!.lineId, '2026-05', '2026-05').reduce((s, r) => s + r.amount, 0)).toBe(33_000_00)
-    // dashboard chip: over budget in May
-    expect(overBudgetThisMonth(db, '2026-05-20').rows.map((r) => r.targetName)).toContain('Indirect Expenses')
-  })
-
-  it('records revisions and round-trips through CSV', () => {
-    const { db } = company()
-    const rent = ledger(db, 'Rent', 'Indirect Expenses')
-    const b = saveBudget(db, { name: 'B', fyStartYear: 2026, lines: [{ ledgerId: rent, groupId: null, month: null, amount: 1_20_000_00, phasing: 'even' }] })
-    expect(budgetRevisions(db, b.id)).toEqual([])
-    const monthly = [10_000_00, 10_000_00, 10_000_00, 10_000_00, 10_000_00, 10_000_00, 10_000_00, 10_000_00, 10_000_00, 10_000_00, 10_000_00, 20_000_00]
-    saveBudget(db, { name: 'B', fyStartYear: 2026, lines: [{ ledgerId: rent, groupId: null, month: null, amount: 1_30_000_00, phasing: 'manual', monthly }], reason: 'Rent hike in March' }, b.id)
-    const revs = budgetRevisions(db, b.id)
-    expect(revs).toHaveLength(1)
-    expect(revs[0]).toMatchObject({ revisionNo: 1, reason: 'Rent hike in March', totalBefore: 1_20_000_00, totalAfter: 1_30_000_00 })
-    const csv = budgetCsv(db, b.id)
-    expect(csv).toContain('Ledger,Rent,,manual,,130000.00,10000.00')
-    const bad = importBudgetCsv(db, b.id, csv.replace('Rent', 'Nope'), null)
-    expect(bad.errors[0]).toMatch(/no ledger named/)
-    const ok = importBudgetCsv(db, b.id, csv, null)
-    expect(ok).toEqual({ lines: 1, errors: [] })
-    expect(budgetRevisions(db, b.id)[0]).toMatchObject({ revisionNo: 2, reason: 'CSV import' })
-    const rep = budgetMonthlyReport(db, b.id, '2027-03')
-    expect(rep.rows[0]!.current.budget).toBe(20_000_00)
   })
 })

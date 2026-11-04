@@ -1,6 +1,5 @@
 // WP 4.4 — year-end close warnings for cash and finance (warn-only, additive to YearEnd.tsx):
-// EMIs due in the year but not posted, foreign-currency balances not revalued on 31 March, and
-// budget lines (department / cost-centre lines first) over budget for the year.
+// EMIs due in the year but not posted and foreign-currency balances not revalued on 31 March.
 import { useQuery } from '@tanstack/react-query'
 import { fyFromStartYear, toDisplayDate } from '@shared/dates'
 import { formatFc } from '@shared/forex'
@@ -45,21 +44,6 @@ export function CashFinanceCloseWarnings({ fyStartYear, closed }: { fyStartYear:
             </span>
           ))}
           Monetary items should be restated at the closing rate (AS 11 / Ind AS 21).
-        </Banner>
-      )}
-      {data.overBudget.length > 0 && (
-        <Banner
-          tone="info"
-          className="mb-section"
-          testId="year-end-over-budget"
-          title={`${data.overBudget.length} budget line${data.overBudget.length === 1 ? ' is' : 's are'} over budget for the year`}
-          action={<Button size="sm" onClick={() => nav.go({ name: 'budgets' })}>Open budgets</Button>}
-        >
-          {data.overBudget.slice(0, 5).map((o) => (
-            <span key={`${o.budgetId}-${o.lineId}`} className="mr-3 inline-block">
-              {o.costCentreName ? `${o.costCentreName} · ` : ''}{o.targetName}: <Money paise={o.actual} /> against <Money paise={o.budget} />
-            </span>
-          ))}
         </Banner>
       )}
     </>

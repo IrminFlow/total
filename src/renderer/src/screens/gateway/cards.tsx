@@ -370,7 +370,7 @@ export function ComplianceCard({
               </dl>
             </div>
           )}
-          {/* WP 4.4: loan EMIs due and the over-budget chip (additive). */}
+          {/* WP 4.4: loan EMIs due (additive). */}
           <FinanceReminderRows />
           {(showAll ? others : others.slice(0, 3)).map((d) => (
             <div key={d.id} className="flex items-center gap-2 border-b border-line/40 px-4 py-[5px] last:border-b-0">

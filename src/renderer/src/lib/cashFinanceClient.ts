@@ -1,10 +1,9 @@
-// Typed client for cash and finance (WP 4.4) — the forecast:*, loan:*, fx:* and budget month /
-// revision / CSV channels in src/main/ipcCashFinance.ts. Kept beside client.ts like faApi.
+// Typed client for cash and finance (WP 4.4) — the forecast:*, loan:* and fx:* channels in
+// src/main/ipcCashFinance.ts. Kept beside client.ts like faApi.
 import { call } from './client'
-import type { Budget } from '@shared/domain'
 import type { LoanSchedule } from '@shared/loanSchedule'
 import type {
-  BudgetCsvResult, BudgetDrillRow, BudgetMonthlyReport, BudgetRevision, CashFinanceCloseWarnings, EmiReminder, FinanceReminders,
+  CashFinanceCloseWarnings, EmiReminder, FinanceReminders,
   ForecastBase, ForecastItem, FxForeignOpeningInput, FxForeignOpeningResult, FxOpenBill, ForecastItemInput, FxRate, FxRateInput, FxRevaluationPreview, FxRevaluationRow, FxSettleInput, FxSettleResult,
   LoanDetail, LoanInput, LoanPrepaymentInput, LoanScheduleRow, LoanSummary, PostEmiInput
 } from '@shared/cashFinance'
@@ -42,15 +41,6 @@ export const cfApi = {
     reverse: (id: number, date?: string) => call<FxRevaluationRow>('fx:reverse', { id, date }),
     revaluations: () => call<FxRevaluationRow[]>('fx:revaluations'),
     settle: (data: FxSettleInput) => call<FxSettleResult>('fx:settle', data)
-  },
-  budget: {
-    monthly: (budgetId: number, upToMonth: string) => call<BudgetMonthlyReport>('budget:monthly', { budgetId, upToMonth }),
-    drill: (budgetId: number, lineId: number, month: string | null, upToMonth: string) =>
-      call<BudgetDrillRow[]>('budget:drill', { budgetId, lineId, month, upToMonth }),
-    revisions: (id: number) => call<BudgetRevision[]>('budget:revisions', { id }),
-    revisionDetail: (id: number) => call<{ before: Budget; after: Budget }>('budget:revisionDetail', { id }),
-    exportCsv: (id: number) => call<{ path: string; csv: string }>('budget:exportCsv', { id }),
-    importCsv: (budgetId: number, csvText: string, reason: string | null) => call<BudgetCsvResult>('budget:importCsv', { budgetId, csvText, reason })
   },
   checks: {
     closeWarnings: (fyStartYear: number) => call<CashFinanceCloseWarnings>('yearEnd:cashFinanceWarnings', { fyStartYear }),

@@ -12,7 +12,7 @@ const TOUR = [
   ['trial-balance'], ['profit-loss'], ['balance-sheet'], ['cash-flow'],
   ['stock-summary', 'inventory'], ['stock-movements', 'inventory'], ['stock-journal', 'inventory'], ['year-end'],
   ['registers'], ['outstandings'], ['cost-centres', 'costCentres'],
-  ['budgets'], ['exceptions'], ['banking'], ['payroll', 'payroll'],
+  ['exceptions'], ['banking'], ['payroll', 'payroll'],
   ['gstr1'], ['gstr3b'], ['gstr2b'], ['edocs'], ['tds', 'tds'],
   ['settings'], ['import-tally'], ['gateway']
 ]

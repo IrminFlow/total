@@ -1,9 +1,7 @@
 // IPC channels for cash and finance (WP 4.4): the cash-flow forecast and its known items, loans
-// and EMI schedules, forex rates / revaluation / settlement, the budget month-by-month variance,
-// revisions and CSV, and the additive year-end / dashboard checks. Registered from ipc.ts with its
+// and EMI schedules, forex rates / revaluation / settlement, and the additive year-end / dashboard
+// checks. Registered from ipc.ts with its
 // `handle` (role gate + { ok, data | error } envelope); every payload is Zod-parsed here.
-import { writeFileSync } from 'fs'
-import { join } from 'path'
 import { z } from 'zod'
 import type { DB } from './db/connection'
 import type { CompanyInfo } from '@shared/domain'
@@ -11,17 +9,13 @@ import type { Role } from './services/roles'
 import { isoDate } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
 import {
-  budgetCsvImportSchema, budgetDrillSchema, budgetMonthlySchema, forecastBaseSchema, forecastItemInputSchema, fxAsOfSchema,
+  forecastBaseSchema, forecastItemInputSchema, fxAsOfSchema,
   fxForeignOpeningSchema, fxLedgerCurrencySchema, fxRateInputSchema, fxRevaluePostSchema, fxSettleInputSchema, loanDisbursementSchema, loanInputSchema, loanPrepaymentInputSchema, postEmiSchema
 } from '@shared/cashFinance'
 import * as forecast from './services/cashForecast'
 import * as loans from './services/loans'
 import * as forex from './services/forex'
-import * as budgetVar from './services/budgetVariance'
 import * as checks from './services/cashFinanceChecks'
-import { getBudget } from './services/budgets'
-import { writeAudit } from './services/audit'
-import { companyExportsDir } from './paths'
 
 type Handle = (channel: string, fn: (payload: unknown) => unknown, minRole?: Role) => void
 interface Company { db: DB; info: CompanyInfo; slug: string }
@@ -89,34 +83,6 @@ export function registerCashFinanceIpc(handle: Handle, company: () => Company): 
     return forex.openBills(db(), ledgerId, asOf)
   }, 'viewer')
   handle('fx:settle', (p) => forex.settle(db(), fxSettleInputSchema.parse(p)))
-
-  // ---------- budgets (month-by-month, cost centres, revisions, CSV) ----------
-  handle('budget:monthly', (p) => {
-    const { budgetId, upToMonth } = budgetMonthlySchema.parse(p)
-    return budgetVar.budgetMonthlyReport(db(), budgetId, upToMonth)
-  }, 'viewer')
-  handle('budget:drill', (p) => {
-    const { budgetId, lineId, month, upToMonth } = budgetDrillSchema.parse(p)
-    return budgetVar.budgetDrill(db(), budgetId, lineId, month, upToMonth)
-  }, 'viewer')
-  handle('budget:revisions', (p) => budgetVar.budgetRevisions(db(), idSchema.parse(p).id), 'viewer')
-  handle('budget:revisionDetail', (p) => budgetVar.budgetRevisionDetail(db(), idSchema.parse(p).id), 'viewer')
-  handle('budget:exportCsv', (p) => {
-    const { id } = idSchema.parse(p)
-    const c = company()
-    const budget = getBudget(c.db, id)
-    if (!budget) throw new Error('Budget not found')
-    const csv = budgetVar.budgetCsv(c.db, id)
-    const safe = budget.name.replace(/[^A-Za-z0-9 _-]+/g, '').trim().replace(/\s+/g, '-') || 'budget'
-    const path = join(companyExportsDir(c.slug), `budget-${safe}-FY${budget.fyStartYear}.csv`)
-    writeFileSync(path, csv, 'utf8')
-    writeAudit(c.db, 'export', 0, 'export', null, { kind: 'budget-csv', budgetId: id, path })
-    return { path, csv }
-  }, 'viewer')
-  handle('budget:importCsv', (p) => {
-    const { budgetId, csvText, reason } = budgetCsvImportSchema.parse(p)
-    return budgetVar.importBudgetCsv(db(), budgetId, csvText, reason)
-  })
 
   // ---------- additive checks (year-end close, dashboard) ----------
   handle('yearEnd:cashFinanceWarnings', (p) => checks.closeWarnings(db(), z.object({ fyStartYear: z.number().int() }).parse(p).fyStartYear), 'viewer')

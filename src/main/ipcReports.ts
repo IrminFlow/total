@@ -21,10 +21,6 @@ export function registerReportsIpc(handle: Handle, company: () => Company): void
     const c = company()
     return q.kind === 'pnl' ? analytics.comparativePnl(c.db, q.from, q.to) : analytics.comparativeBs(c.db, `${c.info.booksFrom}-04-01`, q.from, q.to)
   }, 'viewer')
-  handle('report:budgetAmounts', (p) => {
-    const q = z.object({ budgetId: z.number().int().positive(), from: isoDate, to: isoDate }).parse(p)
-    return analytics.budgetAmounts(db(), q.budgetId, q.from, q.to)
-  }, 'viewer')
   handle('report:ratios', (p) => {
     const q = rangeSchema.parse(p)
     return analytics.ratioReport(db(), q.from, q.to)

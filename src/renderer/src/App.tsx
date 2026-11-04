@@ -90,7 +90,6 @@ import {
   TdsScreen,
   TcsScreen,
   CostCentresScreen,
-  BudgetsScreen,
   AssistantsScreen,
   RatiosScreen,
   YearEndScreen,
@@ -332,7 +331,6 @@ export default function App(): React.JSX.Element {
           {screen.name === 'tds' && <TdsScreen />}
           {screen.name === 'tcs' && <TcsScreen />}
           {screen.name === 'cost-centres' && <CostCentresScreen />}
-          {screen.name === 'budgets' && <BudgetsScreen />}
           {screen.name === 'assistants' && <AssistantsScreen key={screen.tab ?? 'close'} tab={screen.tab} period={screen.period} />}
           {screen.name === 'ratios' && <RatiosScreen />}
           {screen.name === 'cash-forecast' && <CashForecastScreen />}

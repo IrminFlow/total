@@ -5,7 +5,7 @@ import type { Screen } from '../../state/stores'
 
 const PLAIN: readonly string[] = [
   'company-info', 'trial-balance', 'profit-loss', 'balance-sheet', 'outstandings', 'daybook', 'stock-summary', 'gstr3b', 'tds',
-  'manufacture-register', 'pending-challans', 'pending-grns', 'pending-sales-orders', 'pending-purchase-orders', 'banking', 'budgets',
+  'manufacture-register', 'pending-challans', 'pending-grns', 'pending-sales-orders', 'pending-purchase-orders', 'banking',
   'cash-forecast', 'unbilled-goods', 'exceptions', 'fixed-assets', 'gstr1', 'receivables', 'payables'
 ]
 

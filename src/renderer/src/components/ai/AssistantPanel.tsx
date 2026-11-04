@@ -868,7 +868,6 @@ const TOOL_LABELS: Record<string, string> = {
   trade_pending: 'Pending documents',
   bank_unreconciled: 'Bank reconciliation',
   tds_eligible: 'TDS workbench',
-  budget_variance: 'Budget variance',
   forecast_summary: 'Cash-flow forecast',
   audit_log_recent: 'Audit trail'
 }
