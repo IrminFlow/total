@@ -148,13 +148,13 @@ describe('WhatsApp link', () => {
 })
 
 describe('words and filters', () => {
-  it('a bill’s timing: late, due today, due in N days, nothing once paid', () => {
+  it('a bill’s timing: late, due today, due in N days, no due date, nothing once paid', () => {
     expect(billTiming({ pending: 100, dueDate: '2026-10-01', overdueDays: 13 }, TODAY, t)).toBe('13 days overdue')
     expect(billTiming({ pending: 100, dueDate: '2026-10-13', overdueDays: 1 }, TODAY, t)).toBe('1 day overdue')
     expect(billTiming({ pending: 100, dueDate: TODAY, overdueDays: 0 }, TODAY, t)).toBe('due today')
     expect(billTiming({ pending: 100, dueDate: '2026-10-17', overdueDays: 0 }, TODAY, t)).toBe('due in 3 days')
     expect(billTiming({ pending: 100, dueDate: '2026-10-15', overdueDays: 0 }, TODAY, t)).toBe('due in 1 day')
-    expect(billTiming({ pending: 100, dueDate: null, overdueDays: 0 }, TODAY, t)).toBe('due today')
+    expect(billTiming({ pending: 100, dueDate: null, overdueDays: 0 }, TODAY, t)).toBe('no due date')
     expect(billTiming({ pending: 0, dueDate: null, overdueDays: 9 }, TODAY, t)).toBe('')
   })
 

@@ -1004,6 +1004,7 @@ export const en = {
   'simple.people.youPaidAhead': 'You have a credit of {amount} for your next bill',
   'simple.people.dueIn': 'due in {days, plural, one {# day} other {# days}}',
   'simple.people.dueToday': 'due today',
+  'simple.people.noDueDate': 'no due date',
   'simple.people.back': '← People',
   'simple.people.missing': 'This person is not in your books any more.',
   'simple.people.terms': '{days, plural, one {# day} other {# days}} to pay',

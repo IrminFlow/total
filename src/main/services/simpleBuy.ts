@@ -24,6 +24,7 @@ import { ledgerClassifier } from '../ai/ledgerClass'
 import { memoryContextFor } from '../ai/memory'
 import { getAiSettings } from '../ai/settings'
 import { returnsOfBills } from './simpleReturns'
+import { lateDays } from '@shared/simple/late'
 
 function purchaseAccount(db: DB): number | null {
   const cat = db.prepare("SELECT id FROM ledgers WHERE simple_category = 'purchases' ORDER BY id LIMIT 1").get() as { id: number } | undefined
@@ -101,7 +102,7 @@ function bills(db: DB, where: string, ...args: unknown[]): BillRow[] {
 export function purchasesList(db: DB, from: string, to: string, today: string): PurchaseRow[] {
   const open = new Map<number, { pending: number; dueDate: string | null; overdueDays: number }>()
   for (const p of outstandingsWithAdvances(db, 'payable', today).parties) {
-    for (const b of p.bills) if (b.voucherId != null) open.set(b.voucherId, { pending: b.pending, dueDate: b.dueDate, overdueDays: b.overdueDays })
+    for (const b of p.bills) if (b.voucherId != null) open.set(b.voucherId, { pending: b.pending, dueDate: b.dueDate, overdueDays: lateDays(b) })
   }
   const rows = bills(db, 'v.date BETWEEN ? AND ?', from, to)
   // WP 9.5: the returns against each bill — a chip, and what they took off it is not "paid".

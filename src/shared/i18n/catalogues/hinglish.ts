@@ -947,6 +947,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.people.youPaidAhead': 'Aapke agle bill ke liye {amount} ka credit hai',
   'simple.people.dueIn': '{days, plural, one {# din} other {# din}} mein due',
   'simple.people.dueToday': 'aaj due',
+  'simple.people.noDueDate': 'koi due date nahi',
   'simple.people.back': '← Party',
   'simple.people.missing': 'Yeh vyakti ab aapke hisaab mein nahi hai.',
   'simple.people.terms': 'Payment ke liye {days, plural, one {# din} other {# din}}',

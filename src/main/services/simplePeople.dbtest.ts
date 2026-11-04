@@ -24,6 +24,7 @@ import { postIntent } from './simplePost'
 import { simpleHome } from './simpleHome'
 import { reminderLog } from './receivables'
 import { billsToPay, peopleList, personReminded, personView, updatePerson } from './simplePeople'
+import { lateDays } from '@shared/simple/late'
 
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<{ ok: boolean; data?: unknown; error?: string; code?: string }>>()
 vi.mock('electron', () => ({
@@ -107,7 +108,8 @@ describe('the People list = the Outstandings allocation as on today', () => {
       for (const p of list.people.filter((x) => x.side === wantSide)) {
         const row = o.parties.find((r) => r.ledgerId === p.ledgerId)
         expect(p.open, p.name).toBe(row?.pending ?? 0)
-        expect(p.late, p.name).toBe((row?.bills ?? []).filter((b) => b.overdueDays > 0).reduce((s, b) => s + b.pending, 0))
+        // Late = past a due date (no days to pay and no date on the bill = never late: lateDays).
+        expect(p.late, p.name).toBe((row?.bills ?? []).filter((b) => lateDays(b) > 0).reduce((s, b) => s + b.pending, 0))
         expect(p.ahead, p.name).toBe(partyAllocation(db, p.ledgerId, TODAY).unappliedCredit)
       }
       // Every Outstandings row is in the list.
@@ -156,11 +158,12 @@ describe('the People list = the Outstandings allocation as on today', () => {
     const b = billsToPay(db, TODAY)
     const want = outstandings(db, 'payable', TODAY).flatMap((p) => p.bills.filter((x) => x.pending > 0).map((x) => x.pending)).reduce((s, x) => s + x, 0)
     expect(b.bills.reduce((s, x) => s + x.pending, 0)).toBe(want)
-    expect(b.bills.slice(0, 2).map((x) => [x.party, x.name, x.pending])).toEqual([['Lakshmi', 'Opening', 120_000], ['Bharat Steel', 'BS-1', 360_000]])
+    expect(b.bills.slice(0, 2).map((x) => [x.party, x.name, x.pending])).toEqual([['Bharat Steel', 'BS-1', 360_000], ['Lakshmi', 'Opening', 120_000]])
     expect(b.bills.map((x) => x.overdueDays)).toEqual([...b.bills.map((x) => x.overdueDays)].sort((x, y) => y - x))
-    // 14 Aug 2025 is a Thursday: the week ends Sunday 17 Aug. Late: BS-1 ₹3,600 and Lakshmi's
-    // opening (books-begin 1 Apr, no credit days) ₹1,200; BS-2 (5 Aug + 30 days) is due 4 Sep.
-    expect(b).toMatchObject({ weekEnd: '2025-08-17', monthEnd: '2025-08-31', late: 480_000, dueThisWeek: 480_000, dueThisMonth: 480_000 })
+    // 14 Aug 2025 is a Thursday: the week ends Sunday 17 Aug. Late: BS-1 ₹3,600 only — Lakshmi's
+    // opening (books-begin 1 Apr, no credit days) has no due date, so it is never late (Phase 1
+    // triage) but still to pay this week (counted from its date); BS-2 (5 Aug + 30 days) is due 4 Sep.
+    expect(b).toMatchObject({ weekEnd: '2025-08-17', monthEnd: '2025-08-31', late: 360_000, dueThisWeek: 480_000, dueThisMonth: 480_000 })
   })
 })
 

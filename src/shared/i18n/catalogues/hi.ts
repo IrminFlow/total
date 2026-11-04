@@ -952,6 +952,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.people.youPaidAhead': 'आपके अगले बिल के लिए {amount} का क्रेडिट है',
   'simple.people.dueIn': '{days, plural, one {# दिन} other {# दिन}} में आखिरी तारीख',
   'simple.people.dueToday': 'आखिरी तारीख आज',
+  'simple.people.noDueDate': 'कोई आखिरी तारीख तय नहीं',
   'simple.people.back': '← पार्टी',
   'simple.people.missing': 'यह व्यक्ति अब आपके हिसाब में नहीं है।',
   'simple.people.terms': 'भुगतान के लिए {days, plural, one {# दिन} other {# दिन}}',

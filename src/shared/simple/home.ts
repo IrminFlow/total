@@ -19,6 +19,7 @@ import type { Deadline } from '../compliance'
 import type { GstFilingFrequency } from '../gst/filing'
 import type { DoingLines, DoingPart } from './reports'
 import type { CompositionDue } from './taxes'
+import { lateDays } from './late'
 
 /** One side of what is owed (customers → you, or you → suppliers), from the Outstandings
  *  allocation as on today. Paise, positive. */
@@ -277,7 +278,7 @@ export function owedSummary(
   for (const p of parties) {
     for (const b of p.bills) {
       if (b.pending <= 0) continue
-      if (b.overdueDays > 0) {
+      if (lateDays(b) > 0) {
         overdue += b.pending
         overdueBills++
       }
