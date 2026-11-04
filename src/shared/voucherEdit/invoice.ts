@@ -258,10 +258,21 @@ export function fixedTaxKey(state: InvoiceFormState): string {
   ])
 }
 
+/** Can a return note's computed rows carry this fixed tax? Each head is posted exactly when the
+ *  note's own computation has it (a head the rows don't charge stays nil, and one they charge is
+ *  never left out — so a note that posted no GST where its rows would charge some is not read as
+ *  one), no head below zero, and the note's total not below zero. */
+export function fixedTaxFits(state: InvoiceFormState, ctx: InvoiceContext, fixed: Omit<FixedTax, 'key'>): boolean {
+  const c = computeInvoice({ ...state, fixedTax: undefined }, ctx)
+  if ((['cgst', 'sgst', 'igst', 'cess'] as const).some((k) => fixed[k] < 0 || (fixed[k] > 0) !== (c.gst[k] > 0))) return false
+  return c.gst.taxable + fixed.cgst + fixed.sgst + fixed.igst + fixed.cess + fixed.roundDiff >= 0
+}
+
 /** A saved return note's tax as it posted it — the form's `fixedTax` when the computed tax doesn't
- *  give it back. Only a note whose every line is a `return` of a bill line, within a paisa per line
- *  per head of the computed tax and a round off under ₹1 (the emptying return's share of the bill's
- *  rounding); anything else is not representable as before. */
+ *  give it back. Only a note whose every line is a `return` of a bill line and whose tax fits it
+ *  (fixedTaxFits) — a return of part of a bill posts the running total's tax and round off
+ *  (shared/simple/intents.ts runningReturnTax); confirmRoundTrip then proves the rebuilt note is
+ *  the saved one exactly. Anything else is representable exactly as before. */
 function savedReturnTax(v: Voucher, state: InvoiceFormState, ctx: InvoiceContext, taxLedgers: TaxLedgerIds): FixedTax | null {
   if (!isNoteKind(ctx.kind) || state.rows.length === 0 || !state.rows.every((r) => r.source?.linkType === 'return')) return null
   const counter = partyIsDebit(ctx.kind) ? 'cr' : 'dr'
@@ -269,10 +280,7 @@ function savedReturnTax(v: Voucher, state: InvoiceFormState, ctx: InvoiceContext
   const ro = taxLedgers.roundOff == null ? [] : v.lines.filter((l) => l.ledgerId === taxLedgers.roundOff)
   const roundDiff = ro.reduce((s, l) => s + (l.drCr === counter ? l.amount : -l.amount), 0)
   const fixed: FixedTax = { cgst: head(taxLedgers.cgst), sgst: head(taxLedgers.sgst), igst: head(taxLedgers.igst), cess: head(taxLedgers.cess), roundDiff, key: fixedTaxKey(state) }
-  const c = computeInvoice(state, ctx).gst
-  const near = (a: number, b: number): boolean => Math.abs(a - b) <= state.rows.length && (a > 0) === (b > 0)
-  if (!near(fixed.cgst, c.cgst) || !near(fixed.sgst, c.sgst) || !near(fixed.igst, c.igst) || !near(fixed.cess, c.cess) || Math.abs(roundDiff) >= 100) return null
-  return fixed
+  return fixedTaxFits(state, ctx, fixed) ? fixed : null
 }
 
 /** Which tax / round-off ledgers a computed invoice posts to (the form ensures these exist). */

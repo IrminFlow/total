@@ -219,7 +219,7 @@ export function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<t
   )
   // Bug hunt 2026-11: the value before GST earlier returns took off each line (their linked lines).
   const returnedValue = db.prepare(
-    `SELECT COALESCE(SUM(il.amount), 0) AS t FROM line_links ll JOIN vouchers v ON v.id = ll.to_voucher_id
+    `SELECT COALESCE(SUM(il.amount), 0) AS t, COALESCE(SUM(il.discount_paise), 0) AS d FROM line_links ll JOIN vouchers v ON v.id = ll.to_voucher_id
        JOIN inventory_lines il ON il.voucher_id = ll.to_voucher_id AND il.line_uid = ll.to_line_uid
      WHERE ll.from_line_uid = ? AND ll.link_type = 'return' AND ${NOT_DELETED}`
   )
@@ -250,16 +250,15 @@ export function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<t
   }
   const noteKind: VoucherKind = kind === 'sales' ? 'credit_note' : 'debit_note'
   const rest = figures(v, kind)
+  const returnedFigures: BillRest = { taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, total: 0 }
   for (const id of earlier) {
     const n = getVoucher(db, id)
     if (!n) continue
     const f = figures(n, noteKind)
-    rest.taxable -= f.taxable
-    rest.cgst -= f.cgst
-    rest.sgst -= f.sgst
-    rest.igst -= f.igst
-    rest.cess -= f.cess
-    rest.total -= f.total
+    for (const k of ['taxable', 'cgst', 'sgst', 'igst', 'cess', 'total'] as const) {
+      rest[k] -= f[k]
+      returnedFigures[k] += f[k]
+    }
   }
   return {
     voucherId: v.id,
@@ -275,12 +274,13 @@ export function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<t
     noteReference,
     amountLeft,
     rest,
+    returned: returnedFigures,
     lines: v.inventory
       .filter((l) => !!l.lineUid)
       .map((l) => ({
         lineUid: l.lineUid!, itemId: l.stockItemId, qtyMilli: l.qtyMilli, ratePaise: l.ratePaise, discountPaise: l.discountPaise,
         godownId: l.godownId, batchId: l.batchId, leftMilli: l.qtyMilli - (returned.get(l.lineUid) as { q: number }).q,
-        returnedPaise: (returnedValue.get(l.lineUid) as { t: number }).t
+        ...((r) => ({ returnedPaise: r.t, returnedDiscountPaise: r.d }))(returnedValue.get(l.lineUid) as { t: number; d: number })
       }))
   }
 }

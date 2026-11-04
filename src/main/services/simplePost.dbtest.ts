@@ -806,3 +806,129 @@ describe('a bill returned in parts nets to exactly zero', () => {
     expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
   })
 })
+
+// Review of the fix above: returns in parts still left money owing in three shapes. Each return's
+// value, discount, tax and round off now come from the RUNNING total (everything returned so far,
+// this return included, less what the earlier returns posted), so the notes give back exactly the
+// bill once it is all returned and no head ever goes below zero.
+describe('returns in parts: the running total nets every shape to zero', () => {
+  const net = (name: string, d: DB = db): number =>
+    (d.prepare("SELECT COALESCE(SUM(CASE WHEN dr_cr = 'cr' THEN amount ELSE -amount END), 0) AS t FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id WHERE v.deleted_at IS NULL AND ledger_id = ?").get(L(name, d)) as { t: number }).t
+  const partyTotal = (id: number, party: string): number => getVoucher(db, id)!.lines.filter((l) => l.ledgerId === L(party)).reduce((s, l) => s + l.amount, 0)
+  const lineOf = (bill: Voucher, item: string): string => bill.inventory.find((l) => l.stockItemId === I(item))!.lineUid!
+
+  it('a company that charges no GST: 3 x ₹100.50 less ₹1 = ₹301, three returns of 1 = ₹100 + ₹100 + ₹101', () => {
+    const info: CompanyInfo = { ...INFO, gstin: null, gstRegistrationType: 'unregistered' }
+    db = company(info)
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '3', rate: '100.50', discount: '1' }] }, db, info)
+    const bill = getVoucher(db, sale.voucherIds[0]!)!
+    expect(partyTotal(bill.id, 'Ramesh')).toBe(30_100)
+    // Running: 100.17 -> ₹100; 200.33 -> ₹200 (₹100 more); 300.50 -> ₹301 (₹101 more).
+    const notes = [0, 1, 2].map(() => post({ kind: 'return_sale', billId: bill.id, items: [{ lineUid: lineOf(bill, 'Widget'), qty: '1' }] }, db, info).voucherIds[0]!)
+    expect(notes.map((id) => partyTotal(id, 'Ramesh'))).toEqual([10_000, 10_000, 10_100])
+    expect([net('Sales'), net('Round Off'), net('Ramesh'), net('CGST'), net('SGST')]).toEqual([0, 0, 0, 0, 0])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+    for (const id of notes) roundTrips(id, 'invoice')
+  })
+
+  it('a bill of two lines returned one unit at a time in mixed order (₹460) nets to zero', () => {
+    db = company()
+    // Widget 3 x 100.30 @ 18 % = 300.90 (CGST 27.08 + SGST 27.08); Rice 3 x 33.33 less 0.10 @ 5 % = 99.89
+    // (2.50 + 2.50): 459.95 -> ₹460.
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '3', rate: '100.30' }, { itemId: I('Rice'), qty: '3', rate: '33.33', discount: '0.10' }] })
+    const bill = getVoucher(db, sale.voucherIds[0]!)!
+    expect(partyTotal(bill.id, 'Ramesh')).toBe(46_000)
+    const order = ['Widget', 'Rice', 'Rice', 'Widget', 'Widget', 'Rice']
+    const notes = order.map((item) => post({ kind: 'return_sale', billId: bill.id, items: [{ lineUid: lineOf(bill, item), qty: '1' }] }).voucherIds[0]!)
+    expect(notes.reduce((s, id) => s + partyTotal(id, 'Ramesh'), 0)).toBe(46_000)
+    expect([net('Sales'), net('CGST'), net('SGST'), net('Round Off'), net('Ramesh')]).toEqual([0, 0, 0, 0, 0])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+    for (const id of notes) roundTrips(id, 'invoice')
+  })
+
+  it('a small discount over nine returns is never over-shared: 9 x ₹1.11 less ₹0.05 (₹12) nets to zero', () => {
+    db = company()
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '9', rate: '1.11', discount: '0.05' }] })
+    const bill = getVoucher(db, sale.voucherIds[0]!)!
+    expect(partyTotal(bill.id, 'Ramesh')).toBe(1_200)
+    const notes = Array.from({ length: 9 }, () => post({ kind: 'return_sale', billId: bill.id, items: [{ lineUid: lineOf(bill, 'Widget'), qty: '1' }] }).voucherIds[0]!)
+    // The discounts of the nine notes add up to the bill's ₹0.05, never more.
+    expect(notes.reduce((s, id) => s + getVoucher(db, id)!.inventory[0]!.discountPaise, 0)).toBe(5)
+    expect([net('Sales'), net('CGST'), net('SGST'), net('Round Off'), net('Ramesh')]).toEqual([0, 0, 0, 0, 0])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+    for (const id of notes) roundTrips(id, 'invoice')
+  })
+
+  // Property: any bill, returned in full in any order and any split, nets to zero in every account;
+  // after every step no tax head has given back more than the bill charged, and no note posts a
+  // negative tax line.
+  it('random bills returned in random parts always net to zero and never go negative', () => {
+    let s = 20261104
+    // mulberry32: a seeded PRNG, so a failing run can be replayed.
+    const rnd = (n: number): number => {
+      s = (s + 0x6d2b79f5) | 0
+      let t = Math.imul(s ^ (s >>> 15), 1 | s)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return Math.floor((((t ^ (t >>> 14)) >>> 0) / 4294967296) * n)
+    }
+    const regular = INFO
+    const unregistered: CompanyInfo = { ...INFO, gstin: null, gstRegistrationType: 'unregistered' }
+    for (let run = 0; run < 30; run++) {
+      const info = rnd(4) === 0 ? unregistered : regular
+      db = company(info)
+      const sale = rnd(3) !== 0
+      const party = sale ? (rnd(2) ? 'Ramesh' : 'Kumar') : 'Bharat Steel'
+      const items = rnd(2) ? ['Widget', 'Rice'] : [rnd(2) ? 'Widget' : 'Rice']
+      const amountBill = rnd(4) === 0
+      let billId: number
+      if (amountBill) {
+        const amount = 1_000 + rnd(50_000)
+        // (A company that can't claim folds a purchase's GST into its cost — so no rate there.)
+        const gst = info === regular ? { gstRate: [5, 12, 18][rnd(3)] } : {}
+        const out = sale
+          ? post({ kind: 'sale', customerId: L(party), amount: { amount, ...gst } }, db, info)
+          : post({ kind: 'purchase', supplierId: L(party), billNo: `R-${run}`, amount: { amount, ...gst } }, db, info)
+        billId = out.voucherIds[0]!
+        let left = amount
+        while (left > 0) {
+          const part = Math.min(left, 1 + rnd(Math.max(1, Math.floor(amount / 2))))
+          post({ kind: sale ? 'return_sale' : 'return_purchase', billId, amount: { amount: part } }, db, info)
+          left -= part
+        }
+      } else {
+        const lines = items.map((item) => ({ itemId: I(item), qty: String(2 + rnd(8)), rate: (1 + rnd(30_000) / 100).toFixed(2), discount: rnd(2) ? (rnd(200) / 100).toFixed(2) : undefined }))
+        const out = sale
+          ? post({ kind: 'sale', customerId: L(party), items: lines }, db, info)
+          : post({ kind: 'purchase', supplierId: L(party), billNo: `R-${run}`, items: lines }, db, info)
+        billId = out.voucherIds[0]!
+        const bill = getVoucher(db, billId)!
+        // Split each line into unit parts (sometimes a half), then shuffle the parts into returns.
+        const parts: { lineUid: string; milli: number }[] = []
+        for (const l of bill.inventory) {
+          let left = l.qtyMilli
+          while (left > 0) {
+            const p = Math.min(left, rnd(3) === 0 ? 500 : 1000 * (1 + rnd(2)))
+            parts.push({ lineUid: l.lineUid!, milli: p })
+            left -= p
+          }
+        }
+        for (let i = parts.length - 1; i > 0; i--) { const j = rnd(i + 1); [parts[i], parts[j]] = [parts[j]!, parts[i]!] }
+        while (parts.length) {
+          const take = parts.splice(0, 1 + rnd(2))
+          const byLine = new Map<string, number>()
+          for (const p of take) byLine.set(p.lineUid, (byLine.get(p.lineUid) ?? 0) + p.milli)
+          const id = post({ kind: sale ? 'return_sale' : 'return_purchase', billId, items: [...byLine].map(([lineUid, m]) => ({ lineUid, qty: String(m / 1000) })) }, db, info).voucherIds[0]!
+          const note = getVoucher(db, id)!
+          const taxIds = ['CGST', 'SGST', 'IGST'].map((n) => L(n))
+          const counter = sale ? 'dr' : 'cr'
+          for (const l of note.lines.filter((x) => taxIds.includes(x.ledgerId))) expect(l.drCr, `run ${run}: a note posted a negative tax line`).toBe(counter)
+          // The bill's side of each head minus the returns so far never crosses zero.
+          for (const head of ['CGST', 'SGST', 'IGST']) expect(sale ? net(head) : -net(head), `run ${run} ${head}`).toBeGreaterThanOrEqual(0)
+          if (!amountBill) roundTrips(id, 'invoice')
+        }
+      }
+      expect([net('Sales'), net('Purchases'), net('CGST'), net('SGST'), net('IGST'), net('Round Off'), net(party)], `run ${run}`).toEqual([0, 0, 0, 0, 0, 0, 0])
+      expect(due(party), `run ${run}`).toMatchObject({ bills: [], unappliedCredit: 0 })
+    }
+  }, 120_000)
+})

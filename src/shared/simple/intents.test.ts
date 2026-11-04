@@ -486,6 +486,23 @@ describe('returnRow: the last return of a line takes what is left of it', () => 
   it('the last return gets the rest of the discount (₹1 - ₹0.66 = ₹0.34)', () => {
     expect(returnRow({ ...line, leftMilli: 1000, returnedPaise: 2 * (10_050 - 33) }, 1000).discount).toBe(34)
   })
+  it('a middle return gets the running share: pro rata of all returned so far less what was taken (₹0.67 - ₹0.33)', () => {
+    expect(returnRow({ ...line, leftMilli: 2000, returnedPaise: 10_050 - 33, returnedDiscountPaise: 33 }, 1000).discount).toBe(34)
+  })
+  it('a small discount is never over-shared: 9 x ₹1.11 less ₹0.05 gives ₹0.01, ₹0.00, ₹0.01, … ₹0.05 in all', () => {
+    const nine = { ...line, qtyMilli: 9000, ratePaise: 111, discountPaise: 5, leftMilli: 9000 }
+    let taken = 0
+    let value = 0
+    const shares: number[] = []
+    for (let k = 0; k < 9; k++) {
+      const d = returnRow({ ...nine, leftMilli: 9000 - k * 1000, returnedPaise: value, returnedDiscountPaise: taken }, 1000).discount ?? 0
+      shares.push(d)
+      taken += d
+      value += 111 - d
+    }
+    expect(shares.every((d) => d >= 0)).toBe(true)
+    expect([taken, value]).toEqual([5, 999 - 5])
+  })
   it('the whole line at once gets the whole discount; without what was returned, pro rata as before', () => {
     expect(returnRow({ ...line, returnedPaise: 0 }, 3000).discount).toBe(100)
     expect(returnRow({ ...line, leftMilli: 1000 }, 1000).discount).toBe(33)

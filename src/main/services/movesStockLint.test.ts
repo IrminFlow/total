@@ -14,7 +14,7 @@ const AI_DIR = join(__dirname, '..', 'ai')
 
 /** `file` + a substring unique to the SQL string → why it may read every line. */
 const ALLOW: { file: string; contains: string; reason: string }[] = [
-  { file: 'simplePost.ts', contains: 'SELECT COALESCE(SUM(il.amount), 0) AS t FROM line_links ll', reason: 'the value earlier return notes took off a bill line (money, not stock)' },
+  { file: 'simplePost.ts', contains: 'SELECT COALESCE(SUM(il.amount), 0) AS t, COALESCE(SUM(il.discount_paise), 0) AS d FROM line_links ll', reason: 'the value and discount earlier return notes took off a bill line (money, not stock)' },
   { file: 'tradeLinks.ts', contains: 'SELECT il.serials FROM line_links ll JOIN inventory_lines il ON il.line_uid', reason: 'serials already named by the linked (non-moving) target lines' },
   { file: 'tradeReports.ts', contains: "WHERE vt.kind = ? AND v.date <= ?", reason: 'pending challans / GRNs read the notes\' own lines (a stock note line always moves stock)' },
   { file: 'tradeLists.ts', contains: 'WHERE il.voucher_id IN (${marks}) AND il.is_absolute = 0', reason: 'the challan / GRN lists read the notes\' own lines (a stock note line always moves stock), like the pending report' },
