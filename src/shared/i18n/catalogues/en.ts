@@ -485,7 +485,7 @@ export const en = {
   'simple.setup.summary.filing': 'GST returns',
   'simple.setup.summary.stock': 'Stock',
   'simple.setup.summary.start': 'Records start',
-  'simple.setup.summary.modules': 'TDS, TCS, payroll, orders, foreign currency and cost tracking start off. Turn any of them on later in Settings → Features.',
+  'simple.setup.summary.modules': 'TDS, TCS, payroll, orders and cost tracking start off. Turn any of them on later in Settings → Features.',
   'simple.setup.accountantModeHint': 'Every screen and report, in accounting terms. You can switch any time in Settings → How Total looks.',
   'simple.setup.creating': 'Setting up…',
   'simple.setup.created': '{name} is ready.',

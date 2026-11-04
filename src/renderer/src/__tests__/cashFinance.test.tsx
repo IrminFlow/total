@@ -7,7 +7,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ForecastBase } from '@shared/cashFinance'
 import { DEFAULT_BUCKET_BP, buildForecast, SCENARIO_PRESETS } from '@shared/cashForecast'
 import { CashForecastScreen, periodViews } from '../screens/CashForecast'
-import { RevaluationReverseBanner } from '../screens/voucher/RevaluationReverseBanner'
+import { RevaluationReverseBanner, defaultReversalDate } from '../screens/voucher/RevaluationReverseBanner'
+import { SavedCurrencyPicker } from '../screens/voucher/SavedCurrencyPicker'
 import { DialogHost } from '../components/dialogs'
 import { ForeignOpeningNote } from '../components/ForeignOpeningNote'
 import { SCREENS } from '../lib/screens'
@@ -122,7 +123,7 @@ describe('a revaluation posted without its reversal (the one forex write left)',
     expect(banner.textContent).toContain('31-Mar-26')
     fireEvent.click(screen.getByTestId('btn-fx-reverse'))
     fireEvent.click(await screen.findByTestId('confirm-ok'))
-    await waitFor(() => expect(calls.find((c) => c.channel === 'fx:reverse')?.payload).toEqual({ id: 7 }))
+    await waitFor(() => expect(calls.find((c) => c.channel === 'fx:reverse')?.payload).toEqual({ id: 7, date: '2026-04-01' }))
     await waitFor(() => expect(screen.queryByTestId('fx-revaluation-banner')).toBeNull())
     cleanup()
     renderUi(<RevaluationReverseBanner voucherId={601} />)
@@ -162,5 +163,55 @@ describe('a foreign opening entered on the old Forex screen', () => {
     renderUi(<ForeignOpeningNote ledgerId={41} changed />)
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('fx:foreignOpening', { ledgerId: 41 }))
     expect(screen.queryByTestId('ledger-foreign-opening-note')).toBeNull()
+  })
+})
+
+describe('the reversal date (CodeRabbit on #195)', () => {
+  it('defaults to the day after, or the first day after the lock when that day is locked', () => {
+    expect(defaultReversalDate('2026-03-31', null)).toBe('2026-04-01')
+    expect(defaultReversalDate('2026-03-31', '2026-03-31')).toBe('2026-04-01')
+    expect(defaultReversalDate('2026-03-31', '2026-04-01')).toBe('2026-04-02')
+    expect(defaultReversalDate('2026-03-31', '2026-04-30')).toBe('2026-05-01')
+  })
+
+  it('with the books locked past the day after, the banner posts on the first unlocked day; a typed date is sent as typed', async () => {
+    invoke.mockImplementation(async (channel: string, payload: unknown) => {
+      calls.push({ channel, payload })
+      if (channel === 'fx:revaluationOf') return { ok: true, data: { id: 7, asOf: '2026-03-31', reversed: false } }
+      if (channel === 'company:lock:get') return { ok: true, data: { date: '2026-04-15' } }
+      if (channel === 'fx:reverse') return { ok: true, data: { id: 7 } }
+      return { ok: false, error: `unmocked ${channel}` }
+    })
+    renderUi(<><RevaluationReverseBanner voucherId={600} /><DialogHost /></>)
+    const input = await screen.findByTestId('input-fx-reverse-date')
+    await waitFor(() => expect((input as HTMLInputElement).value).toBe('16-Apr-26'))
+    fireEvent.click(screen.getByTestId('btn-fx-reverse'))
+    fireEvent.click(await screen.findByTestId('confirm-ok'))
+    await waitFor(() => expect(calls.find((c) => c.channel === 'fx:reverse')?.payload).toEqual({ id: 7, date: '2026-04-16' }))
+    calls.length = 0
+    fireEvent.change(input, { target: { value: '20/04/2026' } })
+    fireEvent.blur(input)
+    fireEvent.click(screen.getByTestId('btn-fx-reverse'))
+    fireEvent.click(await screen.findByTestId('confirm-ok'))
+    await waitFor(() => expect(calls.find((c) => c.channel === 'fx:reverse')?.payload).toEqual({ id: 7, date: '2026-04-20' }))
+  })
+})
+
+describe('a saved foreign-currency invoice (CodeRabbit on #195)', () => {
+  it('shows its currency and rate even with no currency master left, so it round-trips', () => {
+    const setCode = vi.fn()
+    renderUi(
+      <SavedCurrencyPicker currencies={[]} savedCode="USD" currencyCode="USD" setCurrencyCode={setCode} fxRateText="83.25" setFxRateText={() => {}} fxActive />
+    )
+    const select = screen.getByTestId('select-invoice-currency') as HTMLSelectElement
+    expect(select.value).toBe('USD')
+    expect([...select.options].map((o) => o.value)).toEqual(['', 'USD'])
+    expect((screen.getByTestId('input-invoice-fx-rate') as HTMLInputElement).value).toBe('83.25')
+    cleanup()
+    // listed in the master: not offered twice
+    renderUi(
+      <SavedCurrencyPicker currencies={[{ id: 1, code: 'USD', symbol: '$', name: 'US Dollar', decimals: 2 }]} savedCode="USD" currencyCode="USD" setCurrencyCode={setCode} fxRateText="83.25" setFxRateText={() => {}} fxActive />
+    )
+    expect([...(screen.getByTestId('select-invoice-currency') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['', 'USD'])
   })
 })

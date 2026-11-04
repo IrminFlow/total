@@ -1,3 +1,4 @@
+import { registersScreenKey } from './lib/registersKey'
 import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useNav, useScreen, useSession } from './state/stores'
@@ -294,7 +295,7 @@ export default function App(): React.JSX.Element {
           {screen.name === 'itc-reversal' && <ItcReversalScreen />}
           {screen.name === 'registers' && (
             <RegistersScreen
-              key={`${screen.tab ?? 'last'}|${screen.from ?? ''}|${screen.to ?? ''}|${screen.kind ?? ''}|${screen.voucherIds?.join(',') ?? ''}`}
+              key={registersScreenKey(screen)}
               tab={screen.tab}
               from={screen.from}
               to={screen.to}

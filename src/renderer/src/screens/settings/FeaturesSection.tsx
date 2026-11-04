@@ -10,7 +10,7 @@ import { DEFAULT_FEATURES, effectiveFeatures, flagCardShown, flagTurnedOff, spli
 import { MoreFeatures } from '../../simple/MoreFeatures'
 
 /** WP 8.3 (plan §4.3): every module is a "Turn on" card with one line on who needs it. New simple
- *  companies start with TDS, TCS, payroll, cost centres, multi-currency, orders and manufacturing
+ *  companies start with TDS, TCS, payroll, cost centres, orders and manufacturing
  *  off (written explicitly at setup); a company without `features` meta keeps DEFAULT_FEATURES. */
 type Key = keyof CompanyFeatures
 const CARDS: { key: Key; label: string; plain: MessageKey; who: MessageKey; hint: string; needsInventory?: boolean }[] = [

@@ -1,3 +1,4 @@
+import { SavedCurrencyPicker } from './SavedCurrencyPicker'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Group, Ledger, Voucher, VoucherBillRef, VoucherKind } from '@shared/domain'
@@ -786,30 +787,18 @@ export function InvoiceEntry({
             {addFrom.label} <Kbd>⌥A</Kbd>
           </Button>
         )}
-        {/* Foreign-currency invoicing went in the 1.0 cleanup: the picker shows only on a saved
-            voucher (not a draft or hand-off) that already carries a currency, so it round-trips (and its rate can be fixed). */}
-        {isEdit && !!initial?.currencyCode && (currencies?.length ?? 0) > 0 && (
-          <div className="flex items-center gap-2">
-            <Select value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)} className="w-28">
-              <option value="">₹ INR</option>
-              {(currencies ?? []).map((c) => (
-                <option key={c.id} value={c.code}>
-                  {c.symbol} {c.code}
-                </option>
-              ))}
-            </Select>
-            {currencyCode && (
-              <>
-                <TextInput
-                  value={fxRateText}
-                  onChange={(e) => setFxRateText(e.target.value)}
-                  placeholder={`₹ per ${currencyCode}`}
-                  className="num w-28 text-right"
-                />
-                {fxActive && <span className="text-caption text-muted">rates in {currencyCode} · books in ₹</span>}
-              </>
-            )}
-          </div>
+        {/* Foreign-currency invoicing went in the 1.0 cleanup: only a saved voucher (not a draft or
+            hand-off) that carries a currency shows it, so it round-trips (and its rate can be fixed). */}
+        {isEdit && !!initial?.currencyCode && (
+          <SavedCurrencyPicker
+            currencies={currencies ?? []}
+            savedCode={initial.currencyCode}
+            currencyCode={currencyCode}
+            setCurrencyCode={setCurrencyCode}
+            fxRateText={fxRateText}
+            setFxRateText={setFxRateText}
+            fxActive={fxActive}
+          />
         )}
       </div>
 

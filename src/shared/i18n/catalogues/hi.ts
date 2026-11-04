@@ -457,7 +457,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.setup.summary.filing': 'GST रिटर्न',
   'simple.setup.summary.stock': 'स्टॉक',
   'simple.setup.summary.start': 'हिसाब शुरू',
-  'simple.setup.summary.modules': 'TDS, TCS, पेरोल, ऑर्डर, विदेशी मुद्रा और खर्च की अलग गिनती शुरू में बंद रहते हैं। इनमें से कोई भी बाद में सेटिंग्स → सुविधाएँ में चालू करें।',
+  'simple.setup.summary.modules': 'TDS, TCS, पेरोल, ऑर्डर और खर्च की अलग गिनती शुरू में बंद रहते हैं। इनमें से कोई भी बाद में सेटिंग्स → सुविधाएँ में चालू करें।',
   'simple.setup.accountantModeHint': 'हर स्क्रीन और रिपोर्ट, अकाउंटिंग की भाषा में। आप कभी भी सेटिंग्स → Total कैसा दिखे में बदल सकते हैं।',
   'simple.setup.creating': 'सेट हो रहा है…',
   'simple.setup.created': '{name} तैयार है।',

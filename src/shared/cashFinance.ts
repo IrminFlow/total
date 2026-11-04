@@ -6,7 +6,6 @@ import { z } from 'zod'
 import { isoDate } from './schemas'
 import type { CollectionProfile, ForecastFlow, ItemCadence, ItemKind } from './cashForecast'
 
-const id = z.number().int().positive()
 const paise = z.number().int().safe()
 
 // ---------- forecast ----------

@@ -7,7 +7,7 @@ import { seededDb, TEST_INFO } from '../db/testdb'
 import type { DB } from '../db/connection'
 import type { VoucherInput } from '@shared/schemas'
 import { createLedger } from './masters'
-import { deleteVoucher, getVoucher, saveVoucher } from './vouchers'
+import { deleteVoucher, getVoucher, saveVoucher, setLockDate } from './vouchers'
 import { closingBalances, trialBalance, pnlLedgerAmounts } from './reports'
 import { listRevaluations, reverseRevaluation, revaluationOf } from './forex'
 // The forex writes went in the 1.0 cleanup; the legacy fixture writes what an older Total wrote.
@@ -280,6 +280,20 @@ describe('forex revaluation and settlement written by an older Total', () => {
     expect(revaluationOf(db, other.voucherId!)).toMatchObject({ reversed: false })
     deleteVoucher(db, other.voucherId!)
     expect(revaluationOf(db, other.voucherId!)).toBeNull()
+  })
+
+  it('a reversal dated inside the lock is refused (nothing posted); the first day after the lock posts', () => {
+    const { db } = withUsdCustomer()
+    saveRate(db, { date: '2026-03-31', currencyCode: 'USD', rateMicro: 81_000_000 })
+    const rev = postRevaluation(db, { asOf: '2026-03-31', autoReverse: false })
+    setLockDate(db, '2026-04-10')
+    const vouchers = (): number => (db.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n
+    const before = vouchers()
+    expect(() => reverseRevaluation(db, rev.id, '2026-04-01')).toThrow()
+    expect(vouchers()).toBe(before)
+    expect(revaluationOf(db, rev.voucherId!)).toMatchObject({ reversed: false })
+    const after = reverseRevaluation(db, rev.id, '2026-04-11')
+    expect(getVoucher(db, after.reversalVoucherId!)!.date).toBe('2026-04-11')
   })
 
   it('settling at an actual rate books the realised gain and clears both currencies', () => {

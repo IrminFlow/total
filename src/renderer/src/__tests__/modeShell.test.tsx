@@ -11,6 +11,7 @@ import { SimpleSection } from '../simple/SimpleSection'
 import { ModeSetting } from '../simple/ModeSetting'
 import { refreshUiFromMain, useMode, useScreenView, viewOverrideKey } from '../lib/mode'
 import { RegistersScreen } from '../screens/Registers'
+import { registersScreenKey } from '../lib/registersKey'
 import { Settings } from '../screens/Settings'
 import { screenOptionsKey } from '../components/ScreenOptions'
 import { DEFAULT_FEATURES } from '@shared/features'
@@ -240,6 +241,11 @@ describe('Registers honours a requested tab (Purchase list)', () => {
     cleanup()
     render(withClient(<RegistersScreen />))
     await waitFor(() => expect(screen.getByTestId('tab-registers-items').getAttribute('aria-selected')).toBe('true'))
+  })
+
+  it('App keys the screen on `visit` too: a remembering link after a visit-only one remounts it (so it is remembered)', () => {
+    expect(registersScreenKey({ tab: 'sales', visit: true })).not.toBe(registersScreenKey({ tab: 'sales' }))
+    expect(registersScreenKey({ tab: 'sales' })).toBe(registersScreenKey({ tab: 'sales', visit: false }))
   })
 })
 
