@@ -22,6 +22,8 @@ export interface StockLineRowState {
   batchId: number | null
   discountPaise: number
   isAbsolute: boolean
+  /** A count line valued at its cost (`inventory_lines.count_cost`) — carried verbatim. */
+  countCost?: boolean
   /** Serial numbers (serial-tracked items, WP 2.3). */
   serials?: string[]
   /** Stable line uid of a saved line and its link source (WP 2.5) — carried verbatim. */
@@ -79,6 +81,7 @@ export function buildStockLinesPayload(state: StockLinesFormState, opts: { vouch
       amount: r.amount ?? 0,
       direction: r.direction,
       isAbsolute: r.isAbsolute,
+      ...(r.isAbsolute && r.countCost ? { countCost: true } : {}),
       ...(r.serials && r.serials.length > 0 ? { serials: [...r.serials] } : {}),
       ...(r.lineUid ? { lineUid: r.lineUid } : {}),
       ...(r.source ? { source: { ...r.source } } : {})
@@ -119,6 +122,7 @@ export function stockLinesStateFromVoucher(v: Voucher): StockLinesFormState {
         batchId: x.batchId ?? null,
         discountPaise: x.discountPaise ?? 0,
         isAbsolute: x.isAbsolute ?? false,
+        ...(x.countCost ? { countCost: true } : {}),
         ...(x.serials ? { serials: [...x.serials] } : {}),
         ...(x.lineUid ? { lineUid: x.lineUid } : {}),
         ...(x.source ? { source: { ...x.source } } : {})

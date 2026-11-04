@@ -98,6 +98,10 @@ export function PhysicalStockEntry({
 
   const save = useCallback(async (): Promise<void> => {
     if (saving) return
+    // A mistyped cost per unit must not save silently as "no cost" (PR #188 re-review).
+    if (rows.some((r) => r.costText != null && r.costText.trim() !== '' && parseAmountText(r.costText) == null)) {
+      return void toast.push('error', 'A cost per unit is not a valid amount; fix it or clear the box')
+    }
     const built = buildPhysicalPayload(formState, { voucherTypeId: typeId, itemName })
     if (!built.ok) return void toast.push('error', built.error)
     const counted = built.payload.inventory.length
@@ -122,7 +126,7 @@ export function PhysicalStockEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, formState, typeId, itemName, toast, voucherId, isEdit, setWorkingDate, date, queryClient, leave, numberField.reset])
+  }, [saving, rows, formState, typeId, itemName, toast, voucherId, isEdit, setWorkingDate, date, queryClient, leave, numberField.reset])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
