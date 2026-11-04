@@ -22,7 +22,7 @@ Things to know about the version numbers:
 
 ### Fixed
 
-- **GST returns agree with the books** (PR_GST). Plain words: a bill's GST in the returns, on Home,
+- **GST returns agree with the books** (#187). Plain words: a bill's GST in the returns, on Home,
   in Taxes and in Ask Total is now the GST the bill actually charged, to the paisa.
   For accountants — figures that change:
   - A "just an amount" (ledger-line) sale, credit note or outward debit note whose sales account
