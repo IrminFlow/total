@@ -163,7 +163,12 @@ export function rekeyFile(path: string, from: Buffer | null, to: Buffer | null, 
     if (from) applyKey(db, from)
     if (mode === 'scratch') db.pragma('synchronous = OFF')
     db.pragma('journal_mode = DELETE')
-    if (mode === 'scratch') db.pragma('journal_mode = MEMORY')
+    if (mode === 'scratch') {
+      // Pin it (review of #197): if the cipher build ever ignored MEMORY the copy would silently
+      // run with an on-disk journal — refuse instead of guessing.
+      const jm = db.pragma('journal_mode = MEMORY', { simple: true })
+      if (String(jm).toLowerCase() !== 'memory') throw new Error(`scratch rekey: journal_mode is ${String(jm)}, expected memory`)
+    }
     cipherPragmas(db)
     db.exec(`PRAGMA rekey = ${to ? keyPragma(to) : "''"}`)
   } finally {

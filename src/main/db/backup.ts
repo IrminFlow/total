@@ -1,8 +1,8 @@
 // Path-parameterized, Electron-free backup primitives (dbtest-able; better-sqlite3 objects are
 // passed in from callers that already opened them with the Electron ABI).
 import Database from 'better-sqlite3-multiple-ciphers'
-import { existsSync, readdirSync, statSync, unlinkSync, copyFileSync, renameSync, rmSync } from 'fs'
-import { join, basename } from 'path'
+import { existsSync, readdirSync, statSync, unlinkSync, copyFileSync, renameSync, rmSync, openSync, fsyncSync, closeSync } from 'fs'
+import { join, basename, dirname } from 'path'
 import type { DB } from './connection'
 import { keyOfHandle, openDb, removeDbFiles } from './encryption'
 import { CheckStoppedError, pragmaCheck } from './checkHost'
@@ -257,9 +257,33 @@ export function assertValidCompanyDb(path: string, key?: Buffer | null): void {
 function swapInPlace(sourcePath: string, dbPath: string): void {
   const tempPath = `${dbPath}.swap-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
   copyFileSync(sourcePath, tempPath)
+  // The copy must be on the disk BEFORE it replaces the books (review of #197: a power loss right
+  // after the rename could otherwise keep the rename but not the bytes); then the rename itself.
+  syncPath(tempPath, false)
   renameSync(tempPath, dbPath)
+  syncPath(dirname(dbPath), true)
   rmSync(`${dbPath}-wal`, { force: true })
   rmSync(`${dbPath}-shm`, { force: true })
+}
+
+/** fsync a file (F_FULLFSYNC on macOS via libuv, FlushFileBuffers on Windows) or, best effort, a
+ *  directory (POSIX only — Windows cannot open one; NTFS journals the rename). */
+function syncPath(path: string, dir: boolean): void {
+  if (dir && process.platform === 'win32') return
+  let fd: number
+  try {
+    fd = openSync(path, dir ? 'r' : 'r+')
+  } catch (err) {
+    if (dir) return
+    throw err
+  }
+  try {
+    fsyncSync(fd)
+  } catch (err) {
+    if (!dir) throw err
+  } finally {
+    closeSync(fd)
+  }
 }
 
 export interface RestoreResult {

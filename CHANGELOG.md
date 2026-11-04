@@ -254,6 +254,11 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   before they replace anything (`convertBackups`' `.converting`, `copyWithKey`'s VACUUM INTO target,
   the restore's `.restore-tmp`); the default stays durable. The Windows CI passphrase-lock dbtests no
   longer stall past their 30 s timeout; `security.dbtest` imports `./ipc` at collection.
+- **A restored backup is on the disk before it replaces the books** (#197). Plain words: if the power
+  goes right after "Restore", the books are now either the old ones or the restored ones, never an
+  empty file. For developers: `swapInPlace` (db/backup.ts) fsyncs the swap copy before the rename and
+  the folder after (it never did — found in #197's review); the scratch rekey checks that
+  `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it.
 
 ## [0.12.0] - 2026-10-22
 

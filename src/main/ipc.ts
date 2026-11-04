@@ -1425,8 +1425,14 @@ export function registerIpc(): void {
       tempSource = `${backupPath}.restore-tmp`
       removeDbFiles(tempSource)
       copyFileSync(backupPath, tempSource)
-      // A scratch copy: restoreCompanyDb quick-checks it (assertValidCompanyDb) before the swap.
-      rekeyFile(tempSource, null, liveKey, 'scratch')
+      // A scratch copy: restoreCompanyDb quick-checks it (assertValidCompanyDb) before the swap,
+      // and swapInPlace fsyncs what it puts in place. A failed rekey leaves no temp behind.
+      try {
+        rekeyFile(tempSource, null, liveKey, 'scratch')
+      } catch (err) {
+        removeDbFiles(tempSource)
+        throw err
+      }
       source = tempSource
     }
     let preRestoreSnapshotPath: string
