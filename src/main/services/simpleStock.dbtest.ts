@@ -31,6 +31,7 @@ import { countIntentFrom, emptyMakeForm, makeIntentFrom, recipeLabour, recipeRow
 import { createGodown, createLedger, createStockItem, listStockItems, updateStockItem } from './masters'
 import { getVoucher, saveVoucher, setLockDate } from './vouchers'
 import { stockSummary } from './stockAnalysis'
+import { profitAndLoss } from './reports'
 import { listBomVersions, saveBomVersion, setBom } from './bom'
 import { getManufactureDetails, saveManufacture } from './manufacture'
 import { postClose } from './yearEnd'
@@ -280,6 +281,31 @@ describe('only a marked count line is valued at its stored cost', () => {
     expect(listOf(db, TODAY).find((r) => r.itemId === I('Jam'))).toEqual({ itemId: I('Jam'), qtyMilli: 10_000, value: 0 })
     expect(summaryOf(db, TODAY).find((r) => r.itemId === I('Jam'))!.value).toBe(0)
   })
+  it('below zero first (2 sold, none bought): an unmarked valued count = the rate-0 count, stock and P&L to the paisa', () => {
+    // Twin companies: the same sale of 2 jam with nothing in stock, then a count of 10 — in `db`
+    // stored as an old import / the generic editor would (rate ₹25, amount ₹250, no mark), in
+    // `twin` as the Physical Stock editor always saved it (rate 0, amount 0).
+    for (const d of [db, twin]) {
+      createLedger(d, {
+        name: 'Sales', groupId: groupId(d, 'Sales Accounts'), openingBalance: 0, gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null,
+        tdsSectionId: null, pan: null, creditDays: null, exportType: null, simpleCategory: 'sales'
+      })
+      post({ kind: 'sale', date: '2025-08-05', items: [{ itemId: I('Jam', d), qty: '2', rate: '40' }], payment: { how: 'cash' } }, d)
+    }
+    const count = (d: DB, rate: number, amount: number): void => {
+      saveVoucher(d, {
+        voucherTypeId: physical(d), date: DAY, number: 'OLD-1', partyLedgerId: null, narration: null, lines: [],
+        inventory: [{ stockItemId: I('Jam', d), godownId: null, batchId: null, qtyMilli: 10_000, ratePaise: rate, amount, direction: 'in', isAbsolute: true }]
+      })
+    }
+    count(db, 2500, 25_000)
+    count(twin, 0, 0)
+    expect(listOf(db, TODAY).find((r) => r.itemId === I('Jam'))!.qtyMilli).toBe(10_000)
+    expect(summaryOf(db, TODAY)).toEqual(summaryOf(twin, TODAY))
+    const net = (d: DB): number => profitAndLoss(d, '2025-04-01', TODAY).netProfit
+    expect(net(db)).toBe(net(twin))
+  })
+
   it('the books export carries the mark: a marked count imports valued, an unmarked one as on main', () => {
     const onHand = new Map(stockList(db, DAY).rows.map((r) => [r.itemId, r.qtyMilli]))
     post(countIntentFrom({ date: DAY, counted: { [I('Jam')]: '10' }, costs: { [I('Jam')]: '25' } }, onHand))

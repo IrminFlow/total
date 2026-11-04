@@ -254,6 +254,15 @@ export function partyRoleOf(groupId: number, groups: ReadonlyMap<number, PartyGr
   return null
 }
 
+/** The names of the party ROOTS on one side, outermost only (a root nested under another root of
+ *  the same side is already inside it), in name order — what an "explain this tile" names. */
+export function partyRootNames(groups: readonly PartyGroupLink[], role: 'debtor' | 'creditor'): string[] {
+  const byId = new Map(groups.map((g) => [g.id, g]))
+  const roots = groups.filter((g) => partyGroupRole(g) === role)
+  const outer = roots.filter((g) => g.parentId == null || partyRoleOf(g.parentId, byId) !== role)
+  return outer.map((g) => g.name).sort((a, b) => a.localeCompare(b))
+}
+
 /** Ids of the party groups on ONE side: every debtor (customer) or creditor (supplier) root —
  *  the seeded Sundry Debtors / Creditors or an imported "Trade Receivables" / "Accounts Payable" …
  *  (`partyGroupRole`) — and all its sub-groups. The bill-wise readers (Outstandings and every

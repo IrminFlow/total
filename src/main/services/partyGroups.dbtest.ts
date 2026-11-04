@@ -17,6 +17,8 @@ import { simpleHome } from './simpleHome'
 import { peopleList } from './simplePeople'
 import { openingsState } from './openings'
 import { askTotal } from '../assist/answer'
+import { saveVoucher } from './vouchers'
+import { outwardDebitNoteIds } from './gst'
 
 const INFO: CompanyInfo = { ...TEST_INFO, name: 'Groups Co', gstin: null, stateCode: '27', gstRegistrationType: 'unregistered' }
 const TODAY = '2025-08-14'
@@ -115,9 +117,65 @@ describe('parties under imported group names (Trade Receivables / Trade Payables
     const ask = (db: DB): string => askTotal(db, INFO, { text: 'Bharat Steel ka kitna baki', today: TODAY, lang: 'en' }, { canDraft: false }).sentences.join(' ')
     expect(ask(imported.db)).toBe(ask(seeded.db))
     expect(ask(imported.db)).toContain('3,000')
+    // "Open Gopal" goes to the person's page (a party by its group's role), as with Sundry Debtors.
+    const open = (db: DB): string => JSON.stringify(askTotal(db, INFO, { text: 'open Gopal', today: TODAY, lang: 'en' }, { canDraft: false }).links)
+    expect(open(imported.db)).toBe(open(seeded.db))
+    expect(open(imported.db)).toContain('simple-person')
     const names = (db: DB) => { const o = openingsState(db); return { customers: o.customers.map((c) => c.name), suppliers: o.suppliers.map((c) => c.name) } }
     expect(names(imported.db)).toEqual(names(seeded.db))
     expect(names(imported.db).customers).toContain('Gopal')
     expect(names(imported.db).suppliers).toContain('Lakshmi')
+  })
+
+  it('never a party: loans given, deposits, duties & taxes, bank and cash (by role, not by being an asset / liability)', () => {
+    const { db } = imported
+    const gid = (n: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(n) as { id: number }).id
+    const mk = (name: string, group: string, opening: number): number =>
+      createLedger(db, {
+        name, groupId: gid(group), openingBalance: opening, gstin: null, stateCode: '27', address: null, taxType: null, gstRate: null, hsn: null,
+        tdsSectionId: null, pan: null, creditDays: null, exportType: null
+      }).id
+    const ids = [
+      mk('Loan to Mehta', 'Loans & Advances (Asset)', 50_000),
+      mk('Electricity deposit', 'Deposits (Asset)', 20_000),
+      mk('GST payable (old)', 'Duties & Taxes', -10_000),
+      imported.L('HDFC Bank'),
+      (db.prepare("SELECT id FROM ledgers WHERE name = 'Cash'").get() as { id: number }).id
+    ]
+    const debtors = partyGroupIdsBySide(db, 'debtor')
+    const creditors = partyGroupIdsBySide(db, 'creditor')
+    for (const id of ids) {
+      const g = (db.prepare('SELECT group_id AS g FROM ledgers WHERE id = ?').get(id) as { g: number }).g
+      expect(debtors.has(g) || creditors.has(g), String(id)).toBe(false)
+      expect(partySide(db, g)).toBeNull()
+    }
+    for (const side of ['receivable', 'payable'] as const) {
+      const rows = outstandingsWithAdvances(db, side, TODAY).parties.map((p) => p.ledgerId)
+      for (const id of ids) expect(rows).not.toContain(id)
+    }
+    const people = peopleList(db, TODAY).people.map((p) => p.ledgerId)
+    for (const id of ids) expect(people).not.toContain(id)
+  })
+
+  it('GST returns are left as on main (owner, 4 Nov): a debit note to a “Trade Receivables” customer stays purchase-side', () => {
+    // The same note in both twins: Dr the customer, Cr an expense (no income line — so only the
+    // party's group decides the side). Main reads only the seeded Sundry Debtors tree.
+    const note = (t: { db: DB; L: (n: string) => number }): number => {
+      const db = t.db
+      const gid = (n: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(n) as { id: number }).id
+      const exp = createLedger(db, {
+        name: 'Rate difference', groupId: gid('Indirect Expenses'), openingBalance: 0, gstin: null, stateCode: '27', address: null, taxType: null, gstRate: null, hsn: null,
+        tdsSectionId: null, pan: null, creditDays: null, exportType: null
+      }).id
+      const type = (db.prepare("SELECT id FROM voucher_types WHERE kind = 'debit_note' ORDER BY id").get() as { id: number }).id
+      return saveVoucher(db, {
+        voucherTypeId: type, date: '2025-08-12', partyLedgerId: t.L('Ramesh'), narration: null,
+        lines: [{ ledgerId: t.L('Ramesh'), drCr: 'dr', amount: 10_000 }, { ledgerId: exp, drCr: 'cr', amount: 10_000 }], inventory: []
+      }).id
+    }
+    const s = note(seeded)
+    const i = note(imported)
+    expect(outwardDebitNoteIds(seeded.db, '2025-08-01', '2025-08-31').has(s)).toBe(true)
+    expect(outwardDebitNoteIds(imported.db, '2025-08-01', '2025-08-31').has(i)).toBe(false)
   })
 })

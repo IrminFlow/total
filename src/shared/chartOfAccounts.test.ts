@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   allGroupIds, buildChartOfAccounts, descendantGroupIds, filterChartTree, filterLedgers, groupChains, isPartyLedger, ledgerMatches,
-  partyGroupIds, partyGroupRole, partyRoleOf, partySideGroupIds,
+  partyGroupIds, partyGroupRole, partyRoleOf, partyRootNames, partySideGroupIds,
   type ChartGroupInput, type ChartGroupNode, type ChartLedgerInput
 } from './chartOfAccounts'
 
@@ -155,6 +155,9 @@ describe('isPartyLedger (WP 8.1)', () => {
     expect(partyRoleOf(6, groups)).toBeNull()
     expect(partyRoleOf(7, groups)).toBeNull()
     expect(partyRoleOf(99, groups)).toBeNull()
+    // The outermost roots by side, for an "explain this tile" (a nested root is inside its parent).
+    expect(partyRootNames([...groups, { id: 8, name: 'Debtors', parentId: 2, nature: 'asset' }, { id: 9, name: 'Trade Receivables', parentId: 1, nature: 'asset' }], 'debtor')).toEqual(['Sundry Debtors', 'Trade Receivables'])
+    expect(partyRootNames(groups, 'creditor')).toEqual(['  trade   PAYABLES '])
     // A parent loop never hangs.
     expect(partyRoleOf(1, [{ id: 1, name: 'A', parentId: 2, nature: 'asset' }, { id: 2, name: 'B', parentId: 1, nature: 'asset' }])).toBeNull()
   })

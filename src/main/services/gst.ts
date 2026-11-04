@@ -18,7 +18,7 @@ import { validateGstr1, type GstIssue } from '@shared/gst/validate'
 import { fyOf } from '@shared/dates'
 import { plainRupees } from '@shared/money'
 import { parseGstr2b, reconcile2b, type PurchaseDoc, type Recon2bOptions, type Recon2bResult } from '@shared/gst/recon2b'
-import { descendantIdsByName, partyGroupIdsBySide } from './masters'
+import { descendantIdsByName } from './masters'
 import { getGst3bManual, getGstProfile } from './config'
 import { einvoiceApplicability, type EinvoiceApplicability } from '@shared/gst/einvoiceApplicability'
 import { einvoiceTurnOnNotice, type EinvoiceStatus } from '@shared/compliance'
@@ -56,7 +56,10 @@ export function outwardDebitNoteIds(db: DB, from: string, to: string): Set<numbe
     .all(from, to) as { id: number; partyLedgerId: number | null }[]
   if (!rows.length) return new Set()
   const incomeIds = descendantIdsByName(db, INCOME_GROUPS)
-  const debtorIds = partyGroupIdsBySide(db, 'debtor')
+  // Owner decision (4 Nov, PR #188): GST returns stay exactly as on main — the outward / inward
+  // split keeps the SEEDED Sundry Debtors tree, so no filed month moves for a party under an
+  // imported group name (revisit in Phase 2 behind the upgrade-diff report; to-do §4 GST).
+  const debtorIds = descendantIdsByName(db, ['Sundry Debtors'])
   const lineStmt = db.prepare(
     `SELECT l.group_id AS groupId FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
      WHERE vl.voucher_id = ? AND vl.dr_cr = 'cr'`
