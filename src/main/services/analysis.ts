@@ -1,6 +1,6 @@
 import type { DB } from '../db/connection'
 import type { OutstandingBill, OutstandingParty, RegisterMonthRow } from '@shared/reports'
-import { allocateBills, allocateBillsWithCredits, type AllocateBillsResult, type BillEvent, type BillRef } from '@shared/outstanding'
+import { allocateBills, billAllocator, type AllocateBillsResult, type BillAllocator, type BillEvent, type BillRef } from '@shared/outstanding'
 import { fyOf } from '@shared/dates'
 import { descendantIdsByName, partyGroupIdsBySide } from './masters'
 import { IN_BOOKS } from './vouchers'
@@ -278,29 +278,46 @@ export function partyAllocation(db: DB, partyLedgerId: number, asOn: string): Al
 
 /** partyAllocation plus the party's named credits still open (WP 9.1: bill names in use). */
 export function partyAllocationWithCredits(db: DB, partyLedgerId: number, asOn: string, opts: PartySideOpts = {}): AllocateBillsResult & { credits: { name: string; amount: number }[]; creditNames: string[] } {
+  const party = partyBillAllocator(db, partyLedgerId, asOn, opts)
+  if (!party) return { bills: [], unappliedCredit: 0, warnings: [], credits: [], creditNames: [] }
+  return party.allocator.result(asOn)
+}
+
+/** The allocation behind partyAllocationWithCredits with the party's events (opening, then its
+ *  in-books vouchers to `asOn`) applied and the result not yet taken: a caller can keep applying
+ *  events — `sign` turns a voucher's dr − cr on the party into the event amount. Null for an
+ *  unknown ledger. */
+export function partyBillAllocator(db: DB, partyLedgerId: number, asOn: string, opts: PartySideOpts = {}): { allocator: BillAllocator; sign: 1 | -1 } | null {
+  const ev = partyBillEventParts(db, partyLedgerId, asOn, opts)
+  if (!ev) return null
+  const allocator = billAllocator(ev.creditDays)
+  for (const e of [...ev.opening, ...ev.movements]) allocator.apply(e)
+  return { allocator, sign: ev.sign }
+}
+
+/** A party's bill events as the allocation reads them: its opening (always first), then its
+ *  in-books vouchers to `asOn` in date, id order — kept apart so a caller (the Tally import) can
+ *  apply the vouchers as it reaches their dates. */
+export function partyBillEventParts(db: DB, partyLedgerId: number, asOn: string, opts: PartySideOpts = {}): { opening: BillEvent[]; movements: BillEvent[]; sign: 1 | -1; creditDays: number | null } | null {
   const ledger = db.prepare('SELECT group_id, opening_balance, credit_days FROM ledgers WHERE id = ?').get(partyLedgerId) as
     | { group_id: number; opening_balance: number; credit_days: number | null }
     | undefined
-  if (!ledger) return { bills: [], unappliedCredit: 0, warnings: [], credits: [], creditNames: [] }
+  if (!ledger) return null
   const debtorIds = opts.seededSide ? descendantIdsByName(db, ['Sundry Debtors']) : partyGroupIdsBySide(db, 'debtor')
   const sign = debtorIds.has(ledger.group_id) ? 1 : -1
-  const eventsByParty = partyEventsBatch(db, [partyLedgerId], asOn, sign)
-  const events = [...openingEvents(asOn, ledger.opening_balance, sign, openingBillsByParty(db, [partyLedgerId]).get(partyLedgerId), ledger.credit_days), ...(eventsByParty.get(partyLedgerId) ?? [])]
-  return allocateBillsWithCredits(events, asOn, ledger.credit_days)
+  return {
+    opening: openingEvents(asOn, ledger.opening_balance, sign, openingBillsByParty(db, [partyLedgerId]).get(partyLedgerId), ledger.credit_days),
+    movements: partyEventsBatch(db, [partyLedgerId], asOn, sign).get(partyLedgerId) ?? [],
+    sign,
+    creditDays: ledger.credit_days
+  }
 }
 
 /** A party's bill events (opening balance first, then its in-books vouchers to `asOn`) in the
  *  allocation's sign convention (+ = raises what is outstanding on that side) — for callers that
  *  replay the allocation event by event (WP 4.3's MSME Form 1 settlement timeline). */
 export function partyBillEvents(db: DB, partyLedgerId: number, asOn: string): { events: BillEvent[]; creditDays: number | null } {
-  const ledger = db.prepare('SELECT group_id, opening_balance, credit_days FROM ledgers WHERE id = ?').get(partyLedgerId) as
-    | { group_id: number; opening_balance: number; credit_days: number | null }
-    | undefined
-  if (!ledger) return { events: [], creditDays: null }
-  const sign = partyGroupIdsBySide(db, 'debtor').has(ledger.group_id) ? 1 : -1
-  const events = [
-    ...openingEvents(asOn, ledger.opening_balance, sign, openingBillsByParty(db, [partyLedgerId]).get(partyLedgerId), ledger.credit_days),
-    ...(partyEventsBatch(db, [partyLedgerId], asOn, sign).get(partyLedgerId) ?? [])
-  ]
-  return { events, creditDays: ledger.credit_days }
+  const ev = partyBillEventParts(db, partyLedgerId, asOn)
+  if (!ev) return { events: [], creditDays: null }
+  return { events: [...ev.opening, ...ev.movements], creditDays: ev.creditDays }
 }

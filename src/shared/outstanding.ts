@@ -65,6 +65,24 @@ export function allocateBills(events: BillEvent[], asOn: string, creditDays: num
  *  named credit has had, used up or not (`creditNames`: a later bill must not reuse a settled
  *  credit's name either, or the ref that used the credit would look like it rests on that bill). */
 export function allocateBillsWithCredits(events: BillEvent[], asOn: string, creditDays: number | null): AllocateBillsResult & { credits: { name: string; amount: number }[]; creditNames: string[] } {
+  const allocator = billAllocator(creditDays)
+  for (const ev of events) allocator.apply(ev)
+  return allocator.result(asOn)
+}
+
+/** The allocation one event at a time (allocateBillsWithCredits is this over a list): `apply`
+ *  each chronological event, read the bills / named credits still open between events (`open`,
+ *  `openCredits` — live views, never mutate them), and `result` once at the end. The Tally import
+ *  keeps one per party so each Agst Ref is checked without re-reading the party's history. */
+export interface BillAllocator {
+  apply(ev: BillEvent): void
+  open(): readonly OutstandingBill[]
+  openCredits(): readonly { name: string; amount: number }[]
+  /** Ages the open bills as of `asOn`; call once, after the last `apply`. */
+  result(asOn: string): AllocateBillsResult & { credits: { name: string; amount: number }[]; creditNames: string[] }
+}
+
+export function billAllocator(creditDays: number | null): BillAllocator {
   const open: OutstandingBill[] = []
   let credit = 0
   const warnings: string[] = []
@@ -132,7 +150,7 @@ export function allocateBillsWithCredits(events: BillEvent[], asOn: string, cred
     return remaining
   }
 
-  for (const ev of events) {
+  const apply = (ev: BillEvent): void => {
     if (ev.refs.length > 0) {
       for (const ref of ev.refs) {
         if (ref.kind === 'new' && ev.amount < 0) {
@@ -174,13 +192,16 @@ export function allocateBillsWithCredits(events: BillEvent[], asOn: string, cred
     }
   }
 
-  for (const bill of open) {
-    bill.ageDays = Math.max(0, daysBetween(bill.date, asOn))
-    const dueBasis = bill.dueDate ?? bill.date
-    bill.overdueDays = Math.max(0, daysBetween(dueBasis, asOn))
+  const result = (asOn: string): ReturnType<BillAllocator['result']> => {
+    for (const bill of open) {
+      bill.ageDays = Math.max(0, daysBetween(bill.date, asOn))
+      const dueBasis = bill.dueDate ?? bill.date
+      bill.overdueDays = Math.max(0, daysBetween(dueBasis, asOn))
+    }
+    return { bills: open, unappliedCredit: credit + namedCredits.reduce((t, c) => t + c.amount, 0), warnings, credits: namedCredits.map((c) => ({ ...c })), creditNames: [...creditNames] }
   }
 
-  return { bills: open, unappliedCredit: credit + namedCredits.reduce((t, c) => t + c.amount, 0), warnings, credits: namedCredits.map((c) => ({ ...c })), creditNames: [...creditNames] }
+  return { apply, open: () => open, openCredits: () => namedCredits, result }
 }
 
 export interface ReminderCompany {

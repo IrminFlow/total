@@ -63,7 +63,8 @@ describe('Tally XML export', () => {
   it('round-trips vouchers (with inventory) through the parser', () => {
     const xml = buildTallyVouchersXml(vouchers)
     const parsed = parseTallyExport(xml)
-    expect(parsed.vouchers).toEqual(vouchers)
+    // The parser also reads each item line's direction (a sale's goods go out).
+    expect(parsed.vouchers).toEqual(vouchers.map((v) => ({ ...v, inventory: v.inventory.map((i) => ({ ...i, direction: 'out' })) })))
   })
 
   it('serializes a debit line as a negative amount (Tally convention) and parses back dr / positive paise', () => {

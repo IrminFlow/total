@@ -106,14 +106,23 @@ describe('Tally voucher-type mapping', () => {
     expect(kindOf(db, 'Sales Order')).toBeUndefined()
   })
 
-  it('a pre-existing Tally "Delivery Note" journal type keeps importing as a journal (existing types win by name)', () => {
+  it('a pre-existing "Delivery Note" journal type: unused, it becomes a delivery note; in use, it keeps its kind (PR #191)', () => {
     const db = seededDb()
     db.prepare("UPDATE voucher_types SET name = 'Delivery Challan' WHERE kind = 'delivery_note'").run()
     db.prepare("INSERT INTO voucher_types (name, kind, numbering) VALUES ('Delivery Note', 'journal', 'manual')").run()
     const summary = importTallyXml(db, `<ENVELOPE>${MASTERS}${note('Delivery Note', 'DN/2', 'Acme Retail', 1, true)}</ENVELOPE>`)
-    // A journal needs balanced ledger lines; this one has a single party entry, so it's skipped
-    // with the validation reason — exactly the old behaviour for such a type.
-    expect(summary.skipped).toBe(1)
-    expect(kindOf(db, 'Delivery Note')).toBe('journal')
+    // No voucher used the type, so no line was written for its old kind: Tally's kind is safe to take.
+    expect(summary.skipped).toBe(0)
+    expect(kindOf(db, 'Delivery Note')).toBe('delivery_note')
+    expect(summary.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/"Delivery Note" was set up here as journal.*now a delivery note/)]))
+    // In use (its vouchers' lines were written for a journal): kept, and said — the old behaviour.
+    const used = seededDb()
+    used.prepare("UPDATE voucher_types SET name = 'Delivery Challan' WHERE kind = 'delivery_note'").run()
+    const t = used.prepare("INSERT INTO voucher_types (name, kind, numbering) VALUES ('Delivery Note', 'journal', 'manual')").run()
+    used.prepare("INSERT INTO vouchers (voucher_type_id, number, date) VALUES (?, 'J-1', '2026-04-01')").run(t.lastInsertRowid)
+    const s2 = importTallyXml(used, `<ENVELOPE>${MASTERS}${note('Delivery Note', 'DN/2', 'Acme Retail', 1, true)}</ENVELOPE>`)
+    expect(s2.skipped).toBe(1)
+    expect(kindOf(used, 'Delivery Note')).toBe('journal')
+    expect(s2.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/"Delivery Note" is already used here as journal/)]))
   })
 })
