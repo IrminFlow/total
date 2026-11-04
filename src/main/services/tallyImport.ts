@@ -5,7 +5,8 @@ import { fyOf } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import type { BillAllocator } from '@shared/outstanding'
 import { OPENING_BALANCE_NAME } from '@shared/simple/openings'
-import { IN_BOOKS, MOVES_STOCK, saveVoucher } from './vouchers'
+import { deleteVoucher, IN_BOOKS, MOVES_STOCK, saveVoucher } from './vouchers'
+import { uniqueName } from '@shared/simple/intents'
 import { createGodown } from './masters'
 import { partyBillAllocator } from './analysis'
 import { partySide, replaceOpeningBills, type OpeningBillRow } from './openingBills'
@@ -114,15 +115,19 @@ interface PartyBills { allocator: BillAllocator; sign: 1 | -1 }
  * An Agst Ref must name a bill the party has open at that point of the import (its opening bills,
  * the books, the vouchers imported before it). One that doesn't — the bill isn't in Total (a master
  * without its bill-wise details, a bill in a file not imported yet) or something before settled it
- * — would sit as unapplied credit. Only that part is rerouted, the way the voucher would be read
- * without references; the voucher's other refs stay:
- * - money in from a customer / out to a supplier: the part settles the open bills oldest first
- *   (Agst refs to them); what they can't take is held on account — a named credit under the
- *   entry's number when the voucher keeps other refs, else the voucher keeps none (as before);
- * - a bill drawing on an advance that isn't there: the part is a bill under the entry's number.
- * Each reroute is a warning naming the bill "as of this import".
+ * — would sit as unapplied credit with a broken reference. Only that part is rerouted, the way the
+ * voucher reads without references; the voucher's other refs (a real Advance included) stay:
+ * - money in from a customer / out to a supplier (a settling entry): the part settles the open bills
+ *   oldest first, as Agst refs to them. What they can't take rides on the voucher's last Agst ref
+ *   (moved last): the engine settles a ref's excess oldest first and holds the rest on account —
+ *   exactly the reading without references. It is NEVER a New ref, which GSTR-1 11A would read as
+ *   an advance on a receipt. With no Agst ref to carry it, the voucher keeps no refs (as before).
+ * - a bill drawing on an advance that isn't there: the part is a bill under the entry's number
+ *   (made unique as simple mode does — FY suffix, then a counter); on a receipt / payment (a
+ *   refund) the voucher keeps no refs instead.
+ * Warnings say what the voucher ends up with, naming the bill "as of this import".
  */
-function settleOnOpenBills(party: PartyBills, partyName: string, v: TallyVoucher, refs: ImportBillRef[], warnings: string[]): ImportBillRef[] {
+function settleOnOpenBills(party: PartyBills, partyName: string, v: TallyVoucher, kind: VoucherKind, refs: ImportBillRef[], warnings: string[]): ImportBillRef[] {
   if (!refs.some((r) => r.kind === 'against')) return refs
   // tallyBillRefs took refs only when every party line is on one side.
   const partyLine = v.lines.find((l) => l.ledger.toLowerCase() === partyName.toLowerCase())
@@ -135,29 +140,29 @@ function settleOnOpenBills(party: PartyBills, partyName: string, v: TallyVoucher
     if (same) same.amount += r.amount
     else out.push({ ...r })
   }
-  const settleFifo = (amount: number): number => {
+  const settleFifo = (amount: number): ImportBillRef[] => {
     let left = amount
+    const taken: ImportBillRef[] = []
     for (const b of open) {
       if (left === 0) break
       const take = Math.min(b.left, left)
+      if (take === 0) continue
       b.left -= take
       left -= take
+      taken.push({ kind: 'against', name: b.name, amount: take, dueDate: null })
     }
-    return left
+    if (left > 0) taken.push({ kind: 'against', name: '', amount: left, dueDate: null })
+    return taken
   }
   const label = `Voucher ${v.number || v.date}`
-  const notFound = (r: ImportBillRef, what: string): string => `${label}: its Agst Ref ${r.name} names no open ${what} of ${partyName} as of this import (it may be in a file not imported yet)`
-  // A name for a part held on account: the entry's number, unless a bill or credit has it.
-  const freeName = (): string | null => {
-    const used = new Set([...open.map((b) => b.name), ...credits.map((c) => c.name), ...refs.map((r) => r.name)].map((n) => n.toLowerCase()))
-    const base = v.number || ''
-    if (!base) return null
-    for (let i = 1; i < 100; i++) {
-      const name = i === 1 ? base : i === 2 ? `${base} (on account)` : `${base} (on account ${i - 1})`
-      if (!used.has(name.toLowerCase())) return name
-    }
-    return null
+  const notFound = (names: string[], what: string): string =>
+    `${label}: its Agst Ref ${names.join(', ')} ${names.length > 1 ? 'name' : 'names'} no open ${what} of ${partyName} as of this import (it may be in a file not imported yet)`
+  const keepNone = (names: string[], what: string, why: string): ImportBillRef[] => {
+    warnings.push(`${notFound(names, what)}, and ${why} — its bill-wise details were not imported; Outstandings settles it oldest first`)
+    return []
   }
+  const notes: string[] = []
+  const unknown: ImportBillRef[] = []
   for (const r of refs) {
     if (r.kind !== 'against') {
       add(r)
@@ -170,50 +175,74 @@ function settleOnOpenBills(party: PartyBills, partyName: string, v: TallyVoucher
         add(r)
         continue
       }
-      const name = v.number || freeName()
-      if (!name) {
-        warnings.push(`${notFound(r, 'advance')} — its bill-wise details were not imported`)
-        return []
-      }
+      if (kind === 'receipt' || kind === 'payment') return keepNone([r.name], 'advance', 'a refund can\'t open a bill of its own')
+      if (!v.number) return keepNone([r.name], 'advance', 'the entry has no number to name a bill by')
+      const name = uniqueName(v.number, new Set([...open.map((b) => b.name), ...credits.map((c) => c.name)]), v.date)
       add({ kind: 'new', name, amount: r.amount, dueDate: null })
-      warnings.push(`${notFound(r, 'advance')} — that part is a bill of its own, ${name}`)
+      notes.push(`${notFound([r.name], 'advance')} — that part is a bill of its own, ${name}`)
       continue
     }
     const named = open.find((b) => b.name === r.name && b.left > 0)
-    if (named) {
-      const take = Math.min(named.left, r.amount)
-      named.left -= take
-      // The engine settles an Agst Ref's excess oldest first: so does the tracking here.
-      settleFifo(r.amount - take)
-      add(r)
+    if (!named) {
+      unknown.push(r)
       continue
     }
-    let left = r.amount
-    const taken: ImportBillRef[] = []
-    for (const b of open) {
-      if (left === 0) break
-      const take = Math.min(b.left, left)
-      if (take === 0) continue
-      b.left -= take
-      left -= take
-      taken.push({ kind: 'against', name: b.name, amount: take, dueDate: null })
-    }
-    const keepsOthers = refs.some((o) => o !== r && (o.kind === 'new' || open.some((b) => b.name === o.name)))
-    const onAccount = left > 0 ? (keepsOthers ? freeName() : null) : null
-    if (left > 0 && !onAccount) {
-      warnings.push(`${notFound(r, 'bill')}, and its open bills don't cover it — its bill-wise details were not imported; Outstandings settles it oldest first`)
-      return []
-    }
-    taken.forEach(add)
-    if (onAccount) {
-      add({ kind: 'new', name: onAccount, amount: left, dueDate: null })
-      credits.push({ name: onAccount, left })
-    }
-    const where = [...(taken.length ? [`against ${taken.map((t) => t.name).join(', ')} (oldest first)`] : []), ...(onAccount ? [`${formatPaise(left, { symbol: true })} held on account as ${onAccount}`] : [])]
-    warnings.push(`${notFound(r, 'bill')} — settled ${where.join(', ')}`)
+    const take = Math.min(named.left, r.amount)
+    named.left -= take
+    // The engine settles an Agst Ref's excess oldest first: so does the tracking here.
+    settleFifo(r.amount - take)
+    add(r)
   }
+  if (unknown.length) {
+    const taken = settleFifo(unknown.reduce((s, r) => s + r.amount, 0))
+    const onAccount = taken.find((t) => !t.name)?.amount ?? 0
+    taken.filter((t) => t.name).forEach(add)
+    const names = unknown.map((r) => r.name)
+    if (onAccount > 0) {
+      // The last Agst ref carries what nothing open can take — moved last, so its excess is held on
+      // account only after every other ref of the voucher has been applied.
+      const carrier = [...out].reverse().find((o) => o.kind === 'against')
+      if (!carrier) return keepNone(names, 'bill', 'nothing open can take it')
+      carrier.amount += onAccount
+      out.splice(out.indexOf(carrier), 1)
+      out.push(carrier)
+    }
+    const where = taken.filter((t) => t.name).map((t) => t.name)
+    notes.push(`${notFound(names, 'bill')} — ${[...(where.length ? [`settled oldest first against ${[...new Set(where)].join(', ')}`] : []), ...(onAccount > 0 ? [`${formatPaise(onAccount, { symbol: true })} on account`] : [])].join(', ')}`)
+  }
+  warnings.push(...notes)
   return out
 }
+
+/** Godown-wise stock of an item as on `date` (before the voucher `beforeId`, when given): opening
+ *  stock and lines without a godown are Tally's Main Location (`mainGodown`); a count resets it —
+ *  to the godown counts a joined count found (`breakdowns`), else to its own godown. */
+function godownHoldings(
+  db: DB, itemId: number, date: string, beforeId: number | null, mainGodown: number | null, breakdowns: ReadonlyMap<number, ReadonlyMap<number, ReadonlyMap<number, number>>>
+): Map<number, number> {
+  const key = (godownId: number | null): number => godownId ?? mainGodown ?? NO_GODOWN
+  const opening = (db.prepare('SELECT opening_qty_milli AS q FROM stock_items WHERE id = ?').get(itemId) as { q: number }).q
+  let held = new Map<number, number>([[key(null), opening]])
+  const rows = db.prepare(
+    `SELECT il.voucher_id AS voucherId, il.godown_id AS godownId, il.qty_milli AS qty, il.direction, il.is_absolute AS absolute
+     FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
+     WHERE il.stock_item_id = ? AND ${beforeId == null ? 'v.date <= ?' : '(v.date < ? OR (v.date = ? AND v.id < ?))'} AND ${IN_BOOKS} AND ${MOVES_STOCK}
+     ORDER BY v.date, v.id, il.line_order, il.id`
+  ).all(itemId, ...(beforeId == null ? [date] : [date, date, beforeId])) as { voucherId: number; godownId: number | null; qty: number; direction: 'in' | 'out'; absolute: number }[]
+  for (const r of rows) {
+    if (r.absolute) {
+      const known = breakdowns.get(r.voucherId)?.get(itemId)
+      held = known ? new Map(known) : new Map([[key(r.godownId), r.qty]])
+    } else {
+      held.set(key(r.godownId), (held.get(key(r.godownId)) ?? 0) + (r.direction === 'in' ? r.qty : -r.qty))
+    }
+  }
+  return held
+}
+
+const NO_GODOWN = -1
+const godownLabel = (db: DB, id: number): string =>
+  id === NO_GODOWN ? 'no godown' : ((db.prepare('SELECT name FROM godowns WHERE id = ?').get(id) as { name: string } | undefined)?.name ?? `#${id}`)
 
 /**
  * A Physical Stock voucher's counts as ONE count per item (Total counts the whole item, Tally
@@ -231,40 +260,24 @@ function joinGodownCounts(
   mainGodown: number | null,
   breakdowns: Map<number, Map<number, Map<number, number>>>
 ): { lines: { itemId: number; godownId: number | null; qtyMilli: number }[]; breakdown: Map<number, Map<number, number>> } | { refused: string } {
-  const NONE = -1
-  const key = (godownId: number | null): number => godownId ?? mainGodown ?? NONE
+  const key = (godownId: number | null): number => godownId ?? mainGodown ?? NO_GODOWN
   const byItem = new Map<number, { item: string; counts: Map<number, number> }>()
   for (const l of lines) {
     const entry = byItem.get(l.itemId) ?? { item: l.item, counts: new Map<number, number>() }
     entry.counts.set(key(l.godownId), (entry.counts.get(key(l.godownId)) ?? 0) + l.qtyMilli)
     byItem.set(l.itemId, entry)
   }
-  const godownName = (id: number): string => id === NONE ? 'no godown' : ((db.prepare('SELECT name FROM godowns WHERE id = ?').get(id) as { name: string } | undefined)?.name ?? `#${id}`)
+  const godownName = (id: number): string => godownLabel(db, id)
   const out: { itemId: number; godownId: number | null; qtyMilli: number }[] = []
   const breakdown = new Map<number, Map<number, number>>()
   for (const [itemId, { item, counts }] of byItem) {
-    const opening = (db.prepare('SELECT opening_qty_milli AS q FROM stock_items WHERE id = ?').get(itemId) as { q: number }).q
-    let held = new Map<number, number>([[key(null), opening]])
-    const rows = db.prepare(
-      `SELECT il.voucher_id AS voucherId, il.godown_id AS godownId, il.qty_milli AS qty, il.direction, il.is_absolute AS absolute
-       FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
-       WHERE il.stock_item_id = ? AND v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK}
-       ORDER BY v.date, v.id, il.line_order, il.id`
-    ).all(itemId, v.date) as { voucherId: number; godownId: number | null; qty: number; direction: 'in' | 'out'; absolute: number }[]
-    for (const r of rows) {
-      if (r.absolute) {
-        const known = breakdowns.get(r.voucherId)?.get(itemId)
-        held = known ? new Map(known) : new Map([[key(r.godownId), r.qty]])
-      } else {
-        held.set(key(r.godownId), (held.get(key(r.godownId)) ?? 0) + (r.direction === 'in' ? r.qty : -r.qty))
-      }
-    }
+    const held = godownHoldings(db, itemId, v.date, null, mainGodown, breakdowns)
     const left = [...held].filter(([g, q]) => q !== 0 && !counts.has(g))
     if (left.length) {
       return { refused: `Voucher ${v.number || v.date} skipped: the Physical Stock counts ${item} only in ${[...counts.keys()].map(godownName).join(', ')}, but it also holds stock in ${left.map(([g]) => godownName(g)).join(', ')} — Total counts an item as a whole, so this count would lose that stock; count it in the full app` }
     }
     const godowns = [...counts.keys()]
-    out.push({ itemId, godownId: godowns.length === 1 && godowns[0] !== NONE ? godowns[0]! : null, qtyMilli: [...counts.values()].reduce((s, q) => s + q, 0) })
+    out.push({ itemId, godownId: godowns.length === 1 && godowns[0] !== NO_GODOWN ? godowns[0]! : null, qtyMilli: [...counts.values()].reduce((s, q) => s + q, 0) })
     breakdown.set(itemId, counts)
   }
   return { lines: out, breakdown }
@@ -548,7 +561,7 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
       return withBills.length === 1 ? v.lines.find((l) => l.ledger.toLowerCase() === withBills[0])!.ledger : null
     })()
     const partyRefs = stockNote ? [] : tallyBillRefs(v, billParty, warnings)
-    const billRefs = partyRefs.length && billParty ? settleOnOpenBills(billsOf(ledgerId(billParty)!), billParty, v, partyRefs, warnings) : partyRefs
+    const billRefs = partyRefs.length && billParty ? settleOnOpenBills(billsOf(ledgerId(billParty)!), billParty, v, vt.kind, partyRefs, warnings) : partyRefs
     // A Physical Stock voucher counts: each line is the quantity on hand that day (the Physical
     // Stock editor's count lines — buildPhysicalPayload), never a movement — one per item, its
     // godown counts joined (joinGodownCounts), or the voucher is skipped.
@@ -608,6 +621,32 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
     } catch (err) {
       warnings.push(`Voucher ${v.number || v.date} skipped: ${(err as Error).message}`)
       counts.skipped++
+    }
+  }
+
+  // A joined count stands only while its godowns still cover the item: a voucher dated on or before
+  // it but imported after it (later in the file) may have put stock into a godown it doesn't count.
+  // Re-checked in date order (a binned count changes what the counts after it found).
+  const countRows = [...countBreakdowns.keys()].map((id) => db.prepare('SELECT id, date, number FROM vouchers WHERE id = ?').get(id) as { id: number; date: string; number: string })
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id)
+  for (const c of countRows) {
+    const breakdown = countBreakdowns.get(c.id)!
+    for (const [itemId, godownCounts] of breakdown) {
+      const held = godownHoldings(db, itemId, c.date, c.id, mainGodown, countBreakdowns)
+      const left = [...held].filter(([g, q]) => q !== 0 && !godownCounts.has(g))
+      if (!left.length) continue
+      const item = (db.prepare('SELECT name FROM stock_items WHERE id = ?').get(itemId) as { name: string }).name
+      const why = `${item} also holds stock in ${left.map(([g]) => godownLabel(db, g)).join(', ')} on its date (a voucher dated on or before it came later in the file), which it doesn't count — counting the item as a whole would lose that stock; count it again in the full app. A later import of earlier-dated vouchers can't be checked against a count like this`
+      try {
+        deleteVoucher(db, c.id)
+        countBreakdowns.delete(c.id)
+        counts.vouchers--
+        counts.skipped++
+        warnings.push(`Voucher ${c.number || c.date} (Physical Stock) moved to the bin: ${why}`)
+      } catch (err) {
+        warnings.push(`Voucher ${c.number || c.date} (Physical Stock) could not be moved to the bin (${(err as Error).message}) — check it: ${why}`)
+      }
+      break
     }
   }
 

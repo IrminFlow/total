@@ -47,23 +47,32 @@ Things to know about the version numbers:
     single opening, with a warning.
   - An Agst Ref naming no open bill of the party as of this import (a bill in a file not imported
     yet, or one something before settled) is rerouted on its own, the way the voucher reads without
-    references: money in / out settles the open bills oldest first (written as Agst refs to them),
-    and what they can't take is held on account under the entry's number when the voucher keeps
-    other refs (an advance in the same receipt stays); a bill drawing on an advance that isn't there
-    opens under the entry's number. Each reroute is a warning in the import summary. Each party's
-    open bills are kept in memory through the import (the bill engine is now incremental,
-    `billAllocator`), so checking refs costs ~1.2× the import without them (5,000 receipts to one
-    party: 16.4 s vs main's 14.1 s on the same machine).
+    references, and the voucher's other refs (a real Advance included) stay: money in / out settles
+    the open bills oldest first (written as Agst refs to them); what they can't take rides on the
+    voucher's last Agst ref, which the engine settles oldest first and then holds on account — never
+    a New ref on a receipt, so GSTR-1 11A shows exactly Tally's advances. With no Agst ref to carry
+    it — or on a refund drawing on an advance that isn't there — the voucher keeps no refs (as
+    before). A bill drawing on a missing advance opens under the entry's number, made unique as
+    simple mode does (FY suffix, then a counter). Each reroute is one warning in the import summary
+    saying what the voucher ended up with. Each party's open bills are kept in memory through the
+    import (the bill engine is now incremental, `billAllocator`; a permanent differential test
+    checks it against origin/main's engine on 50,000 generated cases), so checking refs costs
+    ~1.15× the import without them.
   - A Physical Stock voucher (or a custom type made from it) imports as a count, as the Physical
     Stock editor saves it; before, a count of 10 was saved as 10 going out. Tally counts per godown
     and Total counts the whole item, so the godown counts are joined into one count when they cover
     every godown holding the item that day (stock without a godown is Tally's Main Location; after
     an earlier count, the godowns it found); a count that leaves out a godown still holding stock is
-    skipped with a warning naming the item and the godown — it would have lost that stock.
+    skipped with a warning naming the item and the godown — it would have lost that stock. After
+    the last voucher, every joined count is checked again: a voucher dated on or before it that came
+    later in the file and put stock into a godown it doesn't count sends the count to the bin, with
+    a warning (a later import of earlier-dated vouchers can't be checked against it). A godown
+    counted at 0 is kept (that godown is empty).
   - Item lines keep their godown (BATCHALLOCATIONS GODOWNNAME); a godown Total doesn't have yet is
     created. A line split over godowns becomes one line per godown with Tally's own quantities and
     amounts (batches without amounts share the line's by quantity, to the paisa); a split that
-    doesn't add up to the line keeps one line without a godown, with a warning. Before, every
+    doesn't add up to the line keeps one line without a godown, with a warning; a part with no
+    quantity and no amount is left out. Before, every
     imported line had no godown.
   - Type names read the same with any separators or case ("Sales-Return", "PURCHASE_RETURN",
     "Physical-Stock").

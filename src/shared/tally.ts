@@ -345,12 +345,13 @@ function openingBills(ledger: XNode): TallyOpeningBill[] {
  * the last one takes the remainder) — the parts always add up to the line to the paisa. A split
  * whose quantities or amounts don't add up to the line keeps ONE line without a godown, and says so.
  */
-function godownSplit(inv: XNode, line: TallyInventoryLine, label: string, warnings: string[]): TallyInventoryLine[] {
+function godownSplit(inv: XNode, line: TallyInventoryLine, label: string, warnings: string[], isCount: boolean): TallyInventoryLine[] {
   const batches = inv.children.filter((c) => c.tag === 'BATCHALLOCATIONS.LIST')
-  const groups = new Map<string, { godown: string; qtyMilli: number; amount: number; amounts: number }>()
+  const groups = new Map<string, { godown: string; qtyMilli: number; amount: number; amounts: number; batches: number }>()
   for (const b of batches) {
     const godown = childText(b, 'GODOWNNAME').trim()
-    const g = groups.get(godown.toLowerCase()) ?? { godown, qtyMilli: 0, amount: 0, amounts: 0 }
+    const g = groups.get(godown.toLowerCase()) ?? { godown, qtyMilli: 0, amount: 0, amounts: 0, batches: 0 }
+    g.batches++
     g.qtyMilli += parseTallyQty(childText(b, 'ACTUALQTY') || childText(b, 'BILLEDQTY'))
     const amount = childText(b, 'AMOUNT').trim()
     if (amount) {
@@ -359,12 +360,14 @@ function godownSplit(inv: XNode, line: TallyInventoryLine, label: string, warnin
     }
     groups.set(godown.toLowerCase(), g)
   }
-  const parts = [...groups.values()]
+  // A part with no quantity and no amount moves nothing — except on a Physical Stock voucher, where
+  // a godown counted at 0 says that godown is empty.
+  const parts = [...groups.values()].filter((p) => isCount || p.qtyMilli !== 0 || p.amount !== 0)
   if (parts.length <= 1) return [parts[0]?.godown ? { ...line, godown: parts[0].godown } : line]
   const withAmount = parts.reduce((s, p) => s + p.amounts, 0)
   const qtyAdds = parts.reduce((s, p) => s + p.qtyMilli, 0) === line.qtyMilli
   let amounts: number[] | null = null
-  if (withAmount === batches.length) {
+  if (withAmount === parts.reduce((s, p) => s + p.batches, 0)) {
     amounts = parts.map((p) => p.amount)
     if (amounts.reduce((s, a) => s + a, 0) !== line.amount) amounts = null
   } else if (withAmount === 0 && line.qtyMilli > 0) {
@@ -448,6 +451,7 @@ export function parseTallyExport(xml: string): TallyImport {
   }
 
   for (const v of collect(root, 'VOUCHER')) {
+    const isCount = TALLY_PHYSICAL_STOCK_TYPE.test(tallyBaseTypeName(v.attrs.VCHTYPE ?? childText(v, 'VOUCHERTYPENAME'), result.voucherTypes))
     const date = parseTallyDate(childText(v, 'DATE'))
     if (!date) {
       warnings.push(`Voucher skipped: bad date "${childText(v, 'DATE')}"`)
@@ -486,7 +490,7 @@ export function parseTallyExport(xml: string): TallyImport {
       const deemed = childText(inv, 'ISDEEMEDPOSITIVE').toLowerCase()
       const direction = fixed ?? (deemed === 'yes' ? 'in' : deemed === 'no' ? 'out' : signed < 0 ? 'in' : 'out')
       const line: TallyInventoryLine = { item, qtyMilli: parseTallyQty(childText(inv, 'ACTUALQTY') || childText(inv, 'BILLEDQTY')), amount: Math.abs(signed), direction }
-      inventory.push(...godownSplit(inv, line, childText(v, 'VOUCHERNUMBER') || date, warnings))
+      inventory.push(...godownSplit(inv, line, childText(v, 'VOUCHERNUMBER') || date, warnings, isCount))
     }
     const vchType = v.attrs.VCHTYPE ?? childText(v, 'VOUCHERTYPENAME')
     // Orders post nothing: they go to trade_docs (WP 6.3, design §8 Q8). Each inventory entry is
