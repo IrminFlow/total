@@ -57,6 +57,9 @@ export function outwardDebitNoteIds(db: DB, from: string, to: string): Set<numbe
     .all(from, to) as { id: number; partyLedgerId: number | null }[]
   if (!rows.length) return new Set()
   const incomeIds = descendantIdsByName(db, INCOME_GROUPS)
+  // Owner decision (4 Nov, PR #188): GST returns stay exactly as on main — the outward / inward
+  // split keeps the SEEDED Sundry Debtors tree, so no filed month moves for a party under an
+  // imported group name (revisit in Phase 2 behind the upgrade-diff report; to-do §4 GST).
   const debtorIds = descendantIdsByName(db, ['Sundry Debtors'])
   const lineStmt = db.prepare(
     `SELECT l.group_id AS groupId FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id

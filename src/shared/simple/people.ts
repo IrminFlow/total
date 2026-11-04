@@ -193,11 +193,13 @@ export function balanceWords(p: Pick<PersonRow, 'side' | 'open' | 'ahead'>, t: T
   return parts.length ? parts.join(' · ') : t('simple.people.settled')
 }
 
-/** A bill's timing in words: "12 days overdue", "due today", "due in 3 days" ('' once paid). */
+/** A bill's timing in words: "12 days overdue", "due today", "due in 3 days", "no due date" ('' once paid). */
 export function billTiming(b: Pick<PersonBill, 'pending' | 'dueDate' | 'overdueDays'>, today: string, t: Translate): string {
   if (b.pending <= 0) return ''
   if (b.overdueDays > 0) return t('simple.people.overdue', { days: b.overdueDays })
-  if (b.dueDate && b.dueDate > today) return t('simple.people.dueIn', { days: daysBetweenIso(today, b.dueDate) })
+  // No days to pay and no date on the bill: no due date, never late (Phase 1 triage).
+  if (b.dueDate == null) return t('simple.people.noDueDate')
+  if (b.dueDate > today) return t('simple.people.dueIn', { days: daysBetweenIso(today, b.dueDate) })
   return t('simple.people.dueToday')
 }
 

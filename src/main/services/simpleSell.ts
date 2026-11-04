@@ -23,6 +23,7 @@ import { ledgerClassifier } from '../ai/ledgerClass'
 import { returnsOfBills } from './simpleReturns'
 import { memoryContextFor } from '../ai/memory'
 import { getAiSettings } from '../ai/settings'
+import { lateDays } from '@shared/simple/late'
 
 export function sellSetup(db: DB): SellSetup {
   const cls = ledgerClassifier(db)
@@ -72,7 +73,7 @@ export function salesList(db: DB, from: string, to: string, today: string): Sale
   const rows = registerVoucherRows(db, 'sales', from, to)
   const open = new Map<number, { pending: number; dueDate: string | null; overdueDays: number }>()
   for (const p of outstandingsWithAdvances(db, 'receivable', today).parties) {
-    for (const b of p.bills) if (b.voucherId != null) open.set(b.voucherId, { pending: b.pending, dueDate: b.dueDate, overdueDays: b.overdueDays })
+    for (const b of p.bills) if (b.voucherId != null) open.set(b.voucherId, { pending: b.pending, dueDate: b.dueDate, overdueDays: lateDays(b) })
   }
   const walkInId = counterAccounts(db).walkInLedgerId
   // WP 7.1: the bills' heads and lines in chunks of 500 (was two queries per bill).

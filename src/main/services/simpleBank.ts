@@ -35,7 +35,7 @@ import { ledgerClassifier } from '../ai/ledgerClass'
 import { categoriseStatement } from '../ai/capture/bankCategorise'
 import { bankLedgers, brs } from './banking'
 import { confirmMatches, reconcileSavedDraft, statementWorkspace } from './bankImport'
-import { createLedger, descendantIdsByName } from './masters'
+import { createLedger, descendantIdsByName, partyGroupIdsBySide } from './masters'
 import { postIntent } from './simplePost'
 import { IN_BOOKS } from './vouchers'
 
@@ -171,7 +171,7 @@ const matchedVouchers = (db: DB, lineId: number): number[] =>
 function bankAsSupplier(db: DB, bankLedgerId: number, gstinRaw: string | undefined): number {
   const gstin = gstinRaw?.trim().toUpperCase() || null
   if (gstin && !validateGstin(gstin).valid) throw new AppError('simple_bank_bad_gstin', `${gstin} is not a GSTIN`, { field: 'gstin' })
-  const creditors = descendantIdsByName(db, ['Sundry Creditors'])
+  const creditors = partyGroupIdsBySide(db, 'creditor')
   const rows = db.prepare('SELECT id, name, group_id AS groupId, gstin FROM ledgers').all() as { id: number; name: string; groupId: number; gstin: string | null }[]
   const own = rows.filter((r) => creditors.has(r.groupId))
   const byGstin = gstin ? own.find((r) => r.gstin?.toUpperCase() === gstin) : undefined

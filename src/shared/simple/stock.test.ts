@@ -9,7 +9,7 @@ import type { BomVersion } from '../bom'
 import { bannedWordsIn } from './bannedWords'
 import { intentSentences, mapIntent, normaliseIntent, readCount, type IntentContext, type MappedIntent } from './intents'
 import {
-  countDifference, countFormErrors, countIntentFrom, makeFormErrors, makeIntentFrom, parseCountText, recipeNeeds, recipeRows, stockLevel, emptyMakeForm,
+  countDifference, countFormErrors, countIntentFrom, makeFormErrors, needsCost, makeIntentFrom, parseCountText, recipeNeeds, recipeRows, stockLevel, emptyMakeForm,
   formFieldOf, nextVersionName, planRecipe, recipeFormErrors, recipeFormFrom, recipeInputFrom, recipeLabour
 } from './stock'
 import { validateBomVersion, versionWouldCycle, pickBomVersion } from '../bom'
@@ -193,6 +193,21 @@ describe('the Stock screens’ rules', () => {
     expect(countFormErrors(form)).toEqual({})
     expect(countFormErrors({ date: TODAY, counted: { [FLOUR]: '' } })).toEqual({ counts: 'simple.stock.count.err.none' })
     expect(countFormErrors({ date: TODAY, counted: { [FLOUR]: 'ten' } })).toEqual({ counts: 'simple.stock.count.err.qty' })
+  })
+
+  it('a counted product with nothing on hand needs what one cost (Phase 1 triage); a stocked one never', () => {
+    const onHand = new Map([[FLOUR, 100_000], [BREAD, 0]])
+    const form = { date: TODAY, counted: { [FLOUR]: '98', [BREAD]: '10' } }
+    expect(needsCost(form, BREAD, onHand)).toBe(true)
+    expect(needsCost(form, FLOUR, onHand)).toBe(false)
+    expect(needsCost({ ...form, counted: { [BREAD]: '0' } }, BREAD, onHand)).toBe(false) // none counted, nothing to value
+    expect(countFormErrors(form, onHand)).toEqual({ counts: 'simple.stock.count.err.cost' })
+    expect(countFormErrors({ ...form, costs: { [BREAD]: 'abc' } }, onHand)).toEqual({ counts: 'simple.stock.count.err.cost' })
+    expect(countFormErrors({ ...form, costs: { [BREAD]: '12.50' } }, onHand)).toEqual({})
+    expect(countFormErrors({ ...form, costs: { [BREAD]: '0' } }, onHand)).toEqual({})
+    expect(countIntentFrom({ ...form, costs: { [BREAD]: '12.50', [FLOUR]: '99' } }, onHand)).toEqual({
+      kind: 'stock_count', date: TODAY, counts: [{ itemId: FLOUR, qty: 98_000 }, { itemId: BREAD, qty: 10_000, cost: 1250 }]
+    })
   })
 
   it('Made goods: the form → intent; its checks; the recipe’s needs scale like the explosion', () => {

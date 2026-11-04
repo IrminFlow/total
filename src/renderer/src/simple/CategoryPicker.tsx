@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { Group, Ledger } from '@shared/domain'
+import { partyRoleOf } from '@shared/chartOfAccounts'
 import { CATEGORIES, type CategoryKey } from '@shared/simple/categories'
 import type { AccountContext } from '@shared/simple/accountKinds'
 import { api } from '../lib/client'
@@ -15,14 +16,10 @@ const PARTY = 'party' as const // i18n-technical: search mode
 const ALL = 'all' as const // i18n-technical: search mode
 const SUPPLIER_CONTEXT: AccountContext = { field: 'party', side: 'purchase' } // i18n-technical
 
-/** A customer / supplier account (under Sundry Debtors / Creditors, at any depth). */
+/** A customer / supplier account (under a debtor / creditor group — Sundry Debtors, an imported
+ *  "Trade Receivables" … — at any depth; shared/chartOfAccounts `partyRoleOf`). */
 function isParty(l: Ledger, groups: Map<number, Group>): boolean {
-  let g = groups.get(l.groupId)
-  while (g) {
-    if (g.name === 'Sundry Creditors' || g.name === 'Sundry Debtors') return true // i18n-technical: group names
-    g = g.parentId ? groups.get(g.parentId) : undefined
-  }
-  return false
+  return partyRoleOf(l.groupId, groups) != null
 }
 
 /** The ledger a category stands for: the one carrying its key, else one with its seeded name. */

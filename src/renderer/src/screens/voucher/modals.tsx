@@ -6,7 +6,8 @@ import { api } from '../../lib/client'
 import { useSession, useToasts } from '../../state/stores'
 import { AmountInput, Button, Field, Modal, Select, TextInput } from '../../components/ui'
 import { useGroups } from '../../components/pickers'
-import { groupAncestryNames, PARTY_GROUPS, TRADING_GROUPS } from '../../components/LedgerFormModal'
+import { groupAncestryNames, TRADING_GROUPS } from '../../components/LedgerFormModal'
+import { partyRoleOf } from '@shared/chartOfAccounts'
 import { defaultUnitId, itemShowsGst, itemShowsHsn, newItemGstRateError } from '../../lib/itemDefaults'
 import { chargesGst } from '@shared/gst/registration'
 import type { AccountContext } from '@shared/simple/accountKinds'
@@ -154,7 +155,7 @@ function AccountantQuickLedgerModal({
   const regType = useSession((s) => s.info?.gstRegistrationType ?? 'regular')
 
   const ancestry = useMemo(() => (groupId != null ? groupAncestryNames(groupId, groups) : []), [groupId, groups])
-  const isParty = ancestry.some((n) => PARTY_GROUPS.includes(n))
+  const isParty = groupId != null && partyRoleOf(groupId, groups) != null
   const isTradingLedger = !isParty && ancestry.some((n) => TRADING_GROUPS.includes(n))
 
   const create = async (): Promise<void> => {

@@ -14,7 +14,7 @@ import { renderPartyName } from '../memoryRules'
 import type { CategoriseAcceptResult, StatementCategorisation, StatementCategoryRow } from '@shared/capture/types'
 import { categoriseInputs } from '../../services/bankImport'
 import { bankLedgers } from '../../services/banking'
-import { descendantIdsByName, listLedgers } from '../../services/masters'
+import { listLedgers, descendantIdsByName, partyGroupIdsBySide } from '../../services/masters'
 import { writeAudit } from '../../services/audit'
 import { DraftWork, NeedsClarification, loadMasters } from '../drafting/work'
 import { buildAccountingDraft, type AccountingDraftInput } from '../drafting/builders'
@@ -26,8 +26,8 @@ const paiseToRupeeText = (p: number): string => `${Math.floor(p / 100)}.${String
 
 export function catLedgers(db: DB): CatLedger[] {
   const sets: [CatLedger['kind'], Set<number>][] = [
-    ['debtor', descendantIdsByName(db, ['Sundry Debtors'])],
-    ['creditor', descendantIdsByName(db, ['Sundry Creditors'])],
+    ['debtor', partyGroupIdsBySide(db, 'debtor')],
+    ['creditor', partyGroupIdsBySide(db, 'creditor')],
     ['cash_bank', descendantIdsByName(db, ['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c'])],
     ['tax', descendantIdsByName(db, ['Duties & Taxes'])],
     ['expense', descendantIdsByName(db, ['Direct Expenses', 'Indirect Expenses', 'Purchase Accounts'])],

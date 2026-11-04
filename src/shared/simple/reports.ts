@@ -14,6 +14,7 @@
 import { z } from 'zod'
 import type { ProfitAndLoss, StatementNode } from '../reports'
 import type { OutstandingParty } from '../reports'
+import { lateDays } from './late'
 
 // ---------------------------------------------------------------- periods
 
@@ -340,7 +341,7 @@ export function owedRows(parties: readonly OutstandingParty[]): OwedParty[] {
       ledgerId: p.ledgerId,
       name: p.name,
       pending: p.pending,
-      overdue: p.bills.filter((b) => b.overdueDays > 0 && b.pending > 0).reduce((s, b) => s + b.pending, 0),
+      overdue: p.bills.filter((b) => lateDays(b) > 0 && b.pending > 0).reduce((s, b) => s + b.pending, 0),
       bills: p.bills.filter((b) => b.pending > 0).length,
       oldestDays: p.bills.reduce((m, b) => (b.pending > 0 && b.ageDays > m ? b.ageDays : m), 0)
     }))

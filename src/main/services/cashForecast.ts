@@ -31,7 +31,7 @@ import { fyOf } from '@shared/dates'
 import { writeAudit } from './audit'
 import { closingBalances, descendantIdSet } from './reports'
 import { NOT_FX_REVALUATION, openingBillsByParty, openingEvents, outstandings } from './analysis'
-import { listGroups, descendantIdsByName } from './masters'
+import { listGroups, partyGroupIdsBySide } from './masters'
 import { pendingOrders, pendingStockNotes } from './tradeReports'
 import { statutoryDues } from './payrollStatutory'
 import { listBankRates } from './payables'
@@ -135,7 +135,7 @@ export function pdcFlows(db: DB): ForecastFlow[] {
 /** Every debtor's events up to asOn (opening balance, movements, bill refs), replayed into
  *  settled / unsettled bill history. Mirrors analysis.outstandings' event building. */
 export function receivableHistory(db: DB, asOn: string): HistoryBill[] {
-  const debtors = descendantIdsByName(db, ['Sundry Debtors'])
+  const debtors = partyGroupIdsBySide(db, 'debtor')
   const parties = (db.prepare('SELECT id, opening_balance AS ob, group_id AS groupId, credit_days AS creditDays FROM ledgers').all() as {
     id: number; ob: number; groupId: number; creditDays: number | null
   }[]).filter((p) => debtors.has(p.groupId))

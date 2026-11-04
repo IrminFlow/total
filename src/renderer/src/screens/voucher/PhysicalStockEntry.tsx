@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Voucher } from '@shared/domain'
+import { parseAmountText, plainRupees } from '@shared/money'
 import {
   blankCountRow as blankCountState, buildPhysicalPayload, countedMilli, emptyPhysicalState,
   type CountRowState, type PhysicalFormState
@@ -19,6 +20,8 @@ import { PostButton } from '../../components/PostButton'
 // ---------- physical stock mode (counted closing quantities, is_absolute lines) ----------
 
 interface CountRow extends CountRowState {
+  /** The cost-per-unit box's text while it is shown (a row carrying a cost, PR #188 review). */
+  costText?: string
   /** Stable React key (see nextLineKey). */
   key: number
 }
@@ -76,7 +79,7 @@ export function PhysicalStockEntry({
       ...base,
       date,
       number: isEdit ? alterNumber : numberField.forPayload,
-      rows: rows.map(({ key: _key, ...r }) => r),
+      rows: rows.map(({ key: _key, costText: _cost, ...r }) => r),
       narration
     }),
     [base, date, isEdit, alterNumber, numberField.forPayload, rows, narration]
@@ -95,6 +98,9 @@ export function PhysicalStockEntry({
 
   const save = useCallback(async (): Promise<void> => {
     if (saving) return
+    // A cost per unit that isn't an amount is never dropped silently (PR #188 review).
+    const badCost = rows.find((r) => r.itemId != null && r.costText != null && r.costText.trim() !== '' && parseAmountText(r.costText) == null)
+    if (badCost) return void toast.push('error', `Cost / unit for ${itemName(badCost.itemId!) || 'an item'} is not an amount — type it like 25 or 12.50, or clear it`)
     const built = buildPhysicalPayload(formState, { voucherTypeId: typeId, itemName })
     if (!built.ok) return void toast.push('error', built.error)
     const counted = built.payload.inventory.length
@@ -119,7 +125,7 @@ export function PhysicalStockEntry({
     } finally {
       setSaving(false)
     }
-  }, [saving, formState, typeId, itemName, toast, voucherId, isEdit, setWorkingDate, date, queryClient, leave, numberField.reset])
+  }, [saving, rows, formState, typeId, itemName, toast, voucherId, isEdit, setWorkingDate, date, queryClient, leave, numberField.reset])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -198,8 +204,8 @@ export function PhysicalStockEntry({
               <Fragment key={r.key}>
               <tr onKeyDown={details.onRowKeyDown(r.key)}>
                 <td>
-                  {/* A different item can't keep the old line's batch (batches belong to an item). */}
-                  <ItemPicker value={r.itemId} onPick={(id) => setRow(i, id === r.itemId ? { itemId: id } : { itemId: id, batchId: null })} />
+                  {/* A different item can't keep the old line's batch (batches belong to an item) or its cost per unit. */}
+                  <ItemPicker value={r.itemId} onPick={(id) => setRow(i, id === r.itemId ? { itemId: id } : { itemId: id, batchId: null, ratePaise: undefined, costText: undefined })} />
                 </td>
                 <td className="r">
                   {book != null && <span className="num text-body-sm text-muted">{book / 1000} {unit}</span>}
@@ -213,6 +219,25 @@ export function PhysicalStockEntry({
                     placeholder="0"
                     onChange={(e) => setRow(i, { qtyText: e.target.value })}
                   />
+                  {/* A count line that carries a cost per unit (typed for a product with nothing on
+                      hand) shows it, editable — the line's value is counted qty × this cost. */}
+                  {(r.ratePaise != null || r.costText != null) && (
+                    <label className="mt-1 flex items-center justify-end gap-1 text-body-sm text-muted">
+                      Cost / unit
+                      <input
+                        className={`${inputCls} num w-24 text-right`}
+                        data-testid="input-count-cost"
+                        value={r.costText ?? (r.ratePaise != null ? plainRupees(r.ratePaise) : '')}
+                        inputMode="decimal"
+                        placeholder="none"
+                        aria-invalid={r.costText != null && r.costText.trim() !== '' && parseAmountText(r.costText) == null}
+                        onChange={(e) => {
+                          const paise = parseAmountText(e.target.value)
+                          setRow(i, { costText: e.target.value, ratePaise: paise != null && paise > 0 ? paise : undefined })
+                        }}
+                      />
+                    </label>
+                  )}
                 </td>
                 <td className="r">
                   {diff != null && (

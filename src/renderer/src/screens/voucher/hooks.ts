@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { Group, Ledger, Voucher } from '@shared/domain'
+import { partyRoleOf } from '@shared/chartOfAccounts'
 import { diffPayloads, voucherToPayload, type BuildResult } from '@shared/voucherEdit'
 import { api } from '../../lib/client'
 import { useNav, useScreen } from '../../state/stores'
@@ -56,7 +57,7 @@ export function groupChain(groupId: number, groupMap: Map<number, Group>): Group
 }
 
 export function isPartyLedger(l: Ledger, groupMap: Map<number, Group>): boolean {
-  return groupChain(l.groupId, groupMap).some((g) => g.name === 'Sundry Debtors' || g.name === 'Sundry Creditors')
+  return partyRoleOf(l.groupId, groupMap) != null
 }
 
 export function isCashOrBankLedger(l: Ledger, groupMap: Map<number, Group>): boolean {

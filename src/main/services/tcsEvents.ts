@@ -11,7 +11,7 @@ import type { VoucherKind } from '@shared/domain'
 import { walkTdsEvents, type TdsVoucherClass, type WalkEvent, type WalkResult } from '@shared/tdsEligibility'
 import { classifyTcsVoucher, tcsBasePaise, TCS_KINDS, type TcsLedgerFacts, type TcsVoucherClass } from '@shared/tcs'
 import { rateRowOn, resolveDeducteeType, type DeducteeType, type WithholdingRateRow } from '@shared/withholding'
-import { cashBankGroupIds, descendantIdsByName } from './masters'
+import { cashBankGroupIds, partyGroupIdsBySide } from './masters'
 import { IN_BOOKS, NOT_YEAR_END_CLOSE } from './vouchers'
 import { ratesBySection } from './tdsEvents'
 
@@ -24,7 +24,7 @@ export interface LedgerTcsFacts extends TcsLedgerFacts {
 
 /** Every ledger's TCS-relevant facts, by id. */
 export function ledgerTcsFacts(db: DB): Map<number, LedgerTcsFacts> {
-  const debtors = descendantIdsByName(db, ['Sundry Debtors'])
+  const debtors = partyGroupIdsBySide(db, 'debtor')
   const cashBank = cashBankGroupIds(db)
   const rows = db
     .prepare(

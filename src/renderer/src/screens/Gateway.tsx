@@ -22,6 +22,8 @@ import { formatPaiseCompact } from '@shared/money'
 import type { Deadline } from '@shared/compliance'
 import { monthSpan, type DashAgeing, type DashCash, type DashSection, type DashTrade, type DashboardSeries, type DashboardWindow } from '@shared/dashboard'
 import type { ExplainInput } from '../lib/explain'
+import { partyRootNames } from '@shared/chartOfAccounts'
+import { useGroups } from '../components/pickers'
 
 type SectionKey = Exclude<keyof DashboardSeries, 'window'>
 type SectionData<K extends SectionKey> = DashboardSeries[K] extends DashSection<infer D> ? D : never
@@ -272,13 +274,18 @@ export function Gateway(): React.JSX.Element {
  * balances as on the window's as-on date (min(today, period end)), the month tiles over the focus
  * month as the dashboard clips it, Net profit over the period to the as-on date. Pure; tested.
  */
-export function tileExplainSources(w: Pick<DashboardWindow, 'from' | 'asOn' | 'focusMonth'>): Record<'cash' | 'receivables' | 'payables' | 'sales' | 'purchases' | 'profit', Partial<ExplainInput>> {
+export function tileExplainSources(
+  w: Pick<DashboardWindow, 'from' | 'asOn' | 'focusMonth'>,
+  /** The party roots the tiles add up (partyRootNames — an imported "Trade Receivables" too);
+   *  none known yet = the seeded names. */
+  parties: { debtor: string[]; creditor: string[] } = { debtor: [], creditor: [] }
+): Record<'cash' | 'receivables' | 'payables' | 'sales' | 'purchases' | 'profit', Partial<ExplainInput>> {
   const asOn = { asOn: w.asOn }
   const month = monthSpan(w.focusMonth, w) ?? {}
   return {
     cash: { groupName: 'Cash-in-Hand + Bank Accounts', ...asOn },
-    receivables: { groupName: 'Sundry Debtors', ...asOn },
-    payables: { groupName: 'Sundry Creditors', ...asOn },
+    receivables: { groupName: (parties.debtor.length ? parties.debtor : ['Sundry Debtors']).join(' + '), ...asOn },
+    payables: { groupName: (parties.creditor.length ? parties.creditor : ['Sundry Creditors']).join(' + '), ...asOn },
     sales: { groupName: 'Sales Accounts', ...month },
     purchases: { groupName: 'Purchase Accounts', ...month },
     profit: { groupName: 'Sales Accounts + Purchase Accounts + Direct Incomes + Direct Expenses + Indirect Incomes + Indirect Expenses', from: w.from, to: w.asOn }
@@ -305,7 +312,9 @@ function StatTiles({
       return row ? pick(row) : 0
     })
   const focus = w && trade.state === 'ready' ? trade.data.months.find((m) => m.month === w.focusMonth) : undefined
-  const ex = w ? tileExplainSources(w) : null
+  const groups = useGroups()
+  const parties = useMemo(() => ({ debtor: partyRootNames(groups, 'debtor'), creditor: partyRootNames(groups, 'creditor') }), [groups])
+  const ex = w ? tileExplainSources(w, parties) : null
   const focusLabel = w ? `${toMonthLabel(w.focusMonth, 'long')}${w.focusMonth === w.today.slice(0, 7) ? ' to date' : ''}` : ''
   const overdue = (a: CardState<DashAgeing>): string =>
     a.state === 'ready'
