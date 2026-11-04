@@ -122,13 +122,14 @@ done on main were dropped. One line each; the pointer says where to look.
   - GSTR-2B matching (`extractPurchaseDocs` → recon2b / the 2B mismatch assistant / simple Home) reads the LIVE supplier GSTIN, never the snapshot (review of #172 — see section 1); a supplier who re-registers under a new GSTIN will see their OLD bills as `gstin_differs` until the portal side agrees
   - Re-saving an old bill freezes it on TODAY's masters: rates come from the form (visible), the party's GSTIN / state / SEZ type / reverse charge do not — saveVoucher warns (`warnings.taxFactsChanged`, toast in InvoiceEntry / AccountingEntry); a `legacyTax`-style editor banner before the save is not built
   - A snapshot's line facts are NULL-meaningful (a rate-less ledger stays rate-less under the posted-rate rule), so a line written by a path that skips `snapshotTaxFacts` would read as rate-less — today every `INSERT INTO voucher_lines / inventory_lines` is saveVoucher's own (the snapshot runs after them, inside the transaction; bank dates / serials only UPDATE other columns); a future raw line writer must call `snapshotTaxFacts` or clear the marker
-- Invoice calc rounds tax per rate group, return extraction per line (paise can differ); percentages and FX use float intermediates — GPT review, `shared/voucherEdit/invoice.ts`, `shared/money.ts`
+- ~~Invoice calc rounds tax per rate group, return extraction per line (paise can differ)~~ DONE — per line since PR_GST (unedited old invoices keep their group rounding, `legacyGroupTax`); still open: percentages and FX use float intermediates — GPT review, `shared/voucherEdit/invoice.ts`, `shared/money.ts`
 - ~~An IRN doesn't freeze amount / party edits and binning doesn't cancel the IRN; needs a correction workflow (24 h cancel window)~~ DONE — PR #164 (a live IRN refuses date / party / amount / tax / item edits, `irn_frozen`, and the bin, `irn_live`, until a recorded Cancel IRN) — GPT review, `services/vouchers.ts`
 - ~~e-invoice applicability needs a business profile (PAN-wide turnover, ₹5 cr mandate, 30-day rule at ₹10 cr) — GPT review, `shared/compliance.ts`~~ DONE — PR #165 (`shared/gst/einvoiceApplicability.ts`; UNVERIFIED list there)
 - Advance GST treats any new receipt reference from a rate-tagged party as a taxable advance (goods advances are generally exempt under N. 66/2017) — GPT review, `services/gst.ts` extractAdvances
 - MSME deadlines run from the bill date; the law uses acceptance / deemed acceptance — GPT review, `shared/payables/msme.ts`
 - Several rate-less lines at different true rates in one voucher get one blended rate (flagged off-slab); discounts debited to a ledger under Sales Accounts are ignored in the taxable value — PR #93
 - Off-standard implied rate stays a warning (no source on what the portal accepts) — PR #93
+- A note to an unregistered buyer whose original invoice is not found (no return link, no reference = invoice number, no bill set against) is put in CDNUR / B2CS by its own value — PR_GST, `services/gst.ts` originalInvoices
 - ~~Unused constant `GSTR3B_QRMP_DUE_DAY = 22` still exported from the close checklist~~ DONE — PR #118
 - "Exporting JSON" is treated as "prepared"; filing / payment evidence is a manual mark only — GPT review, `services/gst.ts`
 
@@ -171,6 +172,7 @@ done on main were dropped. One line each; the pointer says where to look.
 
 - GST slabs 2025 / 2026 and schedule numbering read from secondary copies (N. 9/2025, 19/2025-CT (Rate)) — `src/shared/gst/rateTable.ts` GST_RATE_UNVERIFIED
 - Services' GST rates after 22 Sep 2025; compensation cess nil / ended dates; biris at 18 %; the HSN → slab mapping — `rateTable.ts`
+- GSTR-1 CDNUR (PR_GST): GSTN's help (tutorial.gst.gov.in/contextualhelp/Einv/CDNUR.htm) still quotes the ₹2.5 lakh B2CL limit; Total applies today's ₹1 lakh (N. 12/2024-CT) to every original, not the limit in force on the original's own date — `shared/gst/returns.ts`
 - GSTR-1 11th / 13th: amendments to N. 83/2020-CT (12/2021, 17/2021, 09/2024) and one-off extensions not read; IFF not modelled — `src/shared/gst/filing.ts`, `compliance.ts`
 - Quarterly GSTR-3B for state code 97 / missing state listed on the 22nd; state / month extensions not modelled — `filing.ts`
 - PMT-06 amount not worked out — `filing.ts`

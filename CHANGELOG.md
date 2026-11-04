@@ -20,7 +20,27 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **GST returns agree with the books** (PR_GST). Plain words: a bill's GST in the returns, on Home,
+  in Taxes and in Ask Total is now the GST the bill actually charged, to the paisa.
+  For accountants — figures that change:
+  - A "just an amount" (ledger-line) sale, credit note or outward debit note whose sales account
+    carries a GST rate that does not explain the tax the voucher posts (a ₹1,000 bill charged at 5 %
+    on an 18 % Sales account) is reported in GSTR-1 / GSTR-3B / GSTR-9 / HSN, the e-invoice / e-way
+    bill, prints and the Home / Taxes / Ask Total GST figures at the slab the posted tax implies
+    (5 %, CGST 25 + SGST 25), no longer at the account's rate (18 %, 90 + 90). Only when one slab
+    explains the whole posted tax; otherwise the account's rate stays (the value check flags it).
+    Every other document is reported exactly as before (the posted-rate parity fixture is unchanged).
+  - The invoice editor (and everything built on it: Make a bill, Record a purchase, returns, the
+    counter, AI / capture drafts) rounds GST per LINE, as GSTR-1 / 3B and the e-invoice do: 3 × ₹100.50
+    at 18 % now posts CGST / SGST ₹27.15 each (was ₹27.14 + round off ₹0.22). Only new saves and
+    edited bills change; an old bill re-opened and saved without changing a line keeps its saved
+    (per rate group) tax.
+  - GSTR-1 Table 9B (CDNUR): a credit / debit note to an unregistered buyer goes there when its
+    ORIGINAL invoice was B2C Large (by its return link, its reference = the invoice number, or the
+    bill it is set against), as GSTN's CDNUR help says — no longer by the note's own value. A note
+    whose original is not known is judged by its own value as before.
 
 ## [0.12.0] - 2026-10-22
 

@@ -124,6 +124,54 @@ export function postedLineRates(
 }
 
 /**
+ * The ORIGINAL invoice of each credit / outward debit note (GSTR-1 9B CDNUR vs B2CS is decided by
+ * it — returns.ts buildGstr1): its `return` line link, else the party's sales invoice numbered as
+ * the note's reference (dated on / before the note), else the sales invoice whose bill the note is
+ * set `against`. Value = the invoice's debit side (as `invoiceValue`), place of supply = its own
+ * override, else the note's. In chunks of 500 notes.
+ */
+function originalInvoices(db: DB, notes: { id: number; pos: string }[]): Map<number, { invoiceValue: number; pos: string }> {
+  const out = new Map<number, { invoiceValue: number; pos: string }>()
+  const o = IN_BOOKS.replace(/\bv\./g, 'o.')
+  for (let i = 0; i < notes.length; i += 500) {
+    const chunk = notes.slice(i, i + 500)
+    const rows = db
+      .prepare(
+        `SELECT n.id AS noteId, COALESCE(
+           (SELECT ll.from_voucher_id FROM line_links ll JOIN vouchers o ON o.id = ll.from_voucher_id JOIN voucher_types ot ON ot.id = o.voucher_type_id
+            WHERE ll.to_voucher_id = n.id AND ll.link_type = 'return' AND ot.kind = 'sales' AND ${o} ORDER BY ll.id LIMIT 1),
+           (SELECT o.id FROM vouchers o JOIN voucher_types ot ON ot.id = o.voucher_type_id
+            WHERE ot.kind = 'sales' AND o.party_ledger_id = n.party_ledger_id AND o.number = TRIM(n.reference) AND o.date <= n.date AND ${o}
+            ORDER BY o.date DESC, o.id DESC LIMIT 1),
+           (SELECT o.id FROM bill_refs br JOIN bill_refs ob ON ob.name = br.name AND ob.kind = 'new' AND ob.party_ledger_id = br.party_ledger_id
+              JOIN vouchers o ON o.id = ob.voucher_id JOIN voucher_types ot ON ot.id = o.voucher_type_id
+            WHERE br.voucher_id = n.id AND br.kind = 'against' AND ot.kind = 'sales' AND o.party_ledger_id = n.party_ledger_id AND ${o}
+            ORDER BY br.id, o.date DESC, o.id DESC LIMIT 1)
+         ) AS origId
+         FROM vouchers n WHERE n.id IN (${chunk.map(() => '?').join(',')})`
+      )
+      .all(...chunk.map((n) => n.id)) as { noteId: number; origId: number | null }[]
+    const found = rows.filter((r) => r.origId != null) as { noteId: number; origId: number }[]
+    if (found.length === 0) continue
+    const ids = [...new Set(found.map((r) => r.origId))]
+    const facts = new Map(
+      (db
+        .prepare(
+          `SELECT o.id, o.pos_override AS posOverride, (SELECT COALESCE(SUM(amount), 0) FROM voucher_lines WHERE voucher_id = o.id AND dr_cr = 'dr') AS total
+           FROM vouchers o WHERE o.id IN (${ids.map(() => '?').join(',')})`
+        )
+        .all(...ids) as { id: number; posOverride: string | null; total: number }[]).map((r) => [r.id, r])
+    )
+    const posOf = new Map(chunk.map((n) => [n.id, n.pos]))
+    for (const r of found) {
+      const f = facts.get(r.origId)
+      if (f) out.set(r.noteId, { invoiceValue: f.total, pos: f.posOverride ?? posOf.get(r.noteId)! })
+    }
+  }
+  return out
+}
+
+/**
  * Extract outward GST documents (sales + credit notes + outward debit notes) for a period.
  *
  * Tax is computed ONCE per line (computeGst on the line's taxable at its master rate) and
@@ -216,8 +264,18 @@ function extractOutwardDocsRaw(db: DB, company: CompanyInfo, from: string, to: s
      WHERE vl.voucher_id = ? AND l.tax_type IN ('cgst', 'sgst', 'igst', 'cess') LIMIT 1`
   )
 
-  return vouchers
-    .filter((v) => v.kind !== 'debit_note' || outwardDbn.has(v.id))
+  // Notes to an unregistered, non-export buyer carry their original invoice (CDNUR vs B2CS).
+  const outward = vouchers.filter((v) => v.kind !== 'debit_note' || outwardDbn.has(v.id))
+  const originals = originalInvoices(
+    db,
+    outward.flatMap((v) => {
+      if (v.kind === 'sales' || v.partyGstin) return []
+      const c = outwardSupplyClass(company, v)
+      return c.isExport ? [] : [{ id: v.id, pos: c.pos }]
+    })
+  )
+
+  return outward
     .map((v) => {
       const { invTyp, isExport, pos, supply, zeroTax } = outwardSupplyClass(company, v)
       const rated = chargesGstOn(company, v.date) || !!taxLineStmt.get(v.id)
@@ -314,6 +372,7 @@ function extractOutwardDocsRaw(db: DB, company: CompanyInfo, from: string, to: s
         invTyp,
         rchrg: !!v.partyRcm,
         shippingBill: isExport ? { num: v.transDocNo, date: v.transDocDate } : null,
+        ...(originals.has(v.id) ? { original: originals.get(v.id)! } : {}),
         validation: {
           valDiff: invoiceValue - (tcsBy.get(v.id) ?? 0) - computedTotal,
           missingHsnCount,

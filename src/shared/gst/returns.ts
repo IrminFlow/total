@@ -76,6 +76,10 @@ export interface GstDoc {
   /** Shipping bill (exports, Table 6A) — from voucher_transport trans_doc_no/date. */
   shippingBill?: { num: string | null; date: string | null } | null
   validation?: GstDocValidation
+  /** Notes to an unregistered buyer only: the ORIGINAL invoice (by its `return` link, the note's
+   *  reference = the invoice number, or a bill ref against the invoice's bill) — it decides CDNUR
+   *  vs B2CS. Absent = not known: the note is judged by its own value (the old rule). */
+  original?: { invoiceValue: number; pos: string }
 }
 
 /** Inward (purchase-side) tax totals — one leg of the GSTR-3B ITC table. */
@@ -272,12 +276,19 @@ export function buildGstr1(
     (d) => !isExport(d) && !d.partyGstin && !b2clDocs.includes(d)
   )
   const cdnrDocs = notes.filter((d) => !isExport(d) && d.partyGstin && hasRated(d))
-  // CDNUR carries only B2CL-type notes (inter-state, above the B2CL threshold) and export
-  // notes; every other unregistered note is netted into the B2CS aggregation below —
-  // that is where the portal adjusts small B2C notes.
-  const cdnurDocs = notes.filter(
-    (d) => !d.partyGstin && hasRated(d) && (isExport(d) || (d.pos !== companyState && d.invoiceValue > B2CL_THRESHOLD_PAISE))
-  )
+  // CDNUR carries only notes issued in respect of B2C Large invoices (inter-state, above the B2CL
+  // threshold) and exports; every other unregistered note is netted into the B2CS aggregation
+  // below — that is where the portal adjusts small B2C notes. The ORIGINAL invoice decides
+  // (GSTN, GSTR-1 CDNUR help, https://tutorial.gst.gov.in/contextualhelp/Einv/CDNUR.htm: "details
+  // of credit or debit notes issued in respect of following supplies: Inter-State taxable outward
+  // supplies made to unregistered persons, where invoice value is more than Rs. 2.5 Lakh (B2C
+  // Large); Export invoices" — the page still quotes the pre-1-Aug-2024 limit, B2CL_THRESHOLD_PAISE
+  // above); a note whose original is not known is judged by its own value, as before.
+  const isB2clNote = (d: NormalizedDoc): boolean => {
+    const o = d.original ?? { invoiceValue: d.invoiceValue, pos: d.pos }
+    return o.pos !== companyState && o.invoiceValue > B2CL_THRESHOLD_PAISE
+  }
+  const cdnurDocs = notes.filter((d) => !d.partyGstin && hasRated(d) && (isExport(d) || isB2clNote(d)))
   const b2csNoteDocs = notes.filter((d) => !d.partyGstin && !cdnurDocs.includes(d))
 
   // ---- 4A/4B/6B/6C — b2b, grouped by counterparty GSTIN ----

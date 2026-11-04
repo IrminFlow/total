@@ -28,7 +28,7 @@ import { previewIntent, postIntent, remapSaveError } from './simplePost'
 import { normaliseIntent, type MappedEntry } from '@shared/simple/intents'
 import { saleView, salesList, sellSetup } from './simpleSell'
 import { createMemory } from '../ai/memory'
-import { extractOutwardDocs } from './gst'
+import { extractOutwardDocs, gstr1 } from './gst'
 import { extractEdocInvoices } from './edocs'
 import { emptySellForm, saleIntentFrom, saleStatus, sellFormErrors, sellTotals, type SellContext, type SellForm } from '@shared/simple/sell'
 
@@ -785,5 +785,25 @@ describe('tax is rounded per line: books = GSTR-1 = e-invoice', () => {
     const bill = getVoucher(db, out.voucherIds[0]!)!
     const ret = post({ kind: 'return_sale', billId: bill.id, items: [{ lineUid: bill.inventory[0]!.lineUid!, qty: '1' }] })
     expect(ret.voucherIds.length).toBeGreaterThan(0)
+  })
+})
+
+// Bug hunt 2026-11: a note to an unregistered buyer goes to GSTR-1 9B (CDNUR) when its ORIGINAL
+// invoice was B2C Large, not by the note's own value (GSTN CDNUR help, cited in returns.ts).
+describe('GSTR-1 CDNUR follows the original invoice', () => {
+  beforeEach(() => { db = company() })
+  it('a small return of a B2C Large sale is a CDNUR note; a return of a small sale nets into B2CS', () => {
+    ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })
+    // ₹1,50,000 + 18 % IGST to an unregistered buyer in Karnataka: B2CL (> ₹1,00,000).
+    const big = post({ kind: 'sale', customerId: L('Asha'), amount: { amount: '1,50,000', gstRate: 18 } })
+    const small = post({ kind: 'sale', customerId: L('Asha'), amount: { amount: '50,000', gstRate: 18 } })
+    post({ kind: 'return_sale', billId: big.voucherIds[0]!, amount: { amount: '20,000' } })
+    post({ kind: 'return_sale', billId: small.voucherIds[0]!, amount: { amount: '10,000' } })
+    const r = gstr1(db, INFO, '2025-08-01', '2025-08-31', '082025')
+    const cdnur = (r.json.cdnur ?? []) as { val: number; typ: string }[]
+    expect(cdnur.map((n) => [n.typ, n.val])).toEqual([['B2CL', 23600]])
+    // B2CS for Karnataka: 50,000 - 10,000 = 40,000 taxable.
+    const b2cs = (r.json.b2cs ?? []) as { pos: string; txval: number }[]
+    expect(b2cs.map((x) => [x.pos, x.txval])).toEqual([['29', 40000]])
   })
 })
