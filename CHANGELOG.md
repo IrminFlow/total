@@ -258,7 +258,8 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   goes right after "Restore", the books are now either the old ones or the restored ones, never an
   empty file. For developers: `swapInPlace` (db/backup.ts) fsyncs the swap copy before the rename and
   the folder after (it never did — found in #197's review); the scratch rekey checks that
-  `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it.
+  `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it; a swap that fails (copy / fsync / rename) removes its copy and
+  reopens the untouched books instead of leaving a closed handle.
 
 ## [0.12.0] - 2026-10-22
 

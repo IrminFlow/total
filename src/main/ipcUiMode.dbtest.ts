@@ -5,7 +5,7 @@
 // is the one `companyT` reads.
 import { TRUSTED_EVENT } from './ipcSender.testutil'
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync } from 'fs'
+import { chmodSync, mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { basename, join } from 'path'
 import Database from 'better-sqlite3-multiple-ciphers'
@@ -179,6 +179,25 @@ describe('company mode (meta ui)', () => {
     await tick()
     await ok('backup:restore', { file: simple })
     expect((await ok<{ ui: unknown }>('company:current')).ui).toEqual({ mode: 'simple' })
+  })
+})
+
+describe('backup:restore when the swap itself fails (CodeRabbit on #197)', () => {
+  it.skipIf(process.platform === 'win32')('the books stay open and unchanged — never a closed handle', async () => {
+    const { slug } = await ok<{ slug: string }>('company:create', company('Swap Fail Co'))
+    await ok('company:open', { slug })
+    const file = basename((await ok<{ path: string }>('backup:run')).path)
+    await new Promise((r) => setTimeout(r, 1100)) // the pre-restore snapshot is named by the second
+    const dir = join(DATA_DIR, 'companies', slug)
+    chmodSync(dir, 0o555) // the swap copy beside company.db can't be written
+    try {
+      const r = await call('backup:restore', { file })
+      expect(r.ok).toBe(false)
+    } finally {
+      chmodSync(dir, 0o755)
+    }
+    expect((await call('company:current')).ok).toBe(true)
+    expect(await ok<{ ok: boolean }>('audit:verify')).toMatchObject({ ok: true })
   })
 })
 
