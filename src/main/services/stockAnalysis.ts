@@ -297,7 +297,16 @@ function loadMovements(
     .all(...(filter.godownId ? [asOn, filter.godownId] : [asOn])) as MovementRow[]
 }
 
-const toMovement = (r: MovementRow, amount = r.amount): InventoryMovement => ({
+/** The count lines whose stored amount is a typed cost per unit (inventory_lines.count_cost,
+ *  PR #188 review) — the only count lines whose amount the engine reads. A handful of rows, read
+ *  through the partial index; empty on a schema from before the column (migration tests). */
+function countCostLines(db: DB): ReadonlySet<number> {
+  const has = (db.prepare("SELECT 1 FROM pragma_table_info('inventory_lines') WHERE name = 'count_cost'").get() as unknown) != null
+  if (!has) return new Set()
+  return new Set((db.prepare('SELECT il.id FROM inventory_lines il WHERE il.count_cost = 1').all() as { id: number }[]).map((r) => r.id))
+}
+
+const toMovement = (r: MovementRow, amount = r.amount, marked: ReadonlySet<number> = NONE): InventoryMovement => ({
   itemId: r.stockItemId,
   voucherId: r.voucherId,
   date: r.date,
@@ -305,8 +314,11 @@ const toMovement = (r: MovementRow, amount = r.amount): InventoryMovement => ({
   direction: r.direction,
   qtyMilli: r.qtyMilli,
   amount: r.direction === 'in' && !r.isAbsolute ? amount : 0,
-  isAbsolute: !!r.isAbsolute
+  isAbsolute: !!r.isAbsolute,
+  // A MARKED count line's stored value (the cost per unit asked for a never-stocked product).
+  ...(r.isAbsolute && r.amount > 0 && marked.has(r.lineId) ? { countAmount: r.amount } : {})
 })
+const NONE: ReadonlySet<number> = new Set()
 
 const toItems = (items: ItemRow[], withOpening = true): InventoryItem[] =>
   items.map((i) => ({
@@ -320,7 +332,8 @@ const toItems = (items: ItemRow[], withOpening = true): InventoryItem[] =>
  *  order as loadMovements, read row by row from a prepared-statement iterator straight into the
  *  pass — no array of ~all inventory lines is built. Re-iterable: each pass runs the query again. */
 function streamMovements(db: DB, asOn: string): Iterable<InventoryMovement> {
-  if (!streamPassInput) return loadMovements(db, asOn).map((r) => toMovement(r))
+  const marked = countCostLines(db)
+  if (!streamPassInput) return loadMovements(db, asOn).map((r) => toMovement(r, r.amount, marked))
   // Built per call: IN_BOOKS / MOVES_STOCK come through a circular import (vouchers.ts).
   // Raw rows (arrays, in movementsSql's column order): a per-row iterator pays a native call per
   // row, and skipping the keyed row object wins that back (measured in docs/perf-budgets.md).
@@ -330,7 +343,10 @@ function streamMovements(db: DB, asOn: string): Iterable<InventoryMovement> {
       for (const r of stmt.iterate(asOn) as IterableIterator<RawMovementRow>) {
         const direction = r[7]
         const isAbsolute = !!r[8]
-        yield { itemId: r[2], voucherId: r[1], date: r[4], lineId: r[0], direction, qtyMilli: r[5], amount: direction === 'in' && !isAbsolute ? r[6] : 0, isAbsolute }
+        const m: InventoryMovement = { itemId: r[2], voucherId: r[1], date: r[4], lineId: r[0], direction, qtyMilli: r[5], amount: direction === 'in' && !isAbsolute ? r[6] : 0, isAbsolute }
+        // A MARKED count line's stored value (the cost per unit asked for a never-stocked product).
+        if (isAbsolute && r[6] > 0 && marked.has(r[0])) m.countAmount = r[6]
+        yield m
       }
     }
   }
@@ -393,10 +409,11 @@ export function withStockPass<T>(db: DB, fn: () => T): T {
 function companyPassInput(db: DB, asOn: string): { items: ItemRow[]; rows: MovementRow[]; input: InventoryPassInput } {
   const items = listItems(db)
   const rows = loadMovements(db, asOn)
+  const marked = countCostLines(db)
   return {
     items,
     rows,
-    input: { items: toItems(items), movements: rows.map((r) => toMovement(r)), costing: voucherCosting(db, asOn) }
+    input: { items: toItems(items), movements: rows.map((r) => toMovement(r, r.amount, marked)), costing: voucherCosting(db, asOn) }
   }
 }
 
@@ -415,18 +432,19 @@ function godownPassInput(
 ): InventoryPassInput {
   let godownRows: MovementRow[]
   let booked: Map<number, number>
+  const marked = countCostLines(db)
   if ([...costing.values()].some((c) => c.rule !== 'stored')) {
     // Derived / transfer values (and WP 2.5 linked ones) need the company-wide movements.
     const rows = loadMovements(db, asOn)
-    booked = bookedInwardValues({ items: toItems(items), movements: rows.map((r) => toMovement(r)), costing })
+    booked = bookedInwardValues({ items: toItems(items), movements: rows.map((r) => toMovement(r, r.amount, marked)), costing })
     godownRows = rows.filter((r) => r.godownId === godownId)
   } else {
     // Stored-rule values depend only on each voucher's own lines: no pass needed.
     const journalInward = costing.size > 0 ? loadMovements(db, asOn, { stockJournalInward: true }) : []
-    booked = bookedInwardValues({ items: [], movements: journalInward.map((r) => toMovement(r)), costing })
+    booked = bookedInwardValues({ items: [], movements: journalInward.map((r) => toMovement(r, r.amount, marked)), costing })
     godownRows = loadMovements(db, asOn, { godownId })
   }
-  return { items: toItems(items, false), movements: godownRows.map((r) => toMovement(r, booked.get(r.lineId) ?? r.amount)) }
+  return { items: toItems(items, false), movements: godownRows.map((r) => toMovement(r, booked.get(r.lineId) ?? r.amount, marked)) }
 }
 
 const ZERO: ValuationResult = { closingQtyMilli: 0, closingValue: 0, inwardQtyMilli: 0, outwardQtyMilli: 0, consumedValue: 0 }

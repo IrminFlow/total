@@ -19,7 +19,7 @@ import { runDraft } from '../drafting/tools'
 import { capRows, drCr, rupees } from './readTools'
 import { defineTool, type ToolContext, type ToolDef } from './registry'
 import type { DB } from '../../db/connection'
-import { descendantIdsByName } from '../../services/masters'
+import { partyGroupIdsBySide } from '../../services/masters'
 import { profitHidden } from './profitGuard'
 import { PROFIT_HIDDEN_TOOL_MESSAGE } from '@shared/profitRedaction'
 
@@ -231,7 +231,7 @@ export const findAnomaliesTool = defineTool({
 /** Names → ids over the masters: exact (case-insensitive) first, else contains (the request is
  *  then refused with the candidates). Parties are the ledgers under Sundry Debtors / Creditors. */
 export function nameLookup(db: DB): NameLookup {
-  const partyGroups = [...descendantIdsByName(db, ['Sundry Debtors', 'Sundry Creditors'])]
+  const partyGroups = [...partyGroupIdsBySide(db, 'debtor'), ...partyGroupIdsBySide(db, 'creditor')]
   const tables: Record<NameKind, string> = {
     ledger: 'SELECT id, name FROM ledgers',
     party: partyGroups.length ? `SELECT id, name FROM ledgers WHERE group_id IN (${partyGroups.join(',')})` : 'SELECT id, name FROM ledgers WHERE 0',

@@ -256,6 +256,25 @@ describe('Count your stock (WP 9.7)', () => {
     expect(bannedWordsIn(visible())).toEqual([])
   })
 
+  it('a product with nothing on hand asks what one cost; Save needs it and sends it (Phase 1 triage)', async () => {
+    renderUi(<StockCount />)
+    await waitFor(() => expect(screen.getByTestId('input-count-3')).toBeTruthy())
+    expect(screen.queryByTestId('input-count-cost-3')).toBeNull()
+    typeIn('input-count-3', '10')
+    expect(screen.getByTestId('input-count-cost-3')).toBeTruthy()
+    typeIn('input-count-1', '98')
+    expect(screen.queryByTestId('input-count-cost-1')).toBeNull() // Flour has stock: its cost is the books'
+    click('btn-count-save')
+    await waitFor(() => expect(visible()).toContain('Say what one cost you for each new product you counted'))
+    expect(calls('simple:post')).toEqual([])
+    typeIn('input-count-cost-3', '25')
+    click('btn-count-save')
+    await waitFor(() => expect(screen.getByTestId('save-card')).toBeTruthy())
+    const posted = calls('simple:post') as { intent: { counts: unknown[] } }[]
+    expect(posted[0]!.intent.counts).toEqual([{ itemId: 1, qty: 98_000 }, { itemId: 3, qty: 10_000, cost: 2500 }])
+    expect(bannedWordsIn(visible())).toEqual([])
+  })
+
   it('nothing counted: the problem under the list, nothing posted', async () => {
     renderUi(<StockCount />)
     await waitFor(() => expect(screen.getByTestId('input-count-1')).toBeTruthy())

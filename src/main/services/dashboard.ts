@@ -39,6 +39,7 @@ import { IN_BOOKS, NOT_DELETED, getLockDate } from './vouchers'
 import { promisedThisWeek } from './receivables'
 import { msmeDueSummary } from './payables'
 import { pdcsMaturing } from './pdc'
+import { partySideGroupIds } from '@shared/chartOfAccounts'
 
 /** Mirrors db/backup.ts BackupInfo — passed in by the IPC handler (the service never touches
  *  the filesystem, so dbtests can hand it a list). */
@@ -261,8 +262,8 @@ function computeSeries(
 
   const cashIds = descendantIdSet(groups, ['Cash-in-Hand'])
   const bankIds = descendantIdSet(groups, ['Bank Accounts', 'Bank OD A/c'])
-  const debtorIds = descendantIdSet(groups, ['Sundry Debtors'])
-  const creditorIds = descendantIdSet(groups, ['Sundry Creditors'])
+  const debtorIds = partySideGroupIds(groups, 'debtor')
+  const creditorIds = partySideGroupIds(groups, 'creditor')
   const dutiesIds = descendantIdSet(groups, ['Duties & Taxes'])
 
   // Month-end and as-on balances of every cash/bank/party/duties ledger from ONE grouped

@@ -5,6 +5,7 @@ import { ledgerInputSchema } from '@shared/schemas'
 import type { BatchInput, GroupInput, GodownInput, LedgerInput, StockGroupInput, StockItemInput, UnitInput, VoucherTypeInput } from '@shared/schemas'
 import type { GroupTreeNode, LedgerBalanceRow } from '@shared/reports'
 import { CASH_BANK_GROUPS } from '@shared/seed'
+import { partySideGroupIds, type PartyGroupLink } from '@shared/chartOfAccounts'
 import { rebuildItemSerials } from './serials'
 import { writeAudit } from './audit'
 import { guardOpeningChange } from './openingBills'
@@ -155,6 +156,14 @@ export function descendantIdsByName(db: DB, names: string[]): Set<number> {
   const placeholders = names.map(() => '?').join(',')
   const roots = db.prepare(`SELECT id FROM groups WHERE name IN (${placeholders})`).all(...names) as { id: number }[]
   return descendantIds(db, roots.map((r) => r.id))
+}
+
+/** The party groups on one side (debtors = customers, creditors = suppliers), by name AND nature
+ *  — shared/chartOfAccounts `partySideGroupIds`, so a party under an imported "Trade Receivables"
+ *  counts like one under Sundry Debtors. */
+export function partyGroupIdsBySide(db: DB, role: 'debtor' | 'creditor'): Set<number> {
+  const groups = db.prepare('SELECT id, name, parent_id AS parentId, nature FROM groups').all() as PartyGroupLink[]
+  return partySideGroupIds(groups, role)
 }
 
 export function cashBankGroupIds(db: DB): Set<number> {

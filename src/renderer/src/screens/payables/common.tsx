@@ -2,6 +2,7 @@
 import { useMemo } from 'react'
 import { todayISO } from '@shared/dates'
 import type { Group, Ledger } from '@shared/domain'
+import { partyRoleOf } from '@shared/chartOfAccounts'
 import { MSME_CATEGORY_LABELS } from '@shared/payables/msme'
 import type { SupplierMsmeFacts } from '@shared/payables/types'
 import { Badge } from '../../components/ui'
@@ -41,12 +42,7 @@ export function useCashBankLedgers(): Ledger[] {
 
 /** Ledger filter for the supplier pickers. */
 export function creditorFilter(l: Ledger, groups: Map<number, Group>): boolean {
-  let g = groups.get(l.groupId)
-  while (g) {
-    if (g.name === 'Sundry Creditors') return true
-    g = g.parentId ? groups.get(g.parentId) : undefined
-  }
-  return false
+  return partyRoleOf(l.groupId, groups) === 'creditor'
 }
 
 export function MsmeBadge({ msme }: { msme: SupplierMsmeFacts | null }): React.JSX.Element | null {

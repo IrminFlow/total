@@ -4,7 +4,7 @@ import type { DB } from '../db/connection'
 import type {
   AiContext, AiDraftDto, AiDraftSource, AiDraftStatus, AiFigure, AiMessageDto, AiMessageRole, AiOutboundRow, AiSource, AiThreadDto, AiToolCallDto, AiUsageRow, AiVoucherDraftPayload
 } from '@shared/ai'
-import { descendantIdsByName } from '../services/masters'
+import { partyGroupIdsBySide } from '../services/masters'
 import { assignAliases, createPseudonymiser, type Pseudonymiser } from './privacy'
 
 const json = (v: unknown): string | null => (v === undefined ? null : JSON.stringify(v))
@@ -523,7 +523,7 @@ export function listOutbound(db: DB, limit = 2000): AiOutboundRow[] {
 /** Party ledgers = everything under Sundry Debtors / Sundry Creditors. Assigns any missing alias
  *  (stable: existing aliases never change) and returns the pseudonymiser for this company. */
 export function companyPseudonymiser(db: DB): Pseudonymiser {
-  const partyGroups = descendantIdsByName(db, ['Sundry Debtors', 'Sundry Creditors'])
+  const partyGroups = new Set([...partyGroupIdsBySide(db, 'debtor'), ...partyGroupIdsBySide(db, 'creditor')])
   const parties = (db.prepare('SELECT id, name, group_id FROM ledgers').all() as { id: number; name: string; group_id: number }[]).filter((l) =>
     partyGroups.has(l.group_id)
   )

@@ -77,7 +77,8 @@ export function inventoryToPayload(l: InventoryLine): InventoryPayload {
     discountPaise: l.discountPaise,
     amount: l.amount,
     direction: l.direction,
-    isAbsolute: l.isAbsolute
+    isAbsolute: l.isAbsolute,
+    ...(l.countCost ? { countCost: true } : {})
   }
 }
 
@@ -158,6 +159,7 @@ function canonical(p: VoucherPayload): Record<string, unknown> {
       amount: l.amount,
       direction: l.direction,
       isAbsolute: l.isAbsolute ?? false,
+      countCost: !!(l.isAbsolute && l.countCost),
       // Serial order is significant (stored as given); absent and [] store the same.
       serials: [...(l.serials ?? [])],
       // A link source is part of what is stored; the line uid is compared in diffPayloads (only

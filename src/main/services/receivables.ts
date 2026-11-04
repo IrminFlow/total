@@ -37,7 +37,7 @@ import type { FollowupInput } from '@shared/receivables/schemas'
 import { followupInputSchema } from '@shared/receivables/schemas'
 import { ledgerStatement } from './reports'
 import { openingBillsByParty, outstandings, partyAllocation, registerVoucherRows } from './analysis'
-import { createLedger, descendantIdsByName, getLedger } from './masters'
+import { createLedger, descendantIdsByName, getLedger, partyGroupIdsBySide } from './masters'
 import { outwardSupplyClass } from './gst'
 import { hasTaxSnapshots } from './taxFacts'
 import { extractEdocInvoices } from './edocs'
@@ -97,7 +97,7 @@ function partyRow(db: DB, id: number): PartyRow {
 }
 
 function debtorRows(db: DB): PartyRow[] {
-  const ids = descendantIdsByName(db, ['Sundry Debtors'])
+  const ids = partyGroupIdsBySide(db, 'debtor')
   return (db.prepare(`${PARTY_SQL} ORDER BY name`).all() as PartyRow[]).filter((p) => ids.has(p.groupId))
 }
 
@@ -816,7 +816,7 @@ export function promisedThisWeek(db: DB, today: string): PromisedSummary {
 
 /** Net credit sales per month on debtors: sales + debit notes − credit notes (party-line totals). */
 function salesByMonth(db: DB, from: string, to: string): Map<string, number> {
-  const debtors = descendantIdsByName(db, ['Sundry Debtors'])
+  const debtors = partyGroupIdsBySide(db, 'debtor')
   const rows = db
     .prepare(
       `SELECT substr(v.date, 1, 7) AS month, vt.kind, l.group_id AS groupId, vl.dr_cr AS drCr, vl.amount

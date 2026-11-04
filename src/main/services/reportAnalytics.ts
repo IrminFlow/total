@@ -14,6 +14,7 @@ import { balanceSheet, closingBalances, descendantIdSet, profitAndLoss } from '.
 import { listGroups } from './masters'
 import { netTradeRows } from './analysis'
 import { stockValuesAt } from './stockAnalysis'
+import { partySideGroupIds } from '@shared/chartOfAccounts'
 
 // ---------------------------------------------------------------- comparative statements
 
@@ -151,8 +152,8 @@ export function ratioReport(db: DB, from: string, to: string): RatioReport {
   // Cash and bank without overdrafts; an overdraft is a current liability (cash ratio, CL).
   const cash = set(CASH_BANK_GROUPS.filter((n) => n !== 'Bank OD A/c'))
   const od = set(['Bank OD A/c'])
-  const debtors = set(['Sundry Debtors'])
-  const creditors = set(['Sundry Creditors'])
+  const debtors = partySideGroupIds(groups, 'debtor')
+  const creditors = partySideGroupIds(groups, 'creditor')
   const capital = set(['Capital Account'])
   const loans = set(['Loans (Liability)'])
   const stockGroups = set(['Stock-in-Hand'])

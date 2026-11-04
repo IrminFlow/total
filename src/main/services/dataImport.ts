@@ -994,6 +994,9 @@ function voucherInputFor(ctx: Ctx, d: VoucherDraft, vt: { id: number; kind: Vouc
       discountPaise: discount || undefined,
       amount, direction: it.direction ?? defaultDirection(vt.kind),
       isAbsolute: lm.is_absolute === 1 || lm.is_absolute === true || undefined,
+      // PR #188 review: only a line the export marked keeps its typed count cost (an older file's
+      // rate / amount on a count line stay unread, as before).
+      countCost: (lm.is_absolute === 1 || lm.is_absolute === true) && lm.count_cost === 1 ? true : undefined,
       serials: Array.isArray(lm.serials) ? (lm.serials as string[]) : undefined,
       lineUid: str(lm.line_uid) ?? undefined,
       source
@@ -1390,7 +1393,7 @@ export function voucherToInput(v: Voucher): VoucherInput {
     lines: v.lines.map((l) => ({ ledgerId: l.ledgerId, drCr: l.drCr, amount: l.amount, costAllocations: l.costAllocations.map((a) => ({ costCentreId: a.costCentreId, amount: a.amount })) })),
     inventory: v.inventory.map((l) => ({
       stockItemId: l.stockItemId, godownId: l.godownId, batchId: l.batchId, qtyMilli: l.qtyMilli, ratePaise: l.ratePaise, discountPaise: l.discountPaise,
-      amount: l.amount, direction: l.direction, isAbsolute: l.isAbsolute || undefined, serials: l.serials, lineUid: l.lineUid, source: l.source ?? null
+      amount: l.amount, direction: l.direction, isAbsolute: l.isAbsolute || undefined, countCost: l.countCost || undefined, serials: l.serials, lineUid: l.lineUid, source: l.source ?? null
     })),
     billRefs: v.billRefs.map((b) => ({ kind: b.kind, name: b.name, amount: b.amount, dueDate: b.dueDate })),
     tds: v.tds ? { sectionId: v.tds.sectionId, baseAmount: v.tds.baseAmount, tdsAmount: v.tds.tdsAmount, isManual: true, autoPayable: false } : null,

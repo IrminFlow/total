@@ -135,7 +135,8 @@ function rule37Bills(db: DB, key: string): Rule37Bill[] {
     let m = cache.get(k)
     if (!m) {
       m = new Map()
-      for (const b of openBills(db, party, date)) if (b.voucherId != null) m.set(b.voucherId, (m.get(b.voucherId) ?? 0) + b.pending)
+      // GST returns keep main's party side (seeded Sundry Debtors tree; owner, 4 Nov — PR #188).
+      for (const b of openBills(db, party, date, { seededSide: true })) if (b.voucherId != null) m.set(b.voucherId, (m.get(b.voucherId) ?? 0) + b.pending)
       cache.set(k, m)
     }
     return m.get(voucherId) ?? 0

@@ -20,7 +20,7 @@
 import type { Translate } from '../i18n'
 import { AppError } from '../errors/appError'
 import type { ErrorCode } from '../errors/codes'
-import { formatPaise, formatQtyMilli } from '../money'
+import { formatPaise, formatQtyMilli, parseAmountText } from '../money'
 import { buildPhysicalPayload, emptyPhysicalState, type PhysicalFormState } from '../voucherEdit/physical'
 import { emptyManufactureState, evaluateManufactureForm, padManufactureRows, type ManufactureFormState } from '../voucherEdit/manufacture'
 import { qtyText, type VoucherPayload } from '../voucherEdit/payload'
@@ -230,15 +230,32 @@ export interface CountForm {
   date: string
   /** Typed counts by product id ('' / missing = not counted, left unchanged). */
   counted: Readonly<Record<number, string>>
+  /** What one cost, by product id — asked only for a product with nothing on hand (needsCost). */
+  costs?: Readonly<Record<number, string>>
 }
 
 export type CountField = 'date' | 'counts'
 
-/** Client-side checks: at least one count, every count a quantity. Keys are i18n keys. */
-export function countFormErrors(form: CountForm): Partial<Record<CountField, 'simple.stock.count.err.none' | 'simple.stock.count.err.qty'>> {
+/** On hand as on the count's date, by product id (the list the screen shows). */
+export type OnHand = ReadonlyMap<number, number>
+
+/** A counted product with nothing on hand has no cost the engine can take, so its count would be
+ *  worth ₹0 — the form asks what one cost (Phase 1 triage: a count of a never-stocked product).
+ *  Without `onHand` (not loaded yet) nothing is asked. */
+export function needsCost(form: CountForm, itemId: number, onHand?: OnHand): boolean {
+  if (!onHand) return false
+  const milli = parseCountText(form.counted[itemId] ?? '')
+  return milli != null && milli > 0 && (onHand.get(itemId) ?? 0) <= 0
+}
+
+/** Client-side checks: at least one count, every count a quantity, a cost for each product that
+ *  needs one. Keys are i18n keys. */
+export function countFormErrors(form: CountForm, onHand?: OnHand): Partial<Record<CountField, 'simple.stock.count.err.none' | 'simple.stock.count.err.qty' | 'simple.stock.count.err.cost'>> {
   const typed = Object.values(form.counted).filter((v) => v.trim() !== '')
   if (typed.length === 0) return { counts: 'simple.stock.count.err.none' }
   if (typed.some((v) => parseCountText(v) == null)) return { counts: 'simple.stock.count.err.qty' }
+  const missing = Object.keys(form.counted).map(Number).filter((id) => needsCost(form, id, onHand) && parseAmountText(form.costs?.[id] ?? '') == null)
+  if (missing.length) return { counts: 'simple.stock.count.err.cost' }
   return {}
 }
 
@@ -252,8 +269,15 @@ export function countedRows(form: CountForm): { itemId: number; qtyMilli: number
 
 type WithoutClientId<T> = T extends unknown ? Omit<T, 'clientId'> : never
 
-export function countIntentFrom(form: CountForm): WithoutClientId<Extract<SimpleIntentInput, { kind: 'stock_count' }>> {
-  return { kind: 'stock_count', date: form.date, counts: countedRows(form).map((r) => ({ itemId: r.itemId, qty: r.qtyMilli })) }
+export function countIntentFrom(form: CountForm, onHand?: OnHand): WithoutClientId<Extract<SimpleIntentInput, { kind: 'stock_count' }>> {
+  return {
+    kind: 'stock_count',
+    date: form.date,
+    counts: countedRows(form).map((r) => {
+      const cost = needsCost(form, r.itemId, onHand) ? parseAmountText(form.costs?.[r.itemId] ?? '') : null
+      return { itemId: r.itemId, qty: r.qtyMilli, ...(cost != null ? { cost } : {}) }
+    })
+  }
 }
 
 // ---------------------------------------------------------------- Made goods
@@ -492,7 +516,11 @@ export function mapStockCount(n: Extract<NormalIntent, { kind: 'stock_count' }>,
   const state: PhysicalFormState = {
     ...emptyPhysicalState(n.date),
     number,
-    rows: n.counts.map((c) => ({ itemId: c.itemId, qtyText: qtyText(c.qtyMilli), godownId: null, batchId: null })),
+    // A cost per unit only for a product with nothing on hand (the engine has no cost to take).
+    rows: n.counts.map((c) => {
+      const cost = c.costPaise != null && c.costPaise > 0 && (ctx.stock?.get(c.itemId)?.qtyMilli ?? 0) <= 0 ? c.costPaise : null
+      return { itemId: c.itemId, qtyText: qtyText(c.qtyMilli), godownId: null, batchId: null, ...(cost != null ? { ratePaise: cost } : {}) }
+    }),
     narration: n.narration
   }
   const built = buildPhysicalPayload(state, { voucherTypeId: type.id, itemName: (id) => nameOf(ctx, id) })
