@@ -110,7 +110,7 @@ export function voucherToPayload(v: Voucher): VoucherPayload {
 }
 
 /** Display text for a qtyMilli in an editable quantity box ("2.5"), parse-stable with
- *  Math.round(parseFloat(text) * 1000). */
+ *  parseQtyText (shared/qty.ts). */
 export function qtyText(qtyMilli: number): string {
   return String(qtyMilli / 1000)
 }

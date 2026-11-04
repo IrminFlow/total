@@ -4,7 +4,7 @@
 // tolerances live in Options (F12) and are saved per company. Every document is a link.
 import { useQuery } from '@tanstack/react-query'
 import { toDisplayDate } from '@shared/dates'
-import { formatPaise } from '@shared/money'
+import { formatPaise, parseAmountText } from '@shared/money'
 import {
   DEFAULT_MATCH_TOLERANCES, MATCH_EXCEPTION_LABELS, MATCH_EXCEPTIONS, type MatchException, type MatchLineRef, type MatchRow
 } from '@shared/tradeCycle/match'
@@ -77,7 +77,7 @@ export function ThreeWayMatchScreen(): React.JSX.Element {
   const o = opts.options
   const tolerances = {
     rateTolBp: toBp(o.ratePct),
-    amountTolPaise: Math.max(0, Math.round((parseFloat(o.amountRupees) || 0) * 100)),
+    amountTolPaise: parseAmountText(o.amountRupees) ?? 0,
     qtyTolBp: toBp(o.qtyPct),
     flagGrnWithoutPo: o.flagGrnWithoutPo,
     flagUnmatchedBills: o.flagUnmatchedBills

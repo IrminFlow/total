@@ -15,6 +15,7 @@ import { isAnyModalOpen } from '../../components/ui'
 import { DocLink } from '../../components/links'
 import { nextLineKey } from './hooks'
 import { blankItemRow, type ItemRow } from './ItemLineGrid'
+import { parseQtyText } from '@shared/qty'
 
 export interface AddFromState {
   /** The button's label / link type; null = no "Add from…" for this kind (or flag off). */
@@ -70,7 +71,7 @@ export function useAddFrom(opts: {
   const qtyInForm = (uid: string, exceptKey?: number): number =>
     rows
       .filter((r) => r.source?.lineUid === uid && r.key !== exceptKey)
-      .reduce((s, r) => s + (Math.round(parseFloat(r.qtyText || '0') * 1000) || 0), 0)
+      .reduce((s, r) => s + (parseQtyText(r.qtyText) ?? 0), 0)
   const drawerLines = (openLines ?? [])
     .map((l) => {
       const pending = l.pendingMilli - qtyInForm(l.lineUid)
@@ -81,7 +82,7 @@ export function useAddFrom(opts: {
   const lockedBySource = (r: ItemRow): { label: string; maxQtyMilli: number; lockDetail: boolean } | null => {
     if (!r.source) return null
     const l = byUid.get(r.source.lineUid)
-    const own = Math.round(parseFloat(r.qtyText || '0') * 1000) || 0
+    const own = parseQtyText(r.qtyText) ?? 0
     if (!l) return { label: 'the linked line', maxQtyMilli: own, lockDetail: false }
     return {
       label: l.label,
