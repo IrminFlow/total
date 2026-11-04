@@ -32,7 +32,7 @@ import { outstandingsWithAdvances } from './analysis'
 import { getLedger, listGroups, updateLedger } from './masters'
 import { counterAccounts, WALK_IN_NAME } from './counter'
 import { getReceivablesConfig, logReminder, reminderLog } from './receivables'
-import { lateDays } from '@shared/simple/late'
+import { dueDateOf, lateDays } from '@shared/simple/late'
 
 interface PartyLedgerRow {
   id: number
@@ -65,7 +65,7 @@ function partyLedgers(db: DB): (PartyLedgerRow & { side: PersonSide })[] {
 }
 
 const billOf = (b: OutstandingParty['bills'][number]): PersonBill => ({
-  name: b.number, voucherId: b.voucherId, date: b.date, dueDate: b.dueDate, amount: b.amount, pending: b.pending, overdueDays: lateDays(b)
+  name: b.number, voucherId: b.voucherId, date: b.date, dueDate: dueDateOf(b), amount: b.amount, pending: b.pending, overdueDays: lateDays(b)
 })
 
 /** The open bills (still due) of one Outstandings row, oldest first. */

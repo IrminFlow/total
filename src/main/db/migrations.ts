@@ -3606,5 +3606,15 @@ export const MIGRATIONS: string[] = [
   ALTER TABLE inventory_lines ADD COLUMN snap_gst_rate REAL;
   ALTER TABLE inventory_lines ADD COLUMN snap_cess_rate REAL;
   ALTER TABLE inventory_lines ADD COLUMN snap_hsn TEXT;
+  `,
+  // PR #188 review — "count cost": a Physical Stock line whose stored value is a cost per unit
+  // typed for a product with nothing on hand (simple Count stock, the Physical Stock editor's
+  // carried cost) is MARKED here, and the valuation engine uses a count line's stored amount only
+  // when it is marked. Count lines saved before (or brought in by the data import / an older books
+  // file, which can carry a rate and an amount) stay 0 and value exactly as before. The partial
+  // index keeps the lookup of the few marked lines off the inventory scan.
+  `
+  ALTER TABLE inventory_lines ADD COLUMN count_cost INTEGER NOT NULL DEFAULT 0 CHECK (count_cost IN (0, 1));
+  CREATE INDEX IF NOT EXISTS idx_inv_count_cost ON inventory_lines(id) WHERE count_cost = 1;
   `
 ]

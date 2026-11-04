@@ -14,6 +14,9 @@ const AI_DIR = join(__dirname, '..', 'ai')
 
 /** `file` + a substring unique to the SQL string → why it may read every line. */
 const ALLOW: { file: string; contains: string; reason: string }[] = [
+  { file: 'stockAnalysis.ts', contains: "SELECT 1 FROM pragma_table_info('inventory_lines') WHERE name = 'count_cost'", reason: 'a schema probe (does the count-cost column exist), no lines read' },
+  { file: 'vouchers.ts', contains: 'UPDATE inventory_lines SET count_cost = 1 WHERE id = ?', reason: 'marks a line saveVoucher just inserted (a write, not a reader)' },
+  { file: 'stockAnalysis.ts', contains: 'SELECT il.id FROM inventory_lines il WHERE il.count_cost = 1', reason: 'the ids of marked count lines, a lookup set — the movements themselves are filtered' },
   { file: 'tradeLinks.ts', contains: 'SELECT il.serials FROM line_links ll JOIN inventory_lines il ON il.line_uid', reason: 'serials already named by the linked (non-moving) target lines' },
   { file: 'tradeReports.ts', contains: "WHERE vt.kind = ? AND v.date <= ?", reason: 'pending challans / GRNs read the notes\' own lines (a stock note line always moves stock)' },
   { file: 'tradeLists.ts', contains: 'WHERE il.voucher_id IN (${marks}) AND il.is_absolute = 0', reason: 'the challan / GRN lists read the notes\' own lines (a stock note line always moves stock), like the pending report' },

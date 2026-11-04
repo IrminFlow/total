@@ -127,7 +127,7 @@ export function getVoucher(db: DB, id: number): Voucher | null {
       id: number; stock_item_id: number; godown_id: number | null; batch_id: number | null
       qty_milli: number; rate_paise: number; discount_paise: number; amount: number; direction: 'in' | 'out'; is_absolute: number
       serials?: string | null
-      line_uid?: string | null; moves_stock?: number
+      line_uid?: string | null; moves_stock?: number; count_cost?: number
     }[]
   const trade = hasTradeSchema(db)
   const sources = trade ? lineSourcesOf(db, id) : new Map()
@@ -207,6 +207,7 @@ export function getVoucher(db: DB, id: number): Voucher | null {
         qtyMilli: l.qty_milli, ratePaise: l.rate_paise, discountPaise: l.discount_paise,
         amount: l.amount, direction: l.direction,
         isAbsolute: !!l.is_absolute,
+        ...(l.count_cost === 1 ? { countCost: true } : {}),
         serials: parseLineSerials(l.serials),
         ...(l.line_uid != null
           ? { lineUid: l.line_uid, movesStock: l.moves_stock !== 0, source: sources.get(l.line_uid) ?? null }
@@ -765,11 +766,16 @@ export function saveVoucher(db: DB, raw: VoucherInput, existingId?: number, hook
         : `INSERT INTO inventory_lines (voucher_id, stock_item_id, godown_id, batch_id, qty_milli, rate_paise, discount_paise, amount, direction, is_absolute, line_order)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    input.inventory.forEach((l, i) =>
-      insertInv.run(voucherId, l.stockItemId, l.godownId, l.batchId ?? null, l.qtyMilli, l.ratePaise,
+    // PR #188 review: a count line's typed cost per unit is marked (count_cost) — only a marked
+    // line's stored amount is read by the valuation engine.
+    // (Prepared only when a line carries one: older schemas — migration tests — have no column.)
+    let markCountCost: ReturnType<DB['prepare']> | null = null
+    input.inventory.forEach((l, i) => {
+      const res = insertInv.run(voucherId, l.stockItemId, l.godownId, l.batchId ?? null, l.qtyMilli, l.ratePaise,
         l.discountPaise ?? 0, l.amount, l.direction, l.isAbsolute ? 1 : 0, i,
         ...(trade ? [resolved[i]!.uid, resolved[i]!.movesStock ? 1 : 0] : []))
-    )
+      if (l.countCost && l.isAbsolute && l.amount > 0) (markCountCost ??= db.prepare('UPDATE inventory_lines SET count_cost = 1 WHERE id = ?')).run(Number(res.lastInsertRowid))
+    })
     if (trade) {
       // WP 2.5: the voucher's own links (as target) and its role as a source — tradeLinks.ts.
       const lw = syncVoucherLinks(db, {

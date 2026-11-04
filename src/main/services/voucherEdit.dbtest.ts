@@ -653,16 +653,26 @@ describe('voucher editor round-trip (WP 1.4): load → save unchanged stores ide
     expect(getVoucher(db, id)!.inventory.every((l) => l.isAbsolute)).toBe(true)
   })
 
-  // Phase 1 triage: the Physical Stock editor carries a count line's cost per unit (asked for a
-  // never-stocked product), so a valued count whose amount = qty × rate opens there now.
-  it('a valued physical-stock voucher (e.g. imported) opens in the Physical Stock editor with its cost per unit and keeps isAbsolute', () => {
+  // PR #188 review: an UNMARKED valued count (imported, or saved before) is exactly as on main —
+  // the generic editor; only a count line marked with its typed cost (count_cost) opens in the
+  // Physical Stock editor with that cost per unit.
+  it('a valued physical-stock voucher (e.g. imported) uses the generic editor and keeps isAbsolute', () => {
     const id = saveVoucher(db, {
       ...header, voucherTypeId: typeId(db, 'physical_stock'), date: '2025-05-20',
       lines: [],
       inventory: [{ stockItemId: x.gadget, godownId: x.godownB, batchId: null, qtyMilli: 4000, ratePaise: 100, amount: 400, direction: 'in', isAbsolute: true }]
     }).id
-    expectRoundTrip(db, id, 'physical')
+    expectRoundTrip(db, id, 'stockLines')
     expect(getVoucher(db, id)!.inventory[0]!.isAbsolute).toBe(true)
+  })
+  it('a count marked with its typed cost per unit opens in the Physical Stock editor and keeps the mark', () => {
+    const id = saveVoucher(db, {
+      ...header, voucherTypeId: typeId(db, 'physical_stock'), date: '2025-05-20',
+      lines: [],
+      inventory: [{ stockItemId: x.gadget, godownId: x.godownB, batchId: null, qtyMilli: 4000, ratePaise: 100, amount: 400, direction: 'in', isAbsolute: true, countCost: true }]
+    }).id
+    expectRoundTrip(db, id, 'physical')
+    expect(getVoucher(db, id)!.inventory[0]).toMatchObject({ isAbsolute: true, countCost: true })
   })
 
   it('getVoucher returns cost allocations in stored order', () => {

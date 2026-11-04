@@ -83,6 +83,8 @@ export function buildPhysicalPayload(
         amount: r.ratePaise ? countValue(qtyMilli, r.ratePaise) : 0,
         direction: 'in' as const,
         isAbsolute: true,
+        // The typed cost per unit is marked, so the engine reads it (PR #188 review).
+        ...(r.ratePaise && countValue(qtyMilli, r.ratePaise) > 0 ? { countCost: true } : {}),
         ...(r.lineUid ? { lineUid: r.lineUid } : {})
       })),
       billRefs: [],
@@ -104,7 +106,8 @@ export function physicalRepresentation(
     rows: v.inventory.map((l) => ({
       itemId: l.stockItemId, qtyText: qtyText(l.qtyMilli), godownId: l.godownId, batchId: l.batchId,
       ...(l.lineUid ? { lineUid: l.lineUid } : {}),
-      ...(l.ratePaise ? { ratePaise: l.ratePaise } : {})
+      // Only a MARKED count line carries a cost per unit (an unmarked rate is not one — PR #188 review).
+      ...(l.countCost && l.ratePaise ? { ratePaise: l.ratePaise } : {})
     })),
     narration: v.narration ?? '',
     passthrough: passthroughOf(v),

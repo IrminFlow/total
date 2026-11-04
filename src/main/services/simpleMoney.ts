@@ -29,7 +29,7 @@ import { getFeatures } from './config'
 import { ledgerClassifier, type LedgerClass } from '../ai/ledgerClass'
 import { memoryContextFor } from '../ai/memory'
 import { getAiSettings } from '../ai/settings'
-import { lateDays } from '@shared/simple/late'
+import { dueDateOf, lateDays } from '@shared/simple/late'
 
 const MONEY_KINDS: readonly VoucherKind[] = ['receipt', 'payment', 'contra']
 
@@ -114,7 +114,7 @@ export function moneyBills(db: DB, partyId: number, date: string): MoneyOpenBill
   return openBills(db, partyId, date)
     .filter((b) => b.pending > 0)
     .sort((a, b) => a.date.localeCompare(b.date))
-    .map((b) => ({ name: b.number, date: b.date, pending: b.pending, voucherId: b.voucherId, dueDate: b.dueDate, overdueDays: lateDays(b) }))
+    .map((b) => ({ name: b.number, date: b.date, pending: b.pending, voucherId: b.voucherId, dueDate: dueDateOf(b), overdueDays: lateDays(b) }))
 }
 
 interface Head { id: number; number: string; date: string; kind: VoucherKind; party: number | null; narration: string | null; instrument: string | null }

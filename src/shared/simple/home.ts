@@ -267,7 +267,7 @@ export function daysSince(at: number, today: string): number {
  *  today): the same total the Outstandings screen and the Gateway tile show, plus the facts the
  *  sentence needs. Pure. */
 export function owedSummary(
-  parties: readonly { ledgerId: number; name: string; pending: number; bills: readonly { pending: number; ageDays: number; dueDate: string | null; overdueDays: number }[] }[],
+  parties: readonly { ledgerId: number; name: string; pending: number; bills: readonly { voucherId: number | null; date: string; pending: number; ageDays: number; dueDate: string | null; overdueDays: number }[] }[],
   today: string,
   advances: { amount: number; parties: number } = { amount: 0, parties: 0 }
 ): HomeOwed {

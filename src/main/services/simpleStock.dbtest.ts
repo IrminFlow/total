@@ -40,6 +40,10 @@ import { previewIntent, postIntent } from './simplePost'
 import { madeGoodsSetup, saveRecipe, savedCount, setSellingPrice, stockList, stockProduct } from './simpleStock'
 import { simpleHomeAttention } from './simpleHome'
 import { createDemoCompany } from './demo'
+import { buildBooksWorkbook } from './booksExport'
+import { xlsxBytes } from './xlsxFile'
+import { parseImportFile, planSteps } from './importFiles'
+import { runImport } from './dataImport'
 
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<{ ok: boolean; data?: unknown; error?: string; code?: string }>>()
 vi.mock('electron', () => ({
@@ -258,6 +262,42 @@ describe('A count of a never-stocked product asks what one cost (Phase 1 triage)
     expect(v.inventory.map((l) => [l.stockItemId, l.ratePaise, l.amount])).toEqual([[I('Jam'), 0, 0], [I('Flour'), 0, 0]])
     expect(listOf(db, TODAY).find((r) => r.itemId === I('Jam'))!.value).toBe(0)
     expect(listOf(db, TODAY).find((r) => r.itemId === I('Flour'))!.value).toBe(392_000)
+  })
+})
+
+// Review: only a count line the new path MARKED (`count_cost`, what mapStockCount / the Physical
+// Stock editor's cost per unit writes) is valued at its stored amount. Every other count line —
+// one saved before, or brought in by the data import / an older books file with a rate and an
+// amount on it — values exactly as on main (the engine's cost, ₹0 with nothing on hand).
+describe('only a marked count line is valued at its stored cost', () => {
+  const physical = (d: DB): number => (d.prepare("SELECT id FROM voucher_types WHERE kind = 'physical_stock' ORDER BY id").get() as { id: number }).id
+  it('a count with a rate and an amount but no mark (as the data import writes it) values as on main: ₹0', () => {
+    saveVoucher(db, {
+      voucherTypeId: physical(db), date: DAY, number: 'IMP-1', partyLedgerId: null, narration: null, lines: [],
+      inventory: [{ stockItemId: I('Jam'), godownId: null, batchId: null, qtyMilli: 10_000, ratePaise: 2500, amount: 25_000, direction: 'in', isAbsolute: true }]
+    })
+    expect((db.prepare("SELECT count_cost AS c FROM inventory_lines WHERE stock_item_id = ?").get(I('Jam')) as { c: number }).c).toBe(0)
+    expect(listOf(db, TODAY).find((r) => r.itemId === I('Jam'))).toEqual({ itemId: I('Jam'), qtyMilli: 10_000, value: 0 })
+    expect(summaryOf(db, TODAY).find((r) => r.itemId === I('Jam'))!.value).toBe(0)
+  })
+  it('the books export carries the mark: a marked count imports valued, an unmarked one as on main', () => {
+    const onHand = new Map(stockList(db, DAY).rows.map((r) => [r.itemId, r.qtyMilli]))
+    post(countIntentFrom({ date: DAY, counted: { [I('Jam')]: '10' }, costs: { [I('Jam')]: '25' } }, onHand))
+    expect((db.prepare("SELECT count_cost AS c FROM inventory_lines WHERE stock_item_id = ?").get(I('Jam')) as { c: number }).c).toBe(1)
+    const bytes = xlsxBytes(buildBooksWorkbook(db, readCompanyInfo(db), '0.0.0-test').sheets)
+    const importInto = (b: Uint8Array): DB => {
+      const dst = seededDb()
+      const f = parseImportFile('books.xlsx', b)
+      const r = runImport(dst, planSteps(f), { applyBooksFrom: Number(f.manifest!.booksFrom), lockDate: String(f.manifest!.lockDate) || null, sourceNamespace: 'x|y', duplicate: 'update', openingDifference: 'leave' }, { source: 'total-books', profileId: null, fileName: 'books.xlsx' }, false)
+      expect(r.steps.flatMap((x) => x.errors.map((e) => `${x.sheet}:${e.line} ${e.message}`))).toEqual([])
+      return dst
+    }
+    const jam = (d: DB) => summaryOf(d, TODAY).find((r) => r.itemId === (d.prepare("SELECT id FROM stock_items WHERE name = 'Jam'").get() as { id: number }).id)
+    expect(jam(importInto(bytes))).toMatchObject({ qtyMilli: 10_000, value: 25_000 })
+    // The same file without the mark (an export made before it existed): the count values as on main.
+    db.prepare('UPDATE inventory_lines SET count_cost = 0').run()
+    const older = xlsxBytes(buildBooksWorkbook(db, readCompanyInfo(db), '0.0.0-test').sheets)
+    expect(jam(importInto(older))).toMatchObject({ qtyMilli: 10_000, value: 0 })
   })
 })
 
