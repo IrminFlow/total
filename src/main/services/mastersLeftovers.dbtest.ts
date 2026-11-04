@@ -210,6 +210,18 @@ describe('deleting a ledger or group that leftover budgets / loans point at', ()
     deleteVoucher(db, v3)
     expect(undoImport(db, run3.batchId!)).toMatchObject({ deleted: 1, kept: [] })
     expect(count(db, 'SELECT COUNT(*) AS n FROM loans WHERE id = ?', loan3)).toBe(0)
+
+    // Two loans on one imported account: the one whose live entry refuses is named (not the first);
+    // with an imported opening the opening is cleared and the reason says to delete it once binned.
+    const run4 = csv('Name,Group\nFourth Term Loan,Secured Loans', 'generic:ledgers')
+    const l4 = idOf('Fourth Term Loan')
+    db.prepare('UPDATE ledgers SET opening_balance = -300000 WHERE id = ?').run(l4)
+    legacyLoan(db, l4, bank, null, 'Quiet loan') // lower id, no entries
+    const busy = legacyLoan(db, l4, bank, null, 'Busy loan')
+    disbursement(db, busy, bank, ledger(db, 'Partner loan', 'Unsecured Loans'))
+    const u4 = undoImport(db, run4.batchId!)
+    expect(reasonOf(l4, u4)).toMatch(/opening cleared — the loan “Busy loan”.*delete it yourself once they are in the bin/)
+    expect((db.prepare('SELECT opening_balance AS o FROM ledgers WHERE id = ?').get(l4) as { o: number }).o).toBe(0)
     expect(count(db, 'SELECT COUNT(*) AS n FROM loans WHERE id IN (?, ?)', loan1, loan2)).toBe(2)
     expect(count(db, 'SELECT COUNT(*) AS n FROM ledgers WHERE id IN (?, ?)', l1, l2)).toBe(2)
     expect(JSON.parse(audit(db, 'costCentre', cc)!.b!).cascaded).toMatchObject({ budget_lines: 1 })

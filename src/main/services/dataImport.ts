@@ -1611,10 +1611,14 @@ export function undoImport(db: DB, batchId: number): UndoResult {
                 // the reason names it — the loan that refused, or (its own entries keep it) the
                 // loan whose account it is.
                 const r = refusal as { code?: string; params?: { loan?: string } } | null
-                if (r?.code === 'ledger_loan_in_use' && r.params?.loan) loanOf = { name: r.params.loan, ownEntries: false }
-                else {
-                  const loan = (db.prepare('SELECT name FROM loans WHERE loan_ledger_id = ? ORDER BY id LIMIT 1').get(it.entity_id) as { name: string } | undefined)?.name
-                  if (loan) loanOf = { name: loan, ownEntries: true }
+                const firstLoan = (): string | undefined =>
+                  (db.prepare('SELECT name FROM loans WHERE loan_ledger_id = ? ORDER BY id LIMIT 1').get(it.entity_id) as { name: string } | undefined)?.name
+                if (r?.code === 'ledger_loan_in_use') {
+                  const name = r.params?.loan ?? firstLoan()
+                  if (name) loanOf = { name, ownEntries: false }
+                } else {
+                  const name = firstLoan()
+                  if (name) loanOf = { name, ownEntries: true }
                 }
                 // Its vouchers (live or in the bin) keep it, but the opening the import gave it
                 // must go — or the undone books carry an opening with no contra (an unused
