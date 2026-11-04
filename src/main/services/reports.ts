@@ -682,8 +682,8 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
   // closing journal that netted FY movements only, leaving stored P&L openings un-transferred;
   // those journals are not rewritten automatically, so the computed row legitimately shows that
   // residue in later years and the TB still balances (the row is derived from exactly what the FY
-  // window drops, whatever was posted) — until the owner runs Year-end → Check earlier closes
-  // (services/yearEndRepair.ts), which re-closes those years under today's rule.
+  // window drops, whatever was posted). Binning such a journal and closing the year again re-closes
+  // it under today's rule.
   const { rows, priorPnl } = yearBasisBalances(db, asOn)
 
   const result = rows

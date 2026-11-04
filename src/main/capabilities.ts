@@ -27,8 +27,6 @@ export const PROFIT_CHANNELS: readonly string[] = [
   'simple:reports:doing',
   // PR #127 review: the year-end close preview IS the net profit to transfer.
   'yearend:preview',
-  // The re-close check shows each closed year's net profit and the lines it would post.
-  'yearEnd:repairPreview',
 ]
 
 export const EXPORT_CHANNELS: readonly string[] = [
