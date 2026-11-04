@@ -22,7 +22,7 @@ Things to know about the version numbers:
 
 ### Fixed
 
-- **A bill returned in parts now clears to the paisa** (PR_RET). Plain words: return everything on a
+- **A bill returned in parts now clears to the paisa** (#190). Plain words: return everything on a
   bill a few items at a time and the customer (or supplier) no longer ends up owing ₹1, and the GST
   never goes a paisa below zero. For accountants — figures that change: in simple Returns, the LAST
   return of a bill line takes what is left of the line's value (the rest of the discount and of the
