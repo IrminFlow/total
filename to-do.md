@@ -218,7 +218,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Electron 37 → 43 major (PR #3 open): fixes ~50 alerts (fixed in 38.8.6 / 39.8.x / 41.10.x); needs its own WP — rebuild the SQLite cipher driver, full e2e on mac + Windows, DMG / EXE install check
 - vitest 3 → 5 major (PRs #7 and #14 open; removes tinypool): fixes tinypool (critical, dev-only), vitest / @vitest/mocker alerts; needs its own WP (test:db under Electron-as-Node, renderer config)
 - No fix published: sprintf-js (medium), http-cache-semantics (high), extract-zip (high, via electron's installer) — `package-lock.json`, re-check when Electron moves
-- ~~site/ (deferred): next 16.3.1 → 16.3.8 (PR #63, fixes critical / high alerts), sharp 0.35.5 (PR #16), source-map-js 1.2.2 (PR #13)~~ DONE — PR #189 (one bump, `npm run build` passes; supersedes #16 / #13; next 16.4.x (#184) left to the site work)
+- ~~site/ (deferred): next 16.3.1 → 16.3.8 (PR #63, fixes critical / high alerts), sharp 0.35.5 (PR #16), source-map-js 1.2.2 (PR #13)~~ DONE — PR #189 (one bump, `npm run build` passes; supersedes #16 / #13; then next 16.4.5 (critical advisories GHSA-2464-fhr4-w9xw / GHSA-673q-mjm6-r5xr / GHSA-p3m5-59mp-jv5r affect 16.0–16.4.0; `npm audit --omit=dev` clean); supersedes #184 too)
 - Closed as superseded by f3c9bf59 (#112): #6 xmldom, #10 js-yaml, #11 undici, #15 fast-uri, #17 brace-expansion, #62 source-map-js
 
 ## 8. Test gaps
