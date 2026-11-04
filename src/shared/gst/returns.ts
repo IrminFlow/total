@@ -78,8 +78,17 @@ export interface GstDoc {
   validation?: GstDocValidation
   /** Notes to an unregistered buyer only: the ORIGINAL invoice (by its `return` link, the note's
    *  reference = the invoice number, or a bill ref against the invoice's bill) — it decides CDNUR
-   *  vs B2CS. Absent = not known: the note is judged by its own value (the old rule). */
-  original?: { invoiceValue: number; pos: string }
+   *  vs B2CS, by the B2CL limit in force on ITS date. Absent = not known: the note is judged by its
+   *  own value and date (the old rule). */
+  original?: {
+    invoiceValue: number
+    pos: string
+    date: string
+    /** The original went to a registered buyer (its party snapshot carried a GSTIN): never B2CL. */
+    registered?: boolean
+    /** The original was an export: the note is CDNUR with that type. */
+    exportTyp?: 'EXPWP' | 'EXPWOP'
+  }
 }
 
 /** Inward (purchase-side) tax totals — one leg of the GSTR-3B ITC table. */
@@ -100,6 +109,18 @@ export interface TaxTotals extends InwardSummary {
  * the earlier ₹2,50,000 limit. Verify against the notification if this ever changes.
  */
 export const B2CL_THRESHOLD_PAISE = 100_000 * 100
+
+/** The B2CL limit before 1 Aug 2024: ₹2,50,000 (the limit Notification No. 12/2024–Central Tax
+ *  lowered to ₹1,00,000 with effect from 01-08-2024 — see B2CL_THRESHOLD_PAISE). */
+export const B2CL_THRESHOLD_BEFORE_AUG_2024_PAISE = 250_000 * 100
+/** The day Notification No. 12/2024–Central Tax's ₹1,00,000 B2CL limit took effect. */
+export const B2CL_LIMIT_CHANGED_ON = '2024-08-01'
+
+/** The B2CL limit in force on an invoice's date (third review of #187: a July 2024 invoice of
+ *  ₹2,12,400 was B2CS — the ₹1,00,000 limit applies only to invoices from 1 Aug 2024). */
+export function b2clLimitOn(date: string): number {
+  return date < B2CL_LIMIT_CHANGED_ON ? B2CL_THRESHOLD_BEFORE_AUG_2024_PAISE : B2CL_THRESHOLD_PAISE
+}
 
 const toRupees = (paise: number): number => Math.round(paise) / 100
 
@@ -270,7 +291,7 @@ export function buildGstr1(
   const expDocs = sales.filter((d) => isExport(d) && hasRated(d))
   const b2bDocs = sales.filter((d) => !isExport(d) && d.partyGstin && hasRated(d))
   const b2clDocs = sales.filter(
-    (d) => !isExport(d) && !d.partyGstin && hasRated(d) && d.pos !== companyState && d.invoiceValue > B2CL_THRESHOLD_PAISE
+    (d) => !isExport(d) && !d.partyGstin && hasRated(d) && d.pos !== companyState && d.invoiceValue > b2clLimitOn(d.date)
   )
   const b2csDocs = sales.filter(
     (d) => !isExport(d) && !d.partyGstin && !b2clDocs.includes(d)
@@ -282,13 +303,16 @@ export function buildGstr1(
   // (GSTN, GSTR-1 CDNUR help, https://tutorial.gst.gov.in/contextualhelp/Einv/CDNUR.htm: "details
   // of credit or debit notes issued in respect of following supplies: Inter-State taxable outward
   // supplies made to unregistered persons, where invoice value is more than Rs. 2.5 Lakh (B2C
-  // Large); Export invoices" — the page still quotes the pre-1-Aug-2024 limit, B2CL_THRESHOLD_PAISE
+  // Large); Export invoices" — the page still quotes the pre-1-Aug-2024 limit, b2clLimitOn
   // above); a note whose original is not known is judged by its own value, as before.
   const isB2clNote = (d: NormalizedDoc): boolean => {
-    const o = d.original ?? { invoiceValue: d.invoiceValue, pos: d.pos }
-    return o.pos !== companyState && o.invoiceValue > B2CL_THRESHOLD_PAISE
+    const o = d.original ?? { invoiceValue: d.invoiceValue, pos: d.pos, date: d.date }
+    // A B2B original (a registered buyer then) was never B2C Large.
+    return !o.registered && o.pos !== companyState && o.invoiceValue > b2clLimitOn(o.date)
   }
-  const cdnurDocs = notes.filter((d) => !d.partyGstin && hasRated(d) && (isExport(d) || isB2clNote(d)))
+  // A note in respect of an export (the note's own class, or its original's) is CDNUR with that type.
+  const exportTypOf = (d: NormalizedDoc): GstInvTyp | null => (isExport(d) ? d.typ : d.original?.exportTyp ?? null)
+  const cdnurDocs = notes.filter((d) => !d.partyGstin && hasRated(d) && (exportTypOf(d) != null || isB2clNote(d)))
   const b2csNoteDocs = notes.filter((d) => !d.partyGstin && !cdnurDocs.includes(d))
 
   // ---- 4A/4B/6B/6C — b2b, grouped by counterparty GSTIN ----
@@ -416,7 +440,7 @@ export function buildGstr1(
     ntty: d.kind === 'credit_note' ? 'C' : 'D',
     nt_num: d.number,
     nt_dt: toPortalDate(d.date),
-    typ: isExport(d) ? d.typ : 'B2CL',
+    typ: exportTypOf(d) ?? 'B2CL',
     pos: d.pos,
     val: toRupees(d.invoiceValue),
     itms: d.ratedItems.map((item, i) => ({ num: i + 1, itm_det: itmDet(item) }))

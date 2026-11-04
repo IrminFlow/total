@@ -1,5 +1,5 @@
 import { GST_STATES } from './states'
-import { B2CL_THRESHOLD_PAISE, isZeroRatedTyp, type GstDoc } from './returns'
+import { b2clLimitOn, isZeroRatedTyp, type GstDoc } from './returns'
 import { isUqc } from './uqc'
 import { einvoiceDocNoWarning } from './einvoiceSchema'
 
@@ -243,8 +243,8 @@ export function validateGstr1(docs: GstDoc[], company: Gstr1ValidationCompany): 
       d.kind === 'sales' &&
       !d.partyGstin &&
       d.pos !== company.stateCode &&
-      d.invoiceValue > B2CL_THRESHOLD_PAISE - 100_000 &&
-      d.invoiceValue <= B2CL_THRESHOLD_PAISE
+      d.invoiceValue > b2clLimitOn(d.date) - 100_000 &&
+      d.invoiceValue <= b2clLimitOn(d.date)
   )
   if (edge.length) {
     issues.push({

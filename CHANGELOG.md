@@ -52,8 +52,19 @@ Things to know about the version numbers:
     ORIGINAL invoice was B2C Large (by its return link, else the bill it is set against or its
     reference = the invoice number — only when that name can mean exactly one bill of the party, an
     invoice: numbers restart every year and opening bills carry names too, so a name shared by two
-    bills is never guessed), judged by the invoice's own place of supply, as GSTN's CDNUR help says.
-    A note whose original is not found is judged by its own value, as before.
+    bills is never guessed; a reference looks only at the note's year and the one before; a note
+    linked as a return to two invoices has none), judged by the invoice's own place of supply, buyer
+    and date, as GSTN's CDNUR help says. An original made to a registered buyer is never B2C Large;
+    a note on an export invoice is CDNUR with that export type. A note whose original is not found
+    is judged by its own value, as before.
+  - The B2CL limit is the one in force on the invoice's date: ₹2,50,000 for invoices dated before
+    1 Aug 2024, ₹1,00,000 from then (Notification No. 12/2024–Central Tax). GSTR-1 for periods
+    before August 2024 changes: an inter-state invoice to an unregistered buyer of more than
+    ₹1,00,000 and up to ₹2,50,000 moves from B2CL (Table 5) to B2CS (Table 7), and so do notes on
+    such invoices (from CDNUR to the B2CS netting); the "near the B2CL limit" warning uses the dated
+    limit too.
+  - A cash bill with no party ledger is checked against its cash / bank lines, so a ₹1,000 cash
+    sale charged 5 % on an 18 % Sales account is reported at 5 % too.
 ||||||| 3e971480
 Nothing yet.
 

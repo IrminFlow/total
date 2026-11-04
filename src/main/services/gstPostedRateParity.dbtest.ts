@@ -147,6 +147,23 @@ describe('posted-tax rate — a simple "just an amount" sale and its return', ()
     expect(edocs.flatMap((e) => e.items.map((i) => [i.rate, i.taxablePaise, i.cgst, i.sgst]))).toEqual([[5, 100000, 2500, 2500]])
   })
 
+  it('CodeRabbit: a cash sale with no party (Dr Cash 1,050 / Cr 18 % Sales 1,000 / tax 50) is reported at 5 %', () => {
+    const db = company()
+    db.prepare("UPDATE ledgers SET gst_rate = 18 WHERE name = 'Sales'").run()
+    const vt = (db.prepare("SELECT id FROM voucher_types WHERE kind = 'sales' ORDER BY id").get() as { id: number }).id
+    saveVoucher(db, {
+      voucherTypeId: vt, date: '2025-07-10', number: 'C-1', partyLedgerId: null,
+      lines: [
+        { ledgerId: id(db, 'Cash'), drCr: 'dr', amount: 105_000, costAllocations: [] },
+        { ledgerId: id(db, 'Sales'), drCr: 'cr', amount: 100_000, costAllocations: [] },
+        { ledgerId: id(db, 'CGST'), drCr: 'cr', amount: 2_500, costAllocations: [] },
+        { ledgerId: id(db, 'SGST'), drCr: 'cr', amount: 2_500, costAllocations: [] }
+      ],
+      inventory: [], billRefs: [], tds: null
+    })
+    const docs = extractOutwardDocs(db, INFO, '2025-07-01', '2025-07-31')
+    expect(docs.map((d) => d.items.map((i) => [i.rate, i.taxable, i.cgst, i.sgst]))).toEqual([[[5, 100_000, 2_500, 2_500]]])
+  })
   it('review of #187: a discount debited to an expense beside an 18 % Sales line is not read as 12 %', () => {
     const db = company()
     db.prepare("UPDATE ledgers SET gst_rate = 18 WHERE name = 'Sales'").run()

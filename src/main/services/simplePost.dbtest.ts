@@ -822,7 +822,7 @@ describe('GSTR-1 CDNUR: the original invoice across years and places', () => {
     at({ kind: 'return_sale', billId: small.voucherIds[0]!, date: '2026-05-10', amount: { amount: '1,000' } }, '2026-05-20')
     const docs = extractOutwardDocs(db, INFO26, '2026-05-01', '2026-05-31')
     // Its original is the March ₹11,800 bill (by the bill it is set against).
-    expect(docs.map((d) => d.original)).toEqual([{ invoiceValue: 1_180_000, pos: '29' }])
+    expect(docs.map((d) => d.original)).toEqual([{ invoiceValue: 1_180_000, pos: '29', date: '2026-03-10' }])
     const r = gstr1(db, INFO26, '2026-05-01', '2026-05-31', '052026')
     expect(r.json.cdnur ?? []).toEqual([])
   })
@@ -841,7 +841,7 @@ describe('GSTR-1 CDNUR: the original invoice across years and places', () => {
     expect(extractOutwardDocs(db, INFO, '2026-05-01', '2026-05-31').find((d) => d.voucherId === n1)!.original).toBeUndefined()
     // Binned, the March bill leaves one candidate: the April one.
     db.prepare("UPDATE vouchers SET deleted_at = '2026-05-11' WHERE id = ?").run(a)
-    expect(extractOutwardDocs(db, INFO, '2026-05-01', '2026-05-31').find((d) => d.voucherId === n1)!.original).toEqual({ invoiceValue: 17_700_000, pos: '29' })
+    expect(extractOutwardDocs(db, INFO, '2026-05-01', '2026-05-31').find((d) => d.voucherId === n1)!.original).toEqual({ invoiceValue: 17_700_000, pos: '29', date: '2026-04-10' })
   })
   // Re-review of #187: the name a note is set against (or refers to) may mean several bills —
   // the books settle the OLDEST open one, and opening bills carry names too. Only ONE candidate,
@@ -894,6 +894,69 @@ describe('GSTR-1 CDNUR: the original invoice across years and places', () => {
     const n = creditNote('2025-07-10', 'CN-3', 10_000_000, { against: 'Opening' })
     expect(extractOutwardDocs(db, INFO, '2025-07-01', '2025-07-31').find((d) => d.voucherId === n)!.original).toBeUndefined()
   })
+  it('third review: a pre-1-Aug-2024 original of ₹2,12,400 was B2CS (limit ₹2,50,000 then): its note nets into B2CS', () => {
+    ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })
+    sale('2024-07-10', 'P1', 18_000_000)
+    const n = creditNote('2024-09-10', 'CN-P', 1_000_000, { against: 'P1' })
+    expect(extractOutwardDocs(db, INFO, '2024-09-01', '2024-09-30').find((d) => d.voucherId === n)!.original).toEqual({ invoiceValue: 21_240_000, pos: '29', date: '2024-07-10' })
+    expect(cdnurOf('2024-09-01', '2024-09-30', '092024')).toEqual([])
+    // The invoice itself: B2CS in July 2024.
+    expect(gstr1(db, INFO, '2024-07-01', '2024-07-31', '072024').json.b2cl ?? []).toEqual([])
+  })
+  it('third review: a note linked as a return to TWO invoices has no original (its own value decides)', () => {
+    ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })
+    const a = getVoucher(db, post({ kind: 'sale', customerId: L('Asha'), items: [{ itemId: I('Widget'), qty: '1', rate: '1000' }] }).voucherIds[0]!)!
+    const b = getVoucher(db, post({ kind: 'sale', customerId: L('Asha'), items: [{ itemId: I('Widget'), qty: '1', rate: '150000' }] }).voucherIds[0]!)!
+    const n = saveVoucher(db, {
+      voucherTypeId: typeId(db, 'credit_note'), date: '2025-08-12', number: 'CN-M', partyLedgerId: L('Asha'),
+      lines: [{ ledgerId: L('Sales'), drCr: 'dr', amount: 2_000, costAllocations: [] }, { ledgerId: L('IGST'), drCr: 'dr', amount: 360, costAllocations: [] }, { ledgerId: L('Asha'), drCr: 'cr', amount: 2_360, costAllocations: [] }],
+      inventory: [
+        { stockItemId: I('Widget'), qtyMilli: 1, ratePaise: 100_000, amount: 1_000, direction: 'in', source: { lineUid: a.inventory[0]!.lineUid!, linkType: 'return' } },
+        { stockItemId: I('Widget'), qtyMilli: 1, ratePaise: 100_000, amount: 1_000, direction: 'in', source: { lineUid: b.inventory[0]!.lineUid!, linkType: 'return' } }
+      ],
+      billRefs: [], tds: null
+    }).id
+    expect(extractOutwardDocs(db, INFO, '2025-08-01', '2025-08-31').find((d) => d.voucherId === n)!.original).toBeUndefined()
+  })
+  it('third review: notes set against thousands of bill names (one chunk) never hit SQLite\'s variable limit', () => {
+    ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })
+    // 141 notes x 50 names (the schema's most per voucher) = 7,050 names in one 500-note chunk;
+    // 5 variables each would be 35,250 > SQLite's 32,766.
+    const ids: number[] = []
+    for (let k = 0; k < 141; k++) {
+      ids.push(saveVoucher(db, {
+        voucherTypeId: typeId(db, 'credit_note'), date: '2025-08-12', number: `CN-MANY-${k}`, partyLedgerId: L('Asha'),
+        lines: [{ ledgerId: L('Sales'), drCr: 'dr', amount: 42, costAllocations: [] }, { ledgerId: L('IGST'), drCr: 'dr', amount: 8, costAllocations: [] }, { ledgerId: L('Asha'), drCr: 'cr', amount: 50, costAllocations: [] }],
+        inventory: [], billRefs: Array.from({ length: 50 }, (_, i) => ({ kind: 'against' as const, name: `N${k}-${i}`, amount: 1, dueDate: null })), tds: null
+      }).id)
+    }
+    const docs = extractOutwardDocs(db, INFO, '2025-08-01', '2025-08-31')
+    expect(docs.filter((d) => ids.includes(d.voucherId)).map((d) => d.original)).toEqual(ids.map(() => undefined))
+  })
+  it('CodeRabbit (a): a reference-only note looks for its invoice in its FY and the one before — an old "1" from years back does not count', () => {
+    ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })
+    sale('2023-05-10', '1', 1_000_000)
+    sale('2025-06-10', '1', 15_000_000)
+    const n = creditNote('2025-07-10', 'CN-R', 1_000_000, { reference: '1' })
+    expect(extractOutwardDocs(db, INFO, '2025-07-01', '2025-07-31').find((d) => d.voucherId === n)!.original).toEqual({ invoiceValue: 17_700_000, pos: '29', date: '2025-06-10' })
+    expect(cdnurOf('2025-07-01', '2025-07-31', '072025')).toEqual([11_800])
+  })
+  it('CodeRabbit (b): a note whose original went to a REGISTERED buyer is never CDNUR B2CL', () => {
+    ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29', gstin: '29AABCF9012G1ZQ' })
+    sale('2025-06-10', 'B2', 15_000_000)
+    db.prepare('UPDATE ledgers SET gstin = NULL WHERE id = ?').run(L('Asha'))
+    const n = creditNote('2025-07-10', 'CN-B', 1_000_000, { against: 'B2' })
+    expect(extractOutwardDocs(db, INFO, '2025-07-01', '2025-07-31').find((d) => d.voucherId === n)!.original).toMatchObject({ registered: true })
+    expect(cdnurOf('2025-07-01', '2025-07-31', '072025')).toEqual([])
+  })
+  it('CodeRabbit (d): a note whose original was an export is CDNUR with the export type', () => {
+    ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '96', exportType: 'exp_wp' })
+    sale('2025-06-10', 'E2', 15_000_000)
+    db.prepare("UPDATE ledgers SET export_type = NULL, state_code = '29' WHERE id = ?").run(L('Asha'))
+    creditNote('2025-07-10', 'CN-E', 1_000_000, { against: 'E2' })
+    const cdnur = (gstr1(db, INFO, '2025-07-01', '2025-07-31', '072025').json.cdnur ?? []) as { typ: string; val: number }[]
+    expect(cdnur.map((x) => [x.typ, x.val])).toEqual([['EXPWP', 11_800]])
+  })
   it('the original is placed by ITS own place of supply (its party snapshot), not the note\'s', () => {
     ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })
     // ₹1,50,000 + IGST to Karnataka: B2C Large. Asha then moves to Maharashtra; the note is intra-state.
@@ -902,7 +965,7 @@ describe('GSTR-1 CDNUR: the original invoice across years and places', () => {
     at({ kind: 'return_sale', billId: big.voucherIds[0]!, date: '2025-08-12', amount: { amount: '10,000' } }, '2025-08-13')
     const doc = extractOutwardDocs(db, INFO, '2025-08-01', '2025-08-31').find((d) => d.kind === 'credit_note')!
     expect(doc.pos).toBe('27')
-    expect(doc.original).toEqual({ invoiceValue: 17_700_000, pos: '29' })
+    expect(doc.original).toEqual({ invoiceValue: 17_700_000, pos: '29', date: '2025-08-05' })
     // A note in respect of a B2C Large (inter-state) invoice: CDNUR.
     expect(((gstr1(db, INFO, '2025-08-01', '2025-08-31', '082025').json.cdnur ?? []) as unknown[]).length).toBe(1)
   })

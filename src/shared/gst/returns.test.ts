@@ -9,7 +9,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'fs'
 import {
-  applySetOff, buildGstr1, buildGstr3b, classifyDoc, B2CL_THRESHOLD_PAISE,
+  applySetOff, buildGstr1, buildGstr3b, classifyDoc, B2CL_THRESHOLD_PAISE, b2clLimitOn,
   type GstDoc, type Gstr1Extras, type Gstr3bInputs
 } from './returns'
 import {
@@ -742,13 +742,13 @@ describe('9B CDNUR follows the original invoice', () => {
     hsnLines: [], nilLines: [], invTyp: 'R', rchrg: false, validation: zero, ...over
   })
   it('a small note against a B2C Large invoice goes to CDNUR (typ B2CL)', () => {
-    const r = buildGstr1([note({ original: { invoiceValue: 17_700_000, pos: '29' } })], COMPANY_GSTIN, COMPANY_STATE, PERIOD)
+    const r = buildGstr1([note({ original: { invoiceValue: 17_700_000, pos: '29', date: '2026-07-01' } })], COMPANY_GSTIN, COMPANY_STATE, PERIOD)
     expect((r.json.cdnur as { nt_num: string; typ: string }[] | undefined)?.map((n) => [n.nt_num, n.typ])).toEqual([['CRN-9', 'B2CL']])
     expect(r.json.b2cs ?? []).toEqual([])
   })
   it('a large debit note against a B2C Small invoice nets into B2CS, never CDNUR', () => {
     const r = buildGstr1(
-      [note({ kind: 'debit_note', invoiceValue: 11_800_000, items: [{ rate: 18, taxable: 10_000_000, cgst: 0, sgst: 0, igst: 1_800_000, cess: 0 }], original: { invoiceValue: 59_000, pos: '29' } })],
+      [note({ kind: 'debit_note', invoiceValue: 11_800_000, items: [{ rate: 18, taxable: 10_000_000, cgst: 0, sgst: 0, igst: 1_800_000, cess: 0 }], original: { invoiceValue: 59_000, pos: '29', date: '2026-07-01' } })],
       COMPANY_GSTIN, COMPANY_STATE, PERIOD
     )
     expect(r.json.cdnur ?? []).toEqual([])
@@ -757,5 +757,37 @@ describe('9B CDNUR follows the original invoice', () => {
   it('without a known original the note is judged by its own value, as before', () => {
     const r = buildGstr1([note({ invoiceValue: 11_800_000 })], COMPANY_GSTIN, COMPANY_STATE, PERIOD)
     expect((r.json.cdnur as unknown[] | undefined)?.length).toBe(1)
+  })
+})
+
+// Third review of #187: the B2CL limit is the one in force on the INVOICE's date — ₹2,50,000 before
+// 1 Aug 2024, ₹1,00,000 from then (Notification 12/2024–Central Tax).
+describe('B2CL limit by date', () => {
+  const zero = zeroValidation
+  const inv = (date: string, value: number): GstDoc => ({
+    voucherId: 81, kind: 'sales', date, number: 'S-81', partyName: 'Walk-in', partyGstin: null, pos: '29', invoiceValue: value,
+    items: [{ rate: 18, taxable: Math.round(value / 1.18), cgst: 0, sgst: 0, igst: value - Math.round(value / 1.18), cess: 0 }],
+    hsnLines: [], nilLines: [], invTyp: 'R', rchrg: false, validation: zero
+  })
+  it('b2clLimitOn', () => {
+    expect(b2clLimitOn('2024-07-31')).toBe(25_000_000)
+    expect(b2clLimitOn('2024-08-01')).toBe(10_000_000)
+    expect(B2CL_THRESHOLD_PAISE).toBe(10_000_000)
+  })
+  it('an inter-state ₹2,12,400 invoice of July 2024 is B2CS; of August 2024 B2CL', () => {
+    const july = buildGstr1([inv('2024-07-10', 21_240_000)], COMPANY_GSTIN, COMPANY_STATE, '072024')
+    expect(july.json.b2cl ?? []).toEqual([])
+    expect((july.json.b2cs as unknown[] | undefined)?.length).toBe(1)
+    const aug = buildGstr1([inv('2024-08-10', 21_240_000)], COMPANY_GSTIN, COMPANY_STATE, '082024')
+    expect((aug.json.b2cl as unknown[] | undefined)?.length).toBe(1)
+  })
+  it('a note is judged by the limit on its ORIGINAL\'s date', () => {
+    const n: GstDoc = {
+      ...inv('2024-09-10', 1_180_000), voucherId: 82, kind: 'credit_note', number: 'CN-82',
+      items: [{ rate: 18, taxable: 1_000_000, cgst: 0, sgst: 0, igst: 180_000, cess: 0 }],
+      original: { invoiceValue: 21_240_000, pos: '29', date: '2024-07-10' }
+    }
+    expect(buildGstr1([n], COMPANY_GSTIN, COMPANY_STATE, '092024').json.cdnur ?? []).toEqual([])
+    expect(((buildGstr1([{ ...n, original: { ...n.original!, date: '2024-08-10' } }], COMPANY_GSTIN, COMPANY_STATE, '092024').json.cdnur ?? []) as unknown[]).length).toBe(1)
   })
 })
