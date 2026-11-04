@@ -56,9 +56,9 @@ and disbursement vouchers posted from the old Loans screen are ordinary vouchers
 edited like any other). Deleting a ledger, group or cost centre that an old budget line or loan
 record points at now removes those leftover rows (each audited with its whole before-image); a
 loan's bank or interest account with no entries of its own can go (the loan record just forgets
-it), and a loan's own account stays while it or its loan still has entries in the books (an
-import undo that keeps one names the loan). Ratios and comparative P&L / balance sheet stay (without the budget column). The
-year-end close preview no longer warns about over-budget lines or unposted EMIs, and the Gateway no
+it), and a loan's own account stays while it or its loan still has entries, in the books or the
+bin (an import undo that keeps one names the loan). Ratios and comparative P&L / balance sheet
+stay (without the budget column). The year-end close preview no longer warns about over-budget lines or unposted EMIs, and the Gateway no
 longer shows the over-budget chip or loan EMI reminders. Settings → Agent access keeps the read-only
 CSV / JSON mirror ("Refresh after each save" is the old inbox switch); any drafts the MCP server or
 the inbox made are still listed there until saved or discarded.

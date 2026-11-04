@@ -1659,7 +1659,7 @@ export function undoImport(db: DB, batchId: number): UndoResult {
             entity: it.entity,
             id: it.entity_id,
             reason: loanOf
-              ? `kept ${cleared}, opening cleared — it is the account of the loan “${loanOf}” (from the removed Loans screen), whose entries are in the books; delete it yourself once they are gone`
+              ? `kept ${cleared}, opening cleared — it is the account of the loan “${loanOf}” (from the removed Loans screen) and still has entries (the bin's too); delete it yourself once they are gone`
               : `kept ${cleared}, opening cleared — still in use by entries (the bin's too); delete it yourself once they are gone`
           })
           continue
@@ -1671,9 +1671,10 @@ export function undoImport(db: DB, batchId: number): UndoResult {
         res.kept.push({
           entity: it.entity,
           id: it.entity_id,
-          reason: loanOf
-            ? `still in use — it is the account of the loan “${loanOf}” (from the removed Loans screen), whose entries are in the books; move them to the bin to remove it`
-            : inUse ? 'still in use (purge the bin to remove it)' : msg
+          reason:
+            loanOf && inUse
+              ? `still in use — it is the account of the loan “${loanOf}” (from the removed Loans screen) and still has entries; remove it once they are gone (purge the bin too)`
+              : inUse ? 'still in use (purge the bin to remove it)' : msg
         })
       }
     }

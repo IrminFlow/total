@@ -184,11 +184,17 @@ describe('deleting a ledger or group that leftover budgets / loans point at', ()
     const loan2 = legacyLoan(db, l2, bank, null, 'Second loan')
     disbursement(db, loan1, bank, l1)
     disbursement(db, loan2, bank, l2)
+    const v1 = (db.prepare('SELECT voucher_id AS v FROM loan_vouchers WHERE loan_id = ?').get(loan1) as { v: number }).v
     const u = undoImport(db, ledgerRun.batchId!)
-    const reasonOf = (id: number): string => u.kept.find((k) => k.id === id)!.reason
-    expect(reasonOf(l1)).toContain('loan “Term loan”')
-    expect(reasonOf(l2)).toMatch(/opening cleared .*loan “Second loan”/)
-    for (const id of [l1, l2]) expect(reasonOf(id)).not.toMatch(/purge the bin/)
+    const reasonOf = (id: number, r = u): string => r.kept.find((k) => k.id === id)!.reason
+    expect(reasonOf(l1)).toMatch(/loan “Term loan”.*purge the bin too/)
+    expect(reasonOf(l2)).toMatch(/opening cleared .*loan “Second loan”.*the bin's too/)
+    // the imported opening really went (audited through updateLedger)
+    expect((db.prepare('SELECT opening_balance AS o FROM ledgers WHERE id = ?').get(l2) as { o: number }).o).toBe(0)
+    expect(audit(db, 'ledger', l2)!.action).toBe('update')
+    // Binning the loan's entry is not enough (its lines still hold the account): a retry says the same, truthfully.
+    deleteVoucher(db, v1)
+    expect(reasonOf(l1, undoImport(db, ledgerRun.batchId!))).toMatch(/loan “Term loan”.*purge the bin too/)
     expect(count(db, 'SELECT COUNT(*) AS n FROM loans WHERE id IN (?, ?)', loan1, loan2)).toBe(2)
     expect(count(db, 'SELECT COUNT(*) AS n FROM ledgers WHERE id IN (?, ?)', l1, l2)).toBe(2)
     expect(JSON.parse(audit(db, 'costCentre', cc)!.b!).cascaded).toMatchObject({ budget_lines: 1 })
