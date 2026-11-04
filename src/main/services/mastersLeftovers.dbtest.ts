@@ -173,8 +173,8 @@ describe('deleting a ledger or group that leftover budgets / loans point at', ()
     expect(audit(db, 'budget', budget)!.action).toBe('update')
 
     // The realistic case: the disbursement credits the imported loan ledger itself (its own entries
-    // keep it — ledger_in_use); with an imported opening (cleared, kept) and without (kept as is):
-    // the reason names the loan, never "purge the bin".
+    // keep it — ledger_in_use, purge needed); with an imported opening (cleared, kept) and without
+    // (kept as is): the reason names the loan.
     const ledgerRun = csv('Name,Group\nImported Term Loan,Secured Loans\nSecond Term Loan,Secured Loans', 'generic:ledgers')
     const idOf = (name: string): number => (db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number }).id
     const [l1, l2] = [idOf('Imported Term Loan'), idOf('Second Term Loan')]
@@ -194,7 +194,22 @@ describe('deleting a ledger or group that leftover budgets / loans point at', ()
     expect(audit(db, 'ledger', l2)!.action).toBe('update')
     // Binning the loan's entry is not enough (its lines still hold the account): a retry says the same, truthfully.
     deleteVoucher(db, v1)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM vouchers WHERE id = ? AND deleted_at IS NOT NULL', v1)).toBe(1)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM voucher_lines WHERE ledger_id = ?', l1)).toBe(1)
     expect(reasonOf(l1, undoImport(db, ledgerRun.batchId!))).toMatch(/loan “Term loan”.*purge the bin too/)
+
+    // Only the loan's live entries keep it (they post elsewhere — loan vouchers are editable now):
+    // binning them is enough, and the reason says so; then the undo deletes it and the loan record.
+    const run3 = csv('Name,Group\nThird Term Loan,Secured Loans', 'generic:ledgers')
+    const l3 = idOf('Third Term Loan')
+    const loan3 = legacyLoan(db, l3, bank, null, 'Third loan')
+    const v3 = disbursement(db, loan3, bank, ledger(db, 'Director loan', 'Unsecured Loans'))
+    const u3 = undoImport(db, run3.batchId!)
+    expect(reasonOf(l3, u3)).toMatch(/loan “Third loan”.*move them to the bin and undo again/)
+    expect(reasonOf(l3, u3)).not.toMatch(/purge/)
+    deleteVoucher(db, v3)
+    expect(undoImport(db, run3.batchId!)).toMatchObject({ deleted: 1, kept: [] })
+    expect(count(db, 'SELECT COUNT(*) AS n FROM loans WHERE id = ?', loan3)).toBe(0)
     expect(count(db, 'SELECT COUNT(*) AS n FROM loans WHERE id IN (?, ?)', loan1, loan2)).toBe(2)
     expect(count(db, 'SELECT COUNT(*) AS n FROM ledgers WHERE id IN (?, ?)', l1, l2)).toBe(2)
     expect(JSON.parse(audit(db, 'costCentre', cc)!.b!).cascaded).toMatchObject({ budget_lines: 1 })

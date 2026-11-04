@@ -1545,8 +1545,13 @@ export function undoImport(db: DB, batchId: number): UndoResult {
         continue
       }
       let cleared: string | null = null
-      // A leftover loan of the removed Loans screen whose own account this is (1.0 cleanup).
-      let loanOf: string | null = null
+      // A leftover loan of the removed Loans screen whose own account this is (1.0 cleanup), and
+      // whether the account's OWN entries keep it (live or binned — purge needed) or only the
+      // loan's live entries do (binning them is enough).
+      type LoanKeep = { name: string; ownEntries: boolean }
+      let loanOf: LoanKeep | null = null
+      // (set inside the item's transaction callback — TS can't see that, hence the cast where read)
+      const loanKept = (): LoanKeep | null => loanOf as LoanKeep | null
       try {
         db.transaction(() => {
           if (it.action === 'update') {
@@ -1592,11 +1597,25 @@ export function undoImport(db: DB, batchId: number): UndoResult {
               return
             }
             case 'ledger': {
-              if (refusedInUse(() => masters.deleteLedger(db, it.entity_id), 'ledger_in_use', 'ledger_loan_in_use')) {
+              let refusal: { code?: string; params?: { loan?: string } } | null = null
+              const del = (): void => {
+                try {
+                  masters.deleteLedger(db, it.entity_id)
+                } catch (err) {
+                  refusal = err as typeof refusal
+                  throw err
+                }
+              }
+              if (refusedInUse(del, 'ledger_in_use', 'ledger_loan_in_use')) {
                 // A leftover loan record of the removed Loans screen (1.0 cleanup) on this ledger:
-                // the reason names it (its entries are in the books — "purge the bin" would mislead).
-                const loan = (db.prepare('SELECT name FROM loans WHERE loan_ledger_id = ? ORDER BY id LIMIT 1').get(it.entity_id) as { name: string } | undefined)?.name
-                if (loan) loanOf = loan
+                // the reason names it — the loan that refused, or (its own entries keep it) the
+                // loan whose account it is.
+                const r = refusal as { code?: string; params?: { loan?: string } } | null
+                if (r?.code === 'ledger_loan_in_use' && r.params?.loan) loanOf = { name: r.params.loan, ownEntries: false }
+                else {
+                  const loan = (db.prepare('SELECT name FROM loans WHERE loan_ledger_id = ? ORDER BY id LIMIT 1').get(it.entity_id) as { name: string } | undefined)?.name
+                  if (loan) loanOf = { name: loan, ownEntries: true }
+                }
                 // Its vouchers (live or in the bin) keep it, but the opening the import gave it
                 // must go — or the undone books carry an opening with no contra (an unused
                 // balancing ledger IS deleted). Through updateLedger: audited, and the WP 8.7
@@ -1655,12 +1674,15 @@ export function undoImport(db: DB, batchId: number): UndoResult {
         if (cleared !== null) {
           // Kept, and not marked undone. A retry never deletes it: the opening change just audited
           // reads as an edit after the import (left alone) — so the reason says what to do.
+          const lk = loanKept()
           res.kept.push({
             entity: it.entity,
             id: it.entity_id,
-            reason: loanOf
-              ? `kept ${cleared}, opening cleared — it is the account of the loan “${loanOf}” (from the removed Loans screen) and still has entries (the bin's too); delete it yourself once they are gone`
-              : `kept ${cleared}, opening cleared — still in use by entries (the bin's too); delete it yourself once they are gone`
+            reason: !lk
+              ? `kept ${cleared}, opening cleared — still in use by entries (the bin's too); delete it yourself once they are gone`
+              : lk.ownEntries
+                ? `kept ${cleared}, opening cleared — it is the account of the loan “${lk.name}” (from the removed Loans screen) and still has entries (the bin's too); delete it yourself once they are gone`
+                : `kept ${cleared}, opening cleared — the loan “${lk.name}” (from the removed Loans screen) still has entries in the books; delete it yourself once they are in the bin`
           })
           continue
         }
@@ -1668,13 +1690,15 @@ export function undoImport(db: DB, batchId: number): UndoResult {
       } catch (err) {
         const msg = (err as Error).message
         const inUse = msg === 'in use' || /vouchers|in use|movements/i.test(msg)
+        const lk = loanKept()
         res.kept.push({
           entity: it.entity,
           id: it.entity_id,
-          reason:
-            loanOf && inUse
-              ? `still in use — it is the account of the loan “${loanOf}” (from the removed Loans screen) and still has entries; remove it once they are gone (purge the bin too)`
-              : inUse ? 'still in use (purge the bin to remove it)' : msg
+          reason: !lk || !inUse
+            ? inUse ? 'still in use (purge the bin to remove it)' : msg
+            : lk.ownEntries
+              ? `still in use — it is the account of the loan “${lk.name}” (from the removed Loans screen) and still has entries; remove it once they are gone (purge the bin too)`
+              : `still in use — the loan “${lk.name}” (from the removed Loans screen) still has entries in the books; move them to the bin and undo again`
         })
       }
     }
