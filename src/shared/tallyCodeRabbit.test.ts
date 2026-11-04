@@ -1,7 +1,7 @@
 // PR #191, CodeRabbit review: parser findings (each a regression test).
 import { describe, expect, it } from 'vitest'
 import { parseTallyExport } from './tally'
-import { tallyBaseMasters, tallyEnvelope, tallyItem, tallyPurchase } from './fixtures/tally/tallyXml'
+import { tallyBaseMasters, tallyCashSale, tallyEnvelope, tallyItem, tallyPurchase } from './fixtures/tally/tallyXml'
 
 const parse = (msgs: string[]) => parseTallyExport(tallyEnvelope([...tallyBaseMasters, tallyItem('Widget'), ...msgs]))
 
@@ -80,5 +80,16 @@ ${entry('ALLINVENTORYENTRIES.LIST', 'Yes', '-200.00')}
 ${entry('ALLINVENTORYENTRIES.LIST', 'No', '200.00')}
      </VOUCHER>`])
     expect(data.vouchers[0]!.inventory.map((l) => [l.direction, l.qtyMilli])).toEqual([['in', 2_000], ['out', 2_000]])
+  })
+
+  it('blank INVENTORYENTRIESIN / OUT tags beside a sale\'s item lines (TallyPrime / ERP 9 emit them) never hide those lines', () => {
+    const blank = '\n      <INVENTORYENTRIESIN.LIST>      </INVENTORYENTRIESIN.LIST>\n      <INVENTORYENTRIESOUT.LIST>      </INVENTORYENTRIESOUT.LIST>\n     </VOUCHER>'
+    const data = parse([tallyCashSale('CS-1', '20260405', 'Widget', 5, 500, 'Main Location').replace(/\n     <\/VOUCHER>$/, blank)])
+    expect(data.vouchers[0]!.inventory.map((l) => [l.item, l.qtyMilli, l.direction, l.godown])).toEqual([['Widget', 5_000, 'out', 'Main Location']])
+    expect(data.warnings).toEqual([])
+    // Blank tags alone don't make a voucher without ledger entries a stock journal.
+    const empty = parse([`     <VOUCHER VCHTYPE="Memo" ACTION="Create">\n      <DATE>20260405</DATE>\n      <VOUCHERTYPENAME>Memo</VOUCHERTYPENAME>\n      <VOUCHERNUMBER>M-1</VOUCHERNUMBER>\n      <INVENTORYENTRIES.LIST>\n       <STOCKITEMNAME>Widget</STOCKITEMNAME>\n       <AMOUNT>100.00</AMOUNT>\n       <ACTUALQTY> 1 Nos</ACTUALQTY>\n      </INVENTORYENTRIES.LIST>\n      <INVENTORYENTRIESIN.LIST>      </INVENTORYENTRIESIN.LIST>\n     </VOUCHER>`])
+    expect(empty.vouchers).toEqual([])
+    expect(empty.warnings).toEqual([expect.stringMatching(/M-1 skipped: no ledger entries/)])
   })
 })

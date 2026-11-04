@@ -69,6 +69,8 @@ Things to know about the version numbers:
     limitation: a count over several godowns is one count line for the whole item (the valuation
     pins the item's whole quantity on every count line, so godown lines would undo each other), so
     godown-wise stock keeps each godown's pre-count figure — the import says so for each such count.
+    Earlier-dated vouchers imported in a LATER file, after a count is in the books, are not
+    re-checked against that count.
   - Item lines keep their godown (BATCHALLOCATIONS GODOWNNAME); a godown Total doesn't have yet is
     created. A line split over godowns becomes one line per godown with Tally's own quantities and
     amounts (batches without amounts share the line's by quantity, to the paisa); a split that
@@ -77,8 +79,10 @@ Things to know about the version numbers:
     imported line had no godown.
   - Type names read the same with any separators or case ("Sales-Return", "PURCHASE_RETURN",
     "Physical-Stock", a "Stock-Journal" without masters). An existing voucher type whose stored
-    kind differs from Tally's (a "Sales Return" made here as a sale) is corrected when no voucher
-    uses it yet (audited, with a warning) and kept, with a warning, when one does; a custom type made
+    kind differs from what Tally says (a VOUCHERTYPE master for it, or a name that means a kind — a
+    "Sales Return" made here as a sale) is corrected when no voucher uses it yet (audited, with a
+    warning) and kept, with a warning, when one does; a name that says nothing ("Cash Sale", "Tax
+    Invoice" without a master) keeps its stored kind silently; a custom type made
     from Rejections Out / In saves as a rejection (purpose from the type it was made from).
   - Vouchers are imported in date order (same-day ones in the file's order) — the order Outstandings
     and the stock pass replay them in — and a party's entries already in the books count from their
@@ -87,7 +91,8 @@ Things to know about the version numbers:
     bill-wise details too. Bill allocations on a ledger other than the voucher's party, and a bill
     type Total doesn't know, are reported instead of dropped silently; a single godown allocation
     that doesn't match its line leaves the line without a godown, with a warning; a voucher listing
-    its goods both as IN / OUT lists and as ALLINVENTORYENTRIES moves them once.
+    its goods both as IN / OUT lists and as ALLINVENTORYENTRIES moves them once (blank IN / OUT tags,
+    which TallyPrime / ERP 9 write beside a sale's item lines, don't count as lists).
   For developers: `TallyImport.voucherTypes`, `TallyInventoryLine.direction` / `godown`,
   `TallyVoucherLine.bills`, `TallyLedger.bills`; fixtures
   `src/shared/fixtures/tally/daybook-returns-stock-bills.xml` and `opening-bills-physical-stock.xml`.

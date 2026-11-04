@@ -10,7 +10,7 @@ import { openingBillsByParty } from './openingBills'
 import * as stock from './stockAnalysis'
 import type { DB } from '../db/connection'
 import {
-  tallyBaseMasters, tallyCreditSale, tallyEnvelope, tallyItem, tallyLedger, tallyPhysicalStock, tallyPurchase, tallyReceipt, tallyVoucherType
+  tallyBaseMasters, tallyCashSale, tallyCreditSale, tallyEnvelope, tallyItem, tallyLedger, tallyPhysicalStock, tallyPurchase, tallyReceipt, tallyVoucherType
 } from '../../shared/fixtures/tally/tallyXml'
 
 const FIXTURES = join(__dirname, '../../shared/fixtures/tally')
@@ -126,5 +126,20 @@ describe('Tally import: CodeRabbit findings', () => {
     expect(closing(db, 'Widget')).toBe(13_000)
     expect(V(db, 'PS-1').inventory.map((l) => [l.isAbsolute, l.qtyMilli, l.godownId])).toEqual([[true, 13_000, null]])
     expect(s.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/PS-1.*Widget.*as a whole.*godown-wise/)]))
+  })
+
+  it('(2, final check) a type Tally says nothing about keeps its stored kind: a masterless "Cash Sale" stays a sale', () => {
+    const db = seededDb()
+    db.prepare("INSERT INTO voucher_types (name, kind, numbering, prefix, is_system) VALUES ('Cash Sale', 'sales', 'manual', '', 0)").run()
+    const s = importTallyXml(db, xml([tallyItem('Widget', 10, 1000), tallyCashSale('CS-1', '20260405', 'Widget', 5, 500, 'Main Location').replace(/"Sales"/, '"Cash Sale"').replace('<VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>', '<VOUCHERTYPENAME>Cash Sale</VOUCHERTYPENAME>')]))
+    expect(db.prepare("SELECT kind FROM voucher_types WHERE name = 'Cash Sale'").get()).toEqual({ kind: 'sales' })
+    expect(s.warnings.filter((w) => w.includes('Cash Sale'))).toEqual([])
+    expect(V(db, 'CS-1').inventory.map((l) => [l.direction, l.qtyMilli])).toEqual([['out', 5_000]])
+    expect(closing(db, 'Widget')).toBe(5_000)
+    // A name that says a kind ("Sales-Return") still corrects an unused type without masters.
+    const ret = seededDb()
+    ret.prepare("INSERT INTO voucher_types (name, kind, numbering, prefix, is_system) VALUES ('Sales-Return', 'sales', 'manual', '', 0)").run()
+    importTallyXml(ret, xml([tallyItem('Widget', 10, 1000), tallyCashSale('CS-2', '20260405', 'Widget', 1, 100, 'Main Location').replace(/"Sales"/, '"Sales-Return"').replace('<VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>', '<VOUCHERTYPENAME>Sales-Return</VOUCHERTYPENAME>')]))
+    expect(ret.prepare("SELECT kind FROM voucher_types WHERE name = 'Sales-Return'").get()).toEqual({ kind: 'credit_note' })
   })
 })

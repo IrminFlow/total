@@ -546,8 +546,12 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
       | undefined
     if (existing) {
       const derived = kindForTallyType(vchType, data)
+      // Tally says something only through a VOUCHERTYPE master for the name, or a name that means a
+      // kind; a name that falls to "journal" ("Cash Sale", "Tax Invoice") says nothing — the stored
+      // kind stays, silently (a sale must never drop out of GSTR-1 / the sales register).
+      const tallySays = (data.voucherTypes ?? []).some((t) => t.name.toLowerCase() === vchType.toLowerCase()) || derived !== 'journal'
       let kind = existing.kind
-      if (derived !== existing.kind) {
+      if (tallySays && derived !== existing.kind) {
         const used = !!db.prepare('SELECT 1 FROM vouchers WHERE voucher_type_id = ? LIMIT 1').get(existing.id)
         if (!used && !existing.is_system) {
           const vt = listVoucherTypes(db).find((t) => t.id === existing.id)!

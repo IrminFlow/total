@@ -295,7 +295,10 @@ export function tallyBaseTypeName(name: string, types: readonly TallyVoucherType
 
 /** A voucher carrying stock-journal item lists (INVENTORYENTRIESIN / OUT) — a stock journal under
  *  any custom name. */
-const hasJournalLists = (v: XNode): boolean => v.children.some((c) => c.tag === 'INVENTORYENTRIESIN.LIST' || c.tag === 'INVENTORYENTRIESOUT.LIST')
+const hasJournalLists = (v: XNode): boolean =>
+  // Only a list naming an item: TallyPrime / ERP 9 often write BLANK IN / OUT tags beside a sale's
+  // real item lines, which must not hide them (or make a voucher a stock journal).
+  v.children.some((c) => (c.tag === 'INVENTORYENTRIESIN.LIST' || c.tag === 'INVENTORYENTRIESOUT.LIST') && childText(c, 'STOCKITEMNAME').trim() !== '')
 
 const BILL_TYPES: Record<string, TallyBillAllocation['type']> = { 'new ref': 'new', 'agst ref': 'against', advance: 'advance', 'on account': 'on_account' }
 
