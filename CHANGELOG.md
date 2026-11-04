@@ -71,7 +71,12 @@ sight until a business actually uses them. Nothing already in your books changes
   foreign amount stays and its implied rate follows. A saved foreign-currency invoice's currency
   picker offers only that currency and ₹, and the price-list slab table shows its Currency column
   only when a slab is in another currency. For accountants: the clear is audited
-  (`fx_ledger_currency` update, whole before / after); no other figure changes.
+  (`fx_ledger_currency` update, whole before / after), and an import whose opening change cleared
+  it puts it back on undo (only while it is still cleared and fits the opening again). The clear
+  does not look at earlier revaluations or settlements that named that opening bill: their entries
+  keep their rupee figures, so the rupee side stays consistent; only the foreign-currency reading
+  of that opening (the statement's foreign opening, its open foreign bill) goes. No other figure
+  changes.
 
 **For accountants.** One figure changes, on purpose: **the cash-flow forecast no longer counts loan
 EMIs.** It read the instalments of the old Loans screen's schedules; with that screen gone a paid
