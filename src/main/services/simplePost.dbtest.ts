@@ -28,6 +28,8 @@ import { previewIntent, postIntent, remapSaveError } from './simplePost'
 import { normaliseIntent, type MappedEntry } from '@shared/simple/intents'
 import { saleView, salesList, sellSetup } from './simpleSell'
 import { createMemory } from '../ai/memory'
+import { extractOutwardDocs } from './gst'
+import { extractEdocInvoices } from './edocs'
 import { emptySellForm, saleIntentFrom, saleStatus, sellFormErrors, sellTotals, type SellContext, type SellForm } from '@shared/simple/sell'
 
 const INFO: CompanyInfo = { ...TEST_INFO, name: 'Simple Post Co', gstin: '27AAPFU0939F1ZV', stateCode: '27', gstRegistrationType: 'regular' }
@@ -761,5 +763,27 @@ describe('WP 9.2 Make a bill: the form → simple:post = the invoice + receipt a
     expect(() => post(saleIntentFrom({ ...f, customerId: L('Kumar') }, ctx, sellSetup(db).defaults))).toThrow(expect.objectContaining({ code: 'books_locked', field: 'date' }))
     expect(trace()).toEqual(locked)
     expect((before as { vouchers: number }).vouchers).toBe((locked as { vouchers: number }).vouchers)
+  })
+})
+
+// Bug hunt 2026-11: the books rounded tax per rate group, GSTR-1 / 3B and the e-invoice per line.
+describe('tax is rounded per line: books = GSTR-1 = e-invoice', () => {
+  beforeEach(() => { db = company() })
+  const posted = (name: string): number =>
+    (db.prepare("SELECT COALESCE(SUM(CASE WHEN dr_cr = 'cr' THEN amount ELSE -amount END), 0) AS t FROM voucher_lines WHERE ledger_id = ?").get(L(name)) as { t: number }).t
+  it('3 x 100.50 @ 18 % intra-state posts 27.15 + 27.15, as the returns and the e-invoice report', () => {
+    const out = post({ kind: 'sale', customerId: L('Ramesh'), items: [0, 1, 2].map(() => ({ itemId: I('Widget'), qty: '1', rate: '100.50' })) })
+    // 100.50 x 9 % = 9.045 -> 9.05 per line; x 3 = 27.15 per head. Total 301.50 + 54.30 = 355.80 -> 356 (round off 0.20).
+    expect([posted('CGST'), posted('SGST'), posted('Round Off')]).toEqual([2715, 2715, 20])
+    const docs = extractOutwardDocs(db, INFO, '2025-08-01', '2025-08-31')
+    expect(docs.map((d) => d.items.map((i) => [i.rate, i.taxable, i.cgst, i.sgst]))).toEqual([[[18, 30150, 2715, 2715]]])
+    const edocs = extractEdocInvoices(db, INFO, '2025-08-01', '2025-08-31')
+    expect(edocs[0]!.items.reduce((s, i) => s + i.cgst, 0)).toBe(2715)
+    // It still opens in its editor and saves back unchanged.
+    roundTrips(out.voucherIds[0]!, 'invoice')
+    // A return of one line reads the bill's rates back (per-line tax is recognised).
+    const bill = getVoucher(db, out.voucherIds[0]!)!
+    const ret = post({ kind: 'return_sale', billId: bill.id, items: [{ lineUid: bill.inventory[0]!.lineUid!, qty: '1' }] })
+    expect(ret.voucherIds.length).toBeGreaterThan(0)
   })
 })
