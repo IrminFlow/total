@@ -230,7 +230,9 @@ export const stockCountIntentSchema = z
   .object({
     kind: z.literal('stock_count'),
     ...base,
-    counts: z.array(z.object({ itemId: id, qty: countIn }).strict()).min(1).max(2000),
+    /** `cost`: what ONE cost, for a product with nothing on hand (a never-stocked product has no
+     *  cost to take — the count would be worth ₹0); ignored while there is stock on hand. */
+    counts: z.array(z.object({ itemId: id, qty: countIn, cost: amountIn.optional() }).strict()).min(1).max(2000),
     number: z.string().trim().min(1).max(40).optional()
   })
   .strict()
@@ -290,7 +292,7 @@ export type NormalIntent =
   | (NBase & { kind: 'money_out'; amount: number; from: NMoneyAccount; supplierId: number | null; bills: NBill[] | null; advance: boolean; payeeId: number | null; drawings: boolean; customerId: number | null; onAccount: boolean })
   | (NBase & { kind: 'move_money'; amount: number; fromId: number; toId: number; reference: string | null })
   | (NBase & { kind: 'return_sale' | 'return_purchase'; billId: number; items: { lineUid: string; qtyMilli: number }[] | null; amount: { amount: number; gstRate: number | null } | null; refund: NMoneyAccount | null })
-  | (NBase & { kind: 'stock_count'; counts: { itemId: number; qtyMilli: number }[] })
+  | (NBase & { kind: 'stock_count'; counts: { itemId: number; qtyMilli: number; costPaise: number | null }[] })
   | (NBase & { kind: 'make_goods'; itemId: number; qtyMilli: number; price: number | null; labour: number; labourRecorded: boolean })
 
 const fail = (code: ErrorCode, message: string, field?: string, params?: Record<string, string | number>): never => {
@@ -406,7 +408,15 @@ export function normaliseIntent(raw: unknown, today: string): NormalIntent {
         refund: i.refund ? nMoney(i.refund) : null
       }
     case 'stock_count':
-      return { ...b, kind: 'stock_count', counts: i.counts.map((c, k) => ({ itemId: c.itemId, qtyMilli: readCount(c.qty, `counts.${k}.qty`) })) }
+      return {
+        ...b,
+        kind: 'stock_count',
+        counts: i.counts.map((c, k) => ({
+          itemId: c.itemId,
+          qtyMilli: readCount(c.qty, `counts.${k}.qty`),
+          costPaise: c.cost != null ? readAmount(c.cost, `counts.${k}.cost`, { zeroOk: true }) : null
+        }))
+      }
     case 'make_goods':
       return {
         ...b,

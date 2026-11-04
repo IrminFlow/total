@@ -219,6 +219,48 @@ describe('Count your stock = the hand-entered physical stock entry', () => {
   })
 })
 
+describe('A count of a never-stocked product asks what one cost (Phase 1 triage)', () => {
+  it('jam counted 10 at ₹25 each: worth ₹250 (not ₹0), the same entry as the editor’s with that cost, round-trips', () => {
+    const onHand = new Map(stockList(db, DAY).rows.map((r) => [r.itemId, r.qtyMilli]))
+    const form = { date: DAY, counted: { [I('Jam')]: '10', [I('Box')]: '52' }, costs: { [I('Jam')]: '25', [I('Box')]: '99' } }
+    const intent = countIntentFrom(form, onHand)
+    // Only the product with nothing on hand carries a cost.
+    expect(intent.counts).toEqual([{ itemId: I('Box'), qty: 52_000 }, { itemId: I('Jam'), qty: 10_000, cost: 2500 }])
+    const out = post(intent)
+    const mine = getVoucher(db, out.voucherIds[0]!)!
+    // The twin: the accountant's Physical Stock editor with the same cost per unit on the row.
+    const state = { ...emptyPhysicalState(DAY), rows: [
+      { itemId: I('Box', twin), qtyText: '52', godownId: null, batchId: null },
+      { itemId: I('Jam', twin), qtyText: '10', godownId: null, batchId: null, ratePaise: 2500 }
+    ] }
+    const built = buildPhysicalPayload(state, { voucherTypeId: typeId(twin, 'physical_stock'), itemName: () => '' })
+    if (!built.ok) throw new Error(built.error)
+    const hand = saveVoucher(twin, built.payload)
+    expect(shape(mine)).toEqual(shape(getVoucher(twin, hand.id)!))
+    expect(mine.inventory.find((l) => l.stockItemId === I('Jam'))).toMatchObject({ qtyMilli: 10_000, ratePaise: 2500, amount: 25_000, isAbsolute: true })
+    expect(physicalRepresentation(mine, { itemName: () => '' }).ok).toBe(true)
+    // Hand-worked: 10 × ₹25 = ₹250; the box count is priced at the ₹10 average as before (+₹20).
+    expect(out.facts.count!.lines.map((l) => [l.name, l.valueChange])).toEqual([['Box', 2000], ['Jam', 25_000]])
+    expect(listOf(db, TODAY).find((r) => r.itemId === I('Jam'))).toEqual({ itemId: I('Jam'), qtyMilli: 10_000, value: 25_000 })
+    expect(summaryOf(db, TODAY)).toEqual(summaryOf(twin, TODAY))
+    // A sale of 4 then costs ₹100 (the counted cost is the average from there on).
+    createLedger(db, {
+      name: 'Sales', groupId: groupId(db, 'Sales Accounts'), openingBalance: 0, gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null,
+      tdsSectionId: null, pan: null, creditDays: null, exportType: null, simpleCategory: 'sales'
+    })
+    post({ kind: 'sale', date: TODAY, items: [{ itemId: I('Jam'), qty: '4', rate: '40' }], payment: { how: 'cash' } })
+    expect(listOf(db, TODAY).find((r) => r.itemId === I('Jam'))).toEqual({ itemId: I('Jam'), qtyMilli: 6_000, value: 15_000 })
+  })
+
+  it('without a cost (an older caller) the count is valued as before (₹0); a cost on a stocked product is ignored', () => {
+    const out = post({ kind: 'stock_count', date: DAY, counts: [{ itemId: I('Jam'), qty: '10' }, { itemId: I('Flour'), qty: '98', cost: '500' }] })
+    const v = getVoucher(db, out.voucherIds[0]!)!
+    expect(v.inventory.map((l) => [l.stockItemId, l.ratePaise, l.amount])).toEqual([[I('Jam'), 0, 0], [I('Flour'), 0, 0]])
+    expect(listOf(db, TODAY).find((r) => r.itemId === I('Jam'))!.value).toBe(0)
+    expect(listOf(db, TODAY).find((r) => r.itemId === I('Flour'))!.value).toBe(392_000)
+  })
+})
+
 describe('A saved count reopened shows the difference the engine recorded (PR #91 to-do)', () => {
   it('before = the Stock summary the day before, counted − before (never 0 because the total includes it), the value = the summary’s change', () => {
     const out = post(countIntentFrom({ date: DAY, counted: { [I('Flour')]: '98', [I('Box')]: '52' } }))

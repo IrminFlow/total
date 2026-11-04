@@ -198,8 +198,8 @@ export function PhysicalStockEntry({
               <Fragment key={r.key}>
               <tr onKeyDown={details.onRowKeyDown(r.key)}>
                 <td>
-                  {/* A different item can't keep the old line's batch (batches belong to an item). */}
-                  <ItemPicker value={r.itemId} onPick={(id) => setRow(i, id === r.itemId ? { itemId: id } : { itemId: id, batchId: null })} />
+                  {/* A different item can't keep the old line's batch (batches belong to an item) or its cost per unit. */}
+                  <ItemPicker value={r.itemId} onPick={(id) => setRow(i, id === r.itemId ? { itemId: id } : { itemId: id, batchId: null, ratePaise: undefined })} />
                 </td>
                 <td className="r">
                   {book != null && <span className="num text-body-sm text-muted">{book / 1000} {unit}</span>}

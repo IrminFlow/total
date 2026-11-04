@@ -305,7 +305,8 @@ const toMovement = (r: MovementRow, amount = r.amount): InventoryMovement => ({
   direction: r.direction,
   qtyMilli: r.qtyMilli,
   amount: r.direction === 'in' && !r.isAbsolute ? amount : 0,
-  isAbsolute: !!r.isAbsolute
+  isAbsolute: !!r.isAbsolute,
+  ...(r.isAbsolute && r.amount > 0 ? { countAmount: r.amount } : {})
 })
 
 const toItems = (items: ItemRow[], withOpening = true): InventoryItem[] =>
@@ -330,7 +331,10 @@ function streamMovements(db: DB, asOn: string): Iterable<InventoryMovement> {
       for (const r of stmt.iterate(asOn) as IterableIterator<RawMovementRow>) {
         const direction = r[7]
         const isAbsolute = !!r[8]
-        yield { itemId: r[2], voucherId: r[1], date: r[4], lineId: r[0], direction, qtyMilli: r[5], amount: direction === 'in' && !isAbsolute ? r[6] : 0, isAbsolute }
+        const m: InventoryMovement = { itemId: r[2], voucherId: r[1], date: r[4], lineId: r[0], direction, qtyMilli: r[5], amount: direction === 'in' && !isAbsolute ? r[6] : 0, isAbsolute }
+        // A count line's stored value (the cost per unit asked for a never-stocked product).
+        if (isAbsolute && r[6] > 0) m.countAmount = r[6]
+        yield m
       }
     }
   }

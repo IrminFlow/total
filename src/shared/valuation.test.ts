@@ -185,3 +185,16 @@ describe('wouldCreateBomCycle', () => {
     expect(wouldCreateBomCycle(1, [3], edges)).toBe(false)
   })
 })
+
+describe('a physical count of a product with nothing on hand (Phase 1 triage)', () => {
+  const count = (qtyMilli: number, countAmount?: number): StockMovement => ({ ...mv('in', qtyMilli, 0, true), ...(countAmount != null ? { countAmount } : {}) })
+  it('is valued at its own cost per unit when it carries one; ₹0 without (as before)', () => {
+    expect(valueStock('weighted_avg', 0, 0, [count(10_000, 25_000)]).closingValue).toBe(25_000)
+    expect(valueStock('fifo', 0, 0, [count(10_000, 25_000)]).closingValue).toBe(25_000)
+    expect(valueStock('weighted_avg', 0, 0, [count(10_000)]).closingValue).toBe(0)
+  })
+  it('never once there is stock on hand: the average on the books wins', () => {
+    // 10 on hand at ₹10 each, counted 12 with a stray ₹99 cost: +2 at the ₹10 average.
+    expect(valueStock('weighted_avg', 10_000, 10_000, [count(12_000, 99 * 12 * 100)]).closingValue).toBe(12_000)
+  })
+})
