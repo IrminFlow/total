@@ -15,6 +15,7 @@ import { useUnsavedGuard } from '../../lib/useUnsavedGuard'
 import { nextLineKey, NUMBER_LOADING, useAlterationDirty, useLeaveAfterSave, useVoucherNumberField } from './hooks'
 import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } from './LineStockDetail'
 import { PostButton } from '../../components/PostButton'
+import { parseQtyText } from '@shared/qty'
 
 // ---------- generic stock lines (lossless fallback for stock journals / physical stock) ----------
 // One row per inventory line: item, in/out, qty, rate, amount, godown, batch. Used when a saved
@@ -262,7 +263,7 @@ export function StockLinesEntry({
                   <LineStockDetail
                     item={detailItem}
                     direction={r.direction}
-                    qtyMilli={Math.round(parseFloat(r.qtyText || '0') * 1000) || 0}
+                    qtyMilli={parseQtyText(r.qtyText) ?? 0}
                     fields={r}
                     onChange={(patch) => setRow(i, patch)}
                     voucherId={voucherId}

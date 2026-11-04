@@ -13,6 +13,7 @@ import { useFeatures } from '../../lib/useFeatures'
 import { nextLineKey } from './hooks'
 import { LineDetailToggle, LineStockDetail, LineStockSummary, useLineDetails } from './LineStockDetail'
 import { PriceHint, useLinePricing, type LinePricingContext, type RowPricing } from './useLinePricing'
+import { parseQtyText } from '@shared/qty'
 
 export interface ItemRow extends InvoiceRowState {
   /** Stable React key — survives the trailing-blank-row insertions (never an array index). */
@@ -102,9 +103,9 @@ export function ItemLineGrid({
         <tbody data-testid="rows-invoice-lines">
           {rows.map((r, i) => {
             const item = r.itemId ? itemMap.get(r.itemId) : null
-            const qty = parseFloat(r.qtyText || '0')
+            const qtyMilli = parseQtyText(r.qtyText) ?? 0
             const amount =
-              item && qty > 0 && r.rate != null ? Math.max(0, Math.round(qty * r.rate) - (r.discount ?? 0)) : 0
+              item && qtyMilli > 0 && r.rate != null ? Math.max(0, Math.round((qtyMilli * r.rate) / 1000) - (r.discount ?? 0)) : 0
             const locked = lockedBySource?.(r) ?? null
             const detailOpen = stockDetailOn && details.isOpen(r.key, item)
             return (
@@ -167,8 +168,8 @@ export function ItemLineGrid({
                       onChange={(e) => {
                         // A drawn-down row can't take more than the source still has pending.
                         const v = e.target.value
-                        const q = Math.round(parseFloat(v || '0') * 1000)
-                        setRow(i, { qtyText: locked && Number.isFinite(q) && q > locked.maxQtyMilli ? String(locked.maxQtyMilli / 1000) : v })
+                        const q = parseQtyText(v) ?? 0
+                        setRow(i, { qtyText: locked && q > locked.maxQtyMilli ? String(locked.maxQtyMilli / 1000) : v })
                       }}
                       title={locked ? `At most ${locked.maxQtyMilli / 1000} (pending on ${locked.label})` : undefined}
                     />
@@ -215,7 +216,7 @@ export function ItemLineGrid({
                     <LineStockDetail
                       item={item}
                       direction={direction}
-                      qtyMilli={Math.round(qty * 1000) || 0}
+                      qtyMilli={qtyMilli}
                       fields={r}
                       onChange={(patch) => setRow(i, patch)}
                       voucherId={voucherId}
