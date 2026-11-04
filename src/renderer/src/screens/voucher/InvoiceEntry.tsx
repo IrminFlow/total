@@ -41,6 +41,7 @@ import { DocLink } from '../../components/links'
 import { creditLimitWarningText } from '@shared/tradeCycle/edit'
 import { chargesGstOn, gstRegistrationOf, legacyTaxWarning, NON_CLAIMABLE_RATE_HINT, registrationOn } from '@shared/gst/registration'
 import { PostButton } from '../../components/PostButton'
+import { parseQtyText } from '@shared/qty'
 
 /** The narration hint per kind (WP 8.0: a purchase never says "goods sold"). */
 const NARRATION_PLACEHOLDER: Partial<Record<VoucherKind, string>> = {
@@ -589,7 +590,7 @@ export function InvoiceEntry({
   const qtyInForm = (uid: string, exceptKey?: number): number =>
     rows
       .filter((r) => r.source?.lineUid === uid && r.key !== exceptKey)
-      .reduce((s, r) => s + (Math.round(parseFloat(r.qtyText || '0') * 1000) || 0), 0)
+      .reduce((s, r) => s + (parseQtyText(r.qtyText) ?? 0), 0)
   const drawerLines: OpenSourceLine[] = (openLines ?? [])
     .map((l) => {
       const pending = l.pendingMilli - qtyInForm(l.lineUid)
@@ -599,7 +600,7 @@ export function InvoiceEntry({
   const lockedBySource = (r: ItemRow): { label: string; maxQtyMilli: number; lockDetail: boolean } | null => {
     if (!r.source) return null
     const l = sourceByUid.get(r.source.lineUid)
-    const own = Math.round(parseFloat(r.qtyText || '0') * 1000) || 0
+    const own = parseQtyText(r.qtyText) ?? 0
     if (!l) return { label: 'the linked line', maxQtyMilli: own, lockDetail: r.source.linkType === 'fulfil' }
     return {
       label: l.label,

@@ -8,6 +8,7 @@ import {
   EMPTY_PASSTHROUGH, inventoryToPayload, passthroughOf, qtyText, voucherToPayload,
   type BuildResult, type HeaderPassthrough, type VoucherPayload
 } from './payload'
+import { parseQtyText } from '../qty'
 
 export interface StockLineRowState {
   itemId: number | null
@@ -54,7 +55,7 @@ export function emptyStockLinesState(date: string): StockLinesFormState {
 
 /** Row patch for a qty/rate edit: amount follows qty × rate − discount (never below 0). */
 export function recomputeStockLineAmount(r: StockLineRowState): number | null {
-  const qtyMilli = Math.round(parseFloat(r.qtyText || '0') * 1000)
+  const qtyMilli = (parseQtyText(r.qtyText) ?? 0)
   if (!Number.isFinite(qtyMilli) || r.rate == null) return r.amount
   return Math.max(0, Math.round((qtyMilli * r.rate) / 1000) - r.discountPaise)
 }
@@ -63,7 +64,7 @@ export function buildStockLinesPayload(state: StockLinesFormState, opts: { vouch
   const inventory: VoucherPayload['inventory'] = []
   for (const r of state.rows) {
     if (r.itemId == null) continue
-    const qtyMilli = Math.round(parseFloat(r.qtyText || '0') * 1000)
+    const qtyMilli = (parseQtyText(r.qtyText) ?? 0)
     if (!Number.isFinite(qtyMilli) || qtyMilli < 0 || (!r.isAbsolute && qtyMilli === 0)) {
       return { ok: false, error: 'Every stock line needs a positive quantity' }
     }

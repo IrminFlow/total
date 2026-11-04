@@ -20,6 +20,7 @@ import { Button, Drawer, Field, Select, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { DocLink, ItemLink } from '../../components/links'
 import { useStockItems } from '../../components/pickers'
+import { parseQtyText } from '@shared/qty'
 
 /** Column headings for a return, by the kind being returned. */
 const RETURN_HEADS: Record<string, { qty: string; done: string }> = {
@@ -89,9 +90,9 @@ export function AddFromDrawer({
     })
   const setQty = (l: OpenSourceLine, text: string): void =>
     setPicked((m) => {
-      const q = Math.round(parseFloat(text || '0') * 1000)
+      const q = parseQtyText(text) ?? 0
       // Capped at pending (I1): more than that is a separate, unlinked line.
-      return new Map(m).set(l.lineUid, Number.isFinite(q) && q > l.pendingMilli ? String(l.pendingMilli / 1000) : text)
+      return new Map(m).set(l.lineUid, q > l.pendingMilli ? String(l.pendingMilli / 1000) : text)
     })
 
   const columns = useMemo(
@@ -116,7 +117,7 @@ export function AddFromDrawer({
           width: 120
         },
         {
-          id: 'take', header: 'Take', kind: 'quantity', value: (r) => (picked.has(r.lineUid) ? Math.round(parseFloat(picked.get(r.lineUid) || '0') * 1000) : null),
+          id: 'take', header: 'Take', kind: 'quantity', value: (r) => (picked.has(r.lineUid) ? (parseQtyText(picked.get(r.lineUid)) ?? 0) : null),
           width: 96, sortable: false, filterable: false, hideable: false,
           cell: (r) =>
             picked.has(r.lineUid) ? (
@@ -140,7 +141,7 @@ export function AddFromDrawer({
 
   const picks: SourcePick[] = lines
     .filter((l) => picked.has(l.lineUid))
-    .map((l) => ({ line: l, qtyMilli: Math.min(l.pendingMilli, Math.round(parseFloat(picked.get(l.lineUid) || '0') * 1000)) }))
+    .map((l) => ({ line: l, qtyMilli: Math.min(l.pendingMilli, parseQtyText(picked.get(l.lineUid)) ?? 0) }))
     .filter((p) => Number.isFinite(p.qtyMilli) && p.qtyMilli > 0)
 
   return (

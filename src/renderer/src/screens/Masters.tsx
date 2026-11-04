@@ -25,6 +25,7 @@ import { SchemesTab } from './masters/SchemesTab'
 import { useBulkSelection } from '../components/bulk/BulkEdit'
 import { AttachmentList } from '../components/attachments/Attachments'
 import { defaultUnitId, itemShowsGst, itemShowsHsn, newItemGstRateError } from '../lib/itemDefaults'
+import { parseQtyText } from '@shared/qty'
 
 export type MastersTab = NonNullable<Extract<Screen, { name: 'masters' }>['tab']>
 
@@ -681,10 +682,10 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
         // Hidden GST fields keep what an existing item has stored (a new one gets none).
         gstRate: gstRate.trim() ? Number(gstRate) : null,
         cessRate: cessRate.trim() ? Number(cessRate) : null,
-        openingQtyMilli: Math.round(parseFloat(openQty || '0') * 1000),
+        openingQtyMilli: parseQtyText(openQty) ?? 0,
         openingValue: openValue ?? 0,
         barcode: barcode.trim() || null,
-        reorderLevelMilli: reorderText.trim() ? Math.round(parseFloat(reorderText) * 1000) : null,
+        reorderLevelMilli: reorderText.trim() ? (parseQtyText(reorderText) ?? 0) : null,
         valuationMethod,
         trackSerials,
         ...(features.tcs ? { tcsSectionId: tcsSectionId === '' ? null : tcsSectionId } : {}),

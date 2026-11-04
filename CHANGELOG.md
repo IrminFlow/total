@@ -20,7 +20,15 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Quantities with commas are read right in the full app** (PR_QTY). Plain words: typing "1,500" as a
+  quantity in an invoice, stock note, stock journal, manufacture, physical stock count, order, the
+  counter, an item's opening stock / reorder level or a recipe now means one thousand five hundred —
+  it used to be read as 1. For accountants: every editor reads quantities through ONE parser
+  (`shared/qty.ts` `parseQtyText`: Indian or western grouping, integer thousandths, no floats — the
+  same rule simple mode's `readQty` now uses); the three-way-match amount tolerance is read with
+  `parseAmountText`. Text that is not a quantity ("1,5", "2 Nos") is no quantity, as a blank row.
 
 ## [0.12.0] - 2026-10-22
 
