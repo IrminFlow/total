@@ -1,5 +1,6 @@
 import { decimalToScaled } from './dataImport/values'
 import { normaliseNewlines } from './textFiles'
+import { addDaysISO } from './dates'
 /**
  * Tally XML import: a small tolerant XML parser plus mapping from Tally's
  * TALLYMESSAGE export format (Masters and Daybook/Vouchers) into neutral
@@ -150,8 +151,24 @@ export interface TallyItem {
   openingQtyMilli: number
   openingValue: number
 }
-export interface TallyVoucherLine { ledger: string; drCr: 'dr' | 'cr'; amount: number }
-export interface TallyInventoryLine { item: string; qtyMilli: number; amount: number }
+/** A bill-wise allocation on a ledger entry (BILLALLOCATIONS.LIST): BILLTYPE New Ref / Agst Ref /
+ *  Advance / On Account, the bill's NAME, its AMOUNT (paise, unsigned) and BILLCREDITPERIOD as the
+ *  due date (ISO) when it can be read. */
+export interface TallyBillAllocation { name: string; type: 'new' | 'against' | 'advance' | 'on_account'; amount: number; dueDate: string | null }
+export interface TallyVoucherLine { ledger: string; drCr: 'dr' | 'cr'; amount: number; bills?: TallyBillAllocation[] }
+export interface TallyInventoryLine {
+  item: string
+  qtyMilli: number
+  amount: number
+  /** The entry's own direction: INVENTORYENTRIESIN / OUT (stock / manufacturing journals), else its
+   *  ISDEEMEDPOSITIVE (Yes = goods in) or a negative AMOUNT (Tally: debit = goods in). Absent (a
+   *  hand-built voucher, the exporter's) = the voucher kind's direction. */
+  direction?: 'in' | 'out'
+  godown?: string | null
+}
+/** A VOUCHERTYPE master: its name and PARENT (Tally's predefined type it was made from — a custom
+ *  "Sales Return" has PARENT "Credit Note"; a predefined type is its own parent). */
+export interface TallyVoucherType { name: string; parent: string }
 export interface TallyVoucher {
   vchType: string
   date: string
@@ -194,6 +211,8 @@ export interface TallyImport {
   vouchers: TallyVoucher[]
   /** Sales / purchase orders (never vouchers: they post nothing). */
   orders: TallyOrder[]
+  /** VOUCHERTYPE masters (name → parent), when the export carries them. */
+  voucherTypes: TallyVoucherType[]
   /** COMPANY BOOKSFROM (else STARTINGFROM) as ISO, when the export carries the company master. */
   booksFrom: string | null
   warnings: string[]
@@ -244,10 +263,59 @@ const nameOf = (n: XNode): string => n.attrs.NAME ?? childText(n, 'NAME')
  *  Rejections In / Out notes). */
 export const TALLY_STOCK_NOTE_TYPE = /delivery note|delivery challan|receipt note|goods receipt|rejection/i
 
+/** Tally stock / manufacturing journals (goods in and out, no ledger entries). Physical Stock is
+ *  not one (its lines are counts, not movements). */
+export const TALLY_STOCK_JOURNAL_TYPE = /stock journal|manufactur/i
+
+/** The predefined Tally type a voucher type comes from: its VOUCHERTYPE master's PARENT, followed
+ *  up the chain (a custom type may be made from another custom type) until a type that is its own
+ *  parent or has no master in the file. The name itself when the file has no master for it. */
+export function tallyBaseTypeName(name: string, types: readonly TallyVoucherType[]): string {
+  const byName = new Map(types.map((t) => [t.name.toLowerCase(), t.parent]))
+  let current = name
+  const seen = new Set<string>()
+  for (;;) {
+    const key = current.toLowerCase()
+    const parent = byName.get(key)
+    if (!parent || parent.toLowerCase() === key || seen.has(key)) return current
+    seen.add(key)
+    current = parent
+  }
+}
+
+/** A voucher carrying stock-journal item lists (INVENTORYENTRIESIN / OUT) — a stock journal under
+ *  any custom name. */
+const hasJournalLists = (v: XNode): boolean => v.children.some((c) => c.tag === 'INVENTORYENTRIESIN.LIST' || c.tag === 'INVENTORYENTRIESOUT.LIST')
+
+const BILL_TYPES: Record<string, TallyBillAllocation['type']> = { 'new ref': 'new', 'agst ref': 'against', advance: 'advance', 'on account': 'on_account' }
+
+/** BILLALLOCATIONS.LIST of a ledger entry. BILLCREDITPERIOD is "30 Days" (text or its P attribute)
+ *  — the due date is the voucher date + those days — or a date. */
+function billAllocations(entry: XNode, date: string): TallyBillAllocation[] {
+  const out: TallyBillAllocation[] = []
+  for (const b of entry.children.filter((c) => c.tag === 'BILLALLOCATIONS.LIST')) {
+    const type = BILL_TYPES[childText(b, 'BILLTYPE').trim().toLowerCase()]
+    const amount = Math.abs(parseTallyAmount(childText(b, 'AMOUNT')))
+    const name = childText(b, 'NAME').trim()
+    if (!type || amount === 0 || (!name && type !== 'on_account')) continue
+    const period = b.children.find((c) => c.tag === 'BILLCREDITPERIOD')
+    const text = (period?.text || period?.attrs.P || '').trim()
+    let dueDate: string | null = null
+    const days = text.match(/^(\d+)\s*days?$/i)
+    if (days) {
+      dueDate = addDaysISO(date, Number(days[1]))
+    } else if (text) {
+      dueDate = parseTallyLooseDate(text)
+    }
+    out.push({ name, type, amount, dueDate })
+  }
+  return out
+}
+
 export function parseTallyExport(xml: string): TallyImport {
   const root = parseXml(xml)
   const warnings: string[] = []
-  const result: TallyImport = { groups: [], ledgers: [], units: [], items: [], vouchers: [], orders: [], booksFrom: null, warnings }
+  const result: TallyImport = { groups: [], ledgers: [], units: [], items: [], vouchers: [], orders: [], voucherTypes: [], booksFrom: null, warnings }
 
   // The company master, when the export includes it (Masters export / "All Masters"): BOOKSFROM is
   // the first day of the books, STARTINGFROM the FY start (Tally company creation fields).
@@ -277,6 +345,12 @@ export function parseTallyExport(xml: string): TallyImport {
       gstin: childText(l, 'PARTYGSTIN') || childText(l, 'GSTREGISTRATIONNUMBER') || null,
       stateName: childText(l, 'LEDSTATENAME') || null
     })
+  }
+
+  for (const t of collect(root, 'VOUCHERTYPE')) {
+    const name = nameOf(t)
+    if (!name) continue
+    result.voucherTypes.push({ name, parent: childText(t, 'PARENT') || name })
   }
 
   for (const u of collect(root, 'UNIT')) {
@@ -318,16 +392,33 @@ export function parseTallyExport(xml: string): TallyImport {
       const deemedPositive = childText(e, 'ISDEEMEDPOSITIVE').toLowerCase() === 'yes'
       // Tally: ISDEEMEDPOSITIVE=Yes (amount negative) means debit.
       const drCr: 'dr' | 'cr' = deemedPositive || amount < 0 ? 'dr' : 'cr'
-      lines.push({ ledger, drCr, amount: Math.abs(amount) })
+      const bills = billAllocations(e, date)
+      lines.push({ ledger, drCr, amount: Math.abs(amount), ...(bills.length ? { bills } : {}) })
     }
+    // Item lines: invoices list them as ALLINVENTORYENTRIES.LIST, vouchers in voucher (non-invoice)
+    // mode and older exports as INVENTORYENTRIES.LIST, stock / manufacturing journals as
+    // INVENTORYENTRIESIN.LIST (destination, goods in) and INVENTORYENTRIESOUT.LIST (source, out).
+    // ALL… wins when a voucher carries both (the same lines twice).
+    const all = v.children.filter((c) => c.tag === 'ALLINVENTORYENTRIES.LIST')
+    const invNodes: { node: XNode; fixed: 'in' | 'out' | null }[] = [
+      ...(all.length ? all : v.children.filter((c) => c.tag === 'INVENTORYENTRIES.LIST')).map((node) => ({ node, fixed: null })),
+      ...v.children.filter((c) => c.tag === 'INVENTORYENTRIESIN.LIST').map((node) => ({ node, fixed: 'in' as const })),
+      ...v.children.filter((c) => c.tag === 'INVENTORYENTRIESOUT.LIST').map((node) => ({ node, fixed: 'out' as const }))
+    ]
     const inventory: TallyInventoryLine[] = []
-    for (const inv of v.children.filter((c) => c.tag === 'ALLINVENTORYENTRIES.LIST')) {
+    for (const { node: inv, fixed } of invNodes) {
       const item = childText(inv, 'STOCKITEMNAME')
       if (!item) continue
+      const signed = parseTallyAmount(childText(inv, 'AMOUNT'))
+      const deemed = childText(inv, 'ISDEEMEDPOSITIVE').toLowerCase()
+      const direction = fixed ?? (deemed === 'yes' ? 'in' : deemed === 'no' ? 'out' : signed < 0 ? 'in' : 'out')
+      const batch = inv.children.find((c) => c.tag === 'BATCHALLOCATIONS.LIST')
       inventory.push({
         item,
         qtyMilli: parseTallyQty(childText(inv, 'ACTUALQTY') || childText(inv, 'BILLEDQTY')),
-        amount: Math.abs(parseTallyAmount(childText(inv, 'AMOUNT')))
+        amount: Math.abs(signed),
+        direction,
+        ...(batch && childText(batch, 'GODOWNNAME') ? { godown: childText(batch, 'GODOWNNAME') } : {})
       })
     }
     const vchType = v.attrs.VCHTYPE ?? childText(v, 'VOUCHERTYPENAME')
@@ -367,8 +458,11 @@ export function parseTallyExport(xml: string): TallyImport {
       })
       continue
     }
-    // A delivery / receipt note moves goods only — it legitimately has no ledger entries (WP 2.5).
-    if (lines.length === 0 && !(inventory.length > 0 && TALLY_STOCK_NOTE_TYPE.test(vchType))) {
+    // A delivery / receipt note moves goods only — it legitimately has no ledger entries (WP 2.5);
+    // so does a stock / manufacturing journal (goods in and out, no ledger entries).
+    const baseType = tallyBaseTypeName(vchType, result.voucherTypes)
+    const goodsOnly = TALLY_STOCK_NOTE_TYPE.test(baseType) || TALLY_STOCK_JOURNAL_TYPE.test(baseType) || hasJournalLists(v)
+    if (lines.length === 0 && !(inventory.length > 0 && goodsOnly)) {
       warnings.push(`Voucher ${childText(v, 'VOUCHERNUMBER') || date} skipped: no ledger entries`)
       continue
     }

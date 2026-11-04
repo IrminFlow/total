@@ -1,5 +1,5 @@
 import type { DB } from '../db/connection'
-import { orderLineMoney, parseTallyExport, TALLY_ORDER_TYPE, type TallyImport, type TallyOrder } from '@shared/tally'
+import { orderLineMoney, parseTallyExport, tallyBaseTypeName, TALLY_ORDER_TYPE, type TallyImport, type TallyOrder, type TallyVoucher } from '@shared/tally'
 import { GST_STATES } from '@shared/gst/states'
 import { fyOf } from '@shared/dates'
 import { saveVoucher } from './vouchers'
@@ -48,6 +48,10 @@ export function kindForName(name: string): VoucherKind {
   if (n.includes('delivery note') || n.includes('delivery challan')) return 'delivery_note'
   if (n.includes('receipt note') || n.includes('goods receipt')) return 'receipt_note'
   if (n.includes('rejection')) return /\bout\b/.test(n) ? 'delivery_note' : 'receipt_note'
+  // Returns before "sales" / "purchase" (a custom "Sales Return" type is a credit note, "Purchase
+  // Return" a debit note — Tally's Return Inward / Outward wording too).
+  if (/\bsales? returns?\b|\breturns? inwards?\b/.test(n)) return 'credit_note'
+  if (/\bpurchases? returns?\b|\breturns? outwards?\b/.test(n)) return 'debit_note'
   if (n.includes('contra')) return 'contra'
   if (n.includes('payment')) return 'payment'
   if (n.includes('receipt')) return 'receipt'
@@ -55,8 +59,38 @@ export function kindForName(name: string): VoucherKind {
   if (n.includes('debit note')) return 'debit_note'
   if (n.includes('sales')) return 'sales'
   if (n.includes('purchase')) return 'purchase'
-  if (n.includes('stock')) return 'stock_journal'
+  if (n.includes('stock') || n.includes('manufactur')) return 'stock_journal'
   return 'journal'
+}
+
+/** The kind of a Tally voucher type: from the predefined type its VOUCHERTYPE master descends from
+ *  (PARENT — a custom "Sales Return" made from "Credit Note" is a credit note), else its own name. */
+export function kindForTallyType(name: string, data: Pick<TallyImport, 'voucherTypes'>): VoucherKind {
+  const base = tallyBaseTypeName(name, data.voucherTypes ?? [])
+  // A custom name says more than a generic parent only when the parent says nothing (Journal).
+  const fromBase = kindForName(base)
+  return fromBase === 'journal' && base.toLowerCase() !== name.toLowerCase() ? kindForName(name) : fromBase
+}
+
+/** Bill references from a voucher's bill-wise allocations (BILLALLOCATIONS.LIST) on the party's
+ *  ledger entries: New Ref and Advance open a bill / named credit ('new'), Agst Ref settles one
+ *  ('against'). They must add up to what the voucher posts to the party; an On Account part (or
+ *  allocations that don't add up) can't be held as references, so none are taken and it says so. */
+function tallyBillRefs(v: TallyVoucher, party: string | null, warnings: string[]): { kind: 'new' | 'against'; name: string; amount: number; dueDate: string | null }[] {
+  if (!party) return []
+  const partyLines = v.lines.filter((l) => l.ledger.toLowerCase() === party.toLowerCase())
+  const allocs = partyLines.flatMap((l) => l.bills ?? [])
+  if (allocs.length === 0) return []
+  const posted = partyLines.reduce((s, l) => s + l.amount, 0)
+  const refs = allocs.filter((b) => b.type !== 'on_account').map((b) => ({
+    kind: b.type === 'against' ? ('against' as const) : ('new' as const), name: b.name, amount: b.amount, dueDate: b.type === 'against' ? null : b.dueDate
+  }))
+  const sum = refs.reduce((s, r) => s + r.amount, 0)
+  if (refs.length === 0 || sum !== posted || new Set(partyLines.map((l) => l.drCr)).size > 1) {
+    warnings.push(`Voucher ${v.number || v.date}: its bill-wise details (${allocs.map((b) => `${b.type.replace('_', ' ')} ${b.name}`.trim()).join(', ')}) were not imported — ${allocs.some((b) => b.type === 'on_account') ? 'an On Account part' : 'they don\'t add up to the party\'s amount'}; Outstandings settles it oldest first`)
+    return []
+  }
+  return refs
 }
 
 /** A rejection note returns goods (to the supplier / from the customer); other notes are a
@@ -246,7 +280,7 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
       | { id: number; kind: VoucherKind }
       | undefined
     if (existing) return existing
-    const kind = kindForName(vchType)
+    const kind = kindForTallyType(vchType, data)
     const res = db.prepare("INSERT INTO voucher_types (name, kind, numbering, prefix, is_system) VALUES (?, ?, 'manual', '', 0)")
       .run(vchType, kind)
     return { id: Number(res.lastInsertRowid), kind }
@@ -266,18 +300,28 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
     }
     const vt = typeIdFor(v.vchType || 'Journal')
     const goodsIn = vt.kind === 'purchase' || vt.kind === 'credit_note' || vt.kind === 'receipt_note'
+    // A stock / manufacturing journal (or any voucher whose goods go both ways) keeps each line's
+    // own direction from the file; trading vouchers move goods the way their kind does.
+    const ownDirection = vt.kind === 'stock_journal' || vt.kind === 'journal'
     // A delivery / receipt note moves goods only: Tally may still list the party's ledger entry
     // on it, but it posts nothing — keep the goods and the party, drop the ledger lines.
     const stockNote = vt.kind === 'delivery_note' || vt.kind === 'receipt_note'
     if (stockNote && v.lines.length > 0) {
       warnings.push(`Voucher ${v.number || v.date} (${v.vchType}): ledger entries on a ${vt.kind === 'delivery_note' ? 'delivery' : 'receipt'} note were not imported — it moves stock only`)
     }
+    // Bill-wise details ride on the party's entry: the voucher's party, else the one ledger whose
+    // entries carry them.
+    const billParty = v.party ?? (() => {
+      const withBills = [...new Set(v.lines.filter((l) => l.bills?.length).map((l) => l.ledger.toLowerCase()))]
+      return withBills.length === 1 ? v.lines.find((l) => l.ledger.toLowerCase() === withBills[0])!.ledger : null
+    })()
+    const billRefs = stockNote ? [] : tallyBillRefs(v, billParty, warnings)
     try {
       saveVoucher(db, {
         voucherTypeId: vt.id,
         date: v.date,
         number: v.number || undefined,
-        partyLedgerId: v.party ? ledgerId(v.party) : null,
+        partyLedgerId: v.party ? ledgerId(v.party) : billRefs.length && billParty ? ledgerId(billParty) : null,
         ...(stockNote ? { trade: { purpose: stockNotePurpose(vt.kind, v.vchType || '') } } : {}),
         narration: v.narration,
         isOptional: v.isOptional || undefined,
@@ -298,9 +342,9 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
             qtyMilli: inv.qtyMilli,
             ratePaise: inv.qtyMilli > 0 ? Math.round((inv.amount * 1000) / inv.qtyMilli) : 0,
             amount: inv.amount,
-            direction: goodsIn ? ('in' as const) : ('out' as const)
+            direction: ownDirection && inv.direction ? inv.direction : goodsIn ? ('in' as const) : ('out' as const)
           })),
-        billRefs: [],
+        billRefs,
         tds: null
       }, undefined, { historicImport: true })
       counts.vouchers++

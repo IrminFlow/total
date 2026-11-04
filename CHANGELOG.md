@@ -20,7 +20,27 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **Tally import keeps returns, stock journals and bill-wise details** (PR_TALLY). Plain words: books
+  brought over from Tally now have their sales / purchase returns, their stock and manufacturing
+  journals and which bill each payment settled — so stock and "who owes me" match Tally.
+  For accountants — figures that change after an import:
+  - A custom voucher type made from Credit Note / Debit Note in Tally (its VOUCHERTYPE master's
+    PARENT, followed up the chain) — "Sales Return", "Purchase Return" — imports as a credit / debit
+    note with goods coming back / going back; before, it became a sale / purchase and moved stock the
+    wrong way. Without the masters, the name decides (Sales Return / Return Inward → credit note,
+    Purchase Return / Return Outward → debit note, Manufacturing Journal → stock journal).
+  - Stock and manufacturing journals (no ledger entries) are imported as stock journals, each line
+    in or out as in Tally (INVENTORYENTRIESIN / OUT, or INVENTORYENTRIES with ISDEEMEDPOSITIVE); item
+    lines exported as INVENTORYENTRIES.LIST (voucher mode) are read too. Before, both were dropped,
+    so closing stock differed from Tally's.
+  - Bill-wise allocations (BILLALLOCATIONS.LIST) on the party's entry become bill references: New
+    Ref and Advance open a bill / credit (due date from the credit period), Agst Ref settles one.
+    An On Account part, or allocations that don't add up to the party's amount, leave the voucher
+    without references (as before) with a warning — Outstandings then settles it oldest first.
+  For developers: `TallyImport.voucherTypes`, `TallyInventoryLine.direction` / `godown`,
+  `TallyVoucherLine.bills`; fixture `src/shared/fixtures/tally/daybook-returns-stock-bills.xml`.
 
 ## [0.12.0] - 2026-10-22
 
