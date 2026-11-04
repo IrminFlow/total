@@ -373,8 +373,8 @@ function SlabsModal({ level, itemId, itemName, onClose, onChanged }: { level: Pr
   const [minQty, setMinQty] = useState('')
   const [rate, setRate] = useState<number | null>(null)
   const [disc, setDisc] = useState('')
-  const [currency, setCurrency] = useState('INR')
-  const { data: currencies } = useQuery({ queryKey: ['currencies'], queryFn: api.currencies.list })
+  // Foreign-currency slabs went with the forex cut (#195): a new slab is in ₹; old ones keep theirs.
+  const currency = 'INR'
   const refresh = async (): Promise<void> => {
     await queryClient.invalidateQueries({ queryKey: ['priceRates', level.id] })
     await onChanged()
@@ -444,7 +444,7 @@ function SlabsModal({ level, itemId, itemName, onClose, onChanged }: { level: Pr
           )}
         </tbody>
       </table>
-      <div className="mt-4 grid grid-cols-6 items-end gap-2">
+      <div className="mt-4 grid grid-cols-5 items-end gap-2">
         <Field label="From">
           <DateInput value={from} context={workingDate} onChange={setFrom} />
         </Field>
@@ -459,16 +459,6 @@ function SlabsModal({ level, itemId, itemName, onClose, onChanged }: { level: Pr
         </Field>
         <Field label="Disc. %">
           <TextInput value={disc} onChange={(e) => setDisc(e.target.value)} className="num text-right" placeholder="0" data-testid="input-price-slab-disc" />
-        </Field>
-        <Field label="Currency">
-          <Select value={currency} onChange={(e) => setCurrency(e.target.value)}>
-            <option value="INR">₹ INR</option>
-            {(currencies ?? []).map((c) => (
-              <option key={c.id} value={c.code}>
-                {c.code}
-              </option>
-            ))}
-          </Select>
         </Field>
       </div>
       <div className="mt-4 flex justify-end gap-2">

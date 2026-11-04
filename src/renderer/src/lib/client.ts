@@ -53,7 +53,7 @@ export type ImsDecisionPayload = Omit<ImsDecisionInput, 'note' | 'voucherId' | '
 import type {
   AgentExportInput,
   AuditExportInput, AuditListInput, BankRuleInput, BatchInput, BomInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
-  CurrencyInput, EmployeeHeadsSetInput, EmployeeInputPayload, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials,
+  EmployeeHeadsSetInput, EmployeeInputPayload, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials,
   PayHeadInput, PriceLevelInput,
   PriceRateInput,
   RendererLogInput, SearchQueryInput, StockGroupInput, StockItemInput, TdsSectionInput, UnitInput, UserInput, VoucherTransportInput, VoucherTypeInput, TradeDocTypeInput, OpenSourceLinesQuery,
@@ -1351,9 +1351,7 @@ export const api = {
     }
   },
   currencies: {
-    list: () => call<Currency[]>('currency:list'),
-    create: (data: CurrencyInput) => call<Currency>('currency:create', data),
-    remove: (id: number) => call<null>('currency:delete', { id })
+    list: () => call<Currency[]>('currency:list')
   },
   bom: {
     get: (itemId: number) => call<BomLine[]>('bom:get', { itemId }),

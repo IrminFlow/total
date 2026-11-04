@@ -93,7 +93,7 @@ The sidebar sections of the full app (`NAV_SECTIONS` in `src/renderer/src/lib/sc
 ### Gateway, Voucher entry, Masters
 A dashboard with reconciled figures; the Tally-style voucher editor (sales, purchase, payment, receipt,
 journal, contra, credit and debit notes, stock journal, physical stock) with live GST and keyboard
-entry; every entry by date (Registers → All entries); ledgers, groups, stock items, units, godowns, currencies, price levels. Counter
+entry; every entry by date (Registers → All entries); ledgers, groups, stock items, units, godowns, price levels. Counter
 billing is a barcode-first POS. Manufacture is the production voucher (BOM versions, by-products, job
 work).
 
@@ -108,7 +108,7 @@ moment you open it.
 
 ### Analysis
 Outstandings with ageing, Credit control, Payables (with MSME tracking), Cost
-centres, Cash-flow forecast, Forex, Ratio analysis, Assistants
+centres, Cash-flow forecast, Ratio analysis, Assistants
 (month-end checklist, GSTR-2B mismatches, anomalies) and Exceptions.
 
 ### Banking

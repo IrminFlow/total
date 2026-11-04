@@ -15,7 +15,7 @@ import { moreFeatures, turnOffFeature, turnOnFeature, type CompanyFeatures, type
  * only, like `config:features:set`.
  */
 // i18n-technical: feature keys and message keys only.
-const NAMES: Record<Exclude<HideableFeature, 'forex'>, { name: MessageKey; who: MessageKey }> = {
+const NAMES: Record<HideableFeature, { name: MessageKey; who: MessageKey }> = {
   costCentres: { name: 'simple.features.label.costCentres', who: 'simple.features.costCentres' }, // i18n-technical
   cheques: { name: 'simple.features.label.cheques', who: 'simple.features.cheques' }, // i18n-technical
   interest: { name: 'simple.features.label.interest', who: 'simple.features.interest' }, // i18n-technical
@@ -35,7 +35,7 @@ export function MoreFeatures({ stored, noData, canEdit }: { stored: CompanyFeatu
   if (list.length === 0) return null
 
   const flip = async (h: HideableFeature, on: boolean): Promise<void> => {
-    const names = NAMES[h as keyof typeof NAMES]
+    const names = NAMES[h]
     setBusy(h)
     try {
       await api.config.features.set(on ? turnOffFeature(stored, h) : turnOnFeature(stored, h))
@@ -65,7 +65,7 @@ export function MoreFeatures({ stored, noData, canEdit }: { stored: CompanyFeatu
         <p className="mb-3 mt-1 text-small text-muted">{t('simple.features.moreHint')}</p>
         <div className="divide-y divide-line rounded-lg border border-line bg-panel shadow-elev-1">
           {list.map(({ feature, on }) => {
-            const names = NAMES[feature as keyof typeof NAMES]
+            const names = NAMES[feature]
             return (
               <div key={feature} className="flex items-start justify-between gap-4 px-panel py-3.5" data-testid={`feature-more-card-${feature}`} data-on={on ? 'true' : 'false'}>
                 <div className="min-w-0">

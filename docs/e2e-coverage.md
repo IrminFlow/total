@@ -63,7 +63,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 4.1 | MT940 / Excel / CAMT.053 statements, re-import dedupe, post-dated cheques (mature / bounce) | 72 (gap filled) | parsers: `bankFormats.test.ts` |
 | 4.2 | Statements, reminders, interest notes, credit hold, follow-ups | 32 | |
 | 4.3 | Payment plan, MSME s.15 / s.16, payment runs, Form 1 | 33 | |
-| 4.4 | Cash-flow forecast, forex revaluation (budgets and loan schedules removed in the feature cleanup; foreign openings: dbtests only, not in 34 yet) | 34 | |
+| 4.4 | Cash-flow forecast (budgets, loan schedules and the forex screen removed in the 1.0 cleanup — 34 checks a USD entry still reads; revaluations / settlements / foreign openings of older books and Reverse…: dbtests + renderer tests) | 34 | |
 | — | Cost centres, cash flow statement, exceptions, CA pack | 69 (gap filled) | |
 
 ## Phase 5 — AI agent
@@ -134,7 +134,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 
 Removed (their rows above are struck through): group consolidation (6.5), the report builder and
 scheduled packs (6.1), the MCP server and agent inbox (5.7), budgets, loan schedules, the AI evals
-(5.8) and the year-end repair tool. Hidden until a company has their data: forex / multi-currency,
+(5.8) and the year-end repair tool. Hidden until a company has their data:
 cost centres, cheque books + PDC + bulk payment files, interest, the fixed-asset register, the trade
 cycle and payroll statutory — the scenarios that drive one (11, 22, 24, 26, 28, 31, 69) start with
 `h.useFeature(name)`, which turns it on as an owner does (Settings → Features → More features →

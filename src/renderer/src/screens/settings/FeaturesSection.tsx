@@ -10,7 +10,7 @@ import { DEFAULT_FEATURES, effectiveFeatures, flagCardShown, flagTurnedOff, spli
 import { MoreFeatures } from '../../simple/MoreFeatures'
 
 /** WP 8.3 (plan §4.3): every module is a "Turn on" card with one line on who needs it. New simple
- *  companies start with TDS, TCS, payroll, cost centres, multi-currency, orders and manufacturing
+ *  companies start with TDS, TCS, payroll, cost centres, orders and manufacturing
  *  off (written explicitly at setup); a company without `features` meta keeps DEFAULT_FEATURES. */
 type Key = keyof CompanyFeatures
 const CARDS: { key: Key; label: string; plain: MessageKey; who: MessageKey; hint: string; needsInventory?: boolean }[] = [
@@ -20,7 +20,6 @@ const CARDS: { key: Key; label: string; plain: MessageKey; who: MessageKey; hint
   { key: 'tds', label: 'TDS', plain: 'simple.features.label.tds', who: 'simple.features.tds', hint: 'Tax Deducted at Source suggestions, deduction entries, and the TDS report' },
   { key: 'tcs', label: 'TCS', plain: 'simple.features.label.tcs', who: 'simple.features.tcs', hint: 'Tax Collected at Source on sales — the invoice / receipt banner, 27EQ data and the TCS screen' },
   { key: 'payroll', label: 'Payroll', plain: 'simple.features.label.payroll', who: 'simple.features.payroll', hint: 'Employees, pay runs, and payslips' },
-  { key: 'multiCurrency', label: 'Multi-currency', plain: 'simple.features.label.multiCurrency', who: 'simple.features.multiCurrency', hint: 'Foreign-currency invoices with an exchange rate; books stay in ₹' },
   { key: 'costCentres', label: 'Cost centres', plain: 'simple.features.label.costCentres', who: 'simple.features.costCentres', hint: 'Split voucher lines across cost centres for the cost-centre report' },
   { key: 'billWise', label: 'Bill-wise details', plain: 'simple.features.label.billWise', who: 'simple.features.billWise', hint: 'Allocate receipts/payments/notes against specific invoices instead of on-account' }
 ]

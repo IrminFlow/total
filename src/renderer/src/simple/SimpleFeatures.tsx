@@ -30,7 +30,6 @@ const CARDS: Card[] = [
   { key: 'tds', name: 'simple.features.label.tds', who: 'simple.features.tds' }, // i18n-technical
   { key: 'tcs', name: 'simple.features.label.tcs', who: 'simple.features.tcs' }, // i18n-technical
   { key: 'payroll', name: 'simple.features.label.payroll', who: 'simple.features.payroll' }, // i18n-technical
-  { key: 'multiCurrency', name: 'simple.features.label.multiCurrency', who: 'simple.features.multiCurrency' }, // i18n-technical
   { key: 'costCentres', name: 'simple.features.label.costCentres', who: 'simple.features.costCentres' }, // i18n-technical
   { key: 'billWise', name: 'simple.features.label.billWise', who: 'simple.features.billWise' } // i18n-technical
 ]

@@ -1,3 +1,4 @@
+import { SavedCurrencyPicker } from './SavedCurrencyPicker'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Group, Ledger, Voucher, VoucherBillRef, VoucherKind } from '@shared/domain'
@@ -110,8 +111,9 @@ export function InvoiceEntry({
   const [vehicleNo, setVehicleNo] = useState(initial?.vehicleNo ?? '')
   const [transporterId, setTransporterId] = useState(initial?.transporterId ?? '')
   const [distanceKm, setDistanceKm] = useState(initial?.distanceKm ?? '')
-  const [currencyCode, setCurrencyCode] = useState(initial?.currencyCode ?? '')
-  const [fxRateText, setFxRateText] = useState(initial?.fxRateText ?? '')
+  // A new invoice is in ₹ since the forex cut (#195): only a saved voucher keeps its currency.
+  const [currencyCode, setCurrencyCode] = useState(isEdit ? (initial?.currencyCode ?? '') : '')
+  const [fxRateText, setFxRateText] = useState(isEdit ? (initial?.fxRateText ?? '') : '')
   const { data: currencies } = useQuery({ queryKey: ['currencies'], queryFn: api.currencies.list })
   const [quickLedger, setQuickLedger] = useState<{ name: string; forParty: boolean } | null>(null)
   const [quickItem, setQuickItem] = useState<{ name: string; row: number } | null>(null)
@@ -785,28 +787,18 @@ export function InvoiceEntry({
             {addFrom.label} <Kbd>⌥A</Kbd>
           </Button>
         )}
-        {features.multiCurrency && (currencies?.length ?? 0) > 0 && (
-          <div className="flex items-center gap-2">
-            <Select value={currencyCode} onChange={(e) => setCurrencyCode(e.target.value)} className="w-28">
-              <option value="">₹ INR</option>
-              {(currencies ?? []).map((c) => (
-                <option key={c.id} value={c.code}>
-                  {c.symbol} {c.code}
-                </option>
-              ))}
-            </Select>
-            {currencyCode && (
-              <>
-                <TextInput
-                  value={fxRateText}
-                  onChange={(e) => setFxRateText(e.target.value)}
-                  placeholder={`₹ per ${currencyCode}`}
-                  className="num w-28 text-right"
-                />
-                {fxActive && <span className="text-caption text-muted">rates in {currencyCode} · books in ₹</span>}
-              </>
-            )}
-          </div>
+        {/* Foreign-currency invoicing went in the 1.0 cleanup: only a saved voucher (not a draft or
+            hand-off) that carries a currency shows it, so it round-trips (and its rate can be fixed). */}
+        {isEdit && !!initial?.currencyCode && (
+          <SavedCurrencyPicker
+            currencies={currencies ?? []}
+            savedCode={initial.currencyCode}
+            currencyCode={currencyCode}
+            setCurrencyCode={setCurrencyCode}
+            fxRateText={fxRateText}
+            setFxRateText={setFxRateText}
+            fxActive={fxActive}
+          />
         )}
       </div>
 

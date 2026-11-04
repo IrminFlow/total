@@ -128,7 +128,6 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       { label: 'New receipt', run: go({ name: 'voucher-entry', kindHint: 'receipt' }) },
       ...screenCommands,
       { label: 'Stock items', feature: 'inventory', run: go({ name: 'masters', tab: 'items' }) },
-      { label: 'Currencies', feature: 'forex', run: go({ name: 'masters', tab: 'currencies' }) },
       {
         label: 'New manufacture (stock journal)',
         hint: 'Alt F7',

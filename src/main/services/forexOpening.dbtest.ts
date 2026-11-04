@@ -12,7 +12,9 @@ import { getVoucher, saveVoucher } from './vouchers'
 import { ledgerStatement } from './reports'
 import { outstandings } from './analysis'
 import { replaceOpeningBills } from './openingBills'
-import { openBills, postRevaluation, revaluationPreview, saveRate, setForeignOpening, settle } from './forex'
+import { openBills } from './forex'
+// The foreign-opening editor went in the 1.0 cleanup; the legacy fixture writes what it wrote.
+import { postRevaluation, revaluationPreview, saveRate, setForeignOpening, settle } from './forexLegacy.testutil'
 
 const gid = (db: DB, name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
 const lid = (db: DB, name: string): number => (db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number }).id

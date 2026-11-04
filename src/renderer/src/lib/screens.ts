@@ -160,7 +160,7 @@ export const SCREENS: ScreenDef[] = [
     simpleEntries: [
       { id: 'product-list', label: 'simple.entries.productList', section: 'stock', screen: { name: 'masters', tab: 'items' }, feature: 'inventory' }
     ],
-    keywords: ['ledgers', 'items', 'groups', 'units', 'voucher types', 'currencies', 'godowns', 'stock groups'],
+    keywords: ['ledgers', 'items', 'groups', 'units', 'voucher types', 'godowns', 'stock groups'],
     title: 'Masters',
     screen: { name: 'masters' },
     navSection: 'top',
@@ -550,18 +550,6 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'cash-forecast' },
     navSection: 'analysis',
     invalidates: ['forecastBase', 'forecastItems']
-  },
-  {
-    name: 'forex',
-    // Feature cleanup: hidden for a company with no foreign-currency data (shared/features.ts).
-    feature: 'forex',
-    modes: ['accountant'],
-    title: 'Forex — exposures and revaluation',
-    navLabel: 'Forex',
-    keywords: ['foreign currency', 'exchange rate', 'revaluation', 'unrealised', 'realised gain', 'usd', 'export receivable'],
-    screen: { name: 'forex' },
-    navSection: 'analysis',
-    invalidates: ['fxPreview', 'fxRates', 'fxRevaluations', 'fxLedgerCurrencies', 'fxOpenBills', 'currencies']
   },
   // WP 6.2: ratio analysis.
   {

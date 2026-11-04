@@ -1,7 +1,6 @@
 // Scenario 34 — cash and finance (WP 4.4), driven through the UI: the cash-flow forecast (opening =
-// the trial balance's cash and bank, a known item), and revalue a USD customer at a closing rate
-// entered on the Forex screen (journal + next-day reversal). (The loans screen it also drove was
-// removed in the feature cleanup.)
+// the trial balance's cash and bank, a known item), and a USD entry that still reads with the Forex
+// screen gone (1.0 cleanup). (The loans screen it also drove was removed in the feature cleanup.)
 // Every screen is shot in both themes. Set WP44_SHOTS=/tmp/wp44 to copy the shots there.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -80,30 +79,18 @@ await scenario('34-cash-finance', async (h) => {
   await page.waitForSelector('[data-testid="forecast-assumptions"]')
   await h.click('tab-cash-forecast-forecast')
 
-  // ---------- 2. revalue a USD customer ----------
-  await save('journal', addDays(today, -10), [L(globex.id, 'dr', 82_000_00), L(sales.id, 'cr', 82_000_00)], { partyLedgerId: globex.id, currencyCode: 'USD', exchangeRate: 82 })
-  await h.goto('forex')
-  await page.waitForSelector('[data-testid="rows-forex-exposures"] [data-currency="USD"]', { timeout: 15000 })
-  await page.waitForSelector('[data-testid="forex-blocked"]')
-  await h.fill('input-fx-rate-currency', 'USD')
-  await h.fill('input-fx-rate-value', '83.25')
-  await h.click('btn-fx-rate-save')
-  await page.waitForFunction(() => document.querySelector('[data-testid="rows-forex-exposures"]')?.textContent?.includes('+1,250.00'), null, { timeout: 10000 })
-  await shot('09-forex-light')
-  await h.click('btn-forex-revalue')
-  await page.waitForSelector('[data-testid="forex-revalue-modal"]')
-  await shot('10-forex-revalue-light')
-  await h.click('btn-forex-revalue-post')
-  await page.waitForSelector('[data-testid="forex-revalue-modal"]', { state: 'detached', timeout: 10000 })
-  const revals = await h.invoke('fx:revaluations')
-  assertEq(revals.length, 1, 'one revaluation')
-  assert(revals[0].reversalVoucherId, 'reversed the next day')
-  const rj = await h.invoke('voucher:get', { id: revals[0].voucherId })
-  assert(rj.lines.some((l) => l.ledgerId === globex.id && l.drCr === 'dr' && l.amount === 1_250_00), 'Dr Globex 1,250')
-  const rev = await h.invoke('voucher:get', { id: revals[0].reversalVoucherId })
-  assertEq(rev.date, addDays(today, 1), 'reversal dated the next day')
-  await page.waitForSelector('[data-testid="rows-fx-revaluations"] tr', { timeout: 10000 })
-  await shot('11-forex-revalued-light')
+  // ---------- 2. forex: the screen went in the 1.0 cleanup (owner's plan, PR #186) ----------
+  // A USD entry saved by an older version still reads exactly as before; nothing offers to revalue it.
+  const usd = await save('journal', addDays(today, -10), [L(globex.id, 'dr', 82_000_00), L(sales.id, 'cr', 82_000_00)], { partyLedgerId: globex.id, currencyCode: 'USD', exchangeRate: 82 })
+  const usdV = await h.invoke('voucher:get', { id: usd.id })
+  assertEq(usdV.currencyCode, 'USD', 'the USD entry keeps its currency')
+  assertEq(await page.locator('[data-testid="nav-forex"]').count(), 0, 'no Forex entry in the sidebar')
+  const noRevalue = await page.evaluate(() => window.total.invoke('fx:revalue', { asOf: '2026-03-31' }).then((r) => r.ok, () => false))
+  assertEq(noRevalue, false, 'the revaluation channels are gone')
+  const usdBal = (await h.invoke('report:trialBalance', { asOn: today })).rows.find((r) => r.ledgerId === globex.id)
+  assertEq(usdBal.debit, 82_000_00, 'Globex stands at its booked ₹82,000')
+  // Its journal offers no "Reverse…" (it is not a revaluation).
+  assertEq(await h.invoke('fx:revaluationOf', { voucherId: usd.id }), null, 'an ordinary entry is not a revaluation')
 
   // ---------- dashboard ----------
   await h.goto('gateway')
@@ -119,9 +106,6 @@ await scenario('34-cash-finance', async (h) => {
   await page.waitForSelector('[data-testid="input-forecast-collection"]')
   await shot('17-forecast-options-dark')
   await h.click('options-cash-forecast-done')
-  await h.goto('forex')
-  await page.waitForSelector('[data-testid="rows-forex-exposures"] tr')
-  await shot('20-forex-dark')
   await h.goto('gateway')
   await h.waitIdle(15000)
   await shot('22-gateway-dark')

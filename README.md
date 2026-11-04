@@ -2,7 +2,7 @@
 
 **Accounting for small Indian businesses, kept on your own computer.** Total is a double-entry books
 app (Electron, React, TypeScript, SQLite) with GST returns, invoicing, stock and manufacturing, banking,
-payroll, multi-currency and Tally import. Every company is one file under `~/Documents/total/`. There
+payroll and Tally import. Every company is one file under `~/Documents/total/`. There
 is no account to create and no cloud copy of your books.
 
 It has two views of the same books:

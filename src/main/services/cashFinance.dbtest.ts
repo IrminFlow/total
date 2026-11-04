@@ -1,17 +1,20 @@
 // WP 4.4 — cash and finance against a real (in-memory) company: the forecast's opening equals the
 // trial balance's cash and bank, a loan schedule already in the books is no longer forecast (1.0 cleanup review),
-// forex revaluation posts and reverses and settlement books the realised difference.
+// forex revaluations / settlements written by an older Total read as before, and a revaluation
+// posted without its reversal can still be reversed (the one forex write kept).
 import { describe, expect, it } from 'vitest'
 import { seededDb, TEST_INFO } from '../db/testdb'
 import type { DB } from '../db/connection'
 import type { VoucherInput } from '@shared/schemas'
 import { createLedger } from './masters'
-import { deleteVoucher, getVoucher, saveVoucher } from './vouchers'
+import { deleteVoucher, getVoucher, saveVoucher, setLockDate } from './vouchers'
 import { closingBalances, trialBalance, pnlLedgerAmounts } from './reports'
-import { postRevaluation, revaluationPreview, saveRate, settle, exposure, listRevaluations, reverseRevaluation, setLedgerCurrency } from './forex'
+import { listRevaluations, reverseRevaluation, revaluationOf } from './forex'
+// The forex writes went in the 1.0 cleanup; the legacy fixture writes what an older Total wrote.
+import { postRevaluation, revaluationPreview, saveRate, settle, exposure, setLedgerCurrency } from './forexLegacy.testutil'
+import { outstandings } from './analysis'
 import { forecastBase, saveForecastItem, listForecastItems } from './cashForecast'
 import { cashNext30 } from './simpleReports'
-import { closeWarnings } from './cashFinanceChecks'
 import { buildForecast, SCENARIO_PRESETS } from '@shared/cashForecast'
 import { payablesPlan } from './payables'
 import { createToolRegistry } from '../ai/tools'
@@ -215,7 +218,7 @@ describe('loan schedules already in the books (the loans screen was removed)', (
   })
 })
 
-describe('forex revaluation and settlement', () => {
+describe('forex revaluation and settlement written by an older Total', () => {
   function withUsdCustomer() {
     const c = company()
     const cust = ledger(c.db, 'Globex Inc', 'Sundry Debtors')
@@ -249,18 +252,48 @@ describe('forex revaluation and settlement', () => {
     // the revaluation moved rupees only — the foreign balance is still $1,000
     expect(exposure(db, cust, '2026-03-31').fcBalance).toBe(1000_00)
     expect(revaluationPreview(db, '2026-03-31').blocked).toMatch(/Already revalued/)
-    expect(closeWarnings(db, 2025)).toMatchObject({ revaluedOnFyEnd: true, unrevalued: [] })
   })
 
-  it('without auto-reversal it reverses on demand', () => {
+  it('without auto-reversal it is still reversed in the app (Reverse… on the journal): Outstandings = trial balance, as before', () => {
     const { db, cust } = withUsdCustomer()
     saveRate(db, { date: '2026-03-31', currencyCode: 'USD', rateMicro: 81_000_000 })
     const rev = postRevaluation(db, { asOf: '2026-03-31', autoReverse: false })
     expect(closingBalances(db, '2026-04-02').get(cust)).toBe(81_000_00)
-    const after = reverseRevaluation(db, rev.id, '2026-04-02')
+    // The voucher view asks: an un-reversed revaluation offers Reverse…; its reversal does not.
+    expect(revaluationOf(db, rev.voucherId!)).toEqual({ id: rev.id, asOf: '2026-03-31', reversed: false })
+    const after = reverseRevaluation(db, rev.id)
     expect(after.reversalVoucherId).not.toBeNull()
+    expect(getVoucher(db, after.reversalVoucherId!)!.date).toBe('2026-04-01') // the next day by default
+    expect(revaluationOf(db, rev.voucherId!)).toMatchObject({ reversed: true })
+    expect(revaluationOf(db, after.reversalVoucherId!)).toBeNull()
     expect(closingBalances(db, '2026-04-02').get(cust)).toBe(82_000_00)
     expect(listRevaluations(db)).toHaveLength(1)
+    // Outstandings agrees with the trial balance for the customer (NOT_FX_REVALUATION skips both journals).
+    const tb = trialBalance(db, '2026-04-02').rows.find((r) => r.ledgerId === cust)!
+    expect(outstandings(db, 'receivable', '2026-04-02').find((p) => p.ledgerId === cust)!.pending).toBe(tb.debit - tb.credit)
+    // audited as before
+    expect(db.prepare("SELECT action FROM audit_log WHERE entity = 'fx_revaluation' AND entity_id = ? ORDER BY id DESC LIMIT 1").get(rev.id)).toEqual({ action: 'update' })
+    expect(() => reverseRevaluation(db, rev.id)).toThrow(/Already reversed/)
+    // A revaluation journal in the bin offers no Reverse… (main would refuse it).
+    saveRate(db, { date: '2026-03-30', currencyCode: 'USD', rateMicro: 83_000_000 })
+    const other = postRevaluation(db, { asOf: '2026-03-30', autoReverse: false })
+    expect(revaluationOf(db, other.voucherId!)).toMatchObject({ reversed: false })
+    deleteVoucher(db, other.voucherId!)
+    expect(revaluationOf(db, other.voucherId!)).toBeNull()
+  })
+
+  it('a reversal dated inside the lock is refused (nothing posted); the first day after the lock posts', () => {
+    const { db } = withUsdCustomer()
+    saveRate(db, { date: '2026-03-31', currencyCode: 'USD', rateMicro: 81_000_000 })
+    const rev = postRevaluation(db, { asOf: '2026-03-31', autoReverse: false })
+    setLockDate(db, '2026-04-10')
+    const vouchers = (): number => (db.prepare('SELECT COUNT(*) AS n FROM vouchers').get() as { n: number }).n
+    const before = vouchers()
+    expect(() => reverseRevaluation(db, rev.id, '2026-04-01')).toThrow()
+    expect(vouchers()).toBe(before)
+    expect(revaluationOf(db, rev.voucherId!)).toMatchObject({ reversed: false })
+    const after = reverseRevaluation(db, rev.id, '2026-04-11')
+    expect(getVoucher(db, after.reversalVoucherId!)!.date).toBe('2026-04-11')
   })
 
   it('settling at an actual rate books the realised gain and clears both currencies', () => {
@@ -273,13 +306,11 @@ describe('forex revaluation and settlement', () => {
     expect(exposure(db, cust, '2026-04-15')).toMatchObject({ fcBalance: 0, inrBook: 0 })
   })
 
-  it('a designated EEFC bank account is an exposure; unrevalued balances warn at year end', () => {
+  it('a designated EEFC bank account is an exposure', () => {
     const { db, bank } = withUsdCustomer()
     const eefc = ledger(db, 'EEFC USD', 'Bank Accounts')
     setLedgerCurrency(db, eefc, 'USD')
     post(db, 'contra', '2026-03-20', [dr(eefc, 8_300_00), cr(bank, 8_300_00)], { currencyCode: 'USD', exchangeRate: 83 })
-    const w = closeWarnings(db, 2025)
-    expect(w.revaluedOnFyEnd).toBe(false)
-    expect(w.unrevalued).toEqual([{ currencyCode: 'USD', ledgers: 2, fcBalance: 1100_00 }])
+    expect(exposure(db, eefc, '2026-03-31').fcBalance).toBe(100_00)
   })
 })

@@ -181,7 +181,7 @@ import * as users from './services/users'
 import { assertDeleteAuthorized, auditCompanyDeletion } from './services/companyDelete'
 import { roleAllows, type Role } from './services/roles'
 import {
-  bomInputSchema, currencyInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
+  bomInputSchema, employeeInputSchema, nicCredentialsSchema, auditListSchema,
   userInputSchema, authLoginSchema, payHeadInputSchema, employeeHeadsSetSchema, payrollRunIdSchema,
   auditRetentionSchema, auditExportSchema, auditTrailRequiredSchema, invoicePdfBatchSchema, linksForVoucherSchema, openSourceLinesSchema, tradePendingSchema, tradeNoteListSchema, tradeDocNextNumberSchema,
   tradeDocTypeSaveSchema, tradeDocListSchema, tradeDocSaveSchema, tradeDocActionSchema, tradeDocConvertSchema, pendingOrdersSchema,
@@ -2878,8 +2878,6 @@ export function registerIpc(): void {
 
   // ---------- currencies + BOM ----------
   handle('currency:list', () => extras.listCurrencies(requireCompany().db), 'viewer')
-  handle('currency:create', (p) => extras.createCurrency(requireCompany().db, currencyInputSchema.parse(p)))
-  handle('currency:delete', (p) => extras.deleteCurrency(requireCompany().db, idSchema.parse(p).id))
   handle('bom:get', (p) => extras.getBom(requireCompany().db, z.object({ itemId: z.number().int().positive() }).parse(p).itemId), 'viewer')
   handle('bom:set', (p) => extras.setBom(requireCompany().db, bomInputSchema.parse(p)))
   handle('bom:items', () => extras.itemsWithBom(requireCompany().db), 'viewer')

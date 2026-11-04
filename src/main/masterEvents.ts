@@ -28,7 +28,7 @@ export function masterEntitiesOf(channel: string): MasterEntity[] {
  *  re-reads config:features:get — so a feature appears as soon as its first data lands (a Tally
  *  or books import with cost centres, a post-dated cheque, a challan …). */
 export const FEATURE_DATA_ENTITIES = [
-  'voucher', 'ledger', 'costCentre', 'currency', 'fx_rate', 'fx_ledger_currency', 'fx_revaluation', 'fx_settlement',
+  'voucher', 'ledger', 'costCentre',
   'cheque_book', 'cheque', 'cheque_config', 'pdc', 'payment_batch', 'payment_template', 'interest_charge',
   'fixed_asset', 'fixed_asset_group', 'depreciation_run', 'trade_doc', 'tradeDocType',
   'payroll_run', 'statutory_payment', 'statutory_rate', 'tally_import', 'import_batch'

@@ -16,6 +16,7 @@ import { confirmDialog } from '../lib/dialogs'
 import { useFeatures } from '../lib/useFeatures'
 import { PartyRatesModal } from '../screens/masters/PartyRatesTab'
 import { TabBar } from './TabBar'
+import { ForeignOpeningNote } from './ForeignOpeningNote'
 import { PartyNotesPanel } from './partyNotes/PartyNotes'
 import { AttachmentList } from './attachments/Attachments'
 import { bpToPercent, percentToBp } from '@shared/receivables/interest'
@@ -354,6 +355,7 @@ function LedgerForm({
                 {openingSide === 'dr' ? 'Dr' : 'Cr'}
               </button>
             </div>
+            {ledger && <ForeignOpeningNote ledgerId={ledger.id} changed={(opening ?? 0) * (openingSide === 'cr' ? -1 : 1) !== ledger.openingBalance} />}
           </Field>
           {isTaxLedger && !tdsPayableSectionId && !tcsPayableSectionId && (
             <Field label="GST component" hint="Marks this ledger for GST computation and ITC">
