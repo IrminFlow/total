@@ -188,6 +188,38 @@ describe('invoice mode state ⇄ payload', () => {
     })
   }
 
+  // Bug hunt 2026-11: GSTR-1 / 3B and the e-invoice compute tax per LINE (NIC validates per item);
+  // the editor rounded per rate group, so 3 x 100.50 @ 18 % posted 27.14 + 27.14 while the returns
+  // said 27.15 + 27.15.
+  const threeLines = (): InvoiceFormState => invoiceState({
+    rows: [0, 1, 2].map(() => ({ itemId: WIDGET, qtyText: '1', rate: 10050, discount: null, godownId: null, batchId: null }))
+  })
+  it('rounds tax per line, as the returns and the e-invoice do', () => {
+    const c = computeInvoice(threeLines(), ctxFor('sales'))
+    // 100.50 x 9 % = 9.045 -> 9.05 per line, x 3 = 27.15 each head (per group it was 27.14).
+    expect([c.gst.taxable, c.gst.cgst, c.gst.sgst]).toEqual([30150, 2715, 2715])
+    expect([c.rounded, c.roundDiff]).toEqual([35600, 20])
+  })
+  it('an invoice saved with group-rounded tax still opens in the invoice form and saves back unchanged', () => {
+    const p = built(buildInvoicePayload(threeLines(), ctxFor('sales'), 1, TAX))
+    // What the editor posted before per-line rounding: CGST / SGST 27.14, round off 0.22.
+    const legacy: VoucherPayload = {
+      ...p,
+      lines: p.lines.map((l) => (l.ledgerId === TAX.cgst || l.ledgerId === TAX.sgst ? { ...l, amount: 2714 } : l.ledgerId === TAX.roundOff ? { ...l, amount: 22 } : l))
+    }
+    const v = stored(legacy)
+    const rep = invoiceRepresentation(v, ctxFor('sales'), TAX)
+    expect(rep).toMatchObject({ ok: true })
+    if (!rep.ok) return
+    expect(diffPayloads(built(buildInvoicePayload(rep.state, ctxFor('sales'), 1, TAX)), voucherToPayload(v))).toEqual([])
+    // Narration / bill changes keep the saved rounding ...
+    const renamed = built(buildInvoicePayload({ ...rep.state, narration: 'Changed' }, ctxFor('sales'), 1, TAX))
+    expect(renamed.lines.find((l) => l.ledgerId === TAX.cgst)!.amount).toBe(2714)
+    // ... a changed line recomputes the whole bill per line.
+    const edited = { ...rep.state, rows: rep.state.rows.map((r, i) => (i === 2 ? { ...r, qtyText: '2' } : r)) }
+    const c = computeInvoice(edited, ctxFor('sales'))
+    expect([c.gst.taxable, c.gst.cgst]).toEqual([40200, 905 * 2 + 1809])
+  })
   it('a loaded invoice whose quantity is changed recomputes tax and total', () => {
     const v = stored(built(buildInvoicePayload(invoiceState(), ctxFor('sales'), 1, TAX)))
     const rep = invoiceRepresentation(v, ctxFor('sales'), TAX)

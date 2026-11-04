@@ -19,7 +19,7 @@ import type { DB } from '../db/connection'
 import type Database from 'better-sqlite3-multiple-ciphers'
 import type { CompanyInfo, SaveVoucherWarnings, Voucher, VoucherKind } from '@shared/domain'
 import { gstRegistrationOf } from '@shared/gst/registration'
-import { addBreakups, computeGst, supplyTypeFor } from '@shared/gst/calc'
+import { addBreakups, computeGst, supplyTypeFor, type GstBreakup } from '@shared/gst/calc'
 import { addDaysISO, fyOf, toDisplayDate } from '@shared/dates'
 import { AppError, ERROR_MAP, isAppError, isErrorCode, type ErrorIssue } from '@shared/errors'
 import { normalizeInvoiceNumber } from '@shared/gst/recon2b'
@@ -183,6 +183,7 @@ export function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<t
   const noteReference = kind === 'sales' ? v.number : (v.reference?.trim() || v.number)
   if (v.inventory.length) {
     const buckets = new Map<string, { rate: number; cess: number; taxable: number }>()
+    const perLine: GstBreakup[] = []
     for (const l of v.inventory) {
       const it = items.get(l.stockItemId)
       const rate = it?.gstRate ?? 0
@@ -190,9 +191,12 @@ export function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<t
       const b = buckets.get(`${rate}|${cess}`) ?? { rate, cess, taxable: 0 }
       b.taxable += l.amount
       buckets.set(`${rate}|${cess}`, b)
+      perLine.push(computeGst(l.amount, rate, supply, cess))
     }
-    const recomputed = taxOf(addBreakups([...buckets.values()].map((b) => computeGst(b.taxable, b.rate, supply, b.cess))))
-    rates = stored === 0 ? [0] : recomputed === stored ? [...new Set([...buckets.values()].map((b) => b.rate))] : null
+    // Rounded per line (the editor since the 2026-11 fix) or per rate group (bills saved before).
+    const grouped = taxOf(addBreakups([...buckets.values()].map((b) => computeGst(b.taxable, b.rate, supply, b.cess))))
+    const recomputedOk = taxOf(addBreakups(perLine)) === stored || grouped === stored
+    rates = stored === 0 ? [0] : recomputedOk ? [...new Set([...buckets.values()].map((b) => b.rate))] : null
   } else {
     // A ledger-line bill: its tax over its taxable value (a percentage, never an amount), checked.
     const taxable = v.lines.filter((l) => accountIds.includes(l.ledgerId)).reduce((s, l) => s + l.amount, 0)

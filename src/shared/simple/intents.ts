@@ -1234,7 +1234,7 @@ function runningHeads(cum: Omit<BillRest, 'total'> & { rounded: number }, return
 }
 
 /** Review of bug hunt 2026-11 — the tax of a return note of item lines from the RUNNING total:
- *  the GST (per rate bucket, as computeInvoice buckets it) and the rupee-rounded total of every
+ *  the GST (per line, as computeInvoice rounds it) and the rupee-rounded total of every
  *  part of the bill returned so far, this return included, less what the earlier returns posted;
  *  the return that empties the bill (nothing left on any line after it) takes exactly what the bill
  *  still holds. So the notes add up to the bill to the paisa once it is all returned (with or
@@ -1260,21 +1260,18 @@ export function runningReturnTax(
   if (empties) {
     cum = { ...bill, rounded: bill.total }
   } else {
-    // Each bill line's rate bucket as the note would compute it (one probe row per line).
+    // Each bill line's rate as the note would compute it (one probe row per line); the tax is
+    // rounded per LINE, as the editor rounds it (#187), on each line's value returned so far.
     const probe = computeInvoice({ ...own, rows: lines.map((l) => returnRow({ ...l, leftMilli: l.qtyMilli, returnedPaise: undefined, returnedDiscountPaise: undefined }, l.qtyMilli)) }, ictx)
     if (probe.detail.length !== lines.length) return null
     const thisReturn = new Map<string, number>()
     for (const d of c.detail) if (d.source?.lineUid) thisReturn.set(d.source.lineUid, (thisReturn.get(d.source.lineUid) ?? 0) + d.amount)
-    const buckets = new Map<string, { rate: number; cessRate: number; taxable: number }>()
-    lines.forEach((l, i) => {
+    const perLine = lines.flatMap((l, i) => {
       const value = (l.returnedPaise ?? 0) + (thisReturn.get(l.lineUid) ?? 0)
-      if (value === 0) return
       const p = probe.detail[i]!
-      const b = buckets.get(`${p.rate}|${p.cessRate}`) ?? { rate: p.rate, cessRate: p.cessRate, taxable: 0 }
-      b.taxable += value
-      buckets.set(`${p.rate}|${p.cessRate}`, b)
+      return value === 0 ? [] : [computeGst(value, p.rate, c.supply, p.cessRate)]
     })
-    const g = addBreakups([...buckets.values()].map((b) => computeGst(b.taxable, b.rate, c.supply, b.cessRate)))
+    const g = addBreakups(perLine)
     cum = { ...g, rounded: roundToRupee(g.total) }
   }
   const h = runningHeads(cum, returned)

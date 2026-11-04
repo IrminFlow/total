@@ -15,6 +15,7 @@ import type { CompanyInfo } from '@shared/domain'
 import { extractOutwardDocs, gstr1, gstr3b, gstValidate } from './gst'
 import { createLedger, listLedgers } from './masters'
 import { postIntent } from './simplePost'
+import { saveVoucher } from './vouchers'
 import { dashGst } from './dashboard'
 import { extractEdocInvoices } from './edocs'
 import { buildParityCorpus, CORPUS_FROM, CORPUS_TO } from './gstParityCorpus.testutil'
@@ -125,5 +126,64 @@ describe('posted-tax rate — a simple "just an amount" sale and its return', ()
     const posted = (name: string): number =>
       (db.prepare("SELECT COALESCE(SUM(CASE WHEN dr_cr = 'cr' THEN amount ELSE -amount END), 0) AS t FROM voucher_lines WHERE ledger_id = ?").get(id(db, name)) as { t: number }).t
     expect([posted('CGST'), posted('SGST'), posted('IGST')]).toEqual([9311, 9311, 10000])
+  })
+
+  it('a sale charged at 5 % on a Sales account whose master rate is 18 % is reported at 5 % (GSTR-1, 3B, Home, e-invoice)', () => {
+    const db = company()
+    db.prepare("UPDATE ledgers SET gst_rate = 18 WHERE name = 'Sales'").run()
+    postIntent(db, INFO, { clientId: 'amount-sale-5', kind: 'sale', customerId: id(db, 'Ramesh'), date: '2025-07-10', amount: { amount: '1,000', gstRate: 5 } }, TODAY)
+    const posted = (name: string): number =>
+      (db.prepare("SELECT COALESCE(SUM(CASE WHEN dr_cr = 'cr' THEN amount ELSE -amount END), 0) AS t FROM voucher_lines WHERE ledger_id = ?").get(id(db, name)) as { t: number }).t
+    // The books: 1,000 x 2.5 % = 25 each.
+    expect([posted('CGST'), posted('SGST')]).toEqual([2500, 2500])
+    const from = '2025-07-01'
+    const to = '2025-07-31'
+    const docs = extractOutwardDocs(db, INFO, from, to)
+    expect(docs.map((d) => d.items.map((i) => [i.rate, i.taxable, i.cgst, i.sgst, i.igst]))).toEqual([[[5, 100000, 2500, 2500, 0]]])
+    expect(docs[0]!.validation!.valDiff).toBe(0)
+    expect(gstr3b(db, INFO, from, to, '072025').outward).toMatchObject({ taxable: 100000, cgst: 2500, sgst: 2500, igst: 0 })
+    expect(dashGst(db, INFO, TODAY)!.outwardTax).toBe(5000)
+    const edocs = extractEdocInvoices(db, INFO, from, to)
+    expect(edocs.flatMap((e) => e.items.map((i) => [i.rate, i.taxablePaise, i.cgst, i.sgst]))).toEqual([[5, 100000, 2500, 2500]])
+  })
+
+  it('CodeRabbit: a cash sale with no party (Dr Cash 1,050 / Cr 18 % Sales 1,000 / tax 50) is reported at 5 %', () => {
+    const db = company()
+    db.prepare("UPDATE ledgers SET gst_rate = 18 WHERE name = 'Sales'").run()
+    const vt = (db.prepare("SELECT id FROM voucher_types WHERE kind = 'sales' ORDER BY id").get() as { id: number }).id
+    saveVoucher(db, {
+      voucherTypeId: vt, date: '2025-07-10', number: 'C-1', partyLedgerId: null,
+      lines: [
+        { ledgerId: id(db, 'Cash'), drCr: 'dr', amount: 105_000, costAllocations: [] },
+        { ledgerId: id(db, 'Sales'), drCr: 'cr', amount: 100_000, costAllocations: [] },
+        { ledgerId: id(db, 'CGST'), drCr: 'cr', amount: 2_500, costAllocations: [] },
+        { ledgerId: id(db, 'SGST'), drCr: 'cr', amount: 2_500, costAllocations: [] }
+      ],
+      inventory: [], billRefs: [], tds: null
+    })
+    const docs = extractOutwardDocs(db, INFO, '2025-07-01', '2025-07-31')
+    expect(docs.map((d) => d.items.map((i) => [i.rate, i.taxable, i.cgst, i.sgst]))).toEqual([[[5, 100_000, 2_500, 2_500]]])
+  })
+  it('review of #187: a discount debited to an expense beside an 18 % Sales line is not read as 12 %', () => {
+    const db = company()
+    db.prepare("UPDATE ledgers SET gst_rate = 18 WHERE name = 'Sales'").run()
+    createLedger(db, { name: 'Discount', groupId: g(db, 'Indirect Expenses') })
+    const vt = (db.prepare("SELECT id FROM voucher_types WHERE kind = 'sales' ORDER BY id").get() as { id: number }).id
+    // Cr Sales 10,000; Dr Discount 3,333.33; tax 18 % on the net 6,666.67 = 600 + 600; Dr Ramesh 7,866.67.
+    saveVoucher(db, {
+      voucherTypeId: vt, date: '2025-07-10', number: 'D-1', partyLedgerId: id(db, 'Ramesh'),
+      lines: [
+        { ledgerId: id(db, 'Ramesh'), drCr: 'dr', amount: 786_667, costAllocations: [] },
+        { ledgerId: id(db, 'Discount'), drCr: 'dr', amount: 333_333, costAllocations: [] },
+        { ledgerId: id(db, 'Sales'), drCr: 'cr', amount: 1_000_000, costAllocations: [] },
+        { ledgerId: id(db, 'CGST'), drCr: 'cr', amount: 60_000, costAllocations: [] },
+        { ledgerId: id(db, 'SGST'), drCr: 'cr', amount: 60_000, costAllocations: [] }
+      ],
+      inventory: [], billRefs: [], tds: null
+    })
+    const docs = extractOutwardDocs(db, INFO, '2025-07-01', '2025-07-31')
+    // As before the rule: the account's 18 %, with the value check flagging the difference.
+    expect(docs.map((d) => d.items.map((i) => i.rate))).toEqual([[18]])
+    expect(docs[0]!.validation!.valDiff).not.toBe(0)
   })
 })

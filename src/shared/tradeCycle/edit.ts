@@ -3,7 +3,7 @@
 // main process (services/tradeDocs.ts) computes the same totals for lists and prints.
 //
 // GST is NEVER computed a second way here: totals go through the invoice form's own
-// computeInvoice (voucherEdit/invoice.ts) — the same buckets, the same rupee rounding — so an
+// computeInvoice (voucherEdit/invoice.ts) — the same per-line GST, the same rupee rounding — so an
 // order's value equals the invoice it turns into, line for line.
 
 import type { CreditLimitWarning, LineSource, TradeDocKind } from '../domain'

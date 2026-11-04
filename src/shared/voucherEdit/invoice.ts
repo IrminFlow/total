@@ -68,11 +68,17 @@ export interface InvoiceFormState {
   /** WP 8.0: a credit / debit note set against a bill raised while the company charged GST
    *  (s.34) — computed at the item rates like that bill. Set by the editor / drafting. */
   taxedOriginal?: boolean
-  /** Bug hunt 2026-11: a return note that empties its bill takes exactly the tax and round off the
-   *  bill still holds (its tax less the earlier returns'), so bill + returns net to zero to the
-   *  paisa. Set by the simple return (intents.ts mapReturn) and read back by invoiceRepresentation
-   *  from a saved return note; it applies only while `key` = fixedTaxKey(state) — any change to a
-   *  line, the date, the party, the account or the place of supply recomputes the tax. */
+  /** Bug hunt 2026-11: tax is rounded per LINE (as GSTR-1 / 3B and the e-invoice compute it). An
+   *  invoice saved before that rounded per rate group; invoiceRepresentation sets this to the
+   *  `taxInputsKey` of the state as loaded, and while those inputs are unchanged the editor keeps
+   *  rounding per group, so the voucher saves back unchanged. Any change to a line, the date, the
+   *  party, the account, the place of supply or the currency recomputes the whole bill per line. */
+  legacyGroupTax?: string
+  /** PR #190: a simple return's tax and round off from the RUNNING total (intents.ts
+   *  runningReturnTax — everything returned of the bill so far less what the earlier returns
+   *  posted), so bill + returns net to zero to the paisa. Read back by invoiceRepresentation from a
+   *  saved return note; it applies only while `key` = fixedTaxKey(state) — any change to a line,
+   *  the date, the party, the account or the place of supply recomputes the tax. */
   fixedTax?: FixedTax
 }
 
@@ -234,6 +240,22 @@ export function computeInvoice(state: InvoiceFormState, ctx: InvoiceContext): In
     })
   }
 
+  // Tax per line, as GSTR-1 / 3B (gst.ts extractOutwardDocs) and the e-invoice (NIC validates each
+  // item's tax) compute it — except a saved group-rounded invoice left unedited (legacyGroupTax).
+  const computed = state.legacyGroupTax != null && state.legacyGroupTax === taxInputsKey(state)
+    ? groupRoundedTax(detail, supply)
+    : addBreakups(detail.map((d) => computeGst(d.amount, d.rate, supply, d.cessRate)))
+  // PR #190: a simple return's running-total tax / round off, while its inputs are unchanged.
+  const fixed = state.fixedTax != null && state.fixedTax.key === fixedTaxKey(state) ? state.fixedTax : null
+  const gst = fixed
+    ? { taxable: computed.taxable, cgst: fixed.cgst, sgst: fixed.sgst, igst: fixed.igst, cess: fixed.cess, total: computed.taxable + fixed.cgst + fixed.sgst + fixed.igst + fixed.cess }
+    : computed
+  const rounded = fixed ? gst.total + fixed.roundDiff : roundToRupee(gst.total)
+  return { supply, chargesGst: charges, fxActive, fxRate: fxActive ? fxRate : null, detail, gst, rounded, roundDiff: rounded - gst.total }
+}
+
+/** The tax as the editor computed it before per-line rounding: one computeGst per (rate, cess). */
+function groupRoundedTax(detail: InvoiceLineDetail[], supply: SupplyType): GstBreakup {
   const buckets = new Map<string, { rate: number; cessRate: number; taxable: number }>()
   for (const d of detail) {
     const key = `${d.rate}|${d.cessRate}`
@@ -241,13 +263,16 @@ export function computeInvoice(state: InvoiceFormState, ctx: InvoiceContext): In
     b.taxable += d.amount
     buckets.set(key, b)
   }
-  const computed = addBreakups([...buckets.values()].map((b) => computeGst(b.taxable, b.rate, supply, b.cessRate)))
-  const fixed = state.fixedTax != null && state.fixedTax.key === fixedTaxKey(state) ? state.fixedTax : null
-  const gst = fixed
-    ? { taxable: computed.taxable, cgst: fixed.cgst, sgst: fixed.sgst, igst: fixed.igst, cess: fixed.cess, total: computed.taxable + fixed.cgst + fixed.sgst + fixed.igst + fixed.cess }
-    : computed
-  const rounded = fixed ? gst.total + fixed.roundDiff : roundToRupee(gst.total)
-  return { supply, chargesGst: charges, fxActive, fxRate: fxActive ? fxRate : null, detail, gst, rounded, roundDiff: rounded - gst.total }
+  return addBreakups([...buckets.values()].map((b) => computeGst(b.taxable, b.rate, supply, b.cessRate)))
+}
+
+/** Everything the tax of an invoice depends on (legacyGroupTax compares it with the loaded form). */
+export function taxInputsKey(state: InvoiceFormState): string {
+  return JSON.stringify([
+    state.date, state.partyId, state.accountId, state.posOverride, state.currencyCode, state.fxRateText,
+    !!state.legacyTax, !!state.taxedOriginal,
+    state.rows.map((r) => [r.itemId, r.qtyText, r.rate, r.discount])
+  ])
 }
 
 /** What a `fixedTax` was set on (the tax inputs of the form): it applies only while they are unchanged. */
@@ -257,7 +282,7 @@ export function fixedTaxKey(state: InvoiceFormState): string {
     !!state.legacyTax, !!state.taxedOriginal,
     // Only the rows the computation uses (an editor's trailing blank row is not a change).
     state.rows
-      .filter((r) => r.itemId != null && r.rate != null && Math.round(parseFloat(r.qtyText || '0') * 1000) > 0)
+      .filter((r) => r.itemId != null && r.rate != null && (parseQtyText(r.qtyText) ?? 0) > 0)
       .map((r) => [r.itemId, r.qtyText, r.rate, r.discount, r.source?.lineUid ?? null, r.source?.linkType ?? null])
   ])
 }
@@ -564,7 +589,11 @@ export function invoiceRepresentation(
   const state = !chargesGstOn(ctx, v.date) && voucherCarriesGst(v, taxLedgers) ? { ...loaded.state, legacyTax: true } : loaded.state
   const rep = confirmRoundTrip(v, state, buildInvoicePayload(state, ctx, v.voucherTypeId, taxLedgers))
   if (rep.ok) return rep
-  // The return that emptied its bill took the bill's remaining tax / round off (fixedTax).
+  // Saved before tax was rounded per line: it round-trips with its own (per-group) rounding.
+  const legacy = { ...state, legacyGroupTax: taxInputsKey(state) }
+  const old = confirmRoundTrip(v, legacy, buildInvoicePayload(legacy, ctx, v.voucherTypeId, taxLedgers))
+  if (old.ok) return old
+  // PR #190: a simple return took the running total's tax / round off (fixedTax).
   const fixedTax = savedReturnTax(v, state, ctx, taxLedgers)
   if (!fixedTax) return rep
   const fixed = { ...state, fixedTax }
