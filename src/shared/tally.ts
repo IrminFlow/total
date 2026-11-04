@@ -338,6 +338,51 @@ function openingBills(ledger: XNode): TallyOpeningBill[] {
   return out
 }
 
+/**
+ * An item line's godowns: its BATCHALLOCATIONS.LIST, one per godown / batch. One godown → the line
+ * in that godown. Several → one line per godown with Tally's own quantities (ACTUALQTY, else
+ * BILLEDQTY) and amounts; batches without an AMOUNT share the line's amount by quantity (BigInt,
+ * the last one takes the remainder) — the parts always add up to the line to the paisa. A split
+ * whose quantities or amounts don't add up to the line keeps ONE line without a godown, and says so.
+ */
+function godownSplit(inv: XNode, line: TallyInventoryLine, label: string, warnings: string[]): TallyInventoryLine[] {
+  const batches = inv.children.filter((c) => c.tag === 'BATCHALLOCATIONS.LIST')
+  const groups = new Map<string, { godown: string; qtyMilli: number; amount: number; amounts: number }>()
+  for (const b of batches) {
+    const godown = childText(b, 'GODOWNNAME').trim()
+    const g = groups.get(godown.toLowerCase()) ?? { godown, qtyMilli: 0, amount: 0, amounts: 0 }
+    g.qtyMilli += parseTallyQty(childText(b, 'ACTUALQTY') || childText(b, 'BILLEDQTY'))
+    const amount = childText(b, 'AMOUNT').trim()
+    if (amount) {
+      g.amount += Math.abs(parseTallyAmount(amount))
+      g.amounts++
+    }
+    groups.set(godown.toLowerCase(), g)
+  }
+  const parts = [...groups.values()]
+  if (parts.length <= 1) return [parts[0]?.godown ? { ...line, godown: parts[0].godown } : line]
+  const withAmount = parts.reduce((s, p) => s + p.amounts, 0)
+  const qtyAdds = parts.reduce((s, p) => s + p.qtyMilli, 0) === line.qtyMilli
+  let amounts: number[] | null = null
+  if (withAmount === batches.length) {
+    amounts = parts.map((p) => p.amount)
+    if (amounts.reduce((s, a) => s + a, 0) !== line.amount) amounts = null
+  } else if (withAmount === 0 && line.qtyMilli > 0) {
+    let left = BigInt(line.amount)
+    amounts = parts.map((p, i) => {
+      if (i === parts.length - 1) return Number(left)
+      const share = (BigInt(line.amount) * BigInt(p.qtyMilli) * 2n + BigInt(line.qtyMilli)) / (BigInt(line.qtyMilli) * 2n)
+      left -= share
+      return Number(share)
+    })
+  }
+  if (!qtyAdds || !amounts || amounts.some((a) => a < 0)) {
+    warnings.push(`Voucher ${label}: ${line.item} is split over godowns (${parts.map((p) => p.godown || 'no godown').join(', ')}) in parts that don't add up to the line — imported without a godown`)
+    return [line]
+  }
+  return parts.map((p, i) => ({ ...line, qtyMilli: p.qtyMilli, amount: amounts![i]!, ...(p.godown ? { godown: p.godown } : {}) }))
+}
+
 export function parseTallyExport(xml: string): TallyImport {
   const root = parseXml(xml)
   const warnings: string[] = []
@@ -440,14 +485,8 @@ export function parseTallyExport(xml: string): TallyImport {
       const signed = parseTallyAmount(childText(inv, 'AMOUNT'))
       const deemed = childText(inv, 'ISDEEMEDPOSITIVE').toLowerCase()
       const direction = fixed ?? (deemed === 'yes' ? 'in' : deemed === 'no' ? 'out' : signed < 0 ? 'in' : 'out')
-      const batch = inv.children.find((c) => c.tag === 'BATCHALLOCATIONS.LIST')
-      inventory.push({
-        item,
-        qtyMilli: parseTallyQty(childText(inv, 'ACTUALQTY') || childText(inv, 'BILLEDQTY')),
-        amount: Math.abs(signed),
-        direction,
-        ...(batch && childText(batch, 'GODOWNNAME') ? { godown: childText(batch, 'GODOWNNAME') } : {})
-      })
+      const line: TallyInventoryLine = { item, qtyMilli: parseTallyQty(childText(inv, 'ACTUALQTY') || childText(inv, 'BILLEDQTY')), amount: Math.abs(signed), direction }
+      inventory.push(...godownSplit(inv, line, childText(v, 'VOUCHERNUMBER') || date, warnings))
     }
     const vchType = v.attrs.VCHTYPE ?? childText(v, 'VOUCHERTYPENAME')
     // Orders post nothing: they go to trade_docs (WP 6.3, design §8 Q8). Each inventory entry is

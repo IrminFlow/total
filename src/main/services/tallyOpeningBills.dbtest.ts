@@ -107,7 +107,8 @@ describe('Tally import: physical stock, godowns, return names', () => {
     expect([v('SC-1')!.name, v('SC-1')!.kind]).toEqual(['Stock Count', 'physical_stock'])
     expect(v('SC-1')!.v.inventory.map((l) => [l.isAbsolute, l.qtyMilli])).toEqual([[true, 18_000]])
     const qty = (name: string): number => stock.stockSummary(db, AS_ON).find((r) => r.name === name)!.closingQtyMilli
-    // Bracket: 10 opening - 3 sold, counted at 10. Steel Rod: 20, moved between godowns, counted at 18.
+    // Bracket: 10 opening - 3 sold, counted at 10. Steel Rod: 20, 5 moved to Back Store, counted at
+    // 13 + 5 = 18 (both godowns; a count of Main Location alone would be skipped — tallyGodownsBillRefs).
     expect(qty('Bracket')).toBe(10_000)
     expect(qty('Steel Rod')).toBe(18_000)
   })

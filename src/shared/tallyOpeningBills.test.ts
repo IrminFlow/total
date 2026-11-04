@@ -32,6 +32,7 @@ describe('Tally export: opening bill-wise details, physical stock', () => {
     expect(data.vouchers.find((v) => v.number === 'PS-1')!.inventory).toEqual([
       { item: 'Bracket', qtyMilli: 10_000, amount: 0, direction: 'in', godown: 'Main Location' }
     ])
-    expect(data.vouchers.find((v) => v.number === 'SC-1')!.inventory.map((l) => [l.item, l.qtyMilli])).toEqual([['Steel Rod', 18_000]])
+    // A count per godown (Tally's): one line each, joined into one item count at import.
+    expect(data.vouchers.find((v) => v.number === 'SC-1')!.inventory.map((l) => [l.item, l.godown, l.qtyMilli])).toEqual([['Steel Rod', 'Main Location', 13_000], ['Steel Rod', 'Back Store', 5_000]])
   })
 })
