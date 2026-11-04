@@ -8,7 +8,7 @@ import type {
 import type { Group, Nature } from '@shared/domain'
 import { listGroups } from './masters'
 import { CASH_BANK_GROUPS } from '@shared/seed'
-import { buildChartOfAccounts, type ChartGroupNode, type ChartLedgerInput } from '@shared/chartOfAccounts'
+import { buildChartOfAccounts, type ChartGroupNode, type ChartLedgerInput, partySideGroupIds } from '@shared/chartOfAccounts'
 import { ageStock, buildCashFlow, computeRatios, type CashFlowStatement, type InwardLot } from '@shared/reportMath'
 import { latestVouchers, IN_BOOKS, MOVES_STOCK, NOT_DELETED, NOT_YEAR_END_CLOSE } from './vouchers'
 import * as stockAnalysis from './stockAnalysis'
@@ -1173,8 +1173,8 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
 
   const cashIds = descendantIdSet(groups, ['Cash-in-Hand'])
   const bankIds = descendantIdSet(groups, ['Bank Accounts', 'Bank OD A/c'])
-  const debtorIds = descendantIdSet(groups, ['Sundry Debtors'])
-  const creditorIds = descendantIdSet(groups, ['Sundry Creditors'])
+  const debtorIds = partySideGroupIds(groups, 'debtor')
+  const creditorIds = partySideGroupIds(groups, 'creditor')
   const dutiesIds = descendantIdSet(groups, ['Duties & Taxes'])
   const cashBankIds = descendantIdSet(groups, CASH_BANK_GROUPS)
 

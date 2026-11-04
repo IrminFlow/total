@@ -5,7 +5,7 @@
 import type { DB } from '../db/connection'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import type { AiMemoryPurpose } from '@shared/ai'
-import { descendantIdsByName } from '../services/masters'
+import { descendantIdsByName, partyGroupIdsBySide } from '../services/masters'
 
 export type LedgerClass = 'cash' | 'bank' | 'debtor' | 'creditor' | 'income' | 'expense' | 'tax' | 'other'
 
@@ -19,8 +19,8 @@ export interface LedgerClassifier {
 export function ledgerClassifier(db: DB): LedgerClassifier {
   const cash = descendantIdsByName(db, ['Cash-in-Hand'])
   const bank = descendantIdsByName(db, CASH_BANK_GROUPS.filter((g) => g !== 'Cash-in-Hand'))
-  const debtors = descendantIdsByName(db, ['Sundry Debtors'])
-  const creditors = descendantIdsByName(db, ['Sundry Creditors'])
+  const debtors = partyGroupIdsBySide(db, 'debtor')
+  const creditors = partyGroupIdsBySide(db, 'creditor')
   const rows = new Map(
     (db
       .prepare(

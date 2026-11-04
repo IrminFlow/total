@@ -239,6 +239,31 @@ export function partyGroupIds(groups: PartyGroupLink[]): Set<number> {
   return ids
 }
 
+/** The party role of a group or the nearest party root above it (debtor / creditor), else null —
+ *  for callers holding one ledger's group (pickers, the ledger form). Same rule as `partyGroupIds`. */
+export function partyRoleOf(groupId: number, groups: ReadonlyMap<number, PartyGroupLink> | readonly PartyGroupLink[]): 'debtor' | 'creditor' | null {
+  const byId = 'get' in groups ? groups : new Map(groups.map((g) => [g.id, g]))
+  const seen = new Set<number>()
+  let g = byId.get(groupId)
+  while (g && !seen.has(g.id)) {
+    const role = partyGroupRole(g)
+    if (role) return role
+    seen.add(g.id)
+    g = g.parentId != null ? byId.get(g.parentId) : undefined
+  }
+  return null
+}
+
+/** Ids of the party groups on ONE side: every debtor (customer) or creditor (supplier) root —
+ *  the seeded Sundry Debtors / Creditors or an imported "Trade Receivables" / "Accounts Payable" …
+ *  (`partyGroupRole`) — and all its sub-groups. The bill-wise readers (Outstandings and every
+ *  reader of the same allocation) take a party's side from this, never from the seeded name alone. */
+export function partySideGroupIds(groups: PartyGroupLink[], role: 'debtor' | 'creditor'): Set<number> {
+  const ids = new Set<number>()
+  for (const g of groups) if (partyGroupRole(g) === role) for (const id of descendantGroupIds(groups, g.id)) ids.add(id)
+  return ids
+}
+
 /** A ledger is a party (customer / supplier) when its group is at or under a party root. */
 export function isPartyLedger(ledger: { groupId: number }, groups: PartyGroupLink[], ids: Set<number> = partyGroupIds(groups)): boolean {
   return ids.has(ledger.groupId)

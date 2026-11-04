@@ -2,7 +2,7 @@ import type { DB } from '../db/connection'
 import type { OutstandingBill, OutstandingParty, RegisterMonthRow } from '@shared/reports'
 import { allocateBills, allocateBillsWithCredits, type AllocateBillsResult, type BillEvent, type BillRef } from '@shared/outstanding'
 import { fyOf } from '@shared/dates'
-import { descendantIdsByName } from './masters'
+import { descendantIdsByName, partyGroupIdsBySide } from './masters'
 import { IN_BOOKS } from './vouchers'
 import { openingBillsByParty, openingEvents } from './openingBills'
 
@@ -220,7 +220,7 @@ export function outstandingsWithAdvances(
   let advances = 0
   let advanceParties = 0
   const advanceByParty = new Map<number, number>()
-  const groupIds = descendantIdsByName(db, [side === 'receivable' ? 'Sundry Debtors' : 'Sundry Creditors'])
+  const groupIds = partyGroupIdsBySide(db, side === 'receivable' ? 'debtor' : 'creditor')
   const parties = (
     db.prepare('SELECT id, name, opening_balance, group_id, credit_days FROM ledgers').all() as {
       id: number; name: string; opening_balance: number; group_id: number; credit_days: number | null
@@ -277,7 +277,7 @@ export function partyAllocationWithCredits(db: DB, partyLedgerId: number, asOn: 
     | { group_id: number; opening_balance: number; credit_days: number | null }
     | undefined
   if (!ledger) return { bills: [], unappliedCredit: 0, warnings: [], credits: [], creditNames: [] }
-  const debtorIds = descendantIdsByName(db, ['Sundry Debtors'])
+  const debtorIds = partyGroupIdsBySide(db, 'debtor')
   const sign = debtorIds.has(ledger.group_id) ? 1 : -1
   const eventsByParty = partyEventsBatch(db, [partyLedgerId], asOn, sign)
   const events = [...openingEvents(asOn, ledger.opening_balance, sign, openingBillsByParty(db, [partyLedgerId]).get(partyLedgerId), ledger.credit_days), ...(eventsByParty.get(partyLedgerId) ?? [])]
@@ -292,7 +292,7 @@ export function partyBillEvents(db: DB, partyLedgerId: number, asOn: string): { 
     | { group_id: number; opening_balance: number; credit_days: number | null }
     | undefined
   if (!ledger) return { events: [], creditDays: null }
-  const sign = descendantIdsByName(db, ['Sundry Debtors']).has(ledger.group_id) ? 1 : -1
+  const sign = partyGroupIdsBySide(db, 'debtor').has(ledger.group_id) ? 1 : -1
   const events = [
     ...openingEvents(asOn, ledger.opening_balance, sign, openingBillsByParty(db, [partyLedgerId]).get(partyLedgerId), ledger.credit_days),
     ...(partyEventsBatch(db, [partyLedgerId], asOn, sign).get(partyLedgerId) ?? [])
