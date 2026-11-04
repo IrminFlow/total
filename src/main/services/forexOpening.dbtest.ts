@@ -16,7 +16,7 @@ import { openBills } from './forex'
 import { runImport, undoImport } from './dataImport'
 import { autoPlan, parseImportFile } from './importFiles'
 // The foreign-opening editor went in the 1.0 cleanup; the legacy fixture writes what it wrote.
-import { postRevaluation, revaluationPreview, saveRate, setForeignOpening, settle } from './forexLegacy.testutil'
+import { postRevaluation, revaluationPreview, saveRate, setForeignOpening, setLedgerCurrency, settle } from './forexLegacy.testutil'
 
 const gid = (db: DB, name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
 const lid = (db: DB, name: string): number => (db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number }).id
@@ -211,5 +211,40 @@ describe('an import that clears a foreign opening is undone with it (review of #
     db2.prepare('UPDATE fx_ledger_currency SET opening_fc = -60_00 WHERE ledger_id = ?').run(c2)
     undoImport(db2, r2.batchId!)
     expect(fx(db2, c2)).toEqual({ c: 'USD', fc: -60_00 })
+  })
+
+  it('a positive rupee edit after the import (ledger kept) does not get the old foreign amount back (CodeRabbit on #196)', () => {
+    const { db, cust } = books()
+    setForeignOpening(db, { ledgerId: cust, currencyCode: 'USD', fc: 1000_00, rateMicro: 82_000_000 })
+    const r = openings(db, 'Ledger,Opening Balance,Dr/Cr\nGlobex,5000,Cr')
+    // After the import the user sets a Dr opening again — same side as the old USD 1,000, but not
+    // the opening that amount described (₹82,000).
+    updateLedger(db, cust, { ...getLedger(db, cust)!, openingBalance: 10_000_00 } as never)
+    const u = undoImport(db, r.batchId!)
+    expect(getLedger(db, cust)!.openingBalance).toBe(10_000_00)
+    expect(fx(db, cust)).toEqual({ c: 'USD', fc: null })
+    expect(u.kept).toEqual(expect.arrayContaining([expect.objectContaining({ entity: 'fx_ledger_currency', id: cust })]))
+  })
+
+  it('a foreign amount set again later with NO ledger edit is not overwritten by the undo (CodeRabbit on #196)', () => {
+    // (a) set again on the side the import left (Cr, through the old writer — audited): the undo
+    //     restores the Dr rupee opening, which clears that Cr amount (masters rule), and the old
+    //     USD 1,000 is NOT put back over it — the item is kept.
+    const { db, cust } = books()
+    setForeignOpening(db, { ledgerId: cust, currencyCode: 'USD', fc: 1000_00, rateMicro: 82_000_000 })
+    const r = openings(db, 'Ledger,Opening Balance,Dr/Cr\nGlobex,5000,Cr')
+    setLedgerCurrency(db, cust, 'USD', -50_00)
+    const u = undoImport(db, r.batchId!)
+    expect(getLedger(db, cust)!.openingBalance).toBe(82_000_00)
+    expect(fx(db, cust)?.fc).not.toBe(1000_00)
+    expect(u.kept).toEqual(expect.arrayContaining([expect.objectContaining({ entity: 'fx_ledger_currency', id: cust })]))
+    // (b) set again on the Dr side (raw): it fits the restored opening and stays as set.
+    const { db: db2, cust: c2 } = books()
+    setForeignOpening(db2, { ledgerId: c2, currencyCode: 'USD', fc: 1000_00, rateMicro: 82_000_000 })
+    const r2 = openings(db2, 'Ledger,Opening Balance,Dr/Cr\nGlobex,5000,Cr')
+    db2.prepare('UPDATE fx_ledger_currency SET opening_fc = 500_00 WHERE ledger_id = ?').run(c2)
+    undoImport(db2, r2.batchId!)
+    expect(getLedger(db2, c2)!.openingBalance).toBe(82_000_00)
+    expect(fx(db2, c2)).toEqual({ c: 'USD', fc: 500_00 })
   })
 })

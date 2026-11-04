@@ -33,7 +33,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // opening bills and one batch row; "I started fresh" is a company (meta ui) update.
   'simple:openings:get': QUERY,
   'simple:openings:preview': r('rehearses the opening setup in a transaction that is always rolled back; writes nothing'),
-  'simple:openings': a('opening_batch', 'opening_bills', 'ledger', 'stockItem'),
+  // + a stored foreign opening cleared by an opening that flips side / becomes zero (#196).
+  'simple:openings': a('opening_batch', 'opening_bills', 'ledger', 'stockItem', 'fx_ledger_currency'),
   'simple:openings:skip': a('company'),
   // WP 9.3: the simple Buy screens' reads (suppliers / accounts / defaults, the purchase list, one bill).
   'simple:buy:setup': QUERY,
@@ -310,7 +311,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // ---------- imports ----------
   'import:pickCsv': r('file dialog; returns the text'),
   'import:preview': QUERY,
-  'import:apply': a('csv_import', 'ledger', 'stockItem', 'opening_bills'),
+  'import:apply': a('csv_import', 'ledger', 'stockItem', 'opening_bills', 'fx_ledger_currency'),
   'import:template': EXPORT,
   // WP 6.3: orders land in trade_docs (saveTradeDoc audits them); booksFrom is company info.
   'tally:import': a('tally_import', 'trade_doc', 'company', 'ledger'),

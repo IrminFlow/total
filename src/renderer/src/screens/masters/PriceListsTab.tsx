@@ -439,7 +439,7 @@ export function SlabsModal({ level, itemId, itemName, onClose, onChanged }: { le
           ))}
           {rows.length === 0 && (
             <tr>
-              <td colSpan={7} className="text-hint text-muted">
+              <td colSpan={foreignSlab ? 7 : 6} className="text-hint text-muted" data-testid="price-slabs-empty">
                 No rates yet.
               </td>
             </tr>

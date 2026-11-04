@@ -783,8 +783,11 @@ const foreignOpeningRow = (db: DB, id: number): ForeignOpeningRow | undefined =>
  *  caller tracks the ledger, so the undo (newest first) restores the rupee opening first. */
 function updateLedgerTracked(ctx: Ctx, id: number, input: LedgerInput, line: number | null): void {
   const fx = foreignOpeningRow(ctx.db, id)
+  const rupeeOpening = masters.getLedger(ctx.db, id)?.openingBalance ?? 0
   masters.updateLedger(ctx.db, id, input)
-  if (fx?.openingFc != null && foreignOpeningRow(ctx.db, id)?.openingFc == null) track(ctx, 'fx_ledger_currency', id, 'update', fx, line)
+  // `rupeeOpening` = the opening the foreign amount described (before this import's change): the
+  // undo restores the foreign amount only once the ledger is back at exactly that opening.
+  if (fx?.openingFc != null && foreignOpeningRow(ctx.db, id)?.openingFc == null) track(ctx, 'fx_ledger_currency', id, 'update', { ...fx, rupeeOpening }, line)
 }
 
 function setLedgerOpening(ctx: Ctx, id: number, opening: number, line: number | null): boolean {
@@ -1482,15 +1485,20 @@ function openingsPinnedBy(db: DB, items: readonly UndoItem[]): string | null {
 
 /** Does this batch item put an opening into the books (what a pin keeps)? */
 /** Undo of a foreign opening the import's opening change cleared (#196 review): put it back only
- *  while it is still the cleared row (same currency, no amount — nothing set it again since) and it
- *  fits the rupee opening as it now stands (same side, not zero — the ledger item is restored
- *  first; a ledger kept because it was edited after the import keeps its foreign amount cleared).
- *  Audited with the same shape as the clear. */
-function restoreForeignOpening(db: DB, before: ForeignOpeningRow): void {
+ *  while it is still the cleared row (same currency, no amount — nothing set it again since) and the
+ *  ledger is back at EXACTLY the rupee opening that amount described (`rupeeOpening`, recorded
+ *  before the import's change — the ledger item is undone first, newest first). A ledger kept
+ *  because it was edited after the import (any other opening, even on the same side) keeps its
+ *  foreign amount cleared and the item is listed as kept. Audited with the same shape as the clear
+ *  (ledgerId, currencyCode, openingFc). Rows tracked before `rupeeOpening` was recorded fall back
+ *  to the same-side check. */
+function restoreForeignOpening(db: DB, tracked: ForeignOpeningRow & { rupeeOpening?: number }): void {
+  const { rupeeOpening, ...before } = tracked
   const now = foreignOpeningRow(db, before.ledgerId)
   const opening = (db.prepare('SELECT opening_balance AS ob FROM ledgers WHERE id = ?').get(before.ledgerId) as { ob: number } | undefined)?.ob ?? 0
   if (!now || now.currencyCode !== before.currencyCode || now.openingFc != null || before.openingFc == null) throw new Error('changed after the import — left as it is')
-  if (opening === 0 || Math.sign(opening) !== Math.sign(before.openingFc)) throw new Error('the account\'s opening was changed after the import — its foreign opening stays cleared')
+  const fits = rupeeOpening !== undefined ? opening === rupeeOpening : opening !== 0 && Math.sign(opening) === Math.sign(before.openingFc)
+  if (!fits) throw new Error('the account\'s opening was changed after the import — its foreign opening stays cleared')
   db.prepare('UPDATE fx_ledger_currency SET opening_fc = ? WHERE ledger_id = ?').run(before.openingFc, before.ledgerId)
   writeAudit(db, 'fx_ledger_currency', before.ledgerId, 'update', { ...before, openingFc: null }, before)
 }

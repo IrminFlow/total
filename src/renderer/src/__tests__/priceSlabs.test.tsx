@@ -44,4 +44,12 @@ describe('price slabs: the Currency column', () => {
     await waitFor(() => expect(headers()).toContain('Currency'))
     expect(screen.getByTestId('table-price-slabs').textContent).toContain('USD')
   })
+
+  it('the empty state spans exactly the header columns (6 without Currency — CodeRabbit on #196)', async () => {
+    rates = []
+    renderModal()
+    const cell = await screen.findByTestId('price-slabs-empty')
+    expect(Number(cell.getAttribute('colspan'))).toBe(headers().length)
+    expect(headers()).toHaveLength(6)
+  })
 })
