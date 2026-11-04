@@ -126,4 +126,23 @@ describe('posted-tax rate — a simple "just an amount" sale and its return', ()
       (db.prepare("SELECT COALESCE(SUM(CASE WHEN dr_cr = 'cr' THEN amount ELSE -amount END), 0) AS t FROM voucher_lines WHERE ledger_id = ?").get(id(db, name)) as { t: number }).t
     expect([posted('CGST'), posted('SGST'), posted('IGST')]).toEqual([9311, 9311, 10000])
   })
+
+  it('a sale charged at 5 % on a Sales account whose master rate is 18 % is reported at 5 % (GSTR-1, 3B, Home, e-invoice)', () => {
+    const db = company()
+    db.prepare("UPDATE ledgers SET gst_rate = 18 WHERE name = 'Sales'").run()
+    postIntent(db, INFO, { clientId: 'amount-sale-5', kind: 'sale', customerId: id(db, 'Ramesh'), date: '2025-07-10', amount: { amount: '1,000', gstRate: 5 } }, TODAY)
+    const posted = (name: string): number =>
+      (db.prepare("SELECT COALESCE(SUM(CASE WHEN dr_cr = 'cr' THEN amount ELSE -amount END), 0) AS t FROM voucher_lines WHERE ledger_id = ?").get(id(db, name)) as { t: number }).t
+    // The books: 1,000 x 2.5 % = 25 each.
+    expect([posted('CGST'), posted('SGST')]).toEqual([2500, 2500])
+    const from = '2025-07-01'
+    const to = '2025-07-31'
+    const docs = extractOutwardDocs(db, INFO, from, to)
+    expect(docs.map((d) => d.items.map((i) => [i.rate, i.taxable, i.cgst, i.sgst, i.igst]))).toEqual([[[5, 100000, 2500, 2500, 0]]])
+    expect(docs[0]!.validation!.valDiff).toBe(0)
+    expect(gstr3b(db, INFO, from, to, '072025').outward).toMatchObject({ taxable: 100000, cgst: 2500, sgst: 2500, igst: 0 })
+    expect(dashGst(db, INFO, TODAY)!.outwardTax).toBe(5000)
+    const edocs = extractEdocInvoices(db, INFO, from, to)
+    expect(edocs.flatMap((e) => e.items.map((i) => [i.rate, i.taxablePaise, i.cgst, i.sgst]))).toEqual([[5, 100000, 2500, 2500]])
+  })
 })

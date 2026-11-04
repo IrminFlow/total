@@ -54,31 +54,50 @@ function impliedRate(rest: number, taxable: number): number {
  * posted tax (the voucher date's slabs first, then any period's), else the implied rate with
  * `offSlab` set. Several rate-less lines at different true rates get ONE blended rate (the posted
  * tax cannot be attributed per line) — flagged when it fits no slab.
+ *
+ * A RATED line whose master rate does not explain the posted tax (a "just an amount" bill charged
+ * at 5 % on an 18 % Sales account — bug hunt 2026-11) is re-rated too, but only when ONE slab
+ * explains the whole posted tax over every line that is not a declared 0 %; a posting no slab
+ * explains keeps the master rates exactly as before (the value check flags it).
  */
 export function resolvePostedRates(lines: PostedRateLine[], postedGst: number, supply: SupplyType, date: string): PostedRates {
   const same: PostedRates = { rates: lines.map((l) => l.rate ?? 0), derived: false, offSlab: false }
   if (postedGst <= 0) return same
   const bare = lines.flatMap((l, i) => (l.rate == null && l.taxable > 0 ? [i] : []))
-  if (bare.length === 0) return same
   const explained = lines.reduce((s, l) => s + (l.rate != null && l.rate > 0 ? gstOf(computeGst(l.taxable, l.rate, supply)) : 0), 0)
   const rest = postedGst - explained
   const tolerance = lines.length + POSTED_TAX_ROUNDING_PAISE
-  // Nothing left, or (beside rated lines) only their rounding: not a rate.
-  if (rest <= 0 || (explained > 0 && rest <= tolerance)) return same
-  const big = bare.filter((i) => lines[i]!.taxable >= ROUND_OFF_SIZE_PAISE)
-  const target = new Set(big.length > 0 ? big : bare)
-  const taxFor = (rate: number): number => [...target].reduce((s, i) => s + gstOf(computeGst(lines[i]!.taxable, rate, supply)), 0)
-  const nearest = (slabs: readonly GstSlab[]): number | null => {
+  const taxFor = (target: ReadonlySet<number>, rate: number): number =>
+    [...target].reduce((s, i) => s + gstOf(computeGst(lines[i]!.taxable, rate, supply)), 0)
+  const nearest = (target: ReadonlySet<number>, tax: number, slabs: readonly GstSlab[]): number | null => {
     let best: { rate: number; diff: number } | null = null
     for (const s of slabs) {
       if (s.rate <= 0) continue
-      const diff = Math.abs(taxFor(s.rate) - rest)
+      const diff = Math.abs(taxFor(target, s.rate) - tax)
       if (diff <= tolerance && (best == null || diff < best.diff)) best = { rate: s.rate, diff }
     }
     return best?.rate ?? null
   }
-  const slab = nearest(slabsOn(date)) ?? nearest(ANY_PERIOD_SLABS)
-  const targetTaxable = [...target].reduce((s, i) => s + lines[i]!.taxable, 0)
-  const rate = slab ?? impliedRate(rest, targetTaxable)
-  return { rates: lines.map((l, i) => (target.has(i) ? rate : (l.rate ?? 0))), derived: true, offSlab: slab == null }
+  const slabFor = (target: ReadonlySet<number>, tax: number): number | null =>
+    nearest(target, tax, slabsOn(date)) ?? nearest(target, tax, ANY_PERIOD_SLABS)
+  // Rate-less lines take what the rated lines leave over (nothing left, or — beside rated lines —
+  // only their rounding, is not a rate).
+  if (bare.length > 0 && rest > 0 && !(explained > 0 && rest <= tolerance)) {
+    const big = bare.filter((i) => lines[i]!.taxable >= ROUND_OFF_SIZE_PAISE)
+    const target = new Set(big.length > 0 ? big : bare)
+    const slab = slabFor(target, rest)
+    const targetTaxable = [...target].reduce((s, i) => s + lines[i]!.taxable, 0)
+    const rate = slab ?? impliedRate(rest, targetTaxable)
+    return { rates: lines.map((l, i) => (target.has(i) ? rate : (l.rate ?? 0))), derived: true, offSlab: slab == null }
+  }
+  // The rated lines' master rates do not explain the posting: one slab over every taxable line that
+  // is not a declared 0 % (round-off-sized lines beside bigger ones left out), else unchanged.
+  if (explained > 0 && Math.abs(rest) > tolerance) {
+    const open = lines.flatMap((l, i) => (l.rate !== 0 && l.taxable > 0 ? [i] : []))
+    const big = open.filter((i) => lines[i]!.taxable >= ROUND_OFF_SIZE_PAISE)
+    const target = new Set(big.length > 0 ? big : open)
+    const slab = slabFor(target, postedGst)
+    if (slab != null) return { rates: lines.map((l, i) => (target.has(i) ? slab : (l.rate ?? 0))), derived: true, offSlab: false }
+  }
+  return same
 }

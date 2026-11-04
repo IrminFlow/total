@@ -63,6 +63,22 @@ describe('resolvePostedRates', () => {
     // Hand-edited: 18% tax + ₹50 typed on top.
     expect(resolvePostedRates([{ taxable: 100000, rate: null }], 23000, 'intra', D)).toEqual({ rates: [23], derived: true, offSlab: true })
   })
+  it('a rated account whose rate does not explain the posted tax takes the slab the tax implies', () => {
+    // Sales account 18 %, a "just an amount" bill charged at 5 %: CGST 25 + SGST 25 on 1,000.
+    expect(resolvePostedRates([{ taxable: 100000, rate: 18 }], 5000, 'intra', D)).toEqual({ rates: [5], derived: true, offSlab: false })
+    // Inter-state at 40 % on an 18 % account.
+    expect(resolvePostedRates([{ taxable: 100000, rate: 18 }], 40000, 'inter', D)).toEqual({ rates: [40], derived: true, offSlab: false })
+    // An 18 % account plus a rate-less line, the whole bill charged 5 %: 2,000 x 5 % = 100.
+    expect(resolvePostedRates([{ taxable: 100000, rate: 18 }, { taxable: 100000, rate: null }], 10000, 'intra', D).rates).toEqual([5, 5])
+    // An explicit 0 % line beside it stays nil.
+    expect(resolvePostedRates([{ taxable: 100000, rate: 18 }, { taxable: 100000, rate: 0 }], 5000, 'intra', D).rates).toEqual([5, 0])
+  })
+  it('a rated account is re-rated only when a slab explains the posted tax (otherwise its rate stays)', () => {
+    // 18 % + ₹2 typed on top fits no slab: reported at 18 % as before (the value check flags it).
+    expect(resolvePostedRates([{ taxable: 100000, rate: 18 }], 18200, 'intra', D)).toEqual({ rates: [18], derived: false, offSlab: false })
+    // Rounded to the rupee per head is still its own rate.
+    expect(resolvePostedRates([{ taxable: 123456, rate: 18 }], 22200, 'intra', D)).toEqual({ rates: [18], derived: false, offSlab: false })
+  })
   it('the implied rate is exact on large amounts (no float overflow) and rounds half-up at 4 decimals', () => {
     // ₹5,000 crore taxable, ₹170.0017 crore tax -> 3.400034% -> 3.4
     expect(resolvePostedRates([{ taxable: 5_000_000_000_000, rate: null }], 170_001_700_000, 'inter', D).rates).toEqual([3.4])
