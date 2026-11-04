@@ -65,7 +65,8 @@ await scenario('74-returns-in-parts-editor', async (h) => {
   await h.shot('01-note-in-editor')
   // Untouched: leaving asks nothing (the form is not dirty on open — a dirty one asks to discard).
   await page.click('button:has-text("Cancel")')
-  await page.waitForTimeout(500)
+  // A dirty form would stop on the discard question; an untouched one lands on the Day book.
+  await page.waitForSelector('[data-screen="daybook"][data-loading="false"], [data-testid="confirm-ok"]', { state: 'attached', timeout: 10000 })
   assert(!(await page.$('[data-testid="confirm-ok"]')), 'leaving an untouched note asks nothing')
   await h.waitScreen('daybook')
 

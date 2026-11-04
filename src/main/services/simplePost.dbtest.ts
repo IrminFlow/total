@@ -25,7 +25,7 @@ import { setCreditHold } from './receivables'
 import { postClose } from './yearEnd'
 import { getFeatures, setFeatures } from './config'
 import { restoreFromBin, saveSummary, undoSave } from './undo'
-import { previewIntent, postIntent, remapSaveError } from './simplePost'
+import { intentForm, previewIntent, postIntent, remapSaveError } from './simplePost'
 import { normaliseIntent, type MappedEntry } from '@shared/simple/intents'
 import { saleView, salesList, sellSetup } from './simpleSell'
 import { createMemory } from '../ai/memory'
@@ -887,6 +887,55 @@ describe('returns in parts: the running total nets every shape to zero', () => {
       post({ kind: 'return_sale', billId: amount, amount: { amount: '33.50' } })
       gstAgrees()
     }
+  })
+
+  // Re-review 1: an amount bill — an earlier note found by its reference counts toward the running
+  // total only when it is entirely on the bill's account and its tax is the bill's rate's (within a
+  // paisa per head); otherwise the next return is computed on its own, as main.
+  const accountantNote = (reference: string, lines: { ledger: string; drCr: 'dr' | 'cr'; amount: number }[]): number =>
+    saveVoucher(db, {
+      voucherTypeId: typeId(db, 'credit_note'), date: TODAY, number: `CN-ACC-${++seq}`, narration: 'by hand', reference, partyLedgerId: L('Ramesh'),
+      lines: lines.map((l) => ({ ledgerId: L(l.ledger), drCr: l.drCr, amount: l.amount })), billRefs: []
+    } as never).id
+  const linesOf = (id: number) => getVoucher(db, id)!.lines.map((l) => [listLedgers(db).find((x) => x.id === l.ledgerId)!.name, l.drCr, l.amount]).sort()
+  it('an amount bill after an accountant note with another account on it: the return is computed on its own (₹118)', () => {
+    db = company()
+    ledger(db, 'Other income', 'Indirect Incomes')
+    const bill = getVoucher(db, post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '300', gstRate: 18 } }).voucherIds[0]!)!
+    accountantNote(bill.number, [
+      { ledger: 'Sales', drCr: 'dr', amount: 10_000 }, { ledger: 'Other income', drCr: 'dr', amount: 5_000 },
+      { ledger: 'CGST', drCr: 'dr', amount: 1_350 }, { ledger: 'SGST', drCr: 'dr', amount: 1_350 }, { ledger: 'Ramesh', drCr: 'cr', amount: 17_700 }
+    ])
+    const note = post({ kind: 'return_sale', billId: bill.id, amount: { amount: '100' } }).voucherIds[0]!
+    expect(linesOf(note)).toEqual([['CGST', 'dr', 900], ['Ramesh', 'cr', 11_800], ['SGST', 'dr', 900], ['Sales', 'dr', 10_000]].sort())
+  })
+  it('an amount bill after an accountant note at another rate (12 %): the return is computed on its own (₹118)', () => {
+    db = company()
+    const bill = getVoucher(db, post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '300', gstRate: 18 } }).voucherIds[0]!)!
+    accountantNote(bill.number, [
+      { ledger: 'Sales', drCr: 'dr', amount: 10_000 }, { ledger: 'CGST', drCr: 'dr', amount: 600 }, { ledger: 'SGST', drCr: 'dr', amount: 600 }, { ledger: 'Ramesh', drCr: 'cr', amount: 11_200 }
+    ])
+    const note = post({ kind: 'return_sale', billId: bill.id, amount: { amount: '100' } }).voucherIds[0]!
+    expect(linesOf(note)).toEqual([['CGST', 'dr', 900], ['Ramesh', 'cr', 11_800], ['SGST', 'dr', 900], ['Sales', 'dr', 10_000]].sort())
+  })
+  // Re-review 2: a return handed off to the full editor (simple:intentForm) and saved there has no
+  // simple_posts row — GSTR-1 / 3B must still equal the books. (Recognising running-total notes from
+  // the voucher would move the Perf Traders GSTR-1 fixture, so the hand-off carries no fixedTax:
+  // the editor computes per line, as main.)
+  it('returns handed off to the full editor and saved there: books = GSTR-1 = GSTR-3B (the editor computes per line)', () => {
+    db = company()
+    const small = getVoucher(db, post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '9', rate: '1.11', discount: '0.05' }] }).voucherIds[0]!)!
+    for (let k = 0; k < 9; k++) {
+      const form = intentForm(db, INFO, { clientId: `handoff-${k}-xxxx`, kind: 'return_sale', billId: small.id, items: [{ lineUid: lineOf(small, 'Widget'), qty: '1' }] }, TODAY)
+      const e = form.entries[0]! as { form: 'invoice'; state: InvoiceFormState; voucherTypeId: number }
+      expect(e.state.fixedTax).toBeUndefined()
+      const built = buildInvoicePayload({ ...e.state, number: `HN-${k}` }, { ...invoiceCtx(db), kind: 'credit_note' }, e.voucherTypeId, taxLedgerIdsFrom(listLedgers(db), taxSideOf('credit_note')))
+      if (!built.ok) throw new Error(built.error)
+      saveVoucher(db, built.payload)
+      gstAgrees()
+    }
+    // The goods' value comes back exactly (the rows keep the running discount share).
+    expect(net('Sales')).toBe(0)
   })
 
   // Review 2: an accountant's note that returned lines of TWO bills — its tax / round off can't be

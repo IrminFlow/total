@@ -269,6 +269,19 @@ export function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<t
     if (v.inventory.length) {
       const own = n.inventory.length > 0 && n.inventory.every((l) => l.source?.linkType === 'return' && billUids.has(l.source.lineUid))
       if (!own || n.inventory.reduce((x, l) => x + l.amount, 0) !== f.taxable) attributable = false
+    } else {
+      // An amount bill (re-review): a note found by its reference is this bill's return only when
+      // it is nothing but the party, the bill's account(s), the tax and a round off under ₹1, and
+      // its tax is the bill's rate on its value (within a paisa per head — a running-total note's
+      // rounding). An accountant's note with another account on it, or at another rate, isn't.
+      const t = voucherTaxLedgers(n, ledgers, taxSideOf(noteKind))
+      const allowed = new Set([n.partyLedgerId, ...accountIds, t.cgst, t.sgst, t.igst, t.cess, t.roundOff].filter((x): x is number => x != null))
+      const round = f.total - (f.taxable + f.cgst + f.sgst + f.igst + f.cess)
+      const fitsRate = (rates ?? []).some((r) => {
+        const g = computeGst(f.taxable, r, supply)
+        return Math.abs(g.cgst - f.cgst) <= 1 && Math.abs(g.sgst - f.sgst) <= 1 && Math.abs(g.igst - f.igst) <= 1 && (g.cgst > 0) === (f.cgst > 0) && (g.igst > 0) === (f.igst > 0)
+      })
+      if (n.inventory.length > 0 || !n.lines.every((l) => allowed.has(l.ledgerId)) || f.cess !== 0 || Math.abs(round) >= 100 || !fitsRate) attributable = false
     }
     for (const k of ['taxable', 'cgst', 'sgst', 'igst', 'cess', 'total'] as const) {
       rest[k] -= f[k]
@@ -538,10 +551,15 @@ function guardDuplicateBill(db: DB, supplierId: number, billNo: string, date: st
   }
 }
 
-function mapWithLedgers(db: DB, company: CompanyInfo, n: NormalIntent): ReturnType<typeof mapIntent> {
+function mapWithLedgers(db: DB, company: CompanyInfo, n: NormalIntent, opts: { runningTotal?: boolean } = {}): ReturnType<typeof mapIntent> {
   for (let attempt = 0; ; attempt++) {
     try {
-      return mapIntent(n, loadIntentContext(db, company, n))
+      const ctx = loadIntentContext(db, company, n)
+      // PR #190 re-review: the hand-off to the full editor maps a return WITHOUT the running total
+      // (each return's tax per line on its own, as main): a note saved there has no simple_posts
+      // record, so GSTR-1 / 3B report it line by line — its posted tax must be that computation.
+      if (opts.runningTotal === false && ctx.original) ctx.original = { ...ctx.original, rest: null, returned: null }
+      return mapIntent(n, ctx)
     } catch (err) {
       if (!(err instanceof NeedTaxLedgers) || attempt >= 4) throw err
       ensureTaxLedgers(db, err.side, err.keys)
@@ -724,7 +742,7 @@ export function intentForm(db: DB, company: CompanyInfo, raw: unknown, today: st
   const n = normaliseIntent(raw, today)
   const before = new Set((db.prepare('SELECT id FROM ledgers').all() as { id: number }[]).map((r) => r.id))
   const { mapped, created } = rehearse(db, () => {
-    const m = mapWithLedgers(db, company, n)
+    const m = mapWithLedgers(db, company, n, { runningTotal: false })
     const rows = db
       .prepare('SELECT l.id, l.name, l.tax_type AS taxType, g.name AS groupName FROM ledgers l JOIN groups g ON g.id = l.group_id')
       .all() as CreatedLedger[]

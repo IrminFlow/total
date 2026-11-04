@@ -83,7 +83,10 @@ Things to know about the version numbers:
   for these notes books = GSTR-1 = GSTR-3B; every other document — an accountant's note included — is
   reported exactly as before (line by line), so a bill entered by hand can still differ from its
   return by a paisa there. A return after an accountant's note that returned goods of two bills at
-  once is computed on its own, as before.
+  once — or, on a "just an amount" bill, after an accountant's note with another account on it or at
+  another rate — is computed on its own, as before. A return opened in the full editor before it is
+  saved ("Accountant view") is computed there on its own, per line, as before (only returns saved
+  from the simple screen take the running total).
 
 ## [0.12.0] - 2026-10-22
 
