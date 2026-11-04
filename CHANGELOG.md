@@ -41,8 +41,13 @@ Things to know about the version numbers:
   (₹301): ₹100, ₹100, **₹101**; 9 × ₹1.11 less ₹0.05 (₹12) returned one at a time now gives back ₹12
   (was ₹9, CGST / SGST −₹0.01); a "just an amount" bill (₹119 returned as 33.50 × 3): ₹40, **₹39**,
   **₹40** (were ₹40 × 3 — ₹1 over-refunded). A return of the whole bill, and the first return of any
-  bill, are unchanged; such a note opens in the invoice editor and saves back unchanged (`fixedTax`,
-  kept only while its lines are unchanged).
+  bill, are unchanged; such a note opens in the full invoice editor showing the tax it posted and
+  saves back unchanged (`fixedTax`, kept only while its lines are unchanged). GSTR-1 and GSTR-3B
+  report the tax a note made by simple Returns POSTED (spread over its lines, never below zero), so
+  for these notes books = GSTR-1 = GSTR-3B; every other document — an accountant's note included — is
+  reported exactly as before (line by line), so a bill entered by hand can still differ from its
+  return by a paisa there. A return after an accountant's note that returned goods of two bills at
+  once is computed on its own, as before.
 
 ## [0.12.0] - 2026-10-22
 

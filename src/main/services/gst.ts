@@ -13,6 +13,7 @@ import {
   type ItcBreakdown, type TaxTotals
 } from '@shared/gst/returns'
 import { backOutAdvance, computeGst, supplyTypeFor } from '@shared/gst/calc'
+import { spreadPosted } from '@shared/gst/postedSpread'
 import { toUqc } from '@shared/gst/uqc'
 import { validateGstr1, type GstIssue } from '@shared/gst/validate'
 import { fyOf } from '@shared/dates'
@@ -169,6 +170,20 @@ function extractOutwardDocsRaw(db: DB, company: CompanyInfo, from: string, to: s
   const invBy = new Map<number, InvRow[]>()
   const totalBy = new Map<number, number>()
   const tcsBy = new Map<number, number>()
+  // PR #190 review: per note, its POSTED GST heads (net on the tax side) and how many of its item
+  // lines are `return` links — a return note reports the tax it posted (see below).
+  const noteIds = new Set(vouchers.filter((v) => v.kind === 'credit_note' || v.kind === 'debit_note').map((v) => v.id))
+  const postedBy = new Map<number, { cgst: number; sgst: number; igst: number; cess: number }>()
+  const returnLinksBy = new Map<number, number>()
+  // Only notes simple Returns made (simple_posts, a return_sale / return_purchase intent — the
+  // only writer of a running-total tax). Every other note, an accountant's or a seeded one whose
+  // heads split the tax another way, is reported line by line exactly as before.
+  const simpleReturnNotes = new Set<number>()
+  if (noteIds.size && db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'simple_posts'").get()) {
+    for (const r of db.prepare("SELECT voucher_ids_json AS ids FROM simple_posts WHERE kind IN ('return_sale', 'return_purchase')").all() as { ids: string }[]) {
+      for (const e of JSON.parse(r.ids) as { role?: string; voucherId: number }[]) if (e.role === 'note' && noteIds.has(e.voucherId)) simpleReturnNotes.add(e.voucherId)
+    }
+  }
   const docIds = vouchers.map((v) => v.id)
   for (let i = 0; i < docIds.length; i += 500) {
     const chunk = docIds.slice(i, i + 500)
@@ -197,6 +212,26 @@ function extractOutwardDocsRaw(db: DB, company: CompanyInfo, from: string, to: s
          WHERE te.voucher_id IN (${marks}) AND ts.kind = 'tcs' GROUP BY te.voucher_id`
       )
       .all(...chunk) as { id: number; t: number }[]) tcsBy.set(r.id, r.t)
+    const notes = chunk.filter((id) => noteIds.has(id))
+    if (notes.length) {
+      const nm = notes.map(() => '?').join(',')
+      for (const r of db
+        .prepare(
+          `SELECT vl.voucher_id AS id, l.tax_type AS head, vl.dr_cr AS drCr, SUM(vl.amount) AS t FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+           WHERE vl.voucher_id IN (${nm}) AND l.tax_type IN ('cgst', 'sgst', 'igst', 'cess') GROUP BY vl.voucher_id, l.tax_type, vl.dr_cr`
+        )
+        .all(...notes) as { id: number; head: 'cgst' | 'sgst' | 'igst' | 'cess'; drCr: 'dr' | 'cr'; t: number }[]) {
+        const kind = vouchers.find((x) => x.id === r.id)!.kind
+        // A credit note reverses output tax on the debit side; an outward debit note adds it on the credit side.
+        const sign = (kind === 'credit_note') === (r.drCr === 'dr') ? 1 : -1
+        const p = postedBy.get(r.id) ?? { cgst: 0, sgst: 0, igst: 0, cess: 0 }
+        p[r.head] += sign * r.t
+        postedBy.set(r.id, p)
+      }
+      for (const r of db
+        .prepare(`SELECT ll.to_voucher_id AS id, COUNT(*) AS n FROM line_links ll WHERE ll.to_voucher_id IN (${nm}) AND ll.link_type = 'return' GROUP BY ll.to_voucher_id`)
+        .all(...notes) as { id: number; n: number }[]) returnLinksBy.set(r.id, r.n)
+    }
   }
   const lineStmt = db.prepare(
     `SELECT vl.amount, vl.dr_cr AS drCr, l.group_id AS groupId, ${ledgerFacts.gstRate} AS gstRate, ${ledgerFacts.cessRate} AS cessRate, ${ledgerFacts.hsn} AS hsn, l.name
@@ -232,14 +267,17 @@ function extractOutwardDocsRaw(db: DB, company: CompanyInfo, from: string, to: s
       let computedTotal = 0
       let offSlabRate = false
 
-      // The one shared bucketing path: compute per LINE, then only ever sum.
+      // The one shared bucketing path: compute per LINE, then only ever sum. Lines are collected
+      // first so a return note can report its posted heads (spreadPosted) before they are summed.
+      interface DocLine { taxable: number; rate: number; cessRate: number; hsn: string | null; description: string; uqc: string; qtyMilli: number }
+      const docLines: DocLine[] = []
+      const collect = (taxable: number, rate: number, cessRate: number, hsn: string | null, description: string, uqc: string, qtyMilli: number): void => {
+        docLines.push({ taxable, rate, cessRate, hsn, description, uqc, qtyMilli })
+      }
       const addLine = (
-        taxable: number, rate: number, cessRate: number,
-        hsn: string | null, description: string, uqc: string, qtyMilli: number
+        { taxable, rate, hsn, description, uqc, qtyMilli }: DocLine,
+        g: { cgst: number; sgst: number; igst: number; cess: number }
       ): void => {
-        const g = zeroTax
-          ? { cgst: 0, sgst: 0, igst: 0, cess: 0 }
-          : computeGst(taxable, rate, supply, cessRate)
         computedTotal += taxable + g.cgst + g.sgst + g.igst + g.cess
         if (rate === 0) {
           nilLines.push({ taxable })
@@ -269,7 +307,7 @@ function extractOutwardDocsRaw(db: DB, company: CompanyInfo, from: string, to: s
           // kept as-is so the validation panel can flag them (never silently 'OTH').
           const mapped = toUqc(line.uqc)
           const uqc = mapped.fallback ? line.uqc : mapped.uqc
-          addLine(line.amount, rated ? (line.gstRate ?? 0) : 0, rated ? (line.cessRate ?? 0) : 0, line.hsn, line.itemName, uqc, line.qtyMilli)
+          collect(line.amount, rated ? (line.gstRate ?? 0) : 0, rated ? (line.cessRate ?? 0) : 0, line.hsn, line.itemName, uqc, line.qtyMilli)
         }
       } else {
         const lines = lineStmt.all(v.id) as {
@@ -286,12 +324,45 @@ function extractOutwardDocsRaw(db: DB, company: CompanyInfo, from: string, to: s
         if (resolved?.offSlab) offSlabRate = true
         salesLines.forEach((line, i) => {
           // WP 4.2: a ledger can carry a cess rate (migration 032) — absent = no cess, as before.
-          addLine(
+          collect(
             line.amount, rated ? (resolved ? resolved.rates[i]! : (line.gstRate ?? 0)) : 0, rated ? (line.cessRate ?? 0) : 0,
             line.hsn, line.name, 'OTH', 0
           )
         })
       }
+      const taxes = docLines.map((l) => (zeroTax ? { cgst: 0, sgst: 0, igst: 0, cess: 0 } : computeGst(l.taxable, l.rate, supply, l.cessRate)))
+      // PR #190 review: a RETURN note reports the GST it posted, not its lines recomputed one by
+      // one — a return made from the running total (simple Returns) posts each head a paisa or so
+      // away from that, and the bill + its returns must net to what the books hold. A return note
+      // = one simple Returns made (simpleReturnNotes) with every item line a `return` link, or (no
+      // item lines) whose posted heads are within a
+      // paisa per line of the computation — whose posted tax is not what the editor computes for
+      // its rows. Each head is spread over the lines (spreadPosted: by their computed tax, never
+      // below zero); any other document is computed exactly as before.
+      const posted = postedBy.get(v.id)
+      const returnNote =
+        rated && !zeroTax && posted != null && docLines.length > 0 && simpleReturnNotes.has(v.id) &&
+        (inv.length > 0
+          ? returnLinksBy.get(v.id) === inv.length
+          : (['cgst', 'sgst', 'igst', 'cess'] as const).every((k) => Math.abs(posted[k] - taxes.reduce((x, t) => x + t[k], 0)) <= docLines.length))
+      // Only where the posted tax is not the editor's own (per rate bucket, computeInvoice) — an
+      // ordinary note keeps its line-by-line figures exactly as before.
+      const bucketed = new Map<string, { rate: number; cessRate: number; taxable: number }>()
+      for (const l of docLines) {
+        const b = bucketed.get(`${l.rate}|${l.cessRate}`) ?? { rate: l.rate, cessRate: l.cessRate, taxable: 0 }
+        b.taxable += l.taxable
+        bucketed.set(`${l.rate}|${l.cessRate}`, b)
+      }
+      const editorTax = [...bucketed.values()].map((b) => computeGst(b.taxable, b.rate, supply, b.cessRate))
+      const notEditors = posted != null && (['cgst', 'sgst', 'igst', 'cess'] as const).some((k) => posted[k] !== editorTax.reduce((x, t) => x + t[k], 0))
+      if (returnNote && notEditors && (['cgst', 'sgst', 'igst', 'cess'] as const).every((k) => posted[k] >= 0)) {
+        const weights = docLines.map((l) => (l.rate > 0 ? l.taxable : 0))
+        for (const k of ['cgst', 'sgst', 'igst', 'cess'] as const) {
+          const spread = spreadPosted(taxes.map((t) => t[k]), posted[k], k === 'cess' ? docLines.map((l) => (l.cessRate > 0 ? l.taxable : 0)) : weights)
+          spread.forEach((x, i) => (taxes[i]![k] = x))
+        }
+      }
+      docLines.forEach((l, i) => addLine(l, taxes[i]!))
 
       const items: GstDocRateItem[] = [...buckets.values()].map((b) => ({
         rate: b.rate, taxable: b.taxable, cgst: b.cgst, sgst: b.sgst, igst: b.igst, cess: b.cess

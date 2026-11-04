@@ -255,7 +255,10 @@ export function fixedTaxKey(state: InvoiceFormState): string {
   return JSON.stringify([
     state.date, state.partyId, state.accountId, state.posOverride, state.currencyCode, state.fxRateText,
     !!state.legacyTax, !!state.taxedOriginal,
-    state.rows.map((r) => [r.itemId, r.qtyText, r.rate, r.discount, r.source?.lineUid ?? null, r.source?.linkType ?? null])
+    // Only the rows the computation uses (an editor's trailing blank row is not a change).
+    state.rows
+      .filter((r) => r.itemId != null && r.rate != null && Math.round(parseFloat(r.qtyText || '0') * 1000) > 0)
+      .map((r) => [r.itemId, r.qtyText, r.rate, r.discount, r.source?.lineUid ?? null, r.source?.linkType ?? null])
   ])
 }
 
@@ -281,7 +284,14 @@ function savedReturnTax(v: Voucher, state: InvoiceFormState, ctx: InvoiceContext
   const ro = taxLedgers.roundOff == null ? [] : v.lines.filter((l) => l.ledgerId === taxLedgers.roundOff)
   const roundDiff = ro.reduce((s, l) => s + (l.drCr === counter ? l.amount : -l.amount), 0)
   const fixed: FixedTax = { cgst: head(taxLedgers.cgst), sgst: head(taxLedgers.sgst), igst: head(taxLedgers.igst), cess: head(taxLedgers.cess), roundDiff, key: fixedTaxKey(state) }
-  return fixedTaxFits(state, ctx, fixed) ? fixed : null
+  if (!fixedTaxFits(state, ctx, fixed)) return null
+  // Only the running total's rounding: each head within a paisa per row of what the rows compute
+  // and a round off under ₹1. A note whose tax differs by more (an item's rate changed since, a
+  // note entered by hand at another rate) is routed exactly as before (PR #190 review).
+  const c = computeInvoice({ ...state, fixedTax: undefined }, ctx).gst
+  const rows = state.rows.filter((r) => r.itemId != null).length
+  if ((['cgst', 'sgst', 'igst', 'cess'] as const).some((k) => Math.abs(fixed[k] - c[k]) > rows) || Math.abs(roundDiff) >= 100) return null
+  return fixed
 }
 
 /** Which tax / round-off ledgers a computed invoice posts to (the form ensures these exist). */

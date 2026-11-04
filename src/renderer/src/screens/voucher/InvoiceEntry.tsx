@@ -276,7 +276,10 @@ export function InvoiceEntry({
       tcs: invoiceKindTakesTcs(kind) ? tcs : null,
       // WP 8.0: a saved voucher that already carries GST keeps it (planVoucherEdit sets it).
       ...(initial?.legacyTax ? { legacyTax: true } : {}),
-      ...(taxedOriginal ? { taxedOriginal: true } : {})
+      ...(taxedOriginal ? { taxedOriginal: true } : {}),
+      // PR #190: a return note that took the running total's tax / round off keeps it while its
+      // rows, date, party and account are unchanged (fixedTaxKey) — any edit recomputes the tax.
+      ...(initial?.fixedTax ? { fixedTax: initial.fixedTax } : {})
     }),
     [date, isEdit, alterNumber, numberField.forPayload, partyId, accountId, rows, narration, vehicleNo, transporterId, distanceKm, currencyCode, fxRateText, posOverride, optionalVoucher, billName, billDueDate, manualNewBillMode, noteBillRefs, initial, kind, tds, tcs, taxedOriginal]
   )
@@ -884,7 +887,7 @@ export function InvoiceEntry({
               <Money paise={appliedTcs.tdsAmount} />
             </div>
           )}
-          <div className="mt-1 flex justify-between border-t border-ink pt-1.5 pb-0.5 text-subtitle font-semibold" style={{ borderBottom: '3px double var(--color-ink)' }}>
+          <div className="mt-1 flex justify-between border-t border-ink pt-1.5 pb-0.5 text-subtitle font-semibold" style={{ borderBottom: '3px double var(--color-ink)' }} data-testid="invoice-total" data-paise={grandTotal}>
             <span>Total</span>
             <Money paise={grandTotal} />
           </div>

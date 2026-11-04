@@ -251,10 +251,21 @@ export function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<t
   const noteKind: VoucherKind = kind === 'sales' ? 'credit_note' : 'debit_note'
   const rest = figures(v, kind)
   const returnedFigures: BillRest = { taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, total: 0 }
+  // A note's tax and round off belong to this bill only when the WHOLE note is this bill's return:
+  // every item line a `return` of one of its lines and its value nothing but those lines. A note
+  // that also returned another bill's goods (or carries a charge of its own) can't be split per
+  // bill exactly — then the running total isn't known and the next return is computed on its own
+  // (rest / returned null, as before the running total).
+  const billUids = new Set(v.inventory.map((l) => l.lineUid).filter((u): u is string => !!u))
+  let attributable = true
   for (const id of earlier) {
     const n = getVoucher(db, id)
     if (!n) continue
     const f = figures(n, noteKind)
+    if (v.inventory.length) {
+      const own = n.inventory.length > 0 && n.inventory.every((l) => l.source?.linkType === 'return' && billUids.has(l.source.lineUid))
+      if (!own || n.inventory.reduce((x, l) => x + l.amount, 0) !== f.taxable) attributable = false
+    }
     for (const k of ['taxable', 'cgst', 'sgst', 'igst', 'cess', 'total'] as const) {
       rest[k] -= f[k]
       returnedFigures[k] += f[k]
@@ -273,8 +284,8 @@ export function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<t
     rates,
     noteReference,
     amountLeft,
-    rest,
-    returned: returnedFigures,
+    rest: attributable ? rest : null,
+    returned: attributable ? returnedFigures : null,
     lines: v.inventory
       .filter((l) => !!l.lineUid)
       .map((l) => ({
