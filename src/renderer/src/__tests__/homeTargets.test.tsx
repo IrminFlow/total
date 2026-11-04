@@ -1,5 +1,5 @@
 // WP 8.6: the accountant screens the simple Home's "Why?" links open show THAT figure — the
-// Trial balance limited to the cash / bank accounts as on the given date, the Day book on one
+// Trial balance limited to the cash / bank accounts as on the given date, All entries (Registers) on one
 // day, Outstandings on the asked side, GSTR-3B on the asked month. Without the params each screen
 // is unchanged.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -7,7 +7,7 @@ import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { DayBookRow, OutstandingParty, TrialBalance } from '@shared/reports'
 import { TrialBalanceScreen } from '../screens/TrialBalance'
-import { DayBook } from '../screens/DayBook'
+import { RegistersScreen } from '../screens/Registers'
 import { OutstandingsScreen } from '../screens/Outstandings'
 import { Gstr3bScreen } from '../screens/GstReturns'
 import { useNav, useSession } from '../state/stores'
@@ -69,13 +69,13 @@ describe('Home link targets (WP 8.6)', () => {
     expect(invoke).toHaveBeenCalledWith('report:trialBalance', { asOn: '2027-03-31' })
   })
 
-  it('Day book: one day', async () => {
-    renderScreen(<DayBook date="2026-10-13" />)
-    await waitFor(() => expect(rowsOf('daybook')).toHaveLength(2), SLOW)
-    expect(screen.getByTestId('daybook-date-chip').textContent).toBe('13-Oct-26')
+  it('All entries: one day (the Day book went in the feature cleanup)', async () => {
+    renderScreen(<RegistersScreen tab="entries" from="2026-10-13" to="2026-10-13" />)
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('report:dayBook', { from: '2026-10-13', to: '2026-10-13', includeOutOfBooks: true }), SLOW)
+    expect(screen.getByTestId('page-period').textContent).toContain('13-Oct-26')
     cleanup()
-    renderScreen(<DayBook />)
-    await waitFor(() => expect(rowsOf('daybook')).toHaveLength(3), SLOW)
+    renderScreen(<RegistersScreen tab="entries" />)
+    await waitFor(() => expect(rowsOf('registers-entries')).toHaveLength(3), SLOW)
   })
 
   it('Outstandings: opens on the asked side', async () => {

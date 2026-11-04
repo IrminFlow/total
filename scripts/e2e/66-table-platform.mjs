@@ -7,11 +7,11 @@
 //      nothing that matches (Capital Account) and the non-matching siblings in a kept group.
 //   3. Masters → Ledgers has a Group column; its search finds a ledger by its group's name and a
 //      party by its GSTIN.
-//   4. Day book (DataTable): Debit sorts ascending then descending (aria-sort + the figures in
+//   4. All entries (DataTable): Debit sorts ascending then descending (aria-sort + the figures in
 //      order), Shift-click adds Date as a secondary sort; the quick filter narrows the rows to the
 //      ones whose text matches; a per-column filter (Debit ≥ ₹X) leaves only those rows, with a
 //      chip; the column chooser hides Narration and Type.
-//   5. That view is saved as "Big debits"; after a relaunch the Day book opens on it — same
+//   5. That view is saved as "Big debits"; after a relaunch All entries opens on it — same
 //      filter, sort, hidden columns and row count.
 //   6. CSV export of the current view: the header holds only the visible columns, one line per
 //      filtered row + the totals row.
@@ -177,36 +177,36 @@ await scenario('66-table-platform', async (h) => {
   assert(rows.every((r) => r.gstin === party.gstin) && rows.some((r) => r.name === party.name), 'the GSTIN match is the party')
   await h.shot('03-ledgers-gstin')
 
-  // ---------------- 4. Day book: sort, multi-sort, quick filter, column filter, hide columns
-  await h.goto('daybook')
-  await h.page.waitForSelector('[data-testid="rows-daybook"] tr.dt-row', { timeout: 15000 })
-  const all = await tableRows(h, 'daybook')
+  // ---------------- 4. All entries: sort, multi-sort, quick filter, column filter, hide columns
+  await h.gotoAllEntries()
+  await h.page.waitForSelector('[data-testid="rows-registers-entries"] tr.dt-row', { timeout: 15000 })
+  const all = await tableRows(h, 'registers-entries')
   assert(all.length >= 10, `Demo Traders has plenty of day-book rows (${all.length})`)
   const total = all.length
-  const sortBtn = (c) => `[data-testid="sort-daybook-${c}"]`
-  const ariaSort = (c) => h.page.getAttribute(`[data-testid="daybook-table"] thead th[data-col="${c}"]`, 'aria-sort')
+  const sortBtn = (c) => `[data-testid="sort-registers-entries-${c}"]`
+  const ariaSort = (c) => h.page.getAttribute(`[data-testid="registers-entries-table"] thead th[data-col="${c}"]`, 'aria-sort')
 
   await h.page.click(sortBtn('debit'))
-  await h.page.waitForFunction(() => document.querySelector('[data-testid="daybook-table"] th[data-col="debit"]')?.getAttribute('aria-sort') === 'ascending')
-  let debits = (await tableRows(h, 'daybook')).map((r) => toPaise(r.debit))
+  await h.page.waitForFunction(() => document.querySelector('[data-testid="registers-entries-table"] th[data-col="debit"]')?.getAttribute('aria-sort') === 'ascending')
+  let debits = (await tableRows(h, 'registers-entries')).map((r) => toPaise(r.debit))
   assertEq(debits.length, total, 'sorting keeps every row')
   assert(nonDecreasing(debits), `Debit ascending: ${debits.join(',')}`)
   assert(debits[0] < debits[debits.length - 1], 'the demo has different debit amounts to order')
   await h.page.click(sortBtn('debit'))
-  await h.page.waitForFunction(() => document.querySelector('[data-testid="daybook-table"] th[data-col="debit"]')?.getAttribute('aria-sort') === 'descending')
-  debits = (await tableRows(h, 'daybook')).map((r) => toPaise(r.debit))
+  await h.page.waitForFunction(() => document.querySelector('[data-testid="registers-entries-table"] th[data-col="debit"]')?.getAttribute('aria-sort') === 'descending')
+  debits = (await tableRows(h, 'registers-entries')).map((r) => toPaise(r.debit))
   assert(nonIncreasing(debits), `Debit descending: ${debits.join(',')}`)
   assertEq(debits[0], Math.max(...all.map((r) => toPaise(r.debit))), 'the largest debit is first')
 
   // Shift-click: Date becomes the secondary key (ties on Debit run by date).
   await h.page.click(sortBtn('date'), { modifiers: ['Shift'] })
-  await h.page.waitForFunction(() => document.querySelector('[data-testid="daybook-table"] th[data-col="date"]')?.getAttribute('aria-sort') === 'ascending')
+  await h.page.waitForFunction(() => document.querySelector('[data-testid="registers-entries-table"] th[data-col="date"]')?.getAttribute('aria-sort') === 'ascending')
   assertEq(await ariaSort('debit'), 'descending', 'Shift-click keeps the primary sort')
   assertEq((await h.page.textContent(`${sortBtn('date')} sup`))?.trim(), '2', 'Date is marked as sort key 2')
   const dateOf = new Map(
     (await h.invoke('report:dayBook', { from: '2000-04-01', to: '2099-03-31', includeOutOfBooks: true })).map((v) => [String(v.voucherId), v.date])
   )
-  const multi = (await tableRows(h, 'daybook')).map((r) => ({ d: toPaise(r.debit), date: dateOf.get(r._id) }))
+  const multi = (await tableRows(h, 'registers-entries')).map((r) => ({ d: toPaise(r.debit), date: dateOf.get(r._id) }))
   assert(multi.every((m) => m.date), 'every day-book row maps to a voucher date')
   for (let i = 1; i < multi.length; i++) {
     assert(multi[i - 1].d >= multi[i].d, 'multi-sort: Debit still descending')
@@ -219,79 +219,79 @@ await scenario('66-table-platform', async (h) => {
   const q = word.toLowerCase()
   const expectQuick = all.filter((r) => ['type', 'number', 'account', 'narration'].some((c) => (r[c] ?? '').toLowerCase().includes(q))).length
   assert(expectQuick > 0 && expectQuick < total, `quick filter "${word}" should narrow (${expectQuick} of ${total})`)
-  await h.fill('daybook-table-quick', word)
+  await h.fill('registers-entries-table-quick', word)
   await h.page.waitForFunction(
-    ([n, t]) => document.querySelector('[data-testid="daybook-table-count"]')?.textContent?.trim() === `${n} of ${t} rows`,
+    ([n, t]) => document.querySelector('[data-testid="registers-entries-table-count"]')?.textContent?.trim() === `${n} of ${t} rows`,
     [expectQuick, total],
     { timeout: 10000 }
   )
-  rows = await tableRows(h, 'daybook')
+  rows = await tableRows(h, 'registers-entries')
   assertEq(rows.length, expectQuick, 'quick filter narrows the rendered rows')
-  await h.fill('daybook-table-quick', '')
-  await h.page.waitForFunction((t) => document.querySelector('[data-testid="daybook-table-count"]')?.textContent?.trim() === `${t} rows`, total)
+  await h.fill('registers-entries-table-quick', '')
+  await h.page.waitForFunction((t) => document.querySelector('[data-testid="registers-entries-table-count"]')?.textContent?.trim() === `${t} rows`, total)
 
   // Column filter: Debit ≥ the median debit (typed in rupees).
   const sortedAmounts = all.map((r) => toPaise(r.debit)).sort((a, b) => a - b)
   const threshold = sortedAmounts[Math.floor(sortedAmounts.length / 2)]
   const expectBig = sortedAmounts.filter((d) => d >= threshold).length
   assert(expectBig < total, 'the threshold leaves some rows out')
-  await h.page.hover('[data-testid="daybook-table"] thead th[data-col="debit"]')
-  await h.click('filter-daybook-debit')
-  await h.page.selectOption('[data-testid="daybook-filter-debit-op"]', 'gte')
-  await h.fill('daybook-filter-debit-a', (threshold / 100).toFixed(2))
-  await h.click('daybook-filter-debit-apply')
-  await h.page.waitForSelector('[data-testid="daybook-table-chip-debit"]', { timeout: 10000 })
+  await h.page.hover('[data-testid="registers-entries-table"] thead th[data-col="debit"]')
+  await h.click('filter-registers-entries-debit')
+  await h.page.selectOption('[data-testid="registers-entries-filter-debit-op"]', 'gte')
+  await h.fill('registers-entries-filter-debit-a', (threshold / 100).toFixed(2))
+  await h.click('registers-entries-filter-debit-apply')
+  await h.page.waitForSelector('[data-testid="registers-entries-table-chip-debit"]', { timeout: 10000 })
   await h.page.waitForFunction(
-    ([n, t]) => document.querySelector('[data-testid="daybook-table-count"]')?.textContent?.trim() === `${n} of ${t} rows`,
+    ([n, t]) => document.querySelector('[data-testid="registers-entries-table-count"]')?.textContent?.trim() === `${n} of ${t} rows`,
     [expectBig, total],
     { timeout: 10000 }
   )
-  rows = await tableRows(h, 'daybook')
+  rows = await tableRows(h, 'registers-entries')
   assertEq(rows.length, expectBig, 'Debit ≥ filter leaves exactly the rows at or above the threshold')
   assert(rows.every((r) => toPaise(r.debit) >= threshold), 'every remaining row clears the threshold')
 
   // Column chooser: hide Narration and Type.
-  await h.click('daybook-table-columns')
-  await h.page.uncheck('[data-testid="daybook-table-col-narration"]')
-  await h.page.uncheck('[data-testid="daybook-table-col-type"]')
+  await h.click('registers-entries-table-columns')
+  await h.page.uncheck('[data-testid="registers-entries-table-col-narration"]')
+  await h.page.uncheck('[data-testid="registers-entries-table-col-type"]')
   await h.page.keyboard.press('Escape')
-  await h.page.waitForSelector('[data-testid="daybook-table-columns-popover"]', { state: 'detached', timeout: 5000 })
-  let cols = await visibleCols(h, 'daybook')
+  await h.page.waitForSelector('[data-testid="registers-entries-table-columns-popover"]', { state: 'detached', timeout: 5000 })
+  let cols = await visibleCols(h, 'registers-entries')
   assert(!cols.includes('narration') && !cols.includes('type'), `Narration and Type hidden (${cols.join(',')})`)
   assert(cols.includes('account') && cols.includes('debit'), 'other columns stay')
 
   // ---------------- 5. save the view, relaunch, it is still applied
-  await h.click('daybook-table-views')
-  await h.click('daybook-table-view-save-as')
-  await h.fill('daybook-table-view-name', 'Big debits')
-  await h.click('daybook-table-view-save')
-  await h.page.waitForFunction(() => document.querySelector('[data-testid="daybook-table-views"]')?.textContent?.includes('Big debits'))
+  await h.click('registers-entries-table-views')
+  await h.click('registers-entries-table-view-save-as')
+  await h.fill('registers-entries-table-view-name', 'Big debits')
+  await h.click('registers-entries-table-view-save')
+  await h.page.waitForFunction(() => document.querySelector('[data-testid="registers-entries-table-views"]')?.textContent?.includes('Big debits'))
   await h.shot('05-daybook-view-saved')
 
   await h.relaunch()
   assertEq(await h.openCompany('Demo Traders'), 'gateway', 'reopened Demo Traders')
-  await h.goto('daybook')
-  await h.page.waitForSelector('[data-testid="rows-daybook"] tr.dt-row', { timeout: 15000 })
-  const viewsLabel = await h.page.textContent('[data-testid="daybook-table-views"]')
+  await h.gotoAllEntries()
+  await h.page.waitForSelector('[data-testid="rows-registers-entries"] tr.dt-row', { timeout: 15000 })
+  const viewsLabel = await h.page.textContent('[data-testid="registers-entries-table-views"]')
   assert(viewsLabel.includes('Big debits') && !viewsLabel.includes('•'), `the saved view is active and unmodified after relaunch ("${viewsLabel.trim()}")`)
-  await h.page.waitForSelector('[data-testid="daybook-table-chip-debit"]', { timeout: 10000 })
-  cols = await visibleCols(h, 'daybook')
+  await h.page.waitForSelector('[data-testid="registers-entries-table-chip-debit"]', { timeout: 10000 })
+  cols = await visibleCols(h, 'registers-entries')
   assert(!cols.includes('narration') && !cols.includes('type'), 'hidden columns survive the relaunch')
   assertEq(await ariaSort('debit'), 'descending', 'sort survives the relaunch')
   assertEq(await ariaSort('date'), 'ascending', 'secondary sort survives the relaunch')
-  rows = await tableRows(h, 'daybook')
+  rows = await tableRows(h, 'registers-entries')
   assertEq(rows.length, expectBig, 'the column filter survives the relaunch')
   assert(nonIncreasing(rows.map((r) => toPaise(r.debit))), 'rows still in Debit-descending order')
 
   // ---------------- 6. CSV export of the current view
   const exportsDir = path.join(h.dataDir, 'companies', 'demo-traders', 'exports')
   const before = new Set(fs.existsSync(exportsDir) ? fs.readdirSync(exportsDir) : [])
-  await h.click('daybook-table-csv')
+  await h.click('registers-entries-table-csv')
   await h.page.waitForFunction(() => document.body.textContent?.includes('Saved to exports'), null, { timeout: 20000 })
   const added = fs.readdirSync(exportsDir).filter((f) => !before.has(f) && f.endsWith('.csv'))
   assertEq(added.length, 1, `one CSV written (${added.join(', ')})`)
   const csv = parseCsv(fs.readFileSync(path.join(exportsDir, added[0]), 'utf8'))
-  const labels = await h.page.$$eval('[data-testid="daybook-table"] thead th[data-col]', (ths) =>
+  const labels = await h.page.$$eval('[data-testid="registers-entries-table"] thead th[data-col]', (ths) =>
     ths.map((th) => th.querySelector('[data-testid^="sort-"] span')?.textContent?.trim() ?? th.textContent.trim())
   )
   assertEq(JSON.stringify(csv[0]), JSON.stringify(labels), 'CSV header = the visible columns, in order')

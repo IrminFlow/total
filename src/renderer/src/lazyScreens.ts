@@ -57,8 +57,6 @@ const load_simple_reports_ReportsScreen = () => import('./simple/reports/Reports
 export const ReportsScreen = lazyScreen(load_simple_reports_ReportsScreen, 'ReportsScreen')
 const load_simple_taxes_TaxesScreen = () => import('./simple/taxes/TaxesScreen')
 export const TaxesScreen = lazyScreen(load_simple_taxes_TaxesScreen, 'TaxesScreen')
-const load_screens_DayBook = () => import('./screens/DayBook')
-export const DayBook = lazyScreen(load_screens_DayBook, 'DayBook')
 const load_screens_ImportTally = () => import('./screens/ImportTally')
 export const ImportTallyScreen = lazyScreen(load_screens_ImportTally, 'ImportTallyScreen')
 const load_screens_ImportWizard = () => import('./screens/ImportWizard')
@@ -208,7 +206,6 @@ export const SCREEN_CHUNKS: { readonly [N in Screen['name']]?: readonly LazyComp
   'simple-made-goods': [MadeGoods],
   'simple-reports': [ReportsScreen],
   'simple-taxes': [TaxesScreen],
-  'daybook': [DayBook],
   'import-tally': [ImportTallyScreen],
   'data-import': [ImportWizardScreen],
   'data-export': [BooksExportScreen],

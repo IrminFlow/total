@@ -3,7 +3,7 @@
 //   items → Counter billing: scan both by barcode (keyboard only; the second twice, so it
 //   increments and crosses the scheme's slab), ↑/+/− on a line, split the payment cash + UPI with
 //   cash tendered → the sale posts a sales invoice (GST + round-off) and a receipt against it →
-//   print (thermal receipt) → Day book shows both, the receipt allocates against the invoice →
+//   print (thermal receipt) → All entries shows both, the receipt allocates against the invoice →
 //   Day end. Also: the invoice grid's price hint, the Masters pricing tabs.
 // The scan latency (keydown → line on screen with its price) is read from the screen's
 // data-scan-ms / data-scan-seq markers (written in the same commit that shows the priced line).
@@ -162,7 +162,7 @@ await scenario('29-counter-billing', async (h) => {
   await both('06-counter-saved')
 
   // ---------- the books: an invoice and a receipt against it ----------
-  assertEq(await daybookCount(), before + 2, 'the day book has the invoice and the receipt')
+  assertEq(await daybookCount(), before + 2, 'all entries has the invoice and the receipt')
   const day = await h.invoke('counter:dayEnd', { date: today })
   assertEq(day.bills, 1, 'one counter bill today')
   const bill = day.invoices[0]
@@ -190,11 +190,11 @@ await scenario('29-counter-billing', async (h) => {
   assert(html.includes('Wireless Mouse') && html.includes('Paid · Cash') && html.includes('1,795.00'), 'the receipt prints the items, the total and the payments')
   await printShot('07-receipt-80mm', html, '80mm')
 
-  await h.goto('daybook')
+  await h.gotoAllEntries()
   // Today's two entries: the counter invoice (Cash sale) and its receipt.
   await page.fill('input[aria-label="Filter rows"]', 'Cash sale')
-  await page.waitForSelector(`[data-testid="rows-daybook"] [data-row-id="${inv.id}"]`, { state: 'attached', timeout: 10000 })
-  await page.waitForSelector(`[data-testid="rows-daybook"] [data-row-id="${rc.id}"]`, { state: 'attached', timeout: 10000 })
+  await page.waitForSelector(`[data-testid="rows-registers-entries"] [data-row-id="${inv.id}"]`, { state: 'attached', timeout: 10000 })
+  await page.waitForSelector(`[data-testid="rows-registers-entries"] [data-row-id="${rc.id}"]`, { state: 'attached', timeout: 10000 })
   await both('08-daybook')
 
   // Day end.

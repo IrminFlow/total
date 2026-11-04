@@ -29,7 +29,14 @@ sight until a business actually uses them. Nothing already in your books changes
   Record the disbursement), the MCP server for AI clients with `total-cli mcp` / `total-cli inbox`
   and the agent inbox folder, the year-end "Check earlier closes" repair, and the developer AI
   evaluation suite (`npm run ai:evals`).
-- **Hidden until used:** foreign currency (Forex, currencies, the currency on an entry), cost
+- **The Day book screen is gone** (owner decision): its list of every entry is now **Registers →
+  All entries**, with the same filters, bulk edit, files, links and PDF. Everything that opened the
+  Day book opens it on the same day or period — Home's "money in / out today → Why?" (now worded
+  "Open today’s entries in the list of all entries"), a register's month, a cash-flow line, the
+  Gateway's books card and recent entries, the month-end checklist and the AI assistant's links.
+  The CA pack's `daybook.csv` is now `all-entries.csv`. Saved table views of the Day book carry over;
+  its "Show" choice (in books / all / optional / post-dated) starts again at "In books".
+- **Hidden until used:** foreign currency (Forex, Masters → Currencies, the currency on an entry), cost
   centres, cheque books / post-dated cheques / bulk bank payment files, interest on overdue bills,
   the fixed-asset register, quotations / orders / delivery challans / goods receipt notes, and
   PF / ESI / PT in payroll. A business that has any of their data sees them exactly as before; one
@@ -40,7 +47,8 @@ sight until a business actually uses them. Nothing already in your books changes
 **For accountants.** No figure in any remaining report changes. Loan instalment and disbursement
 vouchers posted from the old Loans screen are ordinary vouchers now (they can be edited like any
 other); the cash-flow forecast still counts the unposted instalments of loan schedules already in
-the books. Ratios and comparative P&L / balance sheet stay (without the budget column). The
+the books that fall due from today on (an instalment already past due can no longer be marked paid,
+so it is left out rather than counted as due now for ever). Ratios and comparative P&L / balance sheet stay (without the budget column). The
 year-end close preview no longer warns about over-budget lines or unposted EMIs, and the Gateway no
 longer shows the over-budget chip or loan EMI reminders. Settings → Agent access keeps the read-only
 CSV / JSON mirror ("Refresh after each save" is the old inbox switch); any drafts the MCP server or
@@ -49,7 +57,8 @@ the inbox made are still listed there until saved or discarded.
 **For developers.** No migration, and no table dropped: old books open and read as before, and the
 books export still carries every table. Removed IPC namespaces: `consol:*`, `consolGroup:*`,
 `consolMapping:*`, `rb:*`, `pack:*`, `assist:nlReport`, `agent:mcp:*`, `budget:*`,
-`report:budgetAmounts`, `loan:*`, `dashboard:financeReminders`, `yearEnd:repair*`; AI tools
+`report:budgetAmounts`, `loan:*`, `dashboard:financeReminders`, `yearEnd:repair*`; the `daybook` screen (Registers `tab: 'entries'`
+takes its params; `report:dayBook` stays as its data); AI tools
 `build_report` and `budget_variance`; the `@modelcontextprotocol/sdk` devDependency.
 `config:features:get` now also returns `unused` (services/featureUsage.ts); the renderer gates on
 `screenFeatures`. Ask Total's period reading moved verbatim to `shared/questionPeriod.ts`, the

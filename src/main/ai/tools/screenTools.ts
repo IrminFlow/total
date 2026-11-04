@@ -833,7 +833,8 @@ const SCREEN_DATA: Record<string, Runner> = {
   'ledger-statement': (ctx, p) => (n(p.ledgerId) ? run('ledger_statement', { ledgerId: n(p.ledgerId), ...periodOf(ctx) }, ctx) : null),
   'profit-loss': (ctx) => run('profit_and_loss', periodOf(ctx), ctx),
   'balance-sheet': (ctx) => run('balance_sheet', { asOn: periodOf(ctx).to }, ctx),
-  daybook: (ctx) => run('day_book', periodOf(ctx), ctx),
+  // Registers → All entries (the Day book's list since the feature cleanup).
+  registers: (ctx, p) => (p.tab === 'entries' ? run('day_book', periodOf(ctx), ctx) : null),
   outstandings: (ctx, p) => run('outstandings', { side: p.side === 'payable' ? 'payable' : 'receivable', asOn: periodOf(ctx).to }, ctx),
   receivables: (ctx) => run('outstandings', { side: 'receivable', asOn: periodOf(ctx).to }, ctx),
   payables: (ctx) => run('outstandings', { side: 'payable', asOn: periodOf(ctx).to }, ctx),

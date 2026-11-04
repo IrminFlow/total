@@ -53,7 +53,7 @@ await scenario('12-theme-a11y', async (h) => {
   assert(byTheme.light.bg !== byTheme.dark.bg, 'light and dark actually differ')
 
   // The amber selection bar: inset box-shadow on the active row, never a ::before pseudo-cell.
-  await h.goto('daybook')
+  await h.gotoAllEntries()
   await h.page.waitForSelector('tr.kbar-row[data-active="true"]', { timeout: 10000 })
   const bar = await h.page.evaluate(() => {
     const el = document.querySelector('tr.kbar-row[data-active="true"]')

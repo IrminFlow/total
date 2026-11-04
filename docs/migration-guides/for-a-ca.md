@@ -31,7 +31,7 @@ are the owner; otherwise use the "Accountant view" button on a screen). Then:
 
 - **Trial balance, P&L, balance sheet, cash flow** are all computed from the vouchers at the moment
   you open them. There are no stored balances to disagree with.
-- **Ledger statements and Day book** drill from any total to the voucher.
+- **Ledger statements and Registers → All entries** drill from any total to the voucher.
 - **GST**: GSTR-1 and 3B workings, GSTR-2B reconciliation, GSTR-9 workings, ITC-04. The client's
   "I've filed" marks (ARN and date) are in the simple Taxes screen.
 - **TDS and TCS** screens carry the section, rate and its source citation for every rate.

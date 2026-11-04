@@ -1,24 +1,27 @@
+// Registers → All entries: every voucher of every type in a date range, in order (what the Day
+// book screen showed before the feature cleanup removed it). Links that opened the Day book open
+// this tab with the same date / range (a month of a register, today's entries on simple Home, the
+// vouchers behind a cash-flow line, the close checklist, AI sources).
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { api } from '../lib/client'
-import { useNav, useSession, useToasts } from '../state/stores'
-import { Badge, Chip, Page, PageHeader, Panel } from '../components/ui'
-import { OptionChoice, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
-import { DataTable, defineColumns, type DataTableFooterContext } from '../components/table'
-import { toDisplayDate } from '@shared/dates'
+import { api } from '../../lib/client'
+import { useNav, useToasts } from '../../state/stores'
+import { Badge, Chip, Panel } from '../../components/ui'
+import { DataTable, defineColumns, type DataTableFooterContext } from '../../components/table'
 import type { DayBookRow } from '@shared/reports'
 import { printKindForVoucherKind } from '@shared/printTemplates'
-import { LedgerLink } from '../components/links'
-import { LINKABLE_VOUCHER_KINDS, openLinkedDocs } from '../components/LinkedDocs'
-import { useFeatures } from '../lib/useFeatures'
-import { useBulkSelection } from '../components/bulk/BulkEdit'
-import { AttachmentsModal } from '../components/attachments/Attachments'
-import { attachmentsApi } from '../lib/workspaceClient'
+import { LedgerLink } from '../../components/links'
+import { LINKABLE_VOUCHER_KINDS, openLinkedDocs } from '../../components/LinkedDocs'
+import { useFeatures } from '../../lib/useFeatures'
+import { useBulkSelection } from '../../components/bulk/BulkEdit'
+import { AttachmentsModal } from '../../components/attachments/Attachments'
+import { attachmentsApi } from '../../lib/workspaceClient'
+import { useAiScreenContext } from '../../lib/aiContext'
 
 /** Which vouchers show: the books only (default), everything, or just the out-of-book kinds. */
-type Scope = 'books' | 'all' | 'optional' | 'post-dated'
+export type EntriesScope = 'books' | 'all' | 'optional' | 'post-dated'
 
-const SCOPE_LABELS: { value: Scope; label: string }[] = [
+export const ENTRIES_SCOPE_LABELS: { value: EntriesScope; label: string }[] = [
   { value: 'books', label: 'In books' },
   { value: 'all', label: 'All vouchers' },
   { value: 'optional', label: 'Optional only' },
@@ -37,7 +40,7 @@ const inBooks = (r: DayBookRow): boolean => !r.isOptional && !r.postDated
 const badge = (r: DayBookRow): string =>
   (r.isOptional ? ' [Optional]' : r.postDated ? ' [PDC]' : '') + (r.yearEndClose ? ' [Year-end closing entry]' : '')
 
-export const DAYBOOK_COLUMNS = defineColumns<DayBookRow>([
+export const ALL_ENTRIES_COLUMNS = defineColumns<DayBookRow>([
   {
     id: 'date',
     header: 'Date',
@@ -71,7 +74,7 @@ export const DAYBOOK_COLUMNS = defineColumns<DayBookRow>([
           </Badge>
         )}
         {r.yearEndClose && (
-          <Badge tone="info" className="ml-2" testId="daybook-year-end-chip">
+          <Badge tone="info" className="ml-2" testId="entries-year-end-chip">
             Year-end closing entry
           </Badge>
         )}
@@ -100,114 +103,79 @@ export const DAYBOOK_COLUMNS = defineColumns<DayBookRow>([
 /** "Total (in books) · 12 vouchers" — the count is of rows that reach the books, out of the rows
  *  in view (filters and the quick filter applied). The table lays the row out (label spanning the
  *  columns before the first total, sums under Debit / Credit). */
-function dayBookTotalsLabel({ rows }: DataTableFooterContext<DayBookRow>): string {
+function entriesTotalsLabel({ rows }: DataTableFooterContext<DayBookRow>): string {
   const bookCount = rows.filter(inBooks).length
   return `Total${bookCount !== rows.length ? ' (in books)' : ''} · ${bookCount} vouchers`
 }
 
-/** `date` (WP 8.6): one day's entries — the simple Home's Money in / out today. */
-/** `voucherIds` + `source`: a drill from another report (the cash flow statement's line) — only
- *  those vouchers, with a chip naming where they came from. */
-export function DayBook({ month, kind, date, voucherIds, source }: { month?: string; kind?: string; date?: string; voucherIds?: number[]; source?: string } = {}): React.JSX.Element {
-  const { from, to } = useSession()
+/**
+ * The list. `from` / `to` = the range shown (the Registers screen's period, or the one a link asked
+ * for); `kind` (a register month's voucher kind) and `voucherIds` + `source` (a cash-flow line's
+ * vouchers) narrow it further as dismissible chips; `scope` comes from the screen's options.
+ */
+export function AllEntriesPanel({ from, to, periodLabel, scope, onScope, kind, voucherIds, source }: {
+  from: string
+  to: string
+  periodLabel: string
+  scope: EntriesScope
+  onScope: (s: EntriesScope) => void
+  kind?: string
+  voucherIds?: number[]
+  source?: string
+}): React.JSX.Element {
   const nav = useNav()
   const toast = useToasts()
+  // The assistant's screen context: Registers on its All entries tab (current_screen_data).
+  useAiScreenContext('registers', { tab: 'entries' })
   // WP 2.5d: trade vouchers get a "Links" action (the linked-documents drawer).
   const ordersOn = useFeatures().orders
-  // Scope is a saved screen option (Options drawer, F12); a non-default scope shows as a chip.
-  const opts = useScreenOptions('daybook', { scope: 'books' as Scope }, { scope: SCOPE_LABELS.map((s) => s.value) })
-  const scope = opts.options.scope
-  // The Registers drill-through hands over a month + kind; keep them as dismissible local state
-  // so the chip's ✕ clears the drill without a navigation.
-  const [drill, setDrill] = useState<{ month?: string; kind?: string; date?: string }>({ month, kind, date })
-  useEffect(() => {
-    setDrill({ month, kind, date })
-  }, [month, kind, date])
+  const [onlyKind, setOnlyKind] = useState<string | undefined>(kind)
+  useEffect(() => setOnlyKind(kind), [kind])
   const [only, setOnly] = useState<{ ids: Set<number>; source: string } | null>(voucherIds ? { ids: new Set(voucherIds), source: source ?? '' } : null)
   useEffect(() => {
     setOnly(voucherIds ? { ids: new Set(voucherIds), source: source ?? '' } : null)
   }, [voucherIds, source])
   const { data, isLoading } = useQuery({
-    queryKey: ['daybook', from, to, 'all'],
+    queryKey: ['allEntries', from, to, 'all'],
     queryFn: () => api.reports.dayBook(from, to, true)
   })
 
-  // Scope + Registers drill are screen-level pre-filters; everything else is the table's view.
+  // Scope + the link's kind / vouchers are pre-filters; everything else is the table's view.
   const rows = useMemo(() => {
     let all = data ?? []
     if (scope === 'books') all = all.filter(inBooks)
     else if (scope === 'optional') all = all.filter((r) => r.isOptional)
     else if (scope === 'post-dated') all = all.filter((r) => r.postDated)
-    if (drill.month) all = all.filter((r) => r.date.startsWith(drill.month!))
-    if (drill.kind) all = all.filter((r) => r.kind === drill.kind)
-    if (drill.date) all = all.filter((r) => r.date === drill.date)
+    if (onlyKind) all = all.filter((r) => r.kind === onlyKind)
     if (only) all = all.filter((r) => only.ids.has(r.voucherId))
     return all
-  }, [data, scope, drill, only])
+  }, [data, scope, onlyKind, only])
 
-  const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
   // WP 6.4: multi-select → bulk edit (preview / apply / undo), and the row's attachments. Only the
   // rows still listed are edited, and the server refuses vouchers that left the period.
   const visibleIds = useMemo(() => rows.map((r) => r.voucherId), [rows])
-  const bulk = useBulkSelection('voucher', 'daybook', { visibleIds, scope: { from, to } })
+  const bulk = useBulkSelection('voucher', 'registers-entries', { visibleIds, scope: { from, to } })
   const { data: fileCounts } = useQuery({ queryKey: ['attachmentCounts', 'voucher'], queryFn: () => attachmentsApi.counts('voucher') })
   const [filesFor, setFilesFor] = useState<DayBookRow | null>(null)
 
-  const scopeLabel = SCOPE_LABELS.find((x) => x.value === scope)?.label ?? ''
+  const scopeLabel = ENTRIES_SCOPE_LABELS.find((x) => x.value === scope)?.label ?? ''
 
   return (
-    <Page width="wide">
-      <PageHeader
-        title="Day book"
-        period={periodLabel}
-        options={{
-          onReset: opts.reset,
-          content: (
-            <>
-              <OptionsPeriod />
-              <OptionChoice
-                label="Show"
-                value={scope}
-                options={SCOPE_LABELS}
-                onChange={(v) => opts.set('scope', v)}
-                testId="input-daybook-scope"
-              />
-              <div className="mt-5">
-                <OptionsTable area="daybook" />
-              </div>
-            </>
-          )
-        }}
-      />
-      {(scope !== 'books' || drill.month || drill.kind || drill.date || only) && (
-        <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="daybook-filters">
+    <>
+      {(scope !== 'books' || onlyKind || only) && (
+        <div className="mb-3 flex flex-wrap items-center gap-2" data-testid="entries-filters">
           {scope !== 'books' && (
-            <Chip onRemove={() => opts.set('scope', 'books')} removeLabel={`Show in-books vouchers only (now: ${scopeLabel})`} testId="daybook-scope-chip">
+            <Chip onRemove={() => onScope('books')} removeLabel={`Show in-books vouchers only (now: ${scopeLabel})`} testId="entries-scope-chip">
               {scopeLabel}
             </Chip>
           )}
-          {(drill.month || drill.kind || drill.date) && (
-            <>
-              <span className="flex items-center gap-1.5 rounded-full border border-amberbar/50 bg-amberbar/10 py-0.5 pr-1 pl-2.5 text-small">
-                {drill.date ? <span data-testid="daybook-date-chip">{toDisplayDate(drill.date)}</span> : null}
-                {drill.month ? monthLabel(drill.month) : null}
-                {drill.month && drill.kind ? ' · ' : ''}
-                {drill.kind ? <span className="capitalize">{drill.kind.replace('_', ' ')}</span> : null}
-                <button
-                  type="button"
-                  data-testid="daybook-clear-drill"
-                  aria-label="Clear the date/month/kind filter"
-                  className="rounded-full px-1 text-muted hover:text-ink"
-                  onClick={() => setDrill({})}
-                >
-                  ✕
-                </button>
-              </span>
-              {!drill.date && <span className="text-hint text-muted">Filtered from Registers</span>}
-            </>
+          {onlyKind && (
+            <Chip onRemove={() => setOnlyKind(undefined)} removeLabel="Show every voucher type" testId="entries-kind-chip">
+              <span className="capitalize">{onlyKind.replace('_', ' ')}</span>
+            </Chip>
           )}
           {only && (
-            <Chip onRemove={() => setOnly(null)} removeLabel="Show every voucher of the period" testId="daybook-only-chip">
+            <Chip onRemove={() => setOnly(null)} removeLabel="Show every voucher of the period" testId="entries-only-chip">
               {only.source ? `${only.source} · ` : ''}
               {only.ids.size} {only.ids.size === 1 ? 'voucher' : 'vouchers'}
             </Chip>
@@ -217,11 +185,12 @@ export function DayBook({ month, kind, date, voucherIds, source }: { month?: str
       {bulk.bar}
       <Panel>
         <DataTable
+          // The Day book's saved views and column choices carry over (same storage key).
           viewId="daybook"
           legacyReportKey="daybook"
-          testId="daybook"
-          ariaLabel="Day book"
-          columns={DAYBOOK_COLUMNS}
+          testId="registers-entries"
+          ariaLabel="All entries"
+          columns={ALL_ENTRIES_COLUMNS}
           rows={rows}
           rowKey={(r) => r.voucherId}
           rowAttrs={(r) => ({ 'data-row-id': r.voucherId })}
@@ -239,7 +208,7 @@ export function DayBook({ month, kind, date, voucherIds, source }: { month?: str
                 type="button"
                 className="text-hint text-blue hover:underline"
                 title="Attached files"
-                data-testid="btn-daybook-files"
+                data-testid="btn-entries-files"
                 onClick={(e) => {
                   e.stopPropagation()
                   setFilesFor(r)
@@ -252,7 +221,7 @@ export function DayBook({ month, kind, date, voucherIds, source }: { month?: str
                   type="button"
                   className="text-hint text-blue hover:underline"
                   title="Linked documents"
-                  data-testid="btn-daybook-links"
+                  data-testid="btn-entries-links"
                   onClick={(e) => {
                     e.stopPropagation()
                     openLinkedDocs({ voucherId: r.voucherId })
@@ -266,7 +235,7 @@ export function DayBook({ month, kind, date, voucherIds, source }: { month?: str
                   type="button"
                   className="text-hint text-blue hover:underline"
                   title={r.kind === 'sales' ? 'Invoice PDF' : 'Print PDF (default template for this kind)'}
-                  data-testid="btn-daybook-invoice-pdf"
+                  data-testid="btn-entries-invoice-pdf"
                   onClick={() => {
                     api.invoice.pdf(r.voucherId).catch((err: Error) => toast.push('error', err.message))
                   }}
@@ -277,8 +246,8 @@ export function DayBook({ month, kind, date, voucherIds, source }: { month?: str
             </span>
           )}
           trailingWidth={ordersOn ? 148 : 112}
-          totalsLabel={dayBookTotalsLabel}
-          exportOptions={{ title: 'Day book', periodLabel, filename: 'day-book', totalsLabel: 'Total (in books)' }}
+          totalsLabel={entriesTotalsLabel}
+          exportOptions={{ title: 'All entries', periodLabel, filename: 'all-entries', totalsLabel: 'Total (in books)' }}
         />
       </Panel>
       {bulk.dialogs}
@@ -289,6 +258,6 @@ export function DayBook({ month, kind, date, voucherIds, source }: { month?: str
           onClose={() => setFilesFor(null)}
         />
       )}
-    </Page>
+    </>
   )
 }

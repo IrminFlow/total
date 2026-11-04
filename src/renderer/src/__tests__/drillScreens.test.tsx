@@ -10,7 +10,7 @@ import type { DayBookRow, LedgerStatement, OutstandingParty, StatementNode, Tria
 import { DrillHost } from '../components/DrillHost'
 import { StatementTree } from '../components/StatementTree'
 import { TrialBalanceScreen } from '../screens/TrialBalance'
-import { DayBook } from '../screens/DayBook'
+import { RegistersScreen } from '../screens/Registers'
 import { OutstandingsScreen } from '../screens/Outstandings'
 import { Masters } from '../screens/Masters'
 import { LedgerStatementScreen } from '../screens/LedgerStatement'
@@ -132,11 +132,11 @@ describe('Trial balance', () => {
   })
 })
 
-describe('Day book', () => {
+describe('All entries (Registers)', () => {
   it('account name → edit window; the row still opens the voucher', async () => {
-    renderScreen(<DayBook />)
-    await waitFor(() => expect(rowsOf('daybook')).toHaveLength(1), SLOW)
-    const row = rowsOf('daybook')[0]!
+    renderScreen(<RegistersScreen tab="entries" />)
+    await waitFor(() => expect(rowsOf('registers-entries')).toHaveLength(1), SLOW)
+    const row = rowsOf('registers-entries')[0]!
     fireEvent.click(within(row).getByTestId('ledger-link'))
     await expectEditWindow('Zeta Traders')
 
@@ -145,9 +145,9 @@ describe('Day book', () => {
   })
 
   it('the edit window offers the statement', async () => {
-    renderScreen(<DayBook />)
-    await waitFor(() => expect(rowsOf('daybook')).toHaveLength(1), SLOW)
-    fireEvent.click(within(rowsOf('daybook')[0]!).getByTestId('ledger-link'))
+    renderScreen(<RegistersScreen tab="entries" />)
+    await waitFor(() => expect(rowsOf('registers-entries')).toHaveLength(1), SLOW)
+    fireEvent.click(within(rowsOf('registers-entries')[0]!).getByTestId('ledger-link'))
     await expectEditWindow('Zeta Traders')
     fireEvent.click(screen.getByTestId('btn-ledger-statement'))
     expect(go).toHaveBeenCalledWith({ name: 'ledger-statement', ledgerId: 31 })

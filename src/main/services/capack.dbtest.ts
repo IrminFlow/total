@@ -90,7 +90,7 @@ describe('caPack.exportCaPack', () => {
     for (const f of [
       'tally-masters.xml',
       'tally-vouchers.xml',
-      'daybook.csv',
+      'all-entries.csv',
       'trial-balance.csv',
       'profit-and-loss.csv',
       'balance-sheet.csv',

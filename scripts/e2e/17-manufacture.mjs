@@ -103,8 +103,8 @@ await scenario('17-manufacture', async (h) => {
   // ---------- alter the quantity ----------
   const openFromDaybook = async () => {
     await h.goto('gateway')
-    await h.goto('daybook')
-    await page.click(`[data-testid="rows-daybook"] [data-row-id="${voucherId}"]`, { timeout: 10000 })
+    await h.gotoAllEntries()
+    await page.click(`[data-testid="rows-registers-entries"] [data-row-id="${voucherId}"]`, { timeout: 10000 })
     await h.waitScreen('voucher-entry')
     const el = await page.waitForSelector('[data-testid="voucher-entry-mode"]', { timeout: 10000 })
     assertEq(await el.getAttribute('data-mode'), 'manufacture', 'a saved manufacture reopens in the Manufacture form')
@@ -115,7 +115,7 @@ await scenario('17-manufacture', async (h) => {
   await waitText('manufacture-left-total', '3,000.00')
   await waitText('manufacture-profit', '1,900.00')
   await h.click('btn-save-manufacture')
-  await h.waitScreen('daybook')
+  await h.waitScreen('registers')
   const md = await h.invoke('manufacture:get', { id: voucherId })
   assertEq(md.details.qtyMilli, 3000, 'altered quantity')
   assertEq(md.details.profitPaise, 190000, 'altered profit')
@@ -125,7 +125,7 @@ await scenario('17-manufacture', async (h) => {
   await openFromDaybook()
   await h.click('btn-delete-manufacture')
   await h.click('confirm-ok')
-  await h.waitScreen('daybook')
+  await h.waitScreen('registers')
   const bin = await h.invoke('voucher:bin')
   assert(bin.some((b) => b.id === voucherId), 'manufacture moved to the bin')
   const after = await h.invoke('stock:summary', { asOn: today })

@@ -119,7 +119,7 @@ describe('toast lifetime', () => {
   }
 
   it('an error raised in a dialog the user closes moves to the screen (still visible), and goes with the screen', () => {
-    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'daybook' }] }))
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'exceptions' }] }))
     render(<Host />)
     fireEvent.click(screen.getByTestId('raise'))
     act(() => useToasts.getState().push('success', 'Ledger created'))
@@ -134,7 +134,7 @@ describe('toast lifetime', () => {
   })
 
   it('a warning raised on a screen right before it navigates survives the navigation', () => {
-    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'daybook' }] }))
+    act(() => useNav.setState({ stack: [{ name: 'gateway' }, { name: 'exceptions' }] }))
     act(() => useToasts.getState().push('warning', 'Credit limit exceeded for Ramesh'))
     expect(useToasts.getState().toasts[0]!.scope).toBeUndefined()
     act(() => useNav.getState().replace({ name: 'trial-balance' }))

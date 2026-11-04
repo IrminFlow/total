@@ -212,7 +212,7 @@ This is the full app. It is built to match what an accountant expects from Tally
 
 - **Voucher entry** of every kind: sales, purchase, payment, receipt, journal, contra (cash and bank moves), credit and debit notes, stock journal, and physical stock. GST is worked out live as you type.
 - **Counter billing.** A point-of-sale screen that works with barcode scanners.
-- **Day book.** Every entry by date.
+- **All entries** (Registers). Every entry by date.
 - **Masters.**
   - Ledgers (accounts) and groups: the chart of accounts.
   - Stock items, units and godowns (stock places).

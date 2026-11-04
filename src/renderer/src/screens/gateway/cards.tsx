@@ -467,8 +467,8 @@ export function BooksCard({
     <DashCard title="Books" testId="dash-books" card={combined}>
       {({ a, s }) => (
         <div className="flex flex-col">
-          <div {...drillRowProps(() => nav.go({ name: 'daybook' }))} data-testid="dash-daybook" className={rowCls}>
-            <span className="flex-1 text-body-sm">Day Book</span>
+          <div {...drillRowProps(() => nav.go({ name: 'registers', tab: 'entries' }))} data-testid="dash-entries" className={rowCls}>
+            <span className="flex-1 text-body-sm">All entries</span>
             <span className="num text-small text-muted">{a ? `${a.today} today · ${a.week} this week` : 'unavailable'}</span>
           </div>
           <div className="flex items-center gap-3 border-b border-line/40 px-4 py-[5px]">
@@ -494,7 +494,7 @@ export function RecentCard({ rows }: { rows: DayBookRow[] | undefined }): React.
   const nav = useNav()
   const card: CardState<DayBookRow[]> = rows === undefined ? { state: 'loading' } : { state: 'ready', data: rows }
   return (
-    <DashCard title="Recent entries" testId="dash-recent" card={card} skeletonRows={6} action={<CardLink onClick={() => nav.go({ name: 'daybook' })}>Day Book →</CardLink>}>
+    <DashCard title="Recent entries" testId="dash-recent" card={card} skeletonRows={6} action={<CardLink onClick={() => nav.go({ name: 'registers', tab: 'entries' })}>All entries →</CardLink>}>
       {(list) =>
         list.length === 0 ? (
           <p className="px-4 py-6 text-center text-body-sm text-muted">No vouchers in this period yet</p>

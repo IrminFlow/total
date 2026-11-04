@@ -159,8 +159,8 @@ await scenario('31-banking-depth', async (h) => {
   await bothThemes('05-cheque-layout')
   await h.page.keyboard.press('Escape')
   await h.goto('gateway')
-  await h.goto('daybook')
-  await h.page.click(`[data-testid="rows-daybook"] [data-row-id="${payment.id}"]`, { timeout: 10000 })
+  await h.gotoAllEntries()
+  await h.page.click(`[data-testid="rows-registers-entries"] [data-row-id="${payment.id}"]`, { timeout: 10000 })
   await h.waitScreen('voucher-entry')
   await h.click('btn-voucher-print-cheque')
   // The editor reloads the voucher (now carrying the cheque number) before the toast shows.

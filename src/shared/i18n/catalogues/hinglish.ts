@@ -263,7 +263,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'simple.home.moneyIn': 'Paise aaye',
   'simple.home.moneyOut': 'Paise gaye',
   'simple.home.whyLabel': 'Yeh figure kyun: {what}',
-  'simple.home.link.day': 'Aaj ki entries dekhein',
+  'simple.home.link.day': 'Saari entries ki list mein aaj ki entries kholein',
   'simple.home.link.receivables': 'Dekhein kisse lena hai',
   'simple.home.link.payables': 'Dekhein kisko dena hai',
   'simple.home.link.cash': 'Aaj har account ka balance dekhein',

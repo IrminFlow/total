@@ -18,7 +18,7 @@ export function useRefreshFixedAssets(): () => Promise<void> {
     await Promise.all([
       ...FA_QUERY_FAMILIES.map((k) => qc.invalidateQueries({ queryKey: [k] })),
       qc.invalidateQueries({ queryKey: ['ledgers'] }),
-      qc.invalidateQueries({ queryKey: ['daybook'] })
+      qc.invalidateQueries({ queryKey: ['allEntries'] })
     ])
   }, [qc])
 }

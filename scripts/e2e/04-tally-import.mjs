@@ -39,6 +39,6 @@ await scenario('04-tally-import', async (h) => {
   const tb = await h.invoke('report:trialBalance', { asOn: '2027-03-31' })
   assertEq(tb.totalDebit, tb.totalCredit, 'TB ties after import')
 
-  await h.goto('daybook')
+  await h.gotoAllEntries()
   await h.shot('02-daybook-after-import')
 })

@@ -184,6 +184,8 @@ export function simpleTargetFor(screen: Screen, facts: HandoffFacts | null): Scr
     case 'company-info':
       return screen.backTo === 'simple-taxes' ? { name: 'simple-taxes' } : section(screen)
     case 'registers':
+      // All entries (the Day book's list): Money, as the Day book went back to.
+      if (screen.tab === 'entries') return { name: 'simple-section', section: 'money' }
       // Reports → "By month" (WP 9.9) — whose Accountant view is the Registers screen.
       return reportEntry('by-month') ?? section(screen)
     case 'outstandings':

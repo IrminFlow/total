@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { DayBookRow, LedgerStatement, OutstandingParty, TrialBalance } from '@shared/reports'
-import { DayBook } from '../screens/DayBook'
+import { RegistersScreen } from '../screens/Registers'
 import { TrialBalanceScreen } from '../screens/TrialBalance'
 import { LedgerStatementScreen } from '../screens/LedgerStatement'
 import { OutstandingsScreen } from '../screens/Outstandings'
@@ -105,40 +105,49 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 
-describe('Day Book', () => {
+describe('All entries (Registers)', () => {
+  it('a link to All entries shows it for that visit only; the remembered register stays', async () => {
+    renderScreen(<RegistersScreen tab="entries" />)
+    await waitFor(() => expect(rowsOf('registers-entries')).toHaveLength(2), SLOW)
+    expect(screen.getByTestId('page-title').textContent).toBe('All entries')
+    cleanup()
+    renderScreen(<RegistersScreen />)
+    await waitFor(() => expect(screen.getByTestId('page-title').textContent).toBe('Sales register'), SLOW)
+  })
+
   it('shows in-books vouchers in service order, totals and activation', async () => {
-    renderScreen(<DayBook />)
-    await waitFor(() => expect(rowsOf('daybook')).toHaveLength(2), SLOW) // the optional voucher is out of the books
-    expect(col('daybook', 4)).toEqual(['Zeta Traders', 'Alpha Rent']) // after the WP 6.4 select cell
-    const totals = screen.getByTestId('daybook-table-totals')
+    renderScreen(<RegistersScreen tab="entries" />)
+    await waitFor(() => expect(rowsOf('registers-entries')).toHaveLength(2), SLOW) // the optional voucher is out of the books
+    expect(col('registers-entries', 4)).toEqual(['Zeta Traders', 'Alpha Rent']) // after the WP 6.4 select cell
+    const totals = screen.getByTestId('registers-entries-table-totals')
     expect(totals.textContent).toContain('Total · 2 vouchers')
     expect(totals.textContent).toContain('1,180.00')
     expect(totals.textContent).toContain('500.00')
 
-    fireEvent.click(screen.getByTestId('sort-daybook-account'))
-    expect(col('daybook', 4)).toEqual(['Alpha Rent', 'Zeta Traders'])
+    fireEvent.click(screen.getByTestId('sort-registers-entries-account'))
+    expect(col('registers-entries', 4)).toEqual(['Alpha Rent', 'Zeta Traders'])
 
-    fireEvent.click(rowsOf('daybook')[1]!)
+    fireEvent.click(rowsOf('registers-entries')[1]!)
     expect(go).toHaveBeenCalledWith({ name: 'voucher-entry', voucherId: 11 })
     // Every printable voucher (here the sales invoice and the payment) has the PDF action in its own
     // cell (never activating the row); WP 1.10c prints non-invoice kinds with their template too.
-    expect(screen.getAllByTestId('btn-daybook-invoice-pdf')).toHaveLength(2)
+    expect(screen.getAllByTestId('btn-entries-invoice-pdf')).toHaveLength(2)
   })
 
   it('"All vouchers" shows optional rows but keeps them out of the totals', async () => {
-    useNav.setState({ stack: [{ name: 'daybook' }] })
-    renderScreen(<DayBook />)
-    await waitFor(() => expect(rowsOf('daybook')).toHaveLength(2), SLOW)
+    useNav.setState({ stack: [{ name: 'registers', tab: 'entries' }] })
+    renderScreen(<RegistersScreen tab="entries" />)
+    await waitFor(() => expect(rowsOf('registers-entries')).toHaveLength(2), SLOW)
     // WP 1.10a: the scope moved from the header into the Options drawer (F12); a non-default
     // scope shows as a removable chip above the table.
-    fireEvent.click(screen.getByTestId('btn-daybook-options'))
-    fireEvent.click(screen.getByTestId('input-daybook-scope-all'))
-    fireEvent.click(screen.getByTestId('options-daybook-done'))
-    expect(screen.getByTestId('daybook-scope-chip').textContent).toContain('All vouchers')
-    expect(rowsOf('daybook')).toHaveLength(3)
+    fireEvent.click(screen.getByTestId('btn-registers-options'))
+    fireEvent.click(screen.getByTestId('input-entries-scope-all'))
+    fireEvent.click(screen.getByTestId('options-registers-done'))
+    expect(screen.getByTestId('entries-scope-chip').textContent).toContain('All vouchers')
+    expect(rowsOf('registers-entries')).toHaveLength(3)
 
-    expect(col('daybook', 4)[2]).toBe('Memo CoOptional')
-    const totals = screen.getByTestId('daybook-table-totals').textContent ?? ''
+    expect(col('registers-entries', 4)[2]).toBe('Memo CoOptional')
+    const totals = screen.getByTestId('registers-entries-table-totals').textContent ?? ''
     expect(totals).toContain('Total (in books) · 2 vouchers')
     expect(totals).toContain('1,180.00')
     expect(totals).not.toContain('2,179.00')
@@ -153,13 +162,13 @@ describe('Day Book', () => {
     invoke.mockImplementation(async (channel: string, payload?: unknown) =>
       channel === 'report:dayBook' ? { ok: true, data: [...DAYBOOK, closing] } : base(channel, payload)
     )
-    renderScreen(<DayBook />)
-    await waitFor(() => expect(rowsOf('daybook')).toHaveLength(3), SLOW)
-    const chips = screen.getAllByTestId('daybook-year-end-chip')
+    renderScreen(<RegistersScreen tab="entries" />)
+    await waitFor(() => expect(rowsOf('registers-entries')).toHaveLength(3), SLOW)
+    const chips = screen.getAllByTestId('entries-year-end-chip')
     expect(chips).toHaveLength(1)
     expect(chips[0]!.textContent).toBe('Year-end closing entry')
     expect(chips[0]!.closest('tr')!.getAttribute('data-row-id')).toBe('14')
-    expect(screen.getByTestId('daybook-table-totals').textContent).toContain('Total · 3 vouchers')
+    expect(screen.getByTestId('registers-entries-table-totals').textContent).toContain('Total · 3 vouchers')
   })
 })
 

@@ -12,7 +12,7 @@ const WIDTHS = {
   medium: 'max-w-4xl',
   /** reports and lists — the default */
   standard: 'max-w-5xl',
-  /** wide registers (day book, GSTR-2B, e-documents) */
+  /** wide registers (all entries, GSTR-2B, e-documents) */
   wide: 'max-w-6xl',
   /** the Gateway dashboard's card grid */
   full: 'max-w-[1480px]'

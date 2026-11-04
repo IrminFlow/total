@@ -267,7 +267,7 @@ describe('WP 5.2 review — repeated amounts are not traced to the first matchin
     const o = {
       tool: 't',
       output: { rows: [{ voucherId: 1, type: 'Journal', number: '1', debit: '₹5.00' }, { voucherId: 12, type: 'Journal', number: '12', debit: '₹5.00' }] },
-      sources: [{ kind: 'screen' as const, screen: 'daybook', label: 'Day book' }]
+      sources: [{ kind: 'screen' as const, screen: 'registers', label: 'All entries', params: { tab: 'entries' } }]
     }
     const [f] = checkFigures('Journal 12 was ₹5.00.', [{ name: 't', text: JSON.stringify(o.output) }], [o])
     expect(f!.source).toEqual({ kind: 'voucher', voucherId: 12, label: 'Journal 12' })

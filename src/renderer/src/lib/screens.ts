@@ -154,19 +154,6 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['counterConfig', 'counterHeld', 'counterDayEnd', 'nextNumber', 'stockItems', 'ledgers', 'groups', 'units', 'pricingConfig', 'printTemplates']
   },
   {
-    name: 'daybook',
-    modes: ['accountant'],
-    simpleSection: 'money',
-    simpleEntries: [
-      { id: 'all-entries', label: 'simple.entries.allEntries' }
-    ],
-    title: 'Day book',
-    screen: { name: 'daybook' },
-    navSection: 'top',
-    card: { sub: 'Every entry, in order', key: 'D' },
-    invalidates: ['daybook']
-  },
-  {
     name: 'masters',
     modes: ['accountant'],
     simpleSection: 'people',
@@ -497,13 +484,15 @@ export const SCREENS: ScreenDef[] = [
     // WP 9.9: Reports → Sales and purchases by month is the simple report over these registers;
     // the CA pack export lives on this screen.
     simpleEntries: [
-      { id: 'ca-pack', label: 'simple.entries.caPack', section: 'reports', group: 'forYourCa' }
+      { id: 'ca-pack', label: 'simple.entries.caPack', section: 'reports', group: 'forYourCa' },
+      // Feature cleanup: Money → All entries opens Registers → All entries (the Day book went).
+      { id: 'all-entries', label: 'simple.entries.allEntries', section: 'money', screen: { name: 'registers', tab: 'entries' } }
     ],
-    keywords: ['sales register', 'purchase register'],
+    keywords: ['sales register', 'purchase register', 'all entries', 'day book', 'daybook', 'every voucher'],
     title: 'Registers',
     screen: { name: 'registers' },
     navSection: 'analysis',
-    invalidates: ['register']
+    invalidates: ['register', 'allEntries']
   },
   {
     name: 'outstandings',
@@ -1438,6 +1427,8 @@ export function simpleSectionOf(screen: Screen): SimpleSectionId | null {
   if (screen.name === 'simple-section') return screen.section
   // WP 8.7: the opening setup opened from Home's step keeps Home highlighted.
   if (screen.name === 'simple-openings' && screen.from === 'home') return 'home'
+  // Registers → All entries is Money → All entries (the Day book's place before the cleanup).
+  if (screen.name === 'registers' && screen.tab === 'entries') return 'money'
   return byName.get(screen.name)?.simpleSection ?? null
 }
 
@@ -1538,7 +1529,7 @@ export const SCREEN_LINK_PARAMS: { [N in Screen['name']]?: LinkParamValues<N> } 
   'simple-reports': { report: ['doing', 'cash', 'owed', 'by-month'], side: ['receivable', 'payable'] },
   settings: { tab: ['appearance', 'backups', 'bin', 'users', 'security', 'audit', 'nic', 'features', 'invoice', 'receivables', 'agents', 'ai', 'about'] },
   banking: { tab: ['recon', 'import', 'rules', 'cheques', 'pdc', 'bulk', 'brs'] },
-  registers: { tab: ['sales', 'purchase', 'items'] },
+  registers: { tab: ['sales', 'purchase', 'items', 'entries'] },
   receivables: { tab: ['control', 'reminders', 'interest', 'collections'] },
   payables: { tab: ['plan', 'batch', 'runs', 'msme', 'suppliers'] }
 }

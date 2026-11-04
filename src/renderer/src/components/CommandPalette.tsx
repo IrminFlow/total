@@ -209,7 +209,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       return list.filter((c) => c.label.toLowerCase().includes(q) || c.keywords?.some((k) => k.toLowerCase().includes(q)))
     }
   }, [query, searchText, intent])
-  // In a simple-mode company the full app's commands (New voucher, Ledgers, Day Book …) show only
+  // In a simple-mode company the full app's commands (New voucher, Ledgers, Registers …) show only
   // once something is typed, under "Full app" — the opened palette keeps to the simple screens.
   const filtered = useMemo(
     () =>

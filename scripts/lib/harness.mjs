@@ -208,6 +208,15 @@ export class Harness {
     await this.waitScreen(name, timeout)
   }
 
+  /** Registers → All entries (every voucher of the period — the Day book's list before the
+   *  feature cleanup removed that screen): the sidebar's Registers, then its All entries tab. */
+  async gotoAllEntries(timeout = 15000) {
+    await this.goto('registers', timeout)
+    await this.page.click('[data-testid="tab-registers-entries"]', { timeout })
+    await this.page.waitForSelector('[data-testid="registers-entries-table"]', { state: 'attached', timeout })
+    await this.waitIdle(timeout)
+  }
+
   /** Click any control by data-testid. */
   async click(testId, opts = {}) {
     await this.page.click(`[data-testid="${testId}"]`, { timeout: 10000, ...opts })

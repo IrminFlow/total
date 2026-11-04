@@ -86,7 +86,7 @@ await scenario('44-ai-assistants', async (h) => {
   await save('purchase', day(10), [[purchases.id, 'dr', 10_000_00], [cgst.id, 'dr', 900_00], [sgst.id, 'dr', 900_00], [acme.id, 'cr', 11_800_00]], { party: acme.id, reference: 'A-1' })
 
   // ---------- AI off: the close checklist ----------
-  await h.goto('daybook')
+  await h.gotoAllEntries()
   await h.goto('assistants')
   const status = (key) => h.page.$eval(`[data-testid="close-status-${key}"]`, (el) => el.textContent)
   await h.page.waitForSelector('[data-testid="close-status-suspense"]', { timeout: 15000 })

@@ -165,7 +165,7 @@ await scenario('67-year-boundary', async (h) => {
   assert(preview.alreadyClosed, 'the previous FY reads as closed')
   const dayBook = await h.invoke('report:dayBook', { from: `${prev}-04-01`, to: prevEnd })
   const closing = dayBook.find((r) => r.yearEndClose)
-  assert(closing, 'the closing journal is in the day book')
+  assert(closing, 'the closing journal is in all entries')
   assertEq(closing.date, prevEnd, 'dated the last day of the FY')
   const cj = await h.invoke('voucher:get', { id: closing.voucherId })
   assert(cj.isYearEndClose, 'flagged as the year-end closing journal')
@@ -188,7 +188,7 @@ await scenario('67-year-boundary', async (h) => {
   await tbTies('after the close')
 
   // ---------------- 4. the closing journal is immutable
-  /** Click a Day book row on its Date cell (the account name is a ledger link). */
+  /** Click a All entries row on its Date cell (the account name is a ledger link). */
   const clickDate = async (rowSel) => {
     const idx = await h.page.evaluate((sel) => {
       const tr = document.querySelector(sel)
@@ -197,12 +197,12 @@ await scenario('67-year-boundary', async (h) => {
     }, rowSel)
     await h.page.click(`${rowSel} > td:nth-child(${idx + 1})`)
   }
-  await h.goto('daybook')
+  await h.gotoAllEntries()
   await h.click('btn-period')
   await h.page.locator('[role="dialog"]').getByRole('button', { name: `FY ${prevLabel}` }).click()
   await h.click('btn-apply-period')
-  const cjRow = `[data-testid="rows-daybook"] tr.dt-row[data-row-id="${closing.voucherId}"]`
-  await h.page.waitForSelector(`${cjRow} [data-testid="daybook-year-end-chip"]`, { timeout: 15000 })
+  const cjRow = `[data-testid="rows-registers-entries"] tr.dt-row[data-row-id="${closing.voucherId}"]`
+  await h.page.waitForSelector(`${cjRow} [data-testid="entries-year-end-chip"]`, { timeout: 15000 })
   await clickDate(cjRow)
   await h.waitScreen('voucher-entry')
   await h.page.waitForSelector('[data-testid="year-end-close-banner"]', { timeout: 10000 })
@@ -241,10 +241,10 @@ await scenario('67-year-boundary', async (h) => {
   await h.shot('05-period-lock')
 
   // ---------------- 6. inside the lock: the editor and the service refuse
-  await h.goto('daybook') // the period is still the previous FY
+  await h.gotoAllEntries() // the period is still the previous FY
   // June's payment is No. 1 — the same number as this FY's April payment: the editor's pre-save
   // duplicate-number check is FY-scoped (#107), so the save reaches the lock refusal.
-  const lockedRow = `[data-testid="rows-daybook"] tr.dt-row[data-row-id="${june.id}"]`
+  const lockedRow = `[data-testid="rows-registers-entries"] tr.dt-row[data-row-id="${june.id}"]`
   await h.page.waitForSelector(lockedRow, { timeout: 15000 })
   await clickDate(lockedRow)
   await h.waitScreen('voucher-entry')
@@ -262,8 +262,8 @@ await scenario('67-year-boundary', async (h) => {
 
   // ---------------- 7. reopen: the closing journal's banner "Move to Bin" (#107) moves the close's
   // own lock back to the day before the FY, then bins it; restore closes the year again
-  await h.goto('daybook') // the period is still the previous FY
-  await h.page.waitForSelector(`${cjRow} [data-testid="daybook-year-end-chip"]`, { timeout: 15000 })
+  await h.gotoAllEntries() // the period is still the previous FY
+  await h.page.waitForSelector(`${cjRow} [data-testid="entries-year-end-chip"]`, { timeout: 15000 })
   await clickDate(cjRow)
   await h.waitScreen('voucher-entry')
   await h.page.waitForSelector('[data-testid="year-end-close-banner"]', { timeout: 10000 })

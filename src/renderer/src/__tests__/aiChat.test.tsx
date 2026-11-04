@@ -485,7 +485,7 @@ describe('review: keyboard and regenerate', () => {
     fireEvent.click(await screen.findByTestId('btn-ai-threads'))
     fireEvent.click(await screen.findByTestId('btn-ai-open-thread-7'))
     await screen.findByTestId('ai-msg-answer')
-    useNav.setState({ stack: [{ name: 'daybook' }] })
+    useNav.setState({ stack: [{ name: 'trial-balance' }] })
     fireEvent.click(await screen.findByTestId('btn-ai-regenerate'))
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('ai:regenerate', { threadId: 7 }))
   })

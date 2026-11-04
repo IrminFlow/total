@@ -2,7 +2,7 @@
 // bank-rules tables and Payroll's pay-head / employee-head / PT tables now live inside their
 // modals on DataTable; GSTR-2B gets its Portal | Books header band back; Masters → Ledgers and
 // e-Invoice host their pre-filters in the table toolbar (which no longer vanishes at zero rows);
-// Day Book's footer is the platform's.
+// The All entries footer is the platform's.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'

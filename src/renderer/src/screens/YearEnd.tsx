@@ -218,7 +218,7 @@ export function YearEndScreen(): React.JSX.Element {
 
       {preview?.alreadyClosed && (
         <Banner tone="danger" className="mb-section" title={`Books for FY ${fy.label} are already closed.`}>
-          Pick a different financial year to continue, or open the closing voucher from the day book.
+          Pick a different financial year to continue, or open the closing voucher from Registers → All entries.
         </Banner>
       )}
 

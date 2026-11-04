@@ -268,7 +268,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.home.moneyIn': 'पैसे आए',
   'simple.home.moneyOut': 'पैसे गए',
   'simple.home.whyLabel': 'यह आँकड़ा क्यों: {what}',
-  'simple.home.link.day': 'आज की एंट्री देखें',
+  'simple.home.link.day': 'सारी एंट्री की सूची में आज की एंट्री खोलें',
   'simple.home.link.receivables': 'देखें किससे लेना है',
   'simple.home.link.payables': 'देखें किसे देना है',
   'simple.home.link.cash': 'आज हर खाते का बैलेंस देखें',

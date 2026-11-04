@@ -1,5 +1,5 @@
 // WP 6.4 — Settings › Backups: the attachments policy (size cap, allowed file types). Owners edit;
-// attachments themselves are added from the record (voucher header, Day book, ledger / item).
+// attachments themselves are added from the record (voucher header, All entries, ledger / item).
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ATTACHMENT_MAX_BYTES_RANGE, DEFAULT_ALLOWED_EXTENSIONS, formatBytes } from '@shared/attachments'

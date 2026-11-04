@@ -9,7 +9,7 @@ import { scenario, assert } from '../lib/harness.mjs'
 // the registry-integrity renderer test still counts it — this tour is about rendering.
 // h.goto() expands collapsed sidebar sections on the way.
 const TOUR = [
-  ['voucher-entry'], ['daybook'], ['masters'],
+  ['voucher-entry'], ['masters'],
   ['trial-balance'], ['profit-loss'], ['balance-sheet'], ['cash-flow'],
   ['stock-summary', 'inventory'], ['stock-movements', 'inventory'], ['stock-journal', 'inventory'], ['year-end'],
   ['registers'], ['outstandings'], ['cost-centres', 'costCentres', 'costCentres'],

@@ -1,5 +1,5 @@
 // Scenario 38 — bulk edit and attachments (WP 6.4), through the UI:
-//   Day book: tick three vouchers → Bulk edit… → narration "add at the end" → server preview (3
+//   All entries: tick three vouchers → Bulk edit… → narration "add at the end" → server preview (3
 //   will change) → Apply → the narrations changed (audited) → Bulk edits → Undo → back as they
 //   were → open a sales invoice → Files → Add files… (native picker stubbed with a real PDF) →
 //   the file is listed with its hash → back up → remove the attachment (store file gone) →
@@ -68,13 +68,13 @@ await scenario('38-bulk-attachments', async (h) => {
   })
   const narrations = async () => Promise.all(receipts.map(async (id) => (await h.invoke('voucher:get', { id })).narration))
 
-  // ---------- Day book: select three → bulk change narration ----------
-  await h.goto('daybook')
-  await page.waitForSelector(`[data-testid="daybook-select-${receipts[2]}"]`)
-  for (const id of receipts) await h.click(`daybook-select-${id}`)
-  assertEq((await page.textContent('[data-testid="daybook-bulk-count"]'))?.trim(), '3 vouchers selected', 'selection bar counts the three')
+  // ---------- All entries: select three → bulk change narration ----------
+  await h.gotoAllEntries()
+  await page.waitForSelector(`[data-testid="registers-entries-select-${receipts[2]}"]`)
+  for (const id of receipts) await h.click(`registers-entries-select-${id}`)
+  assertEq((await page.textContent('[data-testid="registers-entries-bulk-count"]'))?.trim(), '3 vouchers selected', 'selection bar counts the three')
   await both('01-daybook-selected')
-  await h.click('daybook-bulk-edit')
+  await h.click('registers-entries-bulk-edit')
   await page.waitForSelector('[data-testid="bulk-modal"]')
   await h.fill('bulk-narration-text', '(checked)')
   await h.click('bulk-preview-run')
@@ -89,7 +89,7 @@ await scenario('38-bulk-attachments', async (h) => {
   assert(audit.rows.length === 1, 'the batch is in the audit trail')
 
   // ---------- undo ----------
-  await h.click('daybook-bulk-history')
+  await h.click('registers-entries-bulk-history')
   const [batch] = await h.invoke('bulk:list', { target: 'voucher' })
   await page.waitForSelector(`[data-testid="bulk-undo-${batch.id}"]`)
   await both('03-bulk-history')
@@ -107,7 +107,7 @@ await scenario('38-bulk-attachments', async (h) => {
   fs.writeFileSync(pdfPath, pdfBytes)
   const sha = createHash('sha256').update(pdfBytes).digest('hex')
   await h.stubDialogs({ openPaths: [pdfPath] })
-  await page.click(`[data-testid="rows-daybook"] tr[data-row-id="${invoice.id}"] td:nth-child(3)`)
+  await page.click(`[data-testid="rows-registers-entries"] tr[data-row-id="${invoice.id}"] td:nth-child(3)`)
   await h.waitScreen('voucher-entry')
   await h.click('btn-attachments')
   await h.click('btn-attachment-add')
@@ -142,10 +142,10 @@ await scenario('38-bulk-attachments', async (h) => {
   assertEq(after[0].sha256, sha, 'same hash')
   assertEq(createHash('sha256').update(fs.readFileSync(stored)).digest('hex'), sha, 'stored bytes intact')
 
-  // ---------- the attachment list after the restore (Day book row action) ----------
+  // ---------- the attachment list after the restore (All entries row action) ----------
   await h.goto('gateway')
-  await h.goto('daybook')
-  await page.click(`[data-testid="rows-daybook"] tr[data-row-id="${invoice.id}"] [data-testid="btn-daybook-files"]`)
+  await h.gotoAllEntries()
+  await page.click(`[data-testid="rows-registers-entries"] tr[data-row-id="${invoice.id}"] [data-testid="btn-entries-files"]`)
   await page.waitForSelector(`[data-testid="rows-attachments"] tr[data-sha="${sha}"]`)
   await both('06-attachments-after-restore')
   await page.click(`[data-testid="rows-attachments"] tr[data-sha="${sha}"] [data-testid="btn-attachment-open"]`)

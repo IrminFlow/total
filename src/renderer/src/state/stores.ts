@@ -55,9 +55,6 @@ export interface AskOpen<S extends AssistPrefill['screen']> {
 
 export type Screen =
   | { name: 'gateway' }
-  // Optional drill params (Registers month rows → filtered Day Book): restrict to one
-  // 'YYYY-MM' month and/or one voucher-type kind ('sales' | 'purchase' | …).
-  | { name: 'daybook'; month?: string; kind?: string; date?: string; voucherIds?: number[]; source?: string }
   | { name: 'import-tally' }
   | { name: 'data-import' }
   | { name: 'data-export' }
@@ -149,7 +146,9 @@ export type Screen =
   | { name: 'itc04' }
   | { name: 'itc-reversal' }
   | { name: 'edocs'; tab?: 'documents' | 'self-invoices' }
-  | { name: 'registers'; tab?: 'sales' | 'purchase' | 'items'; from?: string; to?: string }
+  // tab 'entries' = All entries (every voucher type, the Day book's list): `kind` / `voucherIds` +
+  // `source` narrow it (a register month's kind, a cash-flow line's vouchers).
+  | { name: 'registers'; tab?: 'sales' | 'purchase' | 'items' | 'entries'; from?: string; to?: string; kind?: string; voucherIds?: number[]; source?: string }
   | { name: 'outstandings'; side?: 'receivable' | 'payable'; backTo?: 'simple-people'; backFilter?: PeopleFilter }
   // WP 4.2: credit control, reminders, interest on overdue bills, collection reports.
   | { name: 'receivables'; tab?: 'control' | 'reminders' | 'interest' | 'collections' }

@@ -12,15 +12,18 @@ import { toDisplayDate } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import type { CashFlowRow } from '@shared/reportMath'
 
-/** Day book filtered to the vouchers a line was computed from (same period — the session's). */
-function openLineVouchers(r: CashFlowRow): void {
+/** Registers → All entries for the statement's period, narrowed to the vouchers a line was
+ *  computed from. */
+function openLineVouchers(r: CashFlowRow, from: string, to: string): void {
   if (!r.voucherIds || r.voucherIds.length === 0) return
-  useNav.getState().go({ name: 'daybook', voucherIds: r.voucherIds, source: `Cash flow: ${r.name}` })
+  useNav.getState().go({ name: 'registers', tab: 'entries', from, to, voucherIds: r.voucherIds, source: `Cash flow: ${r.name}` })
 }
 
-/** One line: the row opens the Day book on its vouchers; ▸ shows the ledgers behind it, whose
+/** One line: the row opens All entries on its vouchers; ▸ shows the ledgers behind it, whose
  *  names open their statements for the period. */
 function Line({ r }: { r: CashFlowRow }): React.JSX.Element {
+  // The statement's period (the session's) — the entries list opens on the same range.
+  const { from, to } = useSession()
   const [open, setOpen] = useState(false)
   const drills = (r.voucherIds?.length ?? 0) > 0
   const parts = r.parts ?? []
@@ -32,14 +35,14 @@ function Line({ r }: { r: CashFlowRow }): React.JSX.Element {
         data-vouchers={r.voucherIds?.length ?? 0}
         className={drills ? 'cursor-pointer hover:bg-panel2' : undefined}
         tabIndex={drills ? 0 : undefined}
-        title={drills ? `Open the ${r.voucherIds!.length === 1 ? 'voucher' : `${r.voucherIds!.length} vouchers`} behind this line in the Day book` : undefined}
-        onClick={drills ? () => openLineVouchers(r) : undefined}
+        title={drills ? `Open the ${r.voucherIds!.length === 1 ? 'voucher' : `${r.voucherIds!.length} vouchers`} behind this line in All entries` : undefined}
+        onClick={drills ? () => openLineVouchers(r, from, to) : undefined}
         onKeyDown={
           drills
             ? (e) => {
                 if (e.key === 'Enter' && e.target === e.currentTarget) {
                   e.preventDefault()
-                  openLineVouchers(r)
+                  openLineVouchers(r, from, to)
                 }
               }
             : undefined

@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { Button, Money, Page, PageHeader, Panel } from '../components/ui'
-import { OptionsExport, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
+import { OptionChoice, OptionsExport, OptionsPeriod, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
+import { AllEntriesPanel, ENTRIES_SCOPE_LABELS, type EntriesScope } from './registers/AllEntries'
 import { TabBar } from '../components/TabBar'
 import { DataTable, defineColumns } from '../components/table'
 import { formatMilli } from '../lib/table'
@@ -96,12 +97,32 @@ export const ITEM_PROFIT_COLUMNS = defineColumns<ItemProfitRow>([
   }
 ])
 
-export type RegistersTab = 'sales' | 'purchase' | 'items'
+/** `entries` = All entries: every voucher of every type in the period (the feature cleanup moved
+ *  the Day book's list here; links that opened the Day book open this tab with the same range). */
+export type RegistersTab = 'sales' | 'purchase' | 'items' | 'entries'
 type Tab = RegistersTab
 
-const TAB_LABELS: Record<Tab, string> = { sales: 'Sales', purchase: 'Purchase', items: 'Item profit' }
+const TAB_ORDER: readonly Tab[] = ['entries', 'sales', 'purchase', 'items']
+const TAB_LABELS: Record<Tab, string> = { entries: 'All entries', sales: 'Sales', purchase: 'Purchase', items: 'Item profit' }
 
-export function RegistersScreen({ tab: requestedTab, from: askedFrom, to: askedTo }: { tab?: Tab; from?: string; to?: string } = {}): React.JSX.Element {
+/** The first and last day of `month` ('YYYY-MM') inside [from, to]. */
+export function monthWithin(month: string, from: string, to: string): { from: string; to: string } {
+  const [y, m] = month.split('-').map(Number) as [number, number]
+  const start = `${month}-01`
+  const end = `${month}-${String(new Date(Date.UTC(y, m, 0)).getUTCDate()).padStart(2, '0')}`
+  return { from: start < from ? from : start, to: end > to ? to : end }
+}
+
+export function RegistersScreen({ tab: requestedTab, from: askedFrom, to: askedTo, kind: askedKind, voucherIds, source }: {
+  tab?: Tab
+  from?: string
+  to?: string
+  /** All entries: only this voucher kind (a register month's drill). */
+  kind?: string
+  /** All entries: only these vouchers (a cash-flow line's), with where they came from. */
+  voucherIds?: number[]
+  source?: string
+} = {}): React.JSX.Element {
   const { from: sessionFrom, to: sessionTo } = useSession()
   // A simple "Why?" link may ask for one month (Reports → by month); absent = the session period,
   // as before. Changing the period in the options afterwards goes back to the session period.
@@ -117,18 +138,25 @@ export function RegistersScreen({ tab: requestedTab, from: askedFrom, to: askedT
   const toast = useToasts()
   // The last register viewed is remembered per company (screen option); tabs stay in the header.
   // WP 8.1: a link may ask for a tab ("Purchase list" → purchase); it becomes the remembered one.
-  const opts = useScreenOptions('registers', { tab: 'sales' as Tab }, { tab: ['sales', 'purchase', 'items'] })
-  const [pending, setPending] = useState(requestedTab ?? null)
-  const tab = pending ?? opts.options.tab
+  const opts = useScreenOptions('registers', { tab: 'sales' as Tab, scope: 'books' as EntriesScope }, { tab: [...TAB_ORDER], scope: ENTRIES_SCOPE_LABELS.map((s) => s.value) })
+  // A link to All entries (a month, today's entries, a cash-flow line …) shows it for this visit
+  // only — it never becomes the remembered register, so Back / the sidebar return to the register
+  // that was open. Choosing the tab yourself does remember it.
+  const [pending, setPending] = useState(requestedTab && requestedTab !== 'entries' ? requestedTab : null)
+  const [visit, setVisit] = useState<Tab | null>(requestedTab === 'entries' ? 'entries' : null)
+  const tab = visit ?? pending ?? opts.options.tab
   useEffect(() => {
     if (pending === null) return
     if (opts.options.tab !== pending) opts.set('tab', pending)
     setPending(null)
   }, [pending, opts])
-  const setTab = (t: Tab): void => opts.set('tab', t)
+  const setTab = (t: Tab): void => {
+    setVisit(null)
+    opts.set('tab', t)
+  }
   const [busy, setBusy] = useState<'caPack' | 'tallyXml' | null>(null)
   const exportRefused = useCapabilityRefused('canExport')
-  const kind = tab === 'items' ? 'sales' : tab
+  const kind = tab === 'items' || tab === 'entries' ? 'sales' : tab
 
   const periodLabel = `${toDisplayDate(from)} → ${toDisplayDate(to)}`
 
@@ -144,17 +172,17 @@ export function RegistersScreen({ tab: requestedTab, from: askedFrom, to: askedT
     }
   }
 
-  const title = tab === 'items' ? 'Item profitability' : tab === 'sales' ? 'Sales register' : 'Purchase register'
+  const title = tab === 'entries' ? 'All entries' : tab === 'items' ? 'Item profitability' : tab === 'sales' ? 'Sales register' : 'Purchase register'
 
   return (
-    <Page>
+    <Page width={tab === 'entries' ? 'wide' : undefined}>
       <PageHeader
         title={title}
         period={periodLabel}
         tabs={
           <TabBar
             screen="registers"
-            tabs={(['sales', 'purchase', 'items'] as const).map((k) => ({ id: k, label: TAB_LABELS[k] }))}
+            tabs={TAB_ORDER.map((k) => ({ id: k, label: TAB_LABELS[k] }))}
             active={tab}
             onSelect={setTab}
           />
@@ -181,7 +209,16 @@ export function RegistersScreen({ tab: requestedTab, from: askedFrom, to: askedT
           content: (
             <>
               <OptionsPeriod />
-              <OptionsTable area={tab === 'items' ? 'registers-items' : 'registers'} />
+              {tab === 'entries' && (
+                <OptionChoice
+                  label="Show"
+                  value={opts.options.scope}
+                  options={ENTRIES_SCOPE_LABELS}
+                  onChange={(v) => opts.set('scope', v)}
+                  testId="input-entries-scope"
+                />
+              )}
+              <OptionsTable area={tab === 'items' ? 'registers-items' : tab === 'entries' ? 'registers-entries' : 'registers'} />
               <OptionsExport>
                 <Button size="sm" disabled={busy !== null} onClick={() => void runExport('tallyXml')}>
                   Tally XML for the period
@@ -194,7 +231,18 @@ export function RegistersScreen({ tab: requestedTab, from: askedFrom, to: askedT
           )
         }}
       />
-      {tab === 'items' ? (
+      {tab === 'entries' ? (
+        <AllEntriesPanel
+          from={from}
+          to={to}
+          periodLabel={periodLabel}
+          scope={opts.options.scope}
+          onScope={(s) => opts.set('scope', s)}
+          kind={askedKind}
+          voucherIds={voucherIds}
+          source={source}
+        />
+      ) : tab === 'items' ? (
         <ItemProfitPanel from={from} to={to} periodLabel={periodLabel} />
       ) : (
         <MonthRegister key={kind} kind={kind} from={from} to={to} title={title} periodLabel={periodLabel} />
@@ -231,15 +279,15 @@ function MonthRegister({
           columns={REGISTER_COLUMNS}
           rows={data ?? []}
           rowKey={(r) => r.month}
-          rowAttrs={(r) => ({ 'data-row-id': r.month, title: 'Open this month in the Day Book' })}
+          rowAttrs={(r) => ({ 'data-row-id': r.month, title: 'Open this month’s entries' })}
           loading={isLoading}
           empty={{ title: `No ${kind} vouchers in this period` }}
-          onRowActivate={(r) => nav.go({ name: 'daybook', month: r.month, kind })}
+          onRowActivate={(r) => nav.go({ name: 'registers', tab: 'entries', ...monthWithin(r.month, from, to), kind })}
           maxHeight="70vh"
           exportOptions={{ title, periodLabel, filename: `${kind}-register` }}
         />
       </Panel>
-      <p className="mt-2 text-hint text-muted">Click a month to open its vouchers in the Day Book.</p>
+      <p className="mt-2 text-hint text-muted">Click a month to open its vouchers in All entries.</p>
     </>
   )
 }

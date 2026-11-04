@@ -1,7 +1,7 @@
 // Scenario 52 — WP 8.6 simple Home. Demo Traders in simple mode: Home loads from one
 // `simple:home` call; its figures equal the accountant Dashboard tiles (receivables, payables,
 // cash and bank, FY profit) and the Outstandings screen's totals as on today; "Why?" opens the
-// computed sentence and each link opens THAT figure (Outstandings on its side, the Day book on
+// computed sentence and each link opens THAT figure (Outstandings on its side, All entries on
 // today, the cash / bank balances as on today, GSTR-3B on the tile's month); + Sale / + Purchase open Make a bill / Record a purchase, Money in the editor in the
 // full app; "Needs attention" shows when the close checklist / anomalies find something (the demo
 // has bills past their due date). Home is captured light and dark, and for an empty company.
@@ -111,11 +111,12 @@ await scenario('52-home', async (h) => {
   await backHome(h)
 
   await openLink(h, 'money-in')
-  await h.waitScreen('daybook')
-  await attached(h, '[data-testid="daybook-date-chip"]')
+  await h.waitScreen('registers')
+  await attached(h, '[data-testid="registers-entries-table"]')
   const [y, m, d] = today.split('-')
   const MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][Number(m) - 1]
-  assertEq(await textOf(h, '[data-testid="daybook-date-chip"]'), `${d}-${MON}-${y.slice(2)}`, 'the Day book opens on today')
+  const day = `${d}-${MON}-${y.slice(2)}`
+  assertEq(await textOf(h, '[data-screen="registers"] [data-testid="page-period"]'), `${day} → ${day}`, 'All entries opens on today')
   await backHome(h)
 
   await openLink(h, 'cash')

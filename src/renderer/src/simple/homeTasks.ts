@@ -27,7 +27,8 @@ export type HomeReport = 'day' | 'receivables' | 'payables' | 'cash' | 'profit' 
 export function homeReportScreen(id: HomeReport, home: SimpleHomeData): Screen {
   switch (id) {
     case 'day':
-      return { name: 'daybook', date: home.today } // i18n-technical
+      // Feature cleanup: the entries list (Registers → All entries) on today — the Day book went.
+      return { name: 'registers', tab: 'entries', from: home.today, to: home.today } // i18n-technical
     case 'receivables':
       return { name: 'outstandings', side: 'receivable' } // i18n-technical
     case 'payables':

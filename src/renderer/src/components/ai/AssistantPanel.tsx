@@ -855,7 +855,7 @@ const TOOL_LABELS: Record<string, string> = {
   balance_sheet: 'Balance sheet',
   outstandings: 'Outstandings',
   search_books: 'Search',
-  day_book: 'Day book',
+  day_book: 'All entries',
   stock_summary: 'Stock summary',
   gst_summary: 'GSTR-3B summary',
   tds_summary: 'TDS summary',

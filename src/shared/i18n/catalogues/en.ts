@@ -283,7 +283,7 @@ export const en = {
   'simple.home.moneyIn': 'Money in',
   'simple.home.moneyOut': 'Money out',
   'simple.home.whyLabel': 'Why this number: {what}',
-  'simple.home.link.day': 'See today’s entries',
+  'simple.home.link.day': 'Open today’s entries in the list of all entries',
   'simple.home.link.receivables': 'See who owes you',
   'simple.home.link.payables': 'See whom you owe',
   'simple.home.link.cash': 'See each account’s balance today',

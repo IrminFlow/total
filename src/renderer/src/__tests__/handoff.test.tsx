@@ -114,7 +114,7 @@ describe('the full → simple table', () => {
     expect(simpleTargetFor({ name: 'banking', tab: 'import', ledgerId: 2 }, null)).toEqual({ name: 'simple-bank', bankId: 2 })
     expect(simpleTargetFor({ name: 'manufacture', prefill: { itemId: 4, qtyMilli: 1000 } }, null)).toEqual({ name: 'simple-made-goods', itemId: 4 })
     // Everything else: the section list (as before).
-    expect(simpleTargetFor({ name: 'daybook' }, null)).toEqual({ name: 'simple-section', section: 'money' })
+    expect(simpleTargetFor({ name: 'registers', tab: 'entries' }, null)).toEqual({ name: 'simple-section', section: 'money' })
   })
 
   it('WP 9.10 review: every Accountant-view target of People / Reports / Taxes goes back to the simple screen it came from', () => {
@@ -140,7 +140,7 @@ describe('the full → simple table', () => {
     expect(factsQuery({ name: 'voucher-entry', kindHint: 'sales' }, 31)).toEqual({ voucherId: 31 })
     expect(factsQuery({ name: 'voucher-entry', voucherId: 4 }, 31)).toEqual({ voucherId: 4 })
     expect(factsQuery({ name: 'ledger-statement', ledgerId: 7 }, null)).toEqual({ ledgerId: 7 })
-    expect(factsQuery({ name: 'daybook' }, null)).toBeNull()
+    expect(factsQuery({ name: 'registers', tab: 'entries' }, null)).toBeNull()
     expect(backToSimpleClears({ name: 'voucher-entry', kindHint: 'sales' }, { name: 'simple-sales', billId: 3 }).sort()).toEqual(['simple-sales', 'simple-sell'])
   })
 

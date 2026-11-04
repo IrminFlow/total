@@ -67,7 +67,7 @@ export const GLOSSARY = {
     term: 'Day book',
     aliases: ['Daybook'],
     plain: 'All entries',
-    explain: 'Everything recorded, day by day.',
+    explain: 'Everything recorded, day by day — the list of all entries (Money → All entries).',
     sources: ['audit']
   },
   sales: {

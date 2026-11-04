@@ -2,7 +2,7 @@
 // return, and the pure rules that pick what the "Needs attention" card shows. Every figure is
 // computed by main at query time, as on TODAY, through the services the accountant screens use
 // (services/simpleHome.ts):
-//   money in / out today   cash + bank lines of today's in-books entries (Day Book scope)
+//   money in / out today   cash + bank lines of today's in-books entries (All entries scope)
 //   customers / suppliers  analysis.outstandings — the Outstandings screen's allocation
 //   cash and bank          opening + in-books movements to today (= trial balance rows)
 //   profit                 reports.profitAndLoss (→ pnlLedgerAmounts), month and FY to date

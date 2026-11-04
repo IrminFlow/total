@@ -139,7 +139,7 @@ export interface DashStock {
 }
 
 export interface DashActivity {
-  /** Day Book rows (incl. optional / post-dated, excl. the bin) dated today. */
+  /** All-entries rows (incl. optional / post-dated, excl. the bin) dated today. */
   today: number
   /** Same, Monday of this week → today. */
   week: number

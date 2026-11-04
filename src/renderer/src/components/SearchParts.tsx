@@ -117,7 +117,7 @@ export function recentRecordFor(r: SearchResult): RecentRecord {
   return { id: r.id, label: voucherTitle(r), sub: [toDisplayDate(r.date), r.party].filter(Boolean).join(' · ') }
 }
 
-/** Badges for vouchers outside the books (same styling as the Day Book). */
+/** Badges for vouchers outside the books (same styling as All entries). */
 export function VoucherBadges({ v }: { v: Pick<VoucherResult, 'isOptional' | 'postDated'> }): React.JSX.Element | null {
   if (!v.isOptional && !v.postDated) return null
   return (

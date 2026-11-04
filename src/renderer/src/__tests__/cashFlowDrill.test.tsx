@@ -1,6 +1,6 @@
-// Cash flow drill-down (e2e 68–71 notes): a line opens the Day book on the vouchers it was
+// Cash flow drill-down (e2e 68–71 notes): a line opens Registers → All entries on the vouchers it was
 // computed from (same period); ▸ shows the ledgers behind it, whose names open their statements;
-// the stock line (the valuation engine's) has no drill. The Day book then lists only those
+// the stock line (the valuation engine's) has no drill. All entries then lists only those
 // vouchers, with a chip that clears the filter.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -8,7 +8,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { CashFlowStatement } from '@shared/reportMath'
 import { DEFAULT_FEATURES } from '@shared/features'
 import { CashFlowScreen } from '../screens/CashFlow'
-import { DayBook } from '../screens/DayBook'
+import { RegistersScreen } from '../screens/Registers'
 import { useNav, useSession } from '../state/stores'
 
 const invoke = vi.fn()
@@ -62,13 +62,13 @@ afterEach(() => {
 const top = (): unknown => useNav.getState().stack[useNav.getState().stack.length - 1]
 
 describe('cash flow drill-down', () => {
-  it('a line opens the Day book on its vouchers; ▸ lists its ledgers, a name opens the statement', async () => {
+  it('a line opens All entries on its vouchers; ▸ lists its ledgers, a name opens the statement', async () => {
     renderUi(<CashFlowScreen />)
     const lines = await screen.findAllByTestId('cash-flow-line')
     const ca = lines.find((l) => l.dataset.line === 'Current Assets')!
     expect(ca.dataset.vouchers).toBe('3')
     fireEvent.click(ca)
-    await waitFor(() => expect(top()).toEqual({ name: 'daybook', voucherIds: [101, 102, 103], source: 'Cash flow: Current Assets' }))
+    await waitFor(() => expect(top()).toEqual({ name: 'registers', tab: 'entries', from: '2025-04-01', to: '2026-03-31', voucherIds: [101, 102, 103], source: 'Cash flow: Current Assets' }))
 
     useNav.setState({ stack: [{ name: 'cash-flow' }] })
     fireEvent.click(ca.querySelector('[data-testid="cash-flow-toggle"]')!)
@@ -84,7 +84,7 @@ describe('cash flow drill-down', () => {
     useNav.setState({ stack: [{ name: 'cash-flow' }] })
     const fa = lines.find((l) => l.dataset.line === 'Fixed Assets')!
     fireEvent.keyDown(fa, { key: 'Enter' })
-    await waitFor(() => expect(top()).toEqual({ name: 'daybook', voucherIds: [104], source: 'Cash flow: Fixed Assets' }))
+    await waitFor(() => expect(top()).toEqual({ name: 'registers', tab: 'entries', from: '2025-04-01', to: '2026-03-31', voucherIds: [104], source: 'Cash flow: Fixed Assets' }))
   })
 
   it('the stock line has no drill', async () => {
@@ -97,9 +97,9 @@ describe('cash flow drill-down', () => {
     expect(top()).toEqual({ name: 'cash-flow' })
   })
 
-  it('the Day book lists only the drilled vouchers; the chip clears it', async () => {
-    renderUi(<DayBook voucherIds={[101, 102, 103]} source="Cash flow: Current Assets" />)
-    const chip = await screen.findByTestId('daybook-only-chip')
+  it('All entries lists only the drilled vouchers; the chip clears it', async () => {
+    renderUi(<RegistersScreen tab="entries" voucherIds={[101, 102, 103]} source="Cash flow: Current Assets" />)
+    const chip = await screen.findByTestId('entries-only-chip')
     expect(chip.textContent).toContain('Cash flow: Current Assets · 3 vouchers')
     await waitFor(() => expect(document.body.textContent).toContain('S-2'))
     expect(document.body.textContent).not.toContain('S-9')

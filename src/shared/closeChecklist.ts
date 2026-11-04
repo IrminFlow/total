@@ -394,7 +394,7 @@ export const CLOSE_CHECK_DEFS: Record<CloseCheckKey, Def> = {
   accruals: {
     title: 'Regular expenses and incomes booked',
     area: 'Books',
-    fix: { screen: 'daybook', label: 'Open day book' },
+    fix: { screen: 'registers', label: 'Open all entries', params: { tab: 'entries' } },
     help: 'Ledgers that had entries in each of the last three months (rent, salaries, interest…) but none this month — an accrual or a bill may be missing.',
     build: (f) => {
       const rows = f.accruals.map((a) => ({ label: a.name, detail: `nothing this month; ${a.lastMonth}: ${rupeeText(a.lastAmount)}`, amount: a.lastAmount, ledgerId: a.ledgerId }))
@@ -429,7 +429,7 @@ export const CLOSE_CHECK_DEFS: Record<CloseCheckKey, Def> = {
   drafts: {
     title: 'No drafts or optional vouchers left',
     area: 'Books',
-    fix: { screen: 'daybook', label: 'Open day book' },
+    fix: { screen: 'registers', label: 'Open all entries', params: { tab: 'entries' } },
     help: 'Assistant drafts are proposals waiting for review; optional (memorandum) vouchers are outside the books. Save, discard or regularise them.',
     build: (f) => {
       const rows: CheckRow[] = [
