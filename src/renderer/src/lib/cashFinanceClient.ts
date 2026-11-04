@@ -1,12 +1,9 @@
-// Typed client for cash and finance (WP 4.4) — the forecast:*, loan:*, fx:* and budget month /
-// revision / CSV channels in src/main/ipcCashFinance.ts. Kept beside client.ts like faApi.
+// Typed client for cash and finance (WP 4.4) — the forecast:* and fx:* channels in
+// src/main/ipcCashFinance.ts. Kept beside client.ts like faApi.
 import { call } from './client'
-import type { Budget } from '@shared/domain'
-import type { LoanSchedule } from '@shared/loanSchedule'
 import type {
-  BudgetCsvResult, BudgetDrillRow, BudgetMonthlyReport, BudgetRevision, CashFinanceCloseWarnings, EmiReminder, FinanceReminders,
-  ForecastBase, ForecastItem, FxForeignOpeningInput, FxForeignOpeningResult, FxOpenBill, ForecastItemInput, FxRate, FxRateInput, FxRevaluationPreview, FxRevaluationRow, FxSettleInput, FxSettleResult,
-  LoanDetail, LoanInput, LoanPrepaymentInput, LoanScheduleRow, LoanSummary, PostEmiInput
+  CashFinanceCloseWarnings,
+  ForecastBase, ForecastItem, FxForeignOpeningInput, FxForeignOpeningResult, FxOpenBill, ForecastItemInput, FxRate, FxRateInput, FxRevaluationPreview, FxRevaluationRow, FxSettleInput, FxSettleResult
 } from '@shared/cashFinance'
 
 export const cfApi = {
@@ -15,19 +12,6 @@ export const cfApi = {
     items: () => call<ForecastItem[]>('forecast:items'),
     itemSave: (data: ForecastItemInput, id?: number) => call<ForecastItem>('forecast:itemSave', { data, id }),
     itemDelete: (id: number) => call<null>('forecast:itemDelete', { id })
-  },
-  loans: {
-    list: () => call<LoanSummary[]>('loan:list', {}),
-    get: (id: number) => call<LoanDetail>('loan:get', { id }),
-    preview: (data: LoanInput) => call<LoanSchedule>('loan:preview', { data }),
-    save: (data: LoanInput, id?: number) => call<LoanDetail>('loan:save', { data, id }),
-    remove: (id: number) => call<null>('loan:delete', { id }),
-    setStatus: (id: number, status: 'active' | 'closed') => call<LoanSummary>('loan:setStatus', { id, status }),
-    prepaymentAdd: (data: LoanPrepaymentInput) => call<LoanDetail>('loan:prepaymentAdd', data),
-    prepaymentDelete: (id: number) => call<LoanDetail>('loan:prepaymentDelete', { id }),
-    postEmi: (data: PostEmiInput) => call<LoanScheduleRow>('loan:postEmi', data),
-    recordDisbursement: (loanId: number, bankLedgerId?: number) => call<LoanDetail>('loan:recordDisbursement', bankLedgerId ? { loanId, bankLedgerId } : { loanId }),
-    reminders: () => call<EmiReminder[]>('loan:reminders', {})
   },
   fx: {
     rates: () => call<FxRate[]>('fx:rates'),
@@ -43,17 +27,7 @@ export const cfApi = {
     revaluations: () => call<FxRevaluationRow[]>('fx:revaluations'),
     settle: (data: FxSettleInput) => call<FxSettleResult>('fx:settle', data)
   },
-  budget: {
-    monthly: (budgetId: number, upToMonth: string) => call<BudgetMonthlyReport>('budget:monthly', { budgetId, upToMonth }),
-    drill: (budgetId: number, lineId: number, month: string | null, upToMonth: string) =>
-      call<BudgetDrillRow[]>('budget:drill', { budgetId, lineId, month, upToMonth }),
-    revisions: (id: number) => call<BudgetRevision[]>('budget:revisions', { id }),
-    revisionDetail: (id: number) => call<{ before: Budget; after: Budget }>('budget:revisionDetail', { id }),
-    exportCsv: (id: number) => call<{ path: string; csv: string }>('budget:exportCsv', { id }),
-    importCsv: (budgetId: number, csvText: string, reason: string | null) => call<BudgetCsvResult>('budget:importCsv', { budgetId, csvText, reason })
-  },
   checks: {
-    closeWarnings: (fyStartYear: number) => call<CashFinanceCloseWarnings>('yearEnd:cashFinanceWarnings', { fyStartYear }),
-    reminders: () => call<FinanceReminders>('dashboard:financeReminders', {})
+    closeWarnings: (fyStartYear: number) => call<CashFinanceCloseWarnings>('yearEnd:cashFinanceWarnings', { fyStartYear })
   }
 }

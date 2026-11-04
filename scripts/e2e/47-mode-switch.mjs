@@ -75,12 +75,12 @@ await scenario('47-mode-switch', async (h) => {
     'simple Settings list'
   )
 
-  // A mapped screen without its simple flow yet: Money → All entries opens the Day book in the
+  // A mapped screen without its simple flow yet: Money → All entries opens Registers → All entries in the
   // FULL app, with Back to simple. (WP 9.8: People → Customers and suppliers is the simple People.)
   await h.click('simple-nav-money')
   assert((await h.page.textContent('[data-testid="simple-entry-all-entries"]'))?.includes('Full app'), 'tagged Full app')
   await h.click('simple-entry-all-entries')
-  await h.waitScreen('daybook')
+  await h.waitScreen('registers')
   await attached('nav[aria-label="Main"]')
   await absent('[data-testid="simple-nav"]')
   await h.shot('light-mapped-screen')

@@ -1,6 +1,6 @@
 // Scenario 22 — fixed assets (WP 3.6), driven through the UI: a purchase that debits a Fixed
 // Assets ledger becomes a register entry ("From a purchase…"), a depreciation run posts ONE
-// journal that shows in the Day book, the schedule agrees with the ledgers, re-running the
+// journal that shows in All entries, the schedule agrees with the ledgers, re-running the
 // period is refused, the asset is sold through the disposal wizard, and every tab is shot in
 // both themes. Set WP36_SHOTS=/tmp/wp36 to also copy the screenshots there.
 import fs from 'node:fs'
@@ -9,6 +9,8 @@ import { scenario, assert, assertEq, OPTION } from '../lib/harness.mjs'
 
 await scenario('22-fixed-assets', async (h) => {
   await h.createCompanyUI('Asset Works')
+  // Feature cleanup: the asset register shows only for a company that already keeps one.
+  await h.useFeature('fixedAssets')
   const page = h.page
   const extraShots = process.env.WP36_SHOTS
   const shot = async (name) => {
@@ -111,11 +113,11 @@ await scenario('22-fixed-assets', async (h) => {
   assert((await page.textContent('[data-testid="fixed-assets-run-blocked"]')).includes('already posted'), 're-running the period is refused')
   await shot('05-run-posted-light')
 
-  // ---------- the journal in the Day book ----------
-  await h.goto('daybook')
-  const dayRow = page.locator(`[data-testid="rows-daybook"] [data-row-id="${run.voucherId}"]`)
+  // ---------- the journal in All entries ----------
+  await h.gotoAllEntries()
+  const dayRow = page.locator(`[data-testid="rows-registers-entries"] [data-row-id="${run.voucherId}"]`)
   await dayRow.waitFor({ timeout: 10000 })
-  assert((await dayRow.textContent()).includes('14,289.04'), 'depreciation journal in the Day book')
+  assert((await dayRow.textContent()).includes('14,289.04'), 'depreciation journal in All entries')
   await shot('06-daybook-light')
 
   // ---------- schedule: reconciles to the ledgers ----------

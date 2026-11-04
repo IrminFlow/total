@@ -3,7 +3,7 @@
 // → GRNs → bills → debit notes, rejection notes — as columns left to right, each document a card
 // (number link, date, party, status, quantities drawn / returned per line), then every link in a
 // table. Hosted once (LinkedDocsHost in App) and opened through `openLinkedDocs` from the entry
-// screens, the Day book, search results and the order lists; ⌥L on an entry screen.
+// screens, Registers → All entries, search results and the order lists; ⌥L on an entry screen.
 import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
 import { useQuery } from '@tanstack/react-query'

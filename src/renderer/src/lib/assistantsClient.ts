@@ -2,11 +2,7 @@
 import { call } from './client'
 import type { AnomalyReport, AssistantSettings, Gst2bMismatchReport, Gst2bStatementInfo } from '@shared/assistants'
 import type { CloseChecklist, CloseCheckKey } from '@shared/closeChecklist'
-import type { ReportModel } from '@shared/reportBuilder/model'
-import type { ReportRequest } from '@shared/reportBuilder/nl'
 import type { AiDraftDto } from '@shared/ai'
-
-export type NlReportReply = { ok: true; title: string; model: ReportModel; request: ReportRequest } | { ok: false; problems: string[]; request?: ReportRequest }
 
 export const assistantsApi = {
   close: (period: string) => call<CloseChecklist>('assist:close', { period }),
@@ -20,6 +16,5 @@ export const assistantsApi = {
   store2b: (jsonText: string, period: string, fileName?: string) => call<Gst2bStatementInfo>('assist:gst2b:store', { jsonText, period, ...(fileName ? { fileName } : {}) }),
   resolve2b: (period: string, key: string, status: 'resolved' | 'dismissed' | null, note?: string) =>
     call<unknown>('assist:gst2b:resolve', { period, key, status, ...(note ? { note } : {}) }),
-  draft2b: (period: string, key: string) => call<AiDraftDto>('assist:gst2b:draft', { period, key }),
-  nlReport: (question: string, from: string, to: string) => call<NlReportReply>('assist:nlReport', { question, from, to })
+  draft2b: (period: string, key: string) => call<AiDraftDto>('assist:gst2b:draft', { period, key })
 }

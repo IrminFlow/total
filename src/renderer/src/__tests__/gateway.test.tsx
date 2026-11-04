@@ -128,7 +128,7 @@ describe('Gateway dashboard', () => {
     fireEvent.click(screen.getByTestId('tile-profit'))
     expect(go).toHaveBeenLastCalledWith({ name: 'profit-loss' })
     fireEvent.click(screen.getByTestId('tile-sales'))
-    expect(go).toHaveBeenLastCalledWith({ name: 'registers' })
+    expect(go).toHaveBeenLastCalledWith({ name: 'registers', tab: 'sales' })
     // A top-customer row opens the ledger statement (the name itself opens the edit window).
     const row = within(screen.getByTestId('dash-top-customers')).getByTestId('top-ledger')
     fireEvent.click(row)
@@ -144,8 +144,8 @@ describe('Gateway dashboard', () => {
     expect(go).toHaveBeenLastCalledWith({ name: 'voucher-entry', kindHint: 'sales' })
     fireEvent.keyDown(window, { key: 'F8', ctrlKey: true })
     expect(go).toHaveBeenLastCalledWith({ name: 'voucher-entry', kindHint: 'credit_note' })
-    fireEvent.keyDown(window, { key: 'd' })
-    expect(go).toHaveBeenLastCalledWith({ name: 'daybook' })
+    fireEvent.keyDown(window, { key: 'm' })
+    expect(go).toHaveBeenLastCalledWith({ name: 'masters' })
   })
 
   it('Alt+F7 opens Manufacture only while manufacturing is on (WP 8.3: setup can turn it off)', async () => {

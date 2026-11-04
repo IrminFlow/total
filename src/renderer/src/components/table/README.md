@@ -65,7 +65,7 @@ aggregation to `formatPaise`.
 - `groupKey(row)`: groups by something other than the cell text, e.g.
   `(r) => r.date.slice(0, 7)` for months.
 - `defaultHidden`, `width` (px), `minWidth` (px). See "Column widths" below.
-- `aggregate`: `'sum'`, or `(rows) => rawValue` for honest totals that skip some rows. DayBook,
+- `aggregate`: `'sum'`, or `(rows) => rawValue` for honest totals that skip some rows. All entries,
   for example, doesn't count optional or post-dated rows:
   `(rows) => rows.filter(inBooks).reduce((s, r) => s + r.debit, 0)`.
 - `className` / `headerClassName`: extra cell classes, for example `'text-muted'`.
@@ -87,9 +87,9 @@ aggregation to `formatPaise`.
 ```tsx
 <Panel>
   <DataTable
-    viewId="daybook"                 // persisted per company + screen; omit = in-memory only
+    viewId="registers-entries"              // persisted per company + screen; omit = in-memory only
     legacyReportKey="daybook"        // seeds hidden columns from the old useReportConfig toggles
-    testId="daybook"                 // tbody → rows-daybook, headers → sort-daybook-<id>
+    testId="registers-entries"       // tbody → rows-registers-entries, headers → sort-registers-entries-<id>
     columns={COLUMNS}
     rows={rows}
     rowKey={(r) => r.voucherId}
@@ -98,7 +98,7 @@ aggregation to `formatPaise`.
     empty={{ title: 'No vouchers in this period', hint: 'Press V to enter one' }}
     onRowActivate={(r) => nav.go({ name: 'voucher-entry', voucherId: r.voucherId })}
     trailing={(r) => r.kind === 'sales' && <button onClick={() => pdf(r.voucherId)}>PDF</button>}
-    exportOptions={{ title: 'Day book', periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}` }}
+    exportOptions={{ title: 'All entries', periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}` }}
     toolbarStart={<ScopeSelect />}   // screen-specific controls live in the toolbar
   />
 </Panel>
@@ -117,7 +117,7 @@ Useful props (all optional except `columns` and `rows`):
   `renderFooter(ctx)` replaces the footer with your own `<tr className="total-row">` rows, for
   something like "Closing balance". The context (`DataTableFooterContext`) holds the visible
   `columns`, the `rows` in view (filters and quick filter applied), `totals`, `colSpan`,
-  `filteredCount`, `totalCount` and `isFiltered`. Day Book's label is just
+  `filteredCount`, `totalCount` and `isFiltered`. All entries' label is just
   ``totalsLabel={({ rows }) => `Total · ${rows.filter(inBooks).length} vouchers`}``.
 - **Toolbar.** `toolbar={false}` hides it. `toolbarFeatures={{ groupBy: false, density: false }}`
   turns off individual features. `toolbarStart` and `toolbarEnd` add screen-specific controls,
@@ -140,7 +140,7 @@ Useful props (all optional except `columns` and `rows`):
 ### Multi-select (WP 6.4)
 
 ```tsx
-const bulk = useBulkSelection('voucher', 'daybook')   // components/bulk/BulkEdit.tsx
+const bulk = useBulkSelection('voucher', 'registers-entries')   // components/bulk/BulkEdit.tsx
 {bulk.bar}                                             // "3 vouchers selected · Bulk edit… · Clear"
 <DataTable … selection={bulk.selection} toolbarEnd={bulk.historyButton} />
 {bulk.dialogs}                                         // preview → apply, and recent edits with Undo
@@ -153,7 +153,7 @@ const bulk = useBulkSelection('voucher', 'daybook')   // components/bulk/BulkEdi
 - Shift-click selects the range from the last toggled row, in view order. Space toggles the
   active row (not while a button, link or input has focus).
 - Selected rows carry `data-selected` and a light amber tint (a `td` background, never a
-  pseudo-element). Day book, Masters → Ledgers / Stock items and Outstandings use it.
+  pseudo-element). All entries, Masters → Ledgers / Stock items and Outstandings use it.
 
 ### Expandable detail rows
 

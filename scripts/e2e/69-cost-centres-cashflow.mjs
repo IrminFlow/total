@@ -9,7 +9,7 @@
 //      statement has no drill-down (plain rows), so none is exercised.
 //   4. Exceptions: a journal saved without a narration is listed under "Missing narration";
 //      opened from that row and given a narration in its editor, it drops off the list.
-//   5. Registers → CA pack: the export folder holds every part (Tally XML, day book, TB, P&L,
+//   5. Registers → CA pack: the export folder holds every part (Tally XML, all entries, TB, P&L,
 //      BS, registers, outstandings, ledger statements, GSTR-1 JSON, audit trail + a VERIFIED
 //      chain summary) with the figures of this run inside.
 import * as fs from 'node:fs'
@@ -45,6 +45,8 @@ await scenario('69-cost-centres-cashflow', async (h) => {
   const typeOf = (kind) => types.find((t) => t.kind === kind)
 
   // ---------- 1. a cost centre through its screen ----------
+  // Feature cleanup: cost centres show only for a company that already uses them.
+  await h.useFeature('costCentres')
   await h.goto('cost-centres')
   await h.click('btn-cost-centres-new')
   const dialog = page.locator('[role="dialog"]')
@@ -197,7 +199,7 @@ await scenario('69-cost-centres-cashflow', async (h) => {
   assert(shown.startsWith(h.dataDir) && fs.statSync(shown).isDirectory(), `the pack folder exists in the scratch data dir (${shown})`)
   const files = fs.readdirSync(shown)
   for (const part of [
-    'tally-masters.xml', 'tally-vouchers.xml', 'daybook.csv', 'trial-balance.csv', 'profit-and-loss.csv',
+    'tally-masters.xml', 'tally-vouchers.xml', 'all-entries.csv', 'trial-balance.csv', 'profit-and-loss.csv',
     'balance-sheet.csv', 'sales-register.csv', 'purchase-register.csv', 'outstandings.csv', 'ledger-statements',
     'audit-trail.csv', 'audit-trail-verification.txt'
   ]) assert(files.includes(part), `CA pack has ${part} (has: ${files.join(', ')})`)
@@ -207,7 +209,7 @@ await scenario('69-cost-centres-cashflow', async (h) => {
   assertEq(g1.gstin, '27AAPFU0939F1ZV', 'GSTR-1 JSON is the company’s')
   assert(!files.includes('tds-26q.csv') && !files.includes('tcs-27eq.csv'), 'no TDS / TCS parts without deductions')
   const read = (f) => fs.readFileSync(path.join(shown, f), 'utf8')
-  assert(read('daybook.csv').includes('E2E rent, part Pune Branch') && read('daybook.csv').includes('E2E rent adjustment'), 'day book CSV carries this run’s entries')
+  assert(read('all-entries.csv').includes('E2E rent, part Pune Branch') && read('all-entries.csv').includes('E2E rent adjustment'), 'all-entries CSV carries this run’s entries')
   const tbTotal = read('trial-balance.csv').trim().split('\n').pop()
   const [, , dr, cr] = tbTotal.split(',').map((c) => c.replace(/"/g, ''))
   assert(tbTotal.startsWith('Total') && dr === cr, `trial balance CSV ties (${tbTotal})`)

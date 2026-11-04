@@ -6,7 +6,8 @@ import { useCanSetMode } from '../lib/mode'
 import { useToasts } from '../state/stores'
 import { Button, Page } from '../components/ui'
 import type { MessageKey } from '@shared/i18n'
-import { DEFAULT_FEATURES, effectiveFeatures, type CompanyFeatures } from '@shared/features'
+import { DEFAULT_FEATURES, effectiveFeatures, flagCardShown, flagTurnedOff, splitFeaturesView, type CompanyFeatures } from '@shared/features'
+import { MoreFeatures } from './MoreFeatures'
 
 /**
  * WP 8.3 (plan §4.3): Settings → Features in the simple shell — one "Turn on" card per module with
@@ -41,12 +42,14 @@ export function SimpleFeatures(): React.JSX.Element {
   const queryClient = useQueryClient()
   const canEdit = useCanSetMode()
   const { data } = useQuery({ queryKey: ['features'], queryFn: api.config.features.get }) // i18n-technical
-  const stored = data ?? DEFAULT_FEATURES
+  // Feature cleanup: a hidden feature's card is left out (the stored flag itself is kept as is).
+  const { stored, unused, noData } = splitFeaturesView(data ?? DEFAULT_FEATURES)
   const value = effectiveFeatures(stored)
   const [busy, setBusy] = useState<Key | null>(null)
 
   const flip = async (c: Card): Promise<void> => {
-    const next: CompanyFeatures = { ...stored, [c.key]: !value[c.key] }
+    // Off: a feature turned on through More features goes back to hidden while it has no data.
+    const next: CompanyFeatures = value[c.key] ? flagTurnedOff(stored, c.key) : { ...stored, [c.key]: true }
     if (next[c.key] && c.needsStock) next.inventory = true
     setBusy(c.key)
     try {
@@ -66,7 +69,7 @@ export function SimpleFeatures(): React.JSX.Element {
         <h1 className="mb-1 font-serif text-heading font-semibold tracking-tight text-ink">{t('simple.settings.features')}</h1>
         <p className="mb-5 text-small text-muted">{t('simple.features.intro')}</p>
         <div className="divide-y divide-line rounded-lg border border-line bg-panel shadow-elev-1" data-testid="features-cards">
-          {CARDS.map((c) => {
+          {CARDS.filter((c) => flagCardShown(c.key, unused)).map((c) => {
             const on = !!value[c.key]
             return (
               <div key={c.key} className="flex items-start justify-between gap-4 px-panel py-3.5" data-testid={`feature-card-${c.key}`} data-on={on ? 'true' : 'false'}>
@@ -88,6 +91,7 @@ export function SimpleFeatures(): React.JSX.Element {
             )
           })}
         </div>
+        <MoreFeatures stored={stored} noData={noData} canEdit={canEdit} />
         {!canEdit && <p className="mt-3 text-small text-muted">{t('simple.settings.mode.ownerOnly')}</p>}
       </div>
     </Page>

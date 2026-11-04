@@ -1,7 +1,6 @@
 // The screen context the assistant is told (WP 5.2): the current screen (nav), its title, the
 // working period, the screen's parameters (ledger on a statement, voucher in the editor, tab …)
-// and anything a screen registers itself (the bank ledger picked on Banking, the budget on
-// Budgets). Pure builder + a small registry store; the panel's context strip shows exactly what
+// and anything a screen registers itself (the bank ledger picked on Banking). Pure builder + a small registry store; the panel's context strip shows exactly what
 // screenContextLines() makes of it — the same lines main puts in the system prompt.
 import { useEffect } from 'react'
 import { create } from 'zustand'
@@ -41,7 +40,7 @@ export function useAiScreenContext(screen: Screen['name'], params: Record<string
 }
 
 /** Nav-state fields that are worth telling (ids, tabs, filters) — never drafts or prefill objects. */
-const PARAM_KEYS = ['ledgerId', 'voucherId', 'itemId', 'godownId', 'loanId', 'tab', 'kind', 'month', 'q', 'id', 'aiDraftId'] as const
+const PARAM_KEYS = ['ledgerId', 'voucherId', 'itemId', 'godownId', 'tab', 'kind', 'month', 'q', 'id', 'aiDraftId'] as const
 
 export function screenTitle(name: string): string | undefined {
   return SCREENS.find((s) => s.name === name)?.title

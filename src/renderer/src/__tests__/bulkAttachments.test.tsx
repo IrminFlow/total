@@ -9,7 +9,7 @@ import type { DayBookRow } from '@shared/reports'
 import type { Attachment } from '@shared/attachments'
 import type { BulkResult } from '@shared/bulkEdit'
 import { DataTable, defineColumns, type RowKey } from '../components/table'
-import { DayBook } from '../screens/DayBook'
+import { RegistersScreen } from '../screens/Registers'
 import { AttachmentList } from '../components/attachments/Attachments'
 import { PartyNotesPanel } from '../components/partyNotes/PartyNotes'
 import { DialogHost } from '../components/dialogs'
@@ -64,7 +64,7 @@ beforeEach(() => {
   window.total = { platform: 'test', invoke }
   act(() => {
     useSession.setState({ slug: 'alpha-co', from: '2026-04-01', to: '2027-03-31', user: null, workingDate: '2026-04-10' })
-    useNav.setState({ go: vi.fn(), stack: [{ name: 'daybook' }] })
+    useNav.setState({ go: vi.fn(), stack: [{ name: 'registers', tab: 'entries' }] })
   })
 })
 afterEach(() => {
@@ -131,15 +131,15 @@ describe('DataTable multi-select', () => {
   })
 })
 
-describe('Day book bulk edit', () => {
+describe('All entries bulk edit', () => {
   it('select → bar → change → server preview → apply', async () => {
-    wrap(<DayBook />)
-    await waitFor(() => expect(screen.getByTestId('rows-daybook').querySelectorAll('tr.dt-row')).toHaveLength(3), SLOW)
-    expect(screen.queryByTestId('daybook-bulkbar')).toBeNull()
-    fireEvent.click(screen.getByTestId('daybook-select-11'))
-    fireEvent.click(screen.getByTestId('daybook-select-12'))
-    expect(screen.getByTestId('daybook-bulk-count').textContent).toBe('2 vouchers selected')
-    fireEvent.click(screen.getByTestId('daybook-bulk-edit'))
+    wrap(<RegistersScreen tab="entries" />)
+    await waitFor(() => expect(screen.getByTestId('rows-registers-entries').querySelectorAll('tr.dt-row')).toHaveLength(3), SLOW)
+    expect(screen.queryByTestId('registers-entries-bulkbar')).toBeNull()
+    fireEvent.click(screen.getByTestId('registers-entries-select-11'))
+    fireEvent.click(screen.getByTestId('registers-entries-select-12'))
+    expect(screen.getByTestId('registers-entries-bulk-count').textContent).toBe('2 vouchers selected')
+    fireEvent.click(screen.getByTestId('registers-entries-bulk-edit'))
     const modal = await screen.findByTestId('bulk-modal')
     expect((within(modal).getByTestId('bulk-apply') as HTMLButtonElement).disabled).toBe(true) // preview first
     fireEvent.change(within(modal).getByTestId('bulk-narration-text'), { target: { value: '(ok)' } })
@@ -154,9 +154,9 @@ describe('Day book bulk edit', () => {
     fireEvent.click(screen.getByTestId('bulk-apply'))
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('bulk:apply', expect.objectContaining({ ids: [11, 12] })))
     await waitFor(() => expect(screen.queryByTestId('bulk-modal')).toBeNull())
-    expect(screen.queryByTestId('daybook-bulkbar')).toBeNull() // selection cleared
+    expect(screen.queryByTestId('registers-entries-bulkbar')).toBeNull() // selection cleared
     // The row's Files action shows its count.
-    expect(within(screen.getByTestId('rows-daybook')).getAllByTestId('btn-daybook-files')[0]!.textContent).toBe('Files · 2')
+    expect(within(screen.getByTestId('rows-registers-entries')).getAllByTestId('btn-entries-files')[0]!.textContent).toBe('Files · 2')
   })
 })
 

@@ -22,7 +22,7 @@
  * integer — the cent/penny for USD/GBP/EUR), rates as integer micro-rupees per unit
  * (₹83.25 / USD = 83 250 000). fc minor × rate micro / 10⁶ = paise.
  */
-import { mulDivRound } from './loanSchedule'
+import { mulDivRound } from './intMath'
 
 /** ₹ per unit as a decimal (voucher.exchange_rate, user input) → integer micro-rupees. */
 export function rateToMicro(rate: number): number {

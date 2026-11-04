@@ -19,7 +19,7 @@ import {
   recentRecordFor,
   useOpenRecord
 } from './SearchParts'
-import type { CompanyFeatures } from '@shared/features'
+import type { ScreenFeatures } from '@shared/features'
 import type { SearchResult, SearchSection } from '@shared/search'
 import { isEmptyQuery, parseSearchQuery, type SearchKind } from '@shared/searchQuery'
 import { fyOf, todayISO, toDisplayDate } from '@shared/dates'
@@ -37,7 +37,7 @@ interface Command {
   /** Extra search terms (from the screen registry). */
   keywords?: string[]
   /** Hidden (render-only) when this feature is off. */
-  feature?: keyof CompanyFeatures
+  feature?: keyof ScreenFeatures
   /** WP 8.0: hidden when the company is unregistered. */
   requiresGstRegistration?: boolean
   /** WP 9.10: the simple rows' test id (`palette-simple-<entry id>`). */
@@ -128,7 +128,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       { label: 'New receipt', run: go({ name: 'voucher-entry', kindHint: 'receipt' }) },
       ...screenCommands,
       { label: 'Stock items', feature: 'inventory', run: go({ name: 'masters', tab: 'items' }) },
-      { label: 'Currencies', run: go({ name: 'masters', tab: 'currencies' }) },
+      { label: 'Currencies', feature: 'forex', run: go({ name: 'masters', tab: 'currencies' }) },
       {
         label: 'New manufacture (stock journal)',
         hint: 'Alt F7',
@@ -209,7 +209,7 @@ export function CommandPalette({ onClose }: { onClose: () => void }): React.JSX.
       return list.filter((c) => c.label.toLowerCase().includes(q) || c.keywords?.some((k) => k.toLowerCase().includes(q)))
     }
   }, [query, searchText, intent])
-  // In a simple-mode company the full app's commands (New voucher, Ledgers, Day Book …) show only
+  // In a simple-mode company the full app's commands (New voucher, Ledgers, Registers …) show only
   // once something is typed, under "Full app" — the opened palette keeps to the simple screens.
   const filtered = useMemo(
     () =>

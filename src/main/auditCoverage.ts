@@ -168,7 +168,6 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'config:audit:set': a('company'),
   'config:audit:required': a('company'),
   'agent:setConfig': a('company'),
-  'agent:mcp:set': a('company'),
   'agent:exportMirror': EXPORT,
   'nic:save': a('nic_credentials'),
   'cheque:config:set': a('cheque_config'),
@@ -208,10 +207,12 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // ---------- masters ----------
   'master:groups:create': a('group'),
   'master:groups:update': a('group'),
-  'master:groups:delete': a('group'),
+  // + leftover budget lines of the removed Budgets screen (services/leftoverPlanning.ts).
+  'master:groups:delete': a('group', 'budget'),
   'master:ledgers:create': a('ledger'),
   'master:ledgers:update': a('ledger', 'opening_bills'),
-  'master:ledgers:delete': a('ledger'),
+  // + leftover budget lines / loan records of the removed Budgets and Loans screens.
+  'master:ledgers:delete': a('ledger', 'budget', 'loan'),
   'master:voucherTypes:create': a('voucherType'),
   'master:voucherTypes:update': a('voucherType'),
   'master:units:create': a('unit'),
@@ -260,9 +261,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'currency:create': a('currency'),
   'currency:delete': a('currency'),
   'cc:save': a('costCentre'),
-  'cc:delete': a('costCentre'),
-  'budget:save': a('budget'),
-  'budget:delete': a('budget'),
+  'cc:delete': a('costCentre', 'budget'),
   'bom:set': a('bom'),
   'bom:saveVersion': a('bom'),
   'bom:deleteVersion': a('bom'),
@@ -281,11 +280,6 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'voucher:duplicates': QUERY,
   'pdc:mature': a('voucher', 'credit_override'),
   'yearend:close': a('year_end', 'voucher', 'ledger', 'company'),
-  // Guided re-close of 0.4.0 closes: the preview computes; the repair bins + re-posts closing
-  // journals (voucher delete / create), moves the lock back and forth (company) and writes one
-  // year_end row per repaired year (Retained Earnings may be created: ledger).
-  'yearEnd:repairPreview': QUERY,
-  'yearEnd:repair': a('year_end', 'voucher', 'ledger', 'company'),
   // The stock journal goes through saveVoucher (a 'voucher' row) — listed so canPost covers it.
   'manufacture:save': a('manufacture', 'voucher', 'ai_draft'),
   'jobWork:saveChallan': a('job_work'),
@@ -333,7 +327,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'importwiz:planPreview': r('dry run: applies inside a transaction that is always rolled back'),
   'importwiz:planRun': a('csv_import', 'company', 'costCentre', 'voucher_line', 'group', 'ledger', 'unit', 'stockGroup', 'godown', 'stockItem', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'voucher', 'trade_doc', 'backup', 'opening_bills'),
   'importwiz:batches': QUERY,
-  'importwiz:undo': a('import_batch', 'voucher', 'voucher_line', 'costCentre', 'trade_doc', 'ledger', 'stockItem', 'group', 'unit', 'stockGroup', 'godown', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'backup', 'opening_bills'),
+  'importwiz:undo': a('import_batch', 'voucher', 'voucher_line', 'costCentre', 'trade_doc', 'ledger', 'stockItem', 'group', 'unit', 'stockGroup', 'godown', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'backup', 'opening_bills', 'budget', 'loan'),
   'importwiz:templates': QUERY,
   'importwiz:templateSave': a('import_template'),
   'importwiz:templateDelete': a('import_template'),
@@ -449,26 +443,6 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'fa:runPost': a('depreciation_run', 'voucher'),
   'fa:dispose': a('fixed_asset', 'voucher', 'ledger'),
 
-  // ---------- report builder, scheduled packs (WP 6.1 / 6.2) ----------
-  'rb:save': a('saved_report'),
-  'rb:rename': a('saved_report'),
-  'rb:pin': a('saved_report'),
-  'rb:duplicate': a('saved_report'),
-  'rb:delete': a('saved_report'),
-  'rb:import': a('saved_report'),
-  'rb:exportJson': EXPORT,
-  'pack:save': a('report_pack'),
-  'pack:delete': a('report_pack'),
-  'pack:runNow': a('report_pack'),
-  // ---------- group consolidation (WP 6.5) — the definition lives in this company; members are read read-only ----------
-  'consolGroup:save': a('consolidation_group'),
-  'consolGroup:delete': a('consolidation_group'),
-  'consolMapping:save': a('consolidation_mapping'),
-  'consolMapping:delete': a('consolidation_mapping'),
-  'consolPair:save': a('intercompany_pair'),
-  'consolPair:delete': a('intercompany_pair'),
-  'pack:chooseFolder': r('opens a folder picker; the chosen path is saved by pack:save'),
-
   // ---------- AI agent (WP 5.1) — conversations are not books; settings, drafts and deletions are audited ----------
   'ai:settings:set': a('ai_settings'),
   'ai:notice:accept': a('ai_settings'),
@@ -516,7 +490,6 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'assist:gst2b:store': a('gst2b_statement'),
   'assist:gst2b:resolve': a('assistant_mark'),
   'assist:gst2b:draft': a('ai_draft'),
-  'assist:nlReport': r('maps a question to a report-builder model (deterministic); runs nothing and writes nothing'),
   // WP 5.6 — memory. Every change is audited with the whole before/after; `remember` (a tool run
   // by ai:send / ai:regenerate) only proposes and audits the suggested row.
   'ai:memory:list': QUERY,
@@ -544,14 +517,6 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // ---------- cash and finance (WP 4.4) ----------
   'forecast:itemSave': a('forecast_item'),
   'forecast:itemDelete': a('forecast_item'),
-  'loan:save': a('loan'),
-  'loan:delete': a('loan'),
-  'loan:setStatus': a('loan'),
-  'loan:prepaymentAdd': a('loan'),
-  'loan:prepaymentDelete': a('loan'),
-  'loan:postEmi': a('loan', 'voucher'),
-  // A voucher (Dr bank / Cr loan), or for a loan taken before the books the loan ledger's opening.
-  'loan:recordDisbursement': a('loan', 'voucher', 'ledger'),
   'fx:rateSave': a('fx_rate'),
   'fx:rateDelete': a('fx_rate'),
   'fx:setLedgerCurrency': a('fx_ledger_currency'),
@@ -560,8 +525,6 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'fx:revalue': a('fx_revaluation', 'voucher'),
   'fx:reverse': a('fx_revaluation', 'voucher'),
   'fx:settle': a('fx_settlement', 'voucher'),
-  'budget:importCsv': a('budget'),
-  'budget:exportCsv': EXPORT,
 
   // ---------- bulk edit, attachments, party notes (WP 6.4) ----------
   'bulk:preview': r('a dry run: every save runs inside a transaction that is rolled back — nothing is kept, not even its audit rows'),

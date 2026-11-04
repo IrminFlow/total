@@ -84,7 +84,6 @@ describe('the WP 5.2 read tools run on a real company — capped, sourced, role-
       ['trade_pending', { stage: 'grns' }],
       ['bank_unreconciled', {}],
       ['tds_eligible', {}],
-      ['budget_variance', {}],
       ['forecast_summary', {}],
       ['audit_log_recent', {}]
     ]

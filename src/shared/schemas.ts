@@ -511,14 +511,6 @@ export const openOrderValueSchema = z.object({ partyLedgerId: id })
 export const periodSchema = z.object({ from: isoDate, to: isoDate })
 export type Period = z.infer<typeof periodSchema>
 
-export const consolidatedRunSchema = z.object({
-  slugs: z.array(z.string().trim().min(1)).min(1).max(20),
-  kind: z.enum(['tb', 'pnl']),
-  from: isoDate,
-  to: isoDate
-})
-export type ConsolidatedRunInput = z.infer<typeof consolidatedRunSchema>
-
 export const gstr2bSchema = z.object({ jsonText: z.string().min(2), from: isoDate, to: isoDate })
 export type Gstr2bInput = z.infer<typeof gstr2bSchema>
 
@@ -879,58 +871,6 @@ export type CcStatementInput = z.infer<typeof ccStatementSchema>
 
 export const billsOpenSchema = z.object({ partyLedgerId: id, asOn: isoDate })
 export type BillsOpenInput = z.infer<typeof billsOpenSchema>
-
-// ---------- budgets ----------
-
-/** budget:save line input — mirrors the budget_lines CHECK (ledger XOR group) so a bad payload is
- *  rejected here rather than surfacing as a raw SQLite CHECK-constraint error. */
-export const budgetLineInputSchema = z
-  .object({
-    ledgerId: id.nullable().default(null),
-    groupId: id.nullable().default(null),
-    /** 'YYYY-MM' within the budget's FY, or null for an annual line. */
-    month: z
-      .string()
-      .regex(/^\d{4}-\d{2}$/, 'Expected YYYY-MM')
-      .nullable()
-      .default(null),
-    amount: positivePaise,
-    /** WP 4.4: department / cost-centre dimension (null = the whole ledger / group). */
-    costCentreId: id.nullable().default(null),
-    /** WP 4.4: how an annual line (month null) is spread over the year — 'annual' keeps the
-     *  original annual-vs-FY-to-date comparison. Ignored for a single-month line. */
-    phasing: z.enum(['annual', 'even', 'seasonal', 'manual']).default('annual'),
-    /** WP 4.4: twelve paise amounts (Apr..Mar) for 'manual' phasing; they must add up to `amount`. */
-    monthly: z.array(paise.min(0)).length(12).nullable().default(null)
-  })
-  .refine((v) => (v.ledgerId == null) !== (v.groupId == null), {
-    message: 'Each budget line must target exactly one of a ledger or a group',
-    path: ['ledgerId']
-  })
-  .refine((v) => v.month != null || v.phasing !== 'manual' || (v.monthly != null && v.monthly.reduce((s, x) => s + x, 0) === v.amount), {
-    message: 'Manual monthly amounts must add up to the annual amount',
-    path: ['monthly']
-  })
-export type BudgetLineInput = z.input<typeof budgetLineInputSchema>
-
-export const budgetInputSchema = z.object({
-  name: z.string().trim().min(1).max(60),
-  fyStartYear: z.number().int().min(1990).max(2100),
-  lines: z.array(budgetLineInputSchema).max(500),
-  /** WP 4.4: 12 whole-number month weights (Apr..Mar) for 'seasonal' lines; null = even. Omitted = keep. */
-  seasonal: z.array(z.number().int().min(0).max(1000)).length(12).nullable().optional(),
-  /** WP 4.4: why the budget was revised (kept in the revision history). */
-  reason: z.string().trim().max(200).nullable().optional()
-})
-export type BudgetInput = z.input<typeof budgetInputSchema>
-export type BudgetInputParsed = z.infer<typeof budgetInputSchema>
-
-export const budgetVarianceSchema = z.object({
-  budgetId: id,
-  /** 'YYYY-MM' — annual lines report FY-to-date actuals through this month. */
-  upToMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Expected YYYY-MM')
-})
-export type BudgetVarianceInput = z.infer<typeof budgetVarianceSchema>
 
 // ---------- bank rules (auto-categorization, task 2.5) ----------
 

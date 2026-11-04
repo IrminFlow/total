@@ -48,7 +48,8 @@ const PRICING_TABS: readonly MastersTab[] = ['price-lists', 'party-rates', 'sche
 export function Masters({ tab, itemId, parties }: { tab?: MastersTab; itemId?: number; parties?: boolean }): React.JSX.Element {
   const nav = useNav()
   const features = useFeatures()
-  const tabs = features.inventory ? TABS : TABS.filter((t) => !PRICING_TABS.includes(t.id))
+  // Feature cleanup: Currencies only for a company that uses foreign currency (shared/features.ts).
+  const tabs = TABS.filter((t) => (features.inventory || !PRICING_TABS.includes(t.id)) && (features.forex || t.id !== 'currencies'))
   const active = tab && tabs.some((t) => t.id === tab) ? tab : 'ledgers'
   return (
     <Page width={active === 'price-lists' ? 'wide' : undefined}>

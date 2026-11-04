@@ -1,7 +1,7 @@
 // Scenario 15 — drill-down everywhere (WP 1.8), in the Demo Traders company: on every main report
 // screen, clicking a ledger NAME opens that ledger's edit window; closing it and clicking the
 // row's blank area opens that ledger's statement. Screens whose rows already mean something else
-// (Day Book → voucher, Outstandings → bills) check the name → edit half and their own row action,
+// (All entries → voucher, Outstandings → bills) check the name → edit half and their own row action,
 // plus the path from there to the statement. ⌘E on an active row edits its ledger.
 import { scenario, assert } from '../lib/harness.mjs'
 
@@ -107,15 +107,17 @@ await scenario('15-drilldown', async (h) => {
     await expectStatement(h, name, screen)
   }
 
-  // ---- Day Book: name → edit; the row opens the voucher; the edit window reaches the statement ----
-  await h.goto('daybook', 20000)
-  const dbRowId = await h.page.$eval(LINKED_ROW('daybook'), (tr) => tr.getAttribute('data-row-id'))
-  const dbRow = `[data-testid="rows-daybook"] tr.dt-row[data-row-id="${dbRowId}"]`
+  // ---- All entries: name → edit; the row opens the voucher; the edit window reaches the statement ----
+  await h.gotoAllEntries(20000)
+  // The register's rows arrive after the screen goes idle: wait for a linked row (as ledgerTable does).
+  await h.page.waitForSelector(LINKED_ROW('registers-entries'), { state: 'attached', timeout: 20000 })
+  const dbRowId = await h.page.$eval(LINKED_ROW('registers-entries'), (tr) => tr.getAttribute('data-row-id'))
+  const dbRow = `[data-testid="rows-registers-entries"] tr.dt-row[data-row-id="${dbRowId}"]`
   const dbLedger = await nameOpensEdit(h, dbRow, 'daybook')
   await clickBlank(h, dbRow)
   await h.waitScreen('voucher-entry', 20000)
   await h.page.keyboard.press('Escape')
-  await h.waitScreen('daybook', 20000)
+  await h.waitScreen('registers', 20000)
   await h.page.click(`${dbRow} [data-testid="ledger-link"]`)
   await h.page.waitForSelector(`[role="dialog"][data-modal="Edit ${dbLedger.name}"]`, { timeout: 10000 })
   await h.click('btn-ledger-statement')

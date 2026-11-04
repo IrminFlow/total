@@ -55,6 +55,6 @@ export function redactTrialBalance(tb: TrialBalance, pnlLedgerIds: ReadonlySet<n
   }
 }
 
-/** What the AI tools / Ask Total / report packs say when a profit figure is withheld. */
+/** What the AI tools and Ask Total say when a profit figure is withheld. */
 export const PROFIT_HIDDEN_TOOL_MESSAGE =
   'Profit figures are not shown to this user’s account (the owner turned “can see profit” off). Tell the user plainly that profit, the balance sheet and P&L figures are not available to them and that the owner can change it in People & roles.'

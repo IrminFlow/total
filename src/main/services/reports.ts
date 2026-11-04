@@ -378,7 +378,7 @@ export function dayBook(
   to: string,
   opts: {
     /** Include optional (memorandum) and unmatured post-dated vouchers, flagged per row, so the
-     *  Day Book can badge/filter them (v0.3 S5). Default false keeps books-only semantics for
+     *  All entries list can badge/filter them (v0.3 S5). Default false keeps books-only semantics for
      *  existing consumers (CA pack). */
     includeOutOfBooks?: boolean
   } = {}
@@ -682,8 +682,8 @@ export function trialBalance(db: DB, asOn: string): TrialBalance {
   // closing journal that netted FY movements only, leaving stored P&L openings un-transferred;
   // those journals are not rewritten automatically, so the computed row legitimately shows that
   // residue in later years and the TB still balances (the row is derived from exactly what the FY
-  // window drops, whatever was posted) — until the owner runs Year-end → Check earlier closes
-  // (services/yearEndRepair.ts), which re-closes those years under today's rule.
+  // window drops, whatever was posted). Binning such a journal and closing the year again re-closes
+  // it under today's rule.
   const { rows, priorPnl } = yearBasisBalances(db, asOn)
 
   const result = rows
@@ -1201,7 +1201,7 @@ export function dashboard(db: DB, today: string, fyFrom: string): DashboardData 
       voucherId: v.id, date: v.date, voucherType: v.voucherType, kind: v.kind, number: v.number,
       account: v.account, accountLedgerId: v.accountLedgerId ?? null, narration: v.narration, debit: v.amount, credit: v.amount,
       // Real flags (not hard-coded false): the recent list shows out-of-books vouchers too, and
-      // the renderer badges them just like the Day Book does.
+      // the renderer badges them just like the All entries list does.
       isOptional: v.isOptional, postDated: v.postDated
     }))
 

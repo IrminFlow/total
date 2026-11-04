@@ -14,7 +14,7 @@ await scenario('01-onboarding', async (h) => {
   // WP 8.0: a company without a GSTIN is unregistered — no GST returns / e-documents to file, so
   // the GST group is not offered at all.
   await h.createCompanyUI('E2E Unregistered')
-  await h.page.waitForSelector('[data-testid="nav-daybook"]', { timeout: 10000 })
+  await h.page.waitForSelector('[data-testid="nav-masters"]', { timeout: 10000 })
   // The group stays for TDS / TCS, but none of the GST returns / e-documents appear in it.
   await h.click('nav-section-gst')
   assert(await h.page.isVisible('[data-testid="nav-tds"]'), 'the group still lists TDS once opened')
@@ -28,7 +28,7 @@ await scenario('01-onboarding', async (h) => {
   await h.shot('02-gateway')
 
   // The sidebar (registry-derived nav testids) is up.
-  await h.page.waitForSelector('[data-testid="nav-daybook"]', { timeout: 10000 })
+  await h.page.waitForSelector('[data-testid="nav-masters"]', { timeout: 10000 })
 
   // Seeded masters exist for a brand-new company.
   const groups = await h.invoke('master:groups:list')
@@ -45,7 +45,7 @@ await scenario('01-onboarding', async (h) => {
   // Collapsible sidebar: only the top block and Books start open; a heading reveals its items,
   // and the choice survives a restart.
   const visible = (id) => h.page.isVisible(`[data-testid="nav-${id}"]`)
-  assert(await visible('daybook'), 'top block is open')
+  assert(await visible('masters'), 'top block is open')
   assert(await visible('trial-balance'), 'Books starts open')
   for (const id of ['registers', 'banking', 'gstr1', 'settings', 'import-tally']) {
     assert(!(await visible(id)), `${id} starts hidden in a collapsed section`)

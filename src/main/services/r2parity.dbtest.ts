@@ -16,7 +16,6 @@ import type { VoucherInput } from '@shared/schemas'
 import { trialBalance, profitAndLoss, balanceSheet, ledgerStatement, stockSummary, dashboard } from './reports'
 import { outstandings, openBills, registerByMonth } from './analysis'
 import { suggestLedgers, anomalyCheck } from './intel'
-import { saveBudget, budgetVarianceReport } from './budgets'
 
 const LEDGER_DEFAULTS = {
   gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null,
@@ -261,19 +260,6 @@ describe('R2 parity — voucher numbering & duplicates', () => {
 })
 
 describe('R2 parity — budgets & dashboard', () => {
-  it('budget variance is unchanged', () => {
-    const { db, ids } = richBook()
-    const indirectExpenses = (db.prepare("SELECT id FROM groups WHERE name = 'Indirect Expenses'").get() as { id: number }).id
-    const budget = saveBudget(db, {
-      name: 'FY26', fyStartYear: 2025,
-      lines: [
-        { ledgerId: ids.rent!, groupId: null, month: null, amount: 100000 },
-        { ledgerId: null, groupId: indirectExpenses, month: '2025-05', amount: 50000 }
-      ]
-    })
-    expect(budgetVarianceReport(db, budget.id, '2025-06')).toMatchSnapshot('budget variance')
-  })
-
   it('dashboard is unchanged', () => {
     const { db } = richBook()
     expect(dashboard(db, '2025-06-30', '2025-04-01')).toMatchSnapshot('dashboard')

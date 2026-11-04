@@ -16,7 +16,7 @@ function DirtyEditor(): null {
   return null
 }
 
-const editorStack: Screen[] = [{ name: 'gateway' }, { name: 'daybook' }, { name: 'voucher-entry', kind: 'sales' } as Screen]
+const editorStack: Screen[] = [{ name: 'gateway' }, { name: 'trial-balance' }, { name: 'voucher-entry', kind: 'sales' } as Screen]
 const info = { name: 'Other Traders' } as unknown as CompanyInfo
 
 beforeEach(() => {

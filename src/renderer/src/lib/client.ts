@@ -1,5 +1,5 @@
 import type {
-  Batch, BomLine, Budget, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
+  Batch, BomLine, CompanyInfo, CostCentre, Currency, Employee, Godown, Group, Ledger, NegativeStockWarning,
   PayrollLine, PayrollRun, PriceLevel, PriceListRate, StockGroup, StockItem, TdsSection, Unit,
   TdsRate, TdsCertificateRow, TdsChallan,
   Voucher, VoucherTransport, VoucherType, TradeDocType, SaveVoucherWarnings
@@ -23,8 +23,6 @@ import type { BuySetup, PurchaseRow, PurchaseView } from '@shared/simple/buy'
 import type { MadeGoodsSetup, SavedCountView, StockList, StockProductView, StockRecipe } from '@shared/simple/stock'
 import type { BusinessDoing, ReportPeriodKind, SimpleByMonth, SimpleCash, SimpleOwed } from '@shared/simple/reports'
 import type { GstFiledInput, GstFiledPeriod, SimpleTaxes } from '@shared/simple/taxes'
-import type { BudgetVarianceRow } from '@shared/budgets'
-import type { McpConfig, McpLogRow, McpSettingsView } from '@shared/mcp'
 import type { AiDraftDto, AiDraftStatus } from '@shared/ai'
 import type {
   TdsEligibleRow, TdsDeductedRow, TdsLedgerSummaryRow, TdsPaymentCandidate, TdsChallanRow, TdsChallanEntryInterest,
@@ -54,7 +52,7 @@ export type ImsDecisionPayload = Omit<ImsDecisionInput, 'note' | 'voucherId' | '
   Partial<Pick<ImsDecisionInput, 'note' | 'voucherId' | 'value' | 'taxable' | 'igst' | 'cgst' | 'sgst' | 'cess'>>
 import type {
   AgentExportInput,
-  AuditExportInput, AuditListInput, BankRuleInput, BatchInput, BomInput, BudgetInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
+  AuditExportInput, AuditListInput, BankRuleInput, BatchInput, BomInput, ChequeConfig, CompanyCreateInput, CostCentreInput,
   CurrencyInput, EmployeeHeadsSetInput, EmployeeInputPayload, GodownInput, GroupInput, Gst3bManualInput, LedgerInput, NicCredentials,
   PayHeadInput, PriceLevelInput,
   PriceRateInput,
@@ -63,7 +61,7 @@ import type {
   TdsRateInput, TdsCertificateInput, TdsChallanInput,
   VoucherInputParsed
 } from '@shared/schemas'
-import type { CompanyFeatures } from '@shared/features'
+import type { CompanyFeatures, FeaturesView } from '@shared/features'
 import type { AssistAnswer, AssistAskInput, AssistDraftResult } from '@shared/assist'
 import type { StockCostPosition, ConsumptionCosting, ProposedOutward } from '@shared/valuation'
 import type { ManufactureDetails, ManufactureInput } from '@shared/manufacture'
@@ -92,9 +90,8 @@ import type { SearchHit, SearchResponse } from '@shared/search'
 import type { ChartGroupNode } from '@shared/chartOfAccounts'
 import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { PrintDocKind, PrintTemplate, TemplateList } from '@shared/printTemplates'
-import type { CloseLedgerRow, CloseRepairPreview } from '@shared/yearEnd'
+import type { CloseLedgerRow } from '@shared/yearEnd'
 import type { DepreciationYearStatus } from '@shared/fixedAssets'
-import type { ConsolidatedResult } from '@shared/consolidate'
 import type { Registry } from '../types'
 import type { ChainVerification } from '@shared/auditChain'
 import type { AuditAction } from '@shared/auditEntities'
@@ -1115,10 +1112,6 @@ export const api = {
     itemProfitability: (from: string, to: string) => call<ItemProfitRow[]>('report:itemProfitability', { from, to }),
     exceptions: (from: string, to: string) => call<ExceptionsReport>('report:exceptions', { from, to })
   },
-  consolidated: {
-    run: (slugs: string[], kind: 'tb' | 'pnl', from: string, to: string) =>
-      call<ConsolidatedResult>('consol:run', { slugs, kind, from, to })
-  },
   gst: {
     gstr1: (from: string, to: string, period: string) => call<Gstr1Result>('gst:gstr1', { from, to, period }),
     gstr3b: (from: string, to: string, period: string) => call<Gstr3bView>('gst:gstr3b', { from, to, period }),
@@ -1284,12 +1277,6 @@ export const api = {
     report: (from: string, to: string) => call<CcReportRow[]>('cc:report', { from, to }),
     statement: (ccId: number, from: string, to: string) => call<CcStatementRow[]>('cc:statement', { ccId, from, to })
   },
-  budget: {
-    list: () => call<Budget[]>('budget:list'),
-    save: (data: BudgetInput, id?: number) => call<Budget>('budget:save', { id, data }),
-    remove: (id: number) => call<null>('budget:delete', { id }),
-    variance: (budgetId: number, upToMonth: string) => call<BudgetVarianceRow[]>('budget:variance', { budgetId, upToMonth })
-  },
   bank: {
     ledgers: () => call<{ id: number; name: string }[]>('bank:ledgers'),
     recon: (ledgerId: number, from: string, to: string) => call<BankRecon>('bank:recon', { ledgerId, from, to }),
@@ -1355,7 +1342,7 @@ export const api = {
   },
   config: {
     features: {
-      get: () => call<CompanyFeatures>('config:features:get'),
+      get: () => call<FeaturesView>('config:features:get'),
       set: (data: CompanyFeatures) => call<CompanyFeatures>('config:features:set', data)
     },
     invoice: {
@@ -1412,13 +1399,7 @@ export const api = {
     preview: (fyStartYear: number) =>
       call<{ rows: CloseLedgerRow[]; netProfit: number; alreadyClosed: boolean; depreciation?: DepreciationYearStatus; unbilled?: UnbilledGoods; msme?: MsmeYearEndWarning }>('yearend:preview', { fyStartYear }),
     close: (fyStartYear: number) =>
-      call<{ voucherId: number; netProfit: number; lockedUpTo: string }>('yearend:close', { fyStartYear }),
-    repairPreview: () => call<CloseRepairPreview>('yearEnd:repairPreview', {}),
-    repair: (fingerprint: string, fyStartYears?: number[]) =>
-      call<{ repaired: { fyStartYear: number; oldVoucherId: number; voucherId: number; netProfit: number; residual: number }[]; lockDate: string | null }>(
-        'yearEnd:repair',
-        fyStartYears ? { fingerprint, fyStartYears } : { fingerprint }
-      )
+      call<{ voucherId: number; netProfit: number; lockedUpTo: string }>('yearend:close', { fyStartYear })
   },
   tally: {
     dryRun: (filePath?: string) =>
@@ -1532,10 +1513,7 @@ export const api = {
     exportMirror: (input?: AgentExportInput) => call<{ dir: string; files: string[] }>('agent:exportMirror', input ?? {}),
     getConfig: () => call<{ enabled: boolean }>('agent:getConfig'),
     setConfig: (enabled: boolean) => call<{ enabled: boolean }>('agent:setConfig', { enabled }),
-    // WP 5.7 — the MCP server's settings, kill switch and log; drafts made over MCP or the inbox.
-    mcp: () => call<McpSettingsView>('agent:mcp:get'),
-    setMcp: (enabled: boolean) => call<McpConfig>('agent:mcp:set', { enabled }),
-    mcpLog: () => call<McpLogRow[]>('agent:mcp:log'),
+    // Drafts the removed MCP server / agent inbox made (WP 5.7), while any are open.
     drafts: (status?: AiDraftStatus) => call<AiDraftDto[]>('agent:drafts', status ? { status } : {})
   },
   app: {

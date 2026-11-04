@@ -74,7 +74,7 @@ export function DisposalWizard({ asset, onClose }: { asset: FixedAssetRow; onClo
     try {
       await faApi.dispose(input)
       await refresh()
-      toast.push('success', part ? `Part (${part.quantity} of ${part.of}) of ${asset.name} disposed — the rest stays on the register` : `${asset.name} disposed — the journal is in the Day book`)
+      toast.push('success', part ? `Part (${part.quantity} of ${part.of}) of ${asset.name} disposed — the rest stays on the register` : `${asset.name} disposed — the journal is in Registers → All entries`)
       onClose()
     } catch (e) {
       toast.push('error', (e as Error).message)

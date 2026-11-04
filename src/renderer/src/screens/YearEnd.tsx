@@ -5,7 +5,6 @@ import { planClose, type CloseLedgerRow } from '@shared/yearEnd'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
 import { CashFinanceCloseWarnings } from './cashFinance/CloseWarnings'
-import { YearEndRecheck } from './YearEndRecheck'
 import { Banner, Button, DrawerSection, EmptyState, Money, Page, PageHeader, Panel, Select, TextInput } from '../components/ui'
 import { OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
@@ -219,7 +218,7 @@ export function YearEndScreen(): React.JSX.Element {
 
       {preview?.alreadyClosed && (
         <Banner tone="danger" className="mb-section" title={`Books for FY ${fy.label} are already closed.`}>
-          Pick a different financial year to continue, or open the closing voucher from the day book.
+          Pick a different financial year to continue, or open the closing voucher from Registers → All entries.
         </Banner>
       )}
 
@@ -288,7 +287,7 @@ export function YearEndScreen(): React.JSX.Element {
           Nothing is posted automatically.
         </Banner>
       )}
-      {/* WP 4.4: unposted EMIs, unrevalued forex balances, over-budget departments (warn-only). */}
+      {/* WP 4.4: unrevalued forex balances (warn-only). */}
       <CashFinanceCloseWarnings fyStartYear={fyStartYear} closed={!!preview?.alreadyClosed} />
 
       {step === 1 && (
@@ -403,7 +402,6 @@ export function YearEndScreen(): React.JSX.Element {
         </>
       )}
 
-      <YearEndRecheck />
     </Page>
   )
 }

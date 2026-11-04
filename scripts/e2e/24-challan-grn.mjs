@@ -13,6 +13,8 @@ await scenario('24-challan-grn', async (h) => {
   await h.createDemoCompany()
   const features = await h.invoke('config:features:get')
   await h.invoke('config:features:set', { ...features, inventory: true, orders: true })
+  // Feature cleanup: the trade cycle shows only for a company that already uses it.
+  await h.useFeature('tradeCycle')
   // Fresh renderer state so the feature flag is read anew.
   await h.relaunch()
   assertEq(await h.openCompany('Demo Traders'), 'gateway', 'demo company reopens')

@@ -52,7 +52,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 3.8 | Audit trail / edit log, chain verification | 30 | |
 | — | GSTR-1 / 3B | 06, 46 | |
 | — | Year-end close, closing journal immutable, lock date, reopen through the bin | 08, 67 (gap filled) | |
-| — | Guided re-close of earlier closes (0.4.0 residual): Check earlier closes → Repair | 67 (step 8) | the residual is made with a stored P&L opening the close never carried — a real 0.4.0 journal (flag set by migration 018) can't be posted over IPC; `yearEndRepair.dbtest.ts` hand-builds one |
+| — | ~~Guided re-close of earlier closes~~ — removed (feature cleanup) | — | |
 
 ## Phase 4 — Banking, receivables, cash
 
@@ -63,7 +63,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 4.1 | MT940 / Excel / CAMT.053 statements, re-import dedupe, post-dated cheques (mature / bounce) | 72 (gap filled) | parsers: `bankFormats.test.ts` |
 | 4.2 | Statements, reminders, interest notes, credit hold, follow-ups | 32 | |
 | 4.3 | Payment plan, MSME s.15 / s.16, payment runs, Form 1 | 33 | |
-| 4.4 | Cash-flow forecast, loans + EMI, forex revaluation, budgets vs actuals (disbursement + foreign openings: dbtests only, not in 34 yet) | 34 | |
+| 4.4 | Cash-flow forecast, forex revaluation (budgets and loan schedules removed in the feature cleanup; foreign openings: dbtests only, not in 34 yet) | 34 | |
 | — | Cost centres, cash flow statement, exceptions, CA pack | 69 (gap filled) | |
 
 ## Phase 5 — AI agent
@@ -74,22 +74,22 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 5.2 | Chat panel, Explain this | 39 | |
 | 5.3 | Voucher drafting + review | 41 | |
 | 5.4 | Document capture, statement categorising | 45 | |
-| 5.5 | Assistants: close checklist, 2B mismatches, anomalies, report from a question | 44 | |
+| 5.5 | Assistants: close checklist, 2B mismatches, anomalies ("report from a question" removed with the report builder) | 44 | |
 | 5.6 | Memory | 43 | |
-| 5.7 | MCP server (real stdio client) | 42 | |
-| 5.8 | Evaluation suite | — | DB: `aiEvals.dbtest.ts` (mocked, 100 %), `npm run ai:evals` |
+| 5.7 | ~~MCP server~~ — removed (feature cleanup) | — | |
+| 5.8 | ~~Evaluation suite~~ — removed (feature cleanup) | — | |
 
 ## Phase 6 — Reports, analytics, data
 
 | WP | Feature | Scenario(s) | Notes |
 | --- | --- | --- | --- |
-| 6.1 | Report builder: build, save, pin, export | 37 | |
-| 6.2 | Ratios, comparatives, scheduled packs | 37 | |
+| 6.1 | ~~Report builder, saved reports~~ — removed (feature cleanup) | — | |
+| 6.2 | Ratios, comparatives (scheduled packs removed) | 37 | |
 | 6.3 | Books export → import round trip, Zoho mapping | 36 | |
 | 6.3 | Busy import + undo | 71 (gap filled) | |
 | 6.4 | Bulk edit of vouchers, attachments in backups | 38 | |
 | 6.4 | Bulk edit of masters / party notes | 71 (gap filled) | see 71's header |
-| 6.5 | Consolidation with eliminations | 40 | |
+| 6.5 | ~~Consolidation with eliminations~~ — removed (feature cleanup) | — | |
 
 ## Phase 7 — Platform
 
@@ -129,6 +129,17 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 10.5 | Keyboard / a11y / window size, simple shell | 73 (was 12), 63 |
 | 10.6 | AI panel in plain words | 35 | the escalated plain drawer (`ai-panel-plain`) gets the a11y sweep + layout check in both themes, with the "what is sent" strip and "Answered by the AI service" asserted |
 | 10.8 | Beginner journey | 60 (extended by WP 10.8) |
+
+## Feature cleanup (Unreleased)
+
+Removed (their rows above are struck through): group consolidation (6.5), the report builder and
+scheduled packs (6.1), the MCP server and agent inbox (5.7), budgets, loan schedules, the AI evals
+(5.8) and the year-end repair tool. Hidden until a company has their data: forex / multi-currency,
+cost centres, cheque books + PDC + bulk payment files, interest, the fixed-asset register, the trade
+cycle and payroll statutory — the scenarios that drive one (11, 22, 24, 26, 28, 31, 69) start with
+`h.useFeature(name)`, which turns it on as an owner does (Settings → Features → More features →
+Turn on); 32, 34 and 72 make theirs used by their own first entries. The hiding itself
+is covered by `__tests__/hiddenFeatures.test.tsx` and `featureUsage.dbtest.ts`.
 
 ## Remaining gaps (deferred)
 

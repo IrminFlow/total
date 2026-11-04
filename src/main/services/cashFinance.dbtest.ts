@@ -1,7 +1,6 @@
 // WP 4.4 — cash and finance against a real (in-memory) company: the forecast's opening equals the
-// trial balance's cash and bank, Post EMI books a balanced principal / interest split and marks
-// the schedule, forex revaluation posts and reverses, settlement books the realised difference,
-// and the budget variance by cost centre ties to the cost-centre P&L.
+// trial balance's cash and bank, a loan schedule already in the books is no longer forecast (1.0 cleanup review),
+// forex revaluation posts and reverses and settlement books the realised difference.
 import { describe, expect, it } from 'vitest'
 import { seededDb, TEST_INFO } from '../db/testdb'
 import type { DB } from '../db/connection'
@@ -9,23 +8,30 @@ import type { VoucherInput } from '@shared/schemas'
 import { createLedger } from './masters'
 import { deleteVoucher, getVoucher, saveVoucher } from './vouchers'
 import { closingBalances, trialBalance, pnlLedgerAmounts } from './reports'
-import { ccReport } from './costCentres'
-import { saveCostCentre } from './costCentres'
-import { saveBudget } from './budgets'
-import { budgetCsv, budgetDrill, budgetMonthlyReport, budgetRevisions, importBudgetCsv, overBudgetThisMonth } from './budgetVariance'
-import { addPrepayment, getLoan, listLoans, postEmi, saveLoan, emiReminders } from './loans'
 import { postRevaluation, revaluationPreview, saveRate, settle, exposure, listRevaluations, reverseRevaluation, setLedgerCurrency } from './forex'
 import { forecastBase, saveForecastItem, listForecastItems } from './cashForecast'
 import { cashNext30 } from './simpleReports'
-import { closeWarnings, financeReminders } from './cashFinanceChecks'
+import { closeWarnings } from './cashFinanceChecks'
 import { buildForecast, SCENARIO_PRESETS } from '@shared/cashForecast'
-import { emiFor } from '@shared/loanSchedule'
 import { payablesPlan } from './payables'
 import { createToolRegistry } from '../ai/tools'
 import type { ToolContext } from '../ai/tools/registry'
 
 const gid = (db: DB, name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
 const lid = (db: DB, name: string): number => (db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number }).id
+
+/** A loan schedule as the removed Loans screen stored it (books from before the cleanup): the
+ *  first two reducing-balance instalments of ₹1,00,000 at 12 % over 12 months (EMI ₹8,884.88). */
+function legacyLoan(db: DB, loanLedger: number, bank: number): number {
+  const id = Number(db.prepare(
+    `INSERT INTO loans (name, loan_ledger_id, bank_ledger_id, principal, annual_rate_milli, tenure_months, disbursed_on, first_due_date)
+     VALUES ('Term loan', ?, ?, 10000000, 12000, 12, '2026-05-01', '2026-06-05')`
+  ).run(loanLedger, bank).lastInsertRowid)
+  const row = db.prepare('INSERT INTO loan_schedules (loan_id, seq, due_date, kind, opening, payment, interest, principal, closing) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  row.run(id, 1, '2026-06-05', 'emi', 1_00_000_00, 8_884_88, 1_000_00, 7_884_88, 92_115_12)
+  row.run(id, 2, '2026-07-05', 'emi', 92_115_12, 8_884_88, 921_15, 7_963_73, 84_151_39)
+  return id
+}
 function ledger(db: DB, name: string, group: string, extra: { openingBalance?: number; creditDays?: number | null } = {}): number {
   return createLedger(db, {
     name, groupId: gid(db, group), openingBalance: extra.openingBalance ?? 0, gstin: null, stateCode: null, address: null,
@@ -61,7 +67,7 @@ describe('cash-flow forecast base', () => {
     expect(base.cashLedgers.map((l) => l.name).sort()).toEqual(['Cash', 'HDFC Current', 'SBI OD'])
   })
 
-  it('collects receivables, payables, known items and EMIs as dated flows', () => {
+  it('collects receivables, payables and known items as dated flows; a leftover loan schedule adds none', () => {
     const { db, bank, sales } = company()
     const cust = ledger(db, 'Acme Buyer', 'Sundry Debtors', { creditDays: 30 })
     const supp = ledger(db, 'Steel Supplier', 'Sundry Creditors')
@@ -71,21 +77,20 @@ describe('cash-flow forecast base', () => {
     saveForecastItem(db, { name: 'Office rent', amount: 25_000_00, cadence: 'monthly', startDate: '2026-06-05', endDate: null, kind: 'outflow' })
     expect(listForecastItems(db)).toHaveLength(1)
     const loanLedger = ledger(db, 'HDFC Term Loan', 'Secured Loans')
-    saveLoan(db, { name: 'Term loan', loanLedgerId: loanLedger, bankLedgerId: bank, principal: 1_00_000_00, annualRateMilli: 12_000, tenureMonths: 12, disbursedOn: '2026-05-01', firstDueDate: '2026-06-05' })
+    legacyLoan(db, loanLedger, bank)
 
     const base = forecastBase(db, TEST_INFO, '2026-06-01', '2026-08-31')
     const rec = base.flows.find((f) => f.source === 'receivable')!
     expect(rec).toMatchObject({ direction: 'in', amount: 1_00_000_00, date: '2026-06-09' })
     expect(base.flows.find((f) => f.source === 'payable')).toMatchObject({ direction: 'out', amount: 40_000_00 })
     expect(base.flows.filter((f) => f.source === 'item').map((f) => f.date)).toEqual(['2026-06-05', '2026-07-05', '2026-08-05'])
-    const emis = base.flows.filter((f) => f.source === 'emi')
-    expect(emis[0]).toMatchObject({ date: '2026-06-05', amount: 8_884_88 })
+    expect(base.flows.filter((f) => f.source === 'emi')).toEqual([])
     expect(base.warnings).toEqual([])
 
     const f = buildForecast({ asOn: base.asOn, unit: 'week', count: 13, openingCash: base.openingCash, flows: base.flows, scenario: SCENARIO_PRESETS.expected })
     expect(f.periods).toHaveLength(13)
     expect(f.periods[0]!.opening).toBe(base.openingCash)
-    expect(f.periods[0]!.bySource.emi).toBe(8_884_88)
+    expect(f.periods[0]!.bySource.emi ?? 0).toBe(0)
     expect(f.periods.at(-1)!.closing).toBe(f.totals.closing)
   })
 })
@@ -193,78 +198,22 @@ describe('cash-flow forecast — MSME s.15 deadlines (msmeDue)', () => {
   })
 })
 
-describe('loans and EMI', () => {
-  function withLoan() {
-    const c = company()
-    const loanLedger = ledger(c.db, 'HDFC Term Loan', 'Secured Loans')
-    // Disbursement: Dr Bank / Cr Loan.
-    post(c.db, 'receipt', '2026-04-01', [dr(c.bank, 1_00_000_00), cr(loanLedger, 1_00_000_00)])
-    const detail = saveLoan(c.db, {
-      name: 'HDFC term loan', loanLedgerId: loanLedger, bankLedgerId: c.bank, principal: 1_00_000_00, annualRateMilli: 12_000,
-      tenureMonths: 12, disbursedOn: '2026-04-01', firstDueDate: '2026-05-05'
-    })
-    return { ...c, loanLedger, detail }
-  }
-
-  it('generates the schedule and Post EMI books a balanced principal / interest split', () => {
-    const { db, bank, loanLedger, detail } = withLoan()
-    expect(detail.schedule).toHaveLength(12)
-    expect(detail.loan.emi).toBe(emiFor(1_00_000_00, 12_000, 12))
-    const first = detail.schedule[0]!
-    const posted = postEmi(db, { scheduleId: first.id })
-    expect(posted.posted).toBe(true)
-    const v = getVoucher(db, posted.voucherId!)!
-    const sum = (side: 'dr' | 'cr') => v.lines.filter((l) => l.drCr === side).reduce((s, l) => s + l.amount, 0)
-    expect(sum('dr')).toBe(sum('cr'))
-    expect(v.lines.find((l) => l.ledgerId === loanLedger)).toMatchObject({ drCr: 'dr', amount: 7_884_88 })
-    expect(v.lines.find((l) => l.ledgerId === bank)).toMatchObject({ drCr: 'cr', amount: 8_884_88 })
-    const interestId = lid(db, 'Interest on Loans')
-    expect(v.lines.find((l) => l.ledgerId === interestId)).toMatchObject({ drCr: 'dr', amount: 1_000_00 })
-    expect(v.date).toBe('2026-05-05')
-
-    const after = getLoan(db, detail.loan.id, '2026-05-10')
-    expect(after.loan.postedCount).toBe(1)
-    expect(after.loan.outstanding).toBe(first.closing)
-    // the loan ledger now carries the outstanding principal
-    expect(-(closingBalances(db, '2026-05-10').get(loanLedger) ?? 0)).toBe(first.closing)
-    expect(after.loan.ledgerBalance).toBe(first.closing)
-    // no double posting, and instalments post in order
-    expect(() => postEmi(db, { scheduleId: first.id })).toThrow(/already posted/)
-    expect(() => postEmi(db, { scheduleId: detail.schedule[2]!.id })).toThrow(/first/)
-  })
-
-  it('binning the EMI voucher re-opens the instalment; reminders and the forecast see it', () => {
-    const { db, detail } = withLoan()
-    const first = postEmi(db, { scheduleId: detail.schedule[0]!.id })
-    expect(emiReminders(db, '2026-06-01', 7).map((r) => r.dueDate)).toEqual(['2026-06-05'])
-    deleteVoucher(db, first.voucherId!)
-    expect(getLoan(db, detail.loan.id).schedule[0]!.posted).toBe(false)
-    expect(emiReminders(db, '2026-06-01', 7).map((r) => r.dueDate)).toEqual(['2026-05-05', '2026-06-05'])
-    expect(financeReminders(db, '2026-06-01').emis[0]).toMatchObject({ overdue: true })
-  })
-
-  it('a prepayment regenerates the unposted rows but never a posted one', () => {
-    const { db, detail } = withLoan()
-    postEmi(db, { scheduleId: detail.schedule[0]!.id })
-    expect(() => addPrepayment(db, { loanId: detail.loan.id, date: '2026-05-01', amount: 10_000_00, effect: 'reduce_tenure' })).toThrow(/posted/)
-    const d = addPrepayment(db, { loanId: detail.loan.id, date: '2026-05-20', amount: 30_000_00, effect: 'reduce_tenure' })
-    expect(d.schedule[0]!.posted).toBe(true)
-    expect(d.schedule.find((r) => r.kind === 'prepayment')).toMatchObject({ dueDate: '2026-05-20', payment: 30_000_00 })
-    expect(d.schedule.length).toBeLessThan(13)
-    expect(d.schedule.reduce((s, r) => s + r.principal, 0)).toBe(1_00_000_00)
-    // terms of a loan with a posted instalment that would change it are refused
-    expect(() => saveLoan(db, { ...loanInput(d), annualRateMilli: 10_000 }, d.loan.id)).toThrow(/already posted/)
-    expect(listLoans(db, '2026-05-21')[0]!.interestThisFy).toBeGreaterThan(0)
+describe('loan schedules already in the books (the loans screen was removed)', () => {
+  it('are not read by the forecast: paid instalments can no longer be marked posted, so they would be paid twice', () => {
+    const { db, bank } = company()
+    const loanLedger = ledger(db, 'HDFC Term Loan', 'Secured Loans')
+    legacyLoan(db, loanLedger, bank)
+    const withLoan = forecastBase(db, TEST_INFO, '2026-06-01', '2026-08-31')
+    expect(withLoan.flows.filter((f) => f.source === 'emi')).toEqual([])
+    // The forecast is the remaining sources, and its opening is still the trial balance's cash and bank.
+    const tb = trialBalance(db, '2026-06-01')
+    expect(withLoan.openingCash).toBe(tb.rows.filter((r) => r.ledgerId === bank || r.ledgerName === 'Cash').reduce((s, r) => s + r.debit - r.credit, 0))
+    // An instalment voucher Post EMI made is an ordinary voucher now: editable.
+    const v = post(db, 'payment', '2026-06-05', [dr(loanLedger, 7_884_88), dr(ledger(db, 'Interest on Loans', 'Indirect Expenses'), 1_000_00), cr(bank, 8_884_88)])
+    const before = getVoucher(db, v)!
+    expect(() => saveVoucher(db, { ...before, narration: 'EMI 1' } as never, v)).not.toThrow()
   })
 })
-
-function loanInput(d: ReturnType<typeof getLoan>) {
-  const l = d.loan
-  return {
-    name: l.name, loanLedgerId: l.loanLedgerId, bankLedgerId: l.bankLedgerId, interestLedgerId: l.interestLedgerId, principal: l.principal,
-    annualRateMilli: l.annualRateMilli, tenureMonths: l.tenureMonths, disbursedOn: l.disbursedOn, firstDueDate: l.firstDueDate
-  }
-}
 
 describe('forex revaluation and settlement', () => {
   function withUsdCustomer() {
@@ -332,66 +281,5 @@ describe('forex revaluation and settlement', () => {
     const w = closeWarnings(db, 2025)
     expect(w.revaluedOnFyEnd).toBe(false)
     expect(w.unrevalued).toEqual([{ currencyCode: 'USD', ledgers: 2, fcBalance: 1100_00 }])
-  })
-})
-
-describe('budgets vs actuals by cost centre', () => {
-  it('a cost-centre line’s actual equals the cost-centre P&L, month and YTD, with drill-down', () => {
-    const { db, cash } = company()
-    const mumbai = saveCostCentre(db, { name: 'Mumbai', parentId: null, active: true }).id
-    const pune = saveCostCentre(db, { name: 'Pune', parentId: null, active: true }).id
-    const rent = ledger(db, 'Rent', 'Indirect Expenses')
-    const power = ledger(db, 'Electricity', 'Indirect Expenses')
-    post(db, 'payment', '2026-04-05', [dr(rent, 30_000_00, [{ costCentreId: mumbai, amount: 20_000_00 }, { costCentreId: pune, amount: 10_000_00 }]), cr(cash, 30_000_00)])
-    post(db, 'payment', '2026-05-05', [dr(power, 8_000_00, [{ costCentreId: mumbai, amount: 8_000_00 }]), cr(cash, 8_000_00)])
-    post(db, 'payment', '2026-05-06', [dr(rent, 30_000_00, [{ costCentreId: mumbai, amount: 25_000_00 }]), cr(cash, 30_000_00)])
-    const b = saveBudget(db, {
-      name: 'Opex 26-27', fyStartYear: 2026,
-      lines: [
-        { ledgerId: null, groupId: gid(db, 'Indirect Expenses'), month: null, amount: 3_00_000_00, costCentreId: mumbai, phasing: 'even' },
-        { ledgerId: rent, groupId: null, month: null, amount: 3_60_000_00, phasing: 'seasonal' },
-        { ledgerId: null, groupId: gid(db, 'Indirect Expenses'), month: null, amount: 1_20_000_00, costCentreId: pune, phasing: 'annual' }
-      ],
-      seasonal: [2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0]
-    })
-    const rep = budgetMonthlyReport(db, b.id, '2026-05')
-    const [mum, rentLine, pun] = rep.rows
-    const cc = ccReport(db, '2026-04-01', '2026-05-31')
-    expect(mum!.ytd.actual).toBe(cc.find((r) => r.costCentreId === mumbai)!.expense)
-    expect(pun!.ytd.actual).toBe(cc.find((r) => r.costCentreId === pune)!.expense)
-    expect(mum!.current).toMatchObject({ budget: 25_000_00, actual: 33_000_00, favourable: false })
-    expect(mum!.ytd).toMatchObject({ budget: 50_000_00, actual: 53_000_00, pct: 106 })
-    // whole-ledger line ties to the P&L ledger amount
-    expect(rentLine!.ytd.actual).toBe(pnlLedgerAmounts(db, '2026-04-01', '2026-05-31').amounts.get(rent))
-    expect(rentLine!.months[0]!.budget).toBe(60_000_00) // weight 2 of 12
-    expect(pun!.current.budget).toBeNull()
-    expect(pun!.ytd.budget).toBe(1_20_000_00)
-    // drill-down adds up to the actual
-    const drill = budgetDrill(db, b.id, mum!.lineId, null, '2026-05')
-    expect(drill.reduce((s, r) => s + r.amount, 0)).toBe(mum!.ytd.actual)
-    expect(budgetDrill(db, b.id, mum!.lineId, '2026-05', '2026-05').reduce((s, r) => s + r.amount, 0)).toBe(33_000_00)
-    // dashboard chip: over budget in May
-    expect(overBudgetThisMonth(db, '2026-05-20').rows.map((r) => r.targetName)).toContain('Indirect Expenses')
-  })
-
-  it('records revisions and round-trips through CSV', () => {
-    const { db } = company()
-    const rent = ledger(db, 'Rent', 'Indirect Expenses')
-    const b = saveBudget(db, { name: 'B', fyStartYear: 2026, lines: [{ ledgerId: rent, groupId: null, month: null, amount: 1_20_000_00, phasing: 'even' }] })
-    expect(budgetRevisions(db, b.id)).toEqual([])
-    const monthly = [10_000_00, 10_000_00, 10_000_00, 10_000_00, 10_000_00, 10_000_00, 10_000_00, 10_000_00, 10_000_00, 10_000_00, 10_000_00, 20_000_00]
-    saveBudget(db, { name: 'B', fyStartYear: 2026, lines: [{ ledgerId: rent, groupId: null, month: null, amount: 1_30_000_00, phasing: 'manual', monthly }], reason: 'Rent hike in March' }, b.id)
-    const revs = budgetRevisions(db, b.id)
-    expect(revs).toHaveLength(1)
-    expect(revs[0]).toMatchObject({ revisionNo: 1, reason: 'Rent hike in March', totalBefore: 1_20_000_00, totalAfter: 1_30_000_00 })
-    const csv = budgetCsv(db, b.id)
-    expect(csv).toContain('Ledger,Rent,,manual,,130000.00,10000.00')
-    const bad = importBudgetCsv(db, b.id, csv.replace('Rent', 'Nope'), null)
-    expect(bad.errors[0]).toMatch(/no ledger named/)
-    const ok = importBudgetCsv(db, b.id, csv, null)
-    expect(ok).toEqual({ lines: 1, errors: [] })
-    expect(budgetRevisions(db, b.id)[0]).toMatchObject({ revisionNo: 2, reason: 'CSV import' })
-    const rep = budgetMonthlyReport(db, b.id, '2027-03')
-    expect(rep.rows[0]!.current.budget).toBe(20_000_00)
   })
 })

@@ -15,7 +15,6 @@ import { saveCostCentre, ccStatement } from './costCentres'
 import { extractPurchaseDocs } from './gst'
 import { listSalesInvoices } from './edocs'
 import { search } from './search'
-import { saveBudget, budgetVarianceReport } from './budgets'
 
 const LEDGER_DEFAULTS = {
   gstin: null, stateCode: null, address: null, taxType: null, gstRate: null, hsn: null,
@@ -213,22 +212,5 @@ describe('WP 1.8 — service rows carry the ids their names drill to', () => {
     const rentRow = search(db, 'Rent', opts).vouchers!.rows.find((r) => r.id === ids.journal)!
     expect(rentRow).toMatchObject({ party: 'Rent', partyLedgerId: ids.rent })
     expect(search(db, 'Binned', opts).vouchers!.rows).toEqual([])
-  })
-
-  it('budget variance: ledger lines carry the ledger id, group lines null', () => {
-    const groupId = (db.prepare("SELECT id FROM groups WHERE name = 'Indirect Expenses'").get() as { id: number }).id
-    const b = saveBudget(db, {
-      name: 'FY27',
-      fyStartYear: 2026,
-      lines: [
-        { ledgerId: ids.rent, groupId: null, month: null, amount: 100000 },
-        { ledgerId: null, groupId, month: null, amount: 200000 }
-      ]
-    })
-    const rows = budgetVarianceReport(db, b.id, '2027-03')
-    expect(rows.map((r) => [r.targetName, r.ledgerId])).toEqual([
-      ['Rent', ids.rent],
-      ['Indirect Expenses', null]
-    ])
   })
 })

@@ -86,7 +86,9 @@ export const PERF_CASES: PerfCase[] = [
   { id: 'tb', label: 'Trial balance (as on today)', group: 'report', budget: REPORT, run: (c) => reports.trialBalance(c.db, c.today) },
   { id: 'pnl', label: 'Profit & loss (FY to date)', group: 'report', budget: REPORT, run: (c) => reports.profitAndLoss(c.db, c.fy.from, c.today) },
   { id: 'bs', label: 'Balance sheet (as on today)', group: 'report', budget: REPORT, run: (c) => reports.balanceSheet(c.db, c.booksFrom, c.today) },
-  { id: 'daybook', label: 'Day book (this month)', group: 'report', budget: REPORT, run: (c) => reports.dayBook(c.db, c.month.from, c.month.to, { includeOutOfBooks: true }) },
+  // The Day book screen went in the feature cleanup; this is Registers → All entries (same data).
+  // The id stays 'daybook': it keys reportEquality's fixture (__fixtures__/reportHashes.json), never regenerated.
+  { id: 'daybook', label: 'All entries register (this month)', group: 'report', budget: REPORT, run: (c) => reports.dayBook(c.db, c.month.from, c.month.to, { includeOutOfBooks: true }) },
   { id: 'ledger', label: 'Ledger statement (busiest bank, FY)', group: 'report', budget: REPORT, run: (c) => reports.ledgerStatement(c.db, c.ids.bank, c.fy.from, c.today) },
   { id: 'ledgerParty', label: 'Ledger statement (busiest party, FY)', group: 'report', budget: REPORT, run: (c) => reports.ledgerStatement(c.db, c.ids.party, c.fy.from, c.today) },
   { id: 'outstandings', label: 'Outstandings (receivable)', group: 'report', budget: REPORT, run: (c) => outstandings(c.db, 'receivable', c.today) },

@@ -1,6 +1,6 @@
 // Cash-flow forecast inputs (WP 4.4). Gathers every dated flow the pure engine
 // (src/shared/cashForecast.ts) weighs — open bills, open orders, the user's known items, statutory
-// dues and loan EMIs — plus today's cash and bank, all from the books at query time. The renderer
+// dues — plus today's cash and bank, all from the books at query time. The renderer
 // runs buildForecast on this base for whatever scenario the sliders say.
 //
 // Sources used (one definition each, never re-derived):
@@ -11,7 +11,10 @@
 //   open orders              tradeReports.pendingOrders (taxable pending value per line)
 //   statutory dues           GST: tax-type ledgers' net credit; TDS / TCS: tagged payable ledgers;
 //                            PF / ESI / PT: payrollStatutory.statutoryDues (outstanding per run)
-//   loan EMIs                loans.dueInstalments (unposted, active loans)
+//   loan EMIs                none since the 1.0 cleanup: loan_schedules left in the books are
+//                            NOT read — with the Loans screen gone a paid instalment can't be
+//                            marked posted, so a schedule would count it again (add an EMI as a
+//                            known item instead)
 //   known items              forecast_items
 //   MSME s.15 / s.16         shared/payables/msme.ts s15Deadline / s16Interest on each open payable
 //                            bill of a covered supplier (payables.listBankRates; read by the
@@ -31,7 +34,6 @@ import { NOT_FX_REVALUATION, openingBillsByParty, openingEvents, outstandings } 
 import { listGroups, partyGroupIdsBySide } from './masters'
 import { pendingOrders, pendingStockNotes } from './tradeReports'
 import { statutoryDues } from './payrollStatutory'
-import { dueInstalments } from './loans'
 import { listBankRates } from './payables'
 import { daysBetween, isMsmeCovered, s15Deadline, s16Interest, type MsmeCategory } from '@shared/payables/msme'
 import { IN_BOOKS, NOT_DELETED } from './vouchers'
@@ -367,10 +369,5 @@ export function forecastBase(db: DB, company: CompanyInfo, asOn: string, to: str
   attempt('Statutory dues', () => flows.push(...statutoryFlows(db, company, asOn)))
   // Read always, counted only when the screen turns them on (buildForecast's includePdc).
   attempt('Post-dated cheques', () => flows.push(...pdcFlows(db)))
-  attempt('Loan EMIs', () => {
-    for (const e of dueInstalments(db, '0000-01-01', to)) {
-      flows.push({ source: 'emi', direction: 'out', date: e.dueDate, amount: e.payment, probabilityBp: 10_000, label: `${e.loanName} · EMI`, loanId: e.loanId })
-    }
-  })
   return { asOn, openingCash: opening.total, cashLedgers: opening.ledgers, flows, receivableProfile: profile, warnings }
 }

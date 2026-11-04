@@ -251,16 +251,16 @@ describe('Drawer', () => {
 
 describe('PageHeader', () => {
   it('title is the h1; period, tabs and actions render; no options button without options', () => {
-    useNav.setState({ stack: [{ name: 'daybook' }] })
+    useNav.setState({ stack: [{ name: 'registers' }] })
     render(
       <Page width="wide">
-        <PageHeader title="Day book" period="01-Apr-26 → 31-Mar-27" actions={<Button variant="primary">New</Button>} />
+        <PageHeader title="All entries" period="01-Apr-26 → 31-Mar-27" actions={<Button variant="primary">New</Button>} />
       </Page>
     )
-    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Day book')
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('All entries')
     expect(screen.getByTestId('page-period').textContent).toMatch(/31-Mar-27/)
     expect(screen.getByRole('button', { name: 'New' })).toBeTruthy()
-    expect(screen.queryByTestId('btn-daybook-options')).toBeNull()
+    expect(screen.queryByTestId('btn-registers-options')).toBeNull()
     expect(screen.getByTestId('page-header').parentElement?.className).toMatch(/max-w-6xl/)
   })
 

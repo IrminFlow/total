@@ -101,10 +101,7 @@ export interface CloseResult {
 export function postClose(
   db: DB,
   company: CompanyInfo,
-  fyStartYear: number,
-  /** Guided re-close (yearEndRepair.ts): post the transfer on the ledger the replaced journal
-   *  used (a renamed Retained Earnings stays the one ledger) instead of finding it by name. */
-  opts: { transferLedgerId?: number } = {}
+  fyStartYear: number
 ): CloseResult {
   const fy = fyFromStartYear(fyStartYear)
   if (fyStartYear < company.booksFrom) {
@@ -120,7 +117,7 @@ export function postClose(
   const plan = planClose(preview.rows)
   if (plan.lines.length === 0) throw new Error(`No income or expense activity to close for FY ${fy.label}`)
 
-  const retainedId = opts.transferLedgerId ?? retainedEarningsLedger(db)
+  const retainedId = retainedEarningsLedger(db)
 
   const lines: { ledgerId: number; drCr: 'dr' | 'cr'; amount: number; costAllocations: [] }[] = plan.lines.map((l) => ({
     ledgerId: l.ledgerId,

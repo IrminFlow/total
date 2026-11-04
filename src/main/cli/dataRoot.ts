@@ -56,7 +56,7 @@ export function readPointerText(path: string): string | null {
   }
 }
 
-/** The CLI / MCP data root, in the app's order: TOTAL_DATA_DIR → the data-root.json pointer (while
+/** The CLI data root, in the app's order: TOTAL_DATA_DIR → the data-root.json pointer (while
  *  its folder exists) → Documents/total. `warn` gets the one-line message when a pointer exists
  *  but cannot be followed; the default opens meanwhile. */
 export function resolveCliDataRoot(

@@ -204,7 +204,7 @@ export function AiSection(): React.JSX.Element {
         <h3 className="mb-1 text-detail font-semibold">Delete all AI data</h3>
         <p className="mb-3 text-body-sm text-muted">
           Removes every conversation, draft (including drafts proposed over MCP or dropped in the inbox), memory and the party alias list from
-          this company. Vouchers you saved from drafts are not touched. The MCP request log stays (it is pruned after 90 days). The usage and
+          this company. Vouchers you saved from drafts are not touched. The usage and
           outbound logs are kept as the record of what was spent and sent, and the audit trail’s entries about AI settings and drafts
           stay: the audit trail is append-only and cannot be purged.
         </p>

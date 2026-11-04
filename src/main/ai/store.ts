@@ -289,9 +289,8 @@ interface DraftRow {
 }
 
 /** Where drafts written by this process come from when the caller does not say (WP 5.7): the
- *  app is 'chat'; the `total-cli mcp` process sets 'mcp' + the client's name once at session
- *  start, so every draft tool — including ones added later — records its source without
- *  knowing about MCP. */
+ *  app is 'chat'. (The removed `total-cli mcp` process set 'mcp' + the client's name here; its
+ *  rows still read as they did.) */
 let defaultDraftOrigin: { source: AiDraftSource; origin: () => string | null } = { source: 'chat', origin: () => null }
 
 export function setDefaultDraftOrigin(o: { source: AiDraftSource; origin: () => string | null }): void {
@@ -559,7 +558,7 @@ export interface AiDataCounts {
   pseudonyms: number
   /** Drafts proposed over MCP or dropped in the inbox (also deleted with the drafts). */
   agentDrafts: number
-  /** mcp_log rows — counted for the record, never deleted here (its own retention prunes it). */
+  /** mcp_log rows (left by the removed MCP server) — counted for the record, never deleted here. */
   mcpLog: number
 }
 
@@ -584,7 +583,7 @@ export function deleteAllAiData(db: DB, includeLogs: boolean): AiDataCounts {
   const before = aiDataCounts(db)
   db.transaction(() => {
     db.exec('DELETE FROM ai_drafts; DELETE FROM ai_messages; DELETE FROM ai_threads; DELETE FROM ai_memory; DELETE FROM ai_pseudonyms;')
-    // mcp_log is not an AI-provider log: it stays (pruned after MCP_LOG_KEEP_DAYS by the server).
+    // mcp_log is not an AI-provider log: it stays.
     if (includeLogs) db.exec('DELETE FROM ai_usage; DELETE FROM ai_outbound_log;')
     // Kept logs keep their sizes and fingerprints, not the (masked) screen context that was sent.
     else db.exec('UPDATE ai_outbound_log SET context_json = NULL WHERE context_json IS NOT NULL;')

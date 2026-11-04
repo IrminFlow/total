@@ -349,47 +349,6 @@ describe('canSeeProfit: false covers every way to the profit (PR #112 follow-up)
     expect((hidden.dashboard.data as { ratios: { grossMarginPct: number | null; netMarginPct: number | null } }).ratios).toMatchObject({ grossMarginPct: null, netMarginPct: null })
   })
 
-  it('report builder: a profit measure or an income + expense model is refused; one side alone runs', async () => {
-    const working = { from: '2026-04-01', to: '2027-03-31' }
-    const run = (model: Record<string, unknown>): Promise<Result> => call('rb:run', { model, working, today: '2027-04-30' })
-    expect((await run({ source: 'accounts', dimensions: [{ key: 'ledger' }], measures: ['profit'] })).code).toBe('not_permitted')
-    expect((await run({ source: 'accounts', dimensions: [{ key: 'group', level: 1 }], measures: ['net'] })).code).toBe('not_permitted')
-    expect((await run({ source: 'accounts', dimensions: [{ key: 'ledger' }], measures: ['net'], filters: { groupIds: [groupsByName.get('Indirect Expenses')!] } })).ok).toBe(true)
-    expect((await run({ source: 'accounts', dimensions: [{ key: 'ledger' }], measures: ['net'], filters: { groupIds: [groupsByName.get('Indirect Expenses')!, groupsByName.get('Sales Accounts')!] } })).code).toBe('not_permitted')
-    // the owner runs them all, unchanged
-    await login(ids.owner, PIN.owner)
-    expect((await run({ source: 'accounts', dimensions: [{ key: 'ledger' }], measures: ['profit'] })).ok).toBe(true)
-  })
-
-  it('report packs: profit reports are skipped with a note for the flagged user; the trial balance is redacted', async () => {
-    const out = mkdtempSync(join(tmpdir(), 'total-pack-'))
-    try {
-      const saved = await ok<{ id: number }>('rb:save', { name: 'Profit by ledger', model: { source: 'accounts', dimensions: [{ key: 'ledger' }], measures: ['profit'] } })
-      const pack = await ok<{ id: number }>('pack:save', {
-        data: {
-          name: 'Month end', periodRule: 'fyToDate', frequency: 'monthly', formats: ['csv'], outputDir: out,
-          reports: [{ kind: 'builtin', key: 'trialBalance' }, { kind: 'builtin', key: 'profitLoss' }, { kind: 'builtin', key: 'receivables' }, { kind: 'saved', id: saved.id }]
-        }
-      })
-      const ownerRun = await ok<{ status: string; files: string[] }>('pack:runNow', { id: pack.id })
-      expect(ownerRun.status).toBe('ok')
-      expect(ownerRun.files).toHaveLength(4)
-
-      await login(ids.acct, PIN.acct)
-      const r = await ok<{ status: string; files: string[]; error: string | null }>('pack:runNow', { id: pack.id })
-      expect(r.status).toBe('partial')
-      expect(r.files).toHaveLength(2)
-      // the run's own file list (names follow the report titles, #150): the TB is the pack's first report
-      expect(r.error).toMatch(/Profit & Loss: skipped — profit figures are not shown/)
-      expect(r.error).toMatch(/Saved report #\d+: skipped/)
-      const tbCsv = readFileSync(r.files.find((f) => /^01-/.test(f.split(/[\\/]/).pop()!))!, 'utf8')
-      expect(tbCsv).not.toMatch(/Counter Sales|Rent/)
-      expect(tbCsv).toMatch(/Profit figures are not shown/)
-    } finally {
-      rmSync(out, { recursive: true, force: true })
-    }
-  })
-
   it('AI tools refuse with a plain message (or redact the trial balance); owners unaffected', async () => {
     const { createToolRegistry } = await import('./ai/tools')
     const registry = createToolRegistry()
@@ -407,7 +366,6 @@ describe('canSeeProfit: false covers every way to the profit (PR #112 follow-up)
     }
     await refused('profit_and_loss', { from: '2026-04-01', to: '2027-03-31' })
     await refused('balance_sheet', { asOn: '2027-03-31' })
-    await refused('build_report', { title: 'Profit by ledger', source: 'accounts', dimensions: [{ key: 'ledger' }], measures: ['profit'] })
     await refused('current_screen_data', {}, { screen: 'profit-loss', label: 'Profit & Loss', from: '2026-04-01', to: '2027-03-31' })
     await refused('explain_figure', { groupName: 'Indirect Expenses' }, { screen: 'profit-loss', label: 'Profit & Loss', from: '2026-04-01', to: '2027-03-31' })
     const np = await runTool('explain_figure', { groupName: 'Net profit' }, ctx(false))
@@ -435,16 +393,11 @@ describe('canSeeProfit: false covers every way to the profit (PR #112 follow-up)
     expect(owner.sentences.join(' ')).not.toMatch(/not shown/)
   })
 
-  it('the other doors to the profit are shut too: year-end preview, consolidation, the CA pack, the mirror; owners unchanged', async () => {
+  it('the other doors to the profit are shut too: year-end preview, the CA pack, the mirror; owners unchanged', async () => {
     await login(ids.acct, PIN.acct)
-    const c = ipc.getCurrentCompany()!
     const fy = { from: '2026-04-01', to: '2027-03-31' }
     // the year-end close preview IS the net profit to transfer
     expect((await call('yearend:preview', { fyStartYear: 2026 })).code).toBe('not_permitted')
-    // a consolidated P&L / trial balance over this business (every member includes the open one)
-    expect((await call('consol:run', { slugs: [c.slug], kind: 'pnl', ...fy })).code).toBe('not_permitted')
-    expect((await call('consol:run', { slugs: [c.slug], kind: 'tb', ...fy })).code).toBe('not_permitted')
-    expect((await call('consolGroup:run', { groupId: 1, ...fy })).code).toBe('not_permitted')
     // the CA pack writes profit-and-loss.csv / balance-sheet.csv (canExport alone let it through)
     expect((await call('export:caPack', fy)).code).toBe('not_permitted')
     // the agent mirror's trial balance follows the flag like the screen's
@@ -455,7 +408,6 @@ describe('canSeeProfit: false covers every way to the profit (PR #112 follow-up)
 
     await login(ids.owner, PIN.owner)
     expect((await ok<{ netProfit: number }>('yearend:preview', { fyStartYear: 2026 })).netProfit).toBe(30_000_00)
-    expect((await call('consol:run', { slugs: [c.slug], kind: 'pnl', ...fy })).ok).toBe(true)
     expect((await call('export:caPack', fy)).ok).toBe(true)
     const full = await ok<{ dir: string }>('agent:exportMirror', { what: 'reports', format: 'json' })
     const fullTb = JSON.parse(readFileSync(join(full.dir, 'trial-balance.json'), 'utf8')) as { rows: { ledgerName: string }[]; profitHidden?: boolean }
@@ -537,7 +489,6 @@ describe('every export-audited channel is gated by canExport unless it is a prin
       'bankImport:pickFile': 'input: picks a statement',
       'bankImport:profile': 'a statement column mapping',
       'bankImport:saveProfile': 'a statement column mapping',
-      'budget:importCsv': 'input: a budget CSV',
       'pricing:importCsv': 'input: a price list'
     }
     const { readdirSync, readFileSync, statSync } = await import('fs')
@@ -575,7 +526,7 @@ describe('every export-audited channel is gated by canExport unless it is a prin
     expect(unlisted).toEqual([])
     // the scan really reads the handlers (a regex that silently matches nothing would pass)
     expect(seen.size).toBeGreaterThan(500)
-    for (const ch of ['banking:brsPdf', 'payroll:form16Pdf', 'tds:form16aPdf', 'payroll:ecr', 'pack:runNow']) expect(seen.has(ch), ch).toBe(true)
+    for (const ch of ['banking:brsPdf', 'payroll:form16Pdf', 'tds:form16aPdf', 'payroll:ecr']) expect(seen.has(ch), ch).toBe(true)
     for (const ch of Object.keys(NOT_FILE_WRITES)) expect(ipc.CHANNEL_ROLES.has(ch), ch).toBe(true)
     for (const ch of Object.keys(caps.NOT_EXPORTS)) expect(ipc.CHANNEL_ROLES.has(ch), ch).toBe(true)
   })
@@ -619,59 +570,6 @@ describe('the e-invoice business profile (to-do §4)', () => {
     expect(status.enabled).toBe(false) // never switched on by the profile
     expect(status.turnOn?.since).toBe('2025-04-01')
     await ok('auth:login', { userId: owner.id, pin: '1111' })
-  })
-})
-
-describe('consolidation member passphrases (PR #132) leave no trace', () => {
-  const PASS = 'member passphrase zq7-unique'
-  /** Every file under the data root that holds the passphrase bytes (logs, audit, WAL, JSON …). */
-  const filesHolding = (needle: string): string[] => {
-    const hits: string[] = []
-    const bytes = Buffer.from(needle, 'utf8')
-    const walk = (d: string): void => {
-      for (const e of readdirSync(d, { withFileTypes: true })) {
-        const p = join(d, e.name)
-        if (e.isDirectory()) walk(p)
-        else if (readFileSync(p).includes(bytes)) hits.push(p)
-      }
-    }
-    walk(DATA_DIR)
-    return hits
-  }
-
-  it('a run with memberPassphrases reads the locked member for the run only; wrong / right passphrases are nowhere on disk', async () => {
-    const enc = await import('./db/encryption')
-    const member = await ok<{ slug: string }>('company:create', company('Locked Member Co'))
-    await ok('company:open', { slug: member.slug })
-    await ok('security:passphrase:on', { passphrase: PASS, confirm: PASS })
-    await ok('company:close')
-    const parent = await ok<{ slug: string }>('company:create', company('Group Parent Co'))
-    await ok('company:open', { slug: parent.slug })
-    const group = await ok<{ id: number }>('consolGroup:save', {
-      data: { name: 'Review Group', members: [{ companySlug: parent.slug, role: 'parent' }, { companySlug: member.slug, role: 'subsidiary' }] }
-    })
-    const fy = { from: '2026-04-01', to: '2027-03-31' }
-    type Run = { pnl: { members: { slug: string; included: boolean }[] }; warnings: string[] }
-    const included = (r: Run): boolean => r.pnl.members.find((m) => m.slug === member.slug)!.included
-
-    // without a passphrase: skipped as before
-    expect(included(await ok<Run>('consolGroup:run', { groupId: group.id, ...fy }))).toBe(false)
-    // a wrong one refuses the run naming the member (never echoing the passphrase)
-    const wrong = await call('consolGroup:run', { groupId: group.id, ...fy, memberPassphrases: { [member.slug]: `${PASS}-wrong` } })
-    expect(wrong).toMatchObject({ ok: false, code: 'wrong_passphrase' })
-    expect(wrong.error).toBe('That passphrase is not right — Locked Member Co')
-    // an unknown field is refused by the strict payload, without echoing its value
-    const strict = await call('consolGroup:run', { groupId: group.id, ...fy, passphrase: PASS })
-    expect(strict.ok).toBe(false)
-    expect(JSON.stringify(strict)).not.toContain(PASS)
-    // the right one reads the member for this run, and the key is not remembered afterwards
-    const right = await ok<Run>('consolGroup:run', { groupId: group.id, ...fy, memberPassphrases: { [member.slug]: PASS } })
-    expect(included(right)).toBe(true)
-    expect(enc.keyForPath(dbFile(member.slug))).toBeNull()
-    expect(included(await ok<Run>('consolGroup:run', { groupId: group.id, ...fy }))).toBe(false)
-
-    ipc.closeCurrentCompany() // flush the WAL into the file before reading the disk
-    expect(filesHolding(PASS)).toEqual([])
   })
 })
 

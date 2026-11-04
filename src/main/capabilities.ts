@@ -4,7 +4,7 @@
 //   binning, restoring, importing, posting runs …) — derived from AUDIT_COVERAGE, so a new
 //   posting channel is covered the day it is mapped there (capabilities.dbtest.ts checks it).
 // - canSeeProfit: the screens that show profit / loss (the P&L, the balance sheet's profit line,
-//   comparatives, ratios, item profitability, cash flow, budget variance, the simple "How am I
+//   comparatives, ratios, item profitability, cash flow, the simple "How am I
 //   doing"). Dashboards and simple Home keep working with their profit figures left out (ipc.ts).
 // - canExport: the channels that write the books (or a report of them) to a file. The CA pack
 //   (export:caPack) writes the P&L and balance sheet too, so its handler also checks canSeeProfit.
@@ -24,15 +24,9 @@ export const PROFIT_CHANNELS: readonly string[] = [
   'report:ratios',
   'report:itemProfitability',
   'report:cashFlow',
-  'budget:variance',
   'simple:reports:doing',
-  // PR #127 review: the year-end close preview IS the net profit to transfer; a consolidated
-  // P&L / trial balance includes the open business's own statement.
+  // PR #127 review: the year-end close preview IS the net profit to transfer.
   'yearend:preview',
-  // The re-close check shows each closed year's net profit and the lines it would post.
-  'yearEnd:repairPreview',
-  'consol:run',
-  'consolGroup:run'
 ]
 
 export const EXPORT_CHANNELS: readonly string[] = [
@@ -40,7 +34,6 @@ export const EXPORT_CHANNELS: readonly string[] = [
   'audit:exportCsv',
   'audit:exportPdf',
   'backup:exportEncrypted',
-  'budget:exportCsv',
   // PR #144 review: the bank's bulk-payment upload file (each supplier's account number and the
   // amounts) — a file of the books, like the payables run CSV.
   'bulkPay:export',
@@ -70,12 +63,7 @@ export const EXPORT_CHANNELS: readonly string[] = [
   'payroll:esi',
   'payroll:ptCsv',
   'payroll:ptReturnCsv',
-  // PR #155 review: a report pack writes its reports (trial balance, P&L …) to a folder — now
-  // (pack:runNow) or on every open from its schedule (pack:save sets the folder and schedule).
-  'pack:runNow',
-  'pack:save',
   'pricing:exportCsv',
-  'rb:exportJson',
   // PR #140 review: a party's statement PDF is a report of the books written to a file, like
   // report:pdf — a viewer may save it (its minimum role), unless the owner turned canExport off.
   'receivables:statementPdf',
@@ -115,7 +103,7 @@ export const NOT_EXPORTS: Readonly<Record<string, string>> = {
   'importwiz:sample': 'blank import sample'
 }
 
-export const AI_CHANNELS: readonly string[] = ['ai:settings:set', 'ai:notice:accept', 'ai:testConnection', 'agent:mcp:set']
+export const AI_CHANNELS: readonly string[] = ['ai:settings:set', 'ai:notice:accept', 'ai:testConnection']
 
 /** The highest minimum role a granted flag can open. */
 const CEILING: Record<Capability, Role> = { canPost: 'accountant', canSeeProfit: 'accountant', canExport: 'accountant', canManageAi: 'owner' }

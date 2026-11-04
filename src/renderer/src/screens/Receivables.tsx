@@ -541,6 +541,9 @@ export function ReceivablesScreen({ tab: initialTab = 'control' }: { tab?: Recei
   const toast = useToasts()
   const qc = useQueryClient()
   const [tab, setTab] = useState<ReceivablesTab>(initialTab)
+  // Feature cleanup: the Interest tab only for a company that has charged interest or set terms.
+  const { interest } = useFeatures()
+  const tabs = interest ? TABS : TABS.filter((t) => t.id !== 'interest' || t.id === tab)
   const opts = useScreenOptions('receivables', { showDoneTasks: false })
   const { data: cfg } = useQuery({ queryKey: ['receivablesConfig'], queryFn: receivablesApi.config })
   const config = cfg?.config
@@ -561,7 +564,7 @@ export function ReceivablesScreen({ tab: initialTab = 'control' }: { tab?: Recei
       <PageHeader
         title="Credit control"
         period={asOn}
-        tabs={<TabBar screen="receivables" tabs={TABS} active={tab} onSelect={setTab} />}
+        tabs={<TabBar screen="receivables" tabs={tabs} active={tab} onSelect={setTab} />}
         options={{
           onReset: opts.reset,
           content: (

@@ -5,7 +5,6 @@ import { chequeConfigSchema, gst3bManualSchema, mergeChequeConfig, type ChequeCo
 import { getAuditTrailRequired, setAuditTrailRequired, writeAudit } from './audit'
 import { MIN_AUDIT_KEEP_DAYS } from '@shared/auditRetention'
 import { getLegacyConfigView, setLegacyConfig } from './printTemplates'
-import type { McpConfig } from '@shared/mcp'
 import { applyUiPatch, normalizeUi, uiPatchSchema, type UiSettings } from '@shared/simple/uiMode'
 import { UI_META_KEY } from '../i18n'
 import { applyGstProfilePatch, gstProfilePatchSchema, normalizeGstProfile, type GstProfile } from '@shared/gst/filing'
@@ -143,9 +142,9 @@ export function getAuditSettings(db: DB): { keepDays: number | null; trailRequir
 
 // ---------- agent bridge feature flag (lane A) ----------
 
-/** Whether the `<company>/inbox/` drop-folder watcher + auto mirror refresh are on for this
- *  company. Default OFF — an agent write surface should be a deliberate opt-in. Stored in `meta`
- *  under 'agent_bridge'; the CLI is always available regardless (it validates identically). */
+/** Whether the read mirror under `<company>/agent/` refreshes itself after saves for this
+ *  company. Default OFF — a deliberate opt-in. Stored in `meta` under 'agent_bridge' (it also
+ *  switched the agent inbox, since removed); `total-cli export` works regardless. */
 export function getAgentBridgeEnabled(db: DB): boolean {
   return readMeta(db, 'agent_bridge') === true
 }
@@ -155,26 +154,6 @@ export function setAgentBridgeEnabled(db: DB, enabled: boolean): boolean {
   writeMeta(db, 'agent_bridge', enabled)
   writeAudit(db, 'company', 0, 'update', { agentBridge: before }, { agentBridge: enabled })
   return enabled
-}
-
-// ---------- MCP server kill switch (WP 5.7) ----------
-
-/** Whether `total-cli mcp` may serve this company. Default OFF, like the in-app assistant: the
- *  owner turns it on in Settings → Agent access. Off refuses new sessions and every request of a
- *  running one (the kill switch). Stored in `meta` 'mcp'. */
-export function getMcpConfig(db: DB): McpConfig {
-  const v = readMeta(db, 'mcp') as Partial<McpConfig> | null
-  return { enabled: v?.enabled === true }
-}
-
-export function setMcpConfig(db: DB, input: McpConfig): McpConfig {
-  const before = getMcpConfig(db)
-  const after: McpConfig = { enabled: input.enabled }
-  db.transaction(() => {
-    writeMeta(db, 'mcp', after)
-    writeAudit(db, 'company', 0, 'update', { mcp: before }, { mcp: after })
-  })()
-  return after
 }
 
 // ---------- company mode (WP 8.1, plan 2026-10-13 §2.1) ----------

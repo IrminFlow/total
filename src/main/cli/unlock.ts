@@ -1,4 +1,4 @@
-// total-cli / MCP access to a business locked with a passphrase (WP 7.2 follow-up).
+// total-cli access to a business locked with a passphrase (WP 7.2 follow-up).
 //
 // The passphrase comes from the environment variable TOTAL_PASSPHRASE — never from a flag: a
 // process's arguments are readable by every user on the machine (`ps`, Activity Monitor, Task

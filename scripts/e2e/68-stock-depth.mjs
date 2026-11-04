@@ -2,7 +2,7 @@
 // voucher + WP 2.3 stock reports; 19-stock covers transfers, serials and the reorder report):
 //   1. A physical stock count typed in its own editor (Voucher entry → Physical Stock): 10 bought
 //      at ₹50, counted 7 → the Stock summary shows 7 and ₹350 (the shortfall at average cost).
-//   2. Reopened from the Day book, re-counted 9 → the change lands (9, ₹450); opened again and
+//   2. Reopened from All entries, re-counted 9 → the change lands (9, ₹450); opened again and
 //      saved UNCHANGED → voucher:get is identical (round trip; only updatedAt may move).
 //   3. Valuation method: an item bought 10 @ ₹100 then 10 @ ₹160 with 12 sold is ₹1,040 at
 //      weighted average (8 × 130); switched to FIFO in Masters (item form) it is ₹1,280 (8 × 160).
@@ -148,11 +148,11 @@ await scenario('68-stock-depth', async (h) => {
   await waitCell('stock-summary', counted.id, 'closingValue', '350.00', 'closing value = 7 × ₹50 average cost')
   await h.shot('02-stock-summary-counted')
 
-  // ---------- 2. reopen from the Day book, re-count, then an unchanged round trip ----------
+  // ---------- 2. reopen from All entries, re-count, then an unchanged round trip ----------
   const openFromDaybook = async (id) => {
     await h.goto('gateway')
-    await h.goto('daybook')
-    await page.click(`[data-testid="rows-daybook"] [data-row-id="${id}"]`, { timeout: 10000 })
+    await h.gotoAllEntries()
+    await page.click(`[data-testid="rows-registers-entries"] [data-row-id="${id}"]`, { timeout: 10000 })
     await h.waitScreen('voucher-entry')
     await page.waitForSelector('[data-testid="voucher-entry-mode"][data-mode="physical"]', { timeout: 10000 })
   }
@@ -161,7 +161,7 @@ await scenario('68-stock-depth', async (h) => {
   assertEq(await countInput.inputValue(), '7', 'the reopened count shows 7')
   await countInput.fill('9')
   await h.click('btn-save-physical')
-  await h.waitScreen('daybook')
+  await h.waitScreen('registers')
   const v2 = await h.invoke('voucher:get', { id: countId })
   assertEq(v2.number, v1.number, 'the alteration keeps the number')
   assertEq(v2.inventory[0].qtyMilli, 9000, 'the re-count landed')
@@ -174,7 +174,7 @@ await scenario('68-stock-depth', async (h) => {
   assertEq(await page.locator('[data-testid="input-counted-qty"]').first().inputValue(), '9', 'the re-count reopens as 9')
   await h.shot('03-physical-reopened')
   await h.click('btn-save-physical')
-  await h.waitScreen('daybook')
+  await h.waitScreen('registers')
   const v3 = await h.invoke('voucher:get', { id: countId })
   // Every stored field must survive; only updatedAt and the line ROW ids move (a save rewrites the
   // lines — lineUid is the line's stable identity and is compared).

@@ -212,7 +212,7 @@ This is the full app. It is built to match what an accountant expects from Tally
 
 - **Voucher entry** of every kind: sales, purchase, payment, receipt, journal, contra (cash and bank moves), credit and debit notes, stock journal, and physical stock. GST is worked out live as you type.
 - **Counter billing.** A point-of-sale screen that works with barcode scanners.
-- **Day book.** Every entry by date.
+- **All entries** (Registers). Every entry by date.
 - **Masters.**
   - Ledgers (accounts) and groups: the chart of accounts.
   - Stock items, units and godowns (stock places).
@@ -270,13 +270,10 @@ This is the full app. It is built to match what an accountant expects from Tally
 
 #### Planning and analysis
 
-- Cost centres and budgets with budget-versus-actual.
+- Cost centres.
 - Cash-flow forecast.
-- Loans and EMI schedules.
 - Multi-currency and foreign-exchange revaluation.
 - Ratio analysis.
-- A **report builder** for custom reports, which can be saved, pinned and sent as scheduled packs.
-- **Group consolidation** of several companies, with inter-company items removed openly.
 
 #### Books and year-end
 
@@ -314,7 +311,6 @@ This is the full app. It is built to match what an accountant expects from Tally
 - **Capture** of bills from photos and PDFs.
 - **Drafting** of entries. The AI only ever writes a *draft*; a person opens it and saves it.
 - Every answer's figures are checked against the data the AI actually saw, and doubtful ones are flagged.
-- An **MCP server**, a way for other AI tools on the same computer to read the books. It is off by default and controlled per business.
 
 ---
 

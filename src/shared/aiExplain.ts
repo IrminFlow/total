@@ -198,7 +198,7 @@ export function parseNavIntent(text: string): { kind: NavIntentKind | null; targ
 }
 
 /** What a navigation request resolves to: the FIRST search hit of the requested kind (the panel
- *  opens it; the WP 5.8 evals score the same choice). The model is never involved. */
+ *  opens it). The model is never involved. */
 export interface NavTarget {
   kind: NavIntentKind
   id: number
@@ -232,7 +232,7 @@ export type NavDecision<S> =
   | { to: 'nothing'; target: string }
 
 /**
- * The assistant panel's routing of typed text (WP 5.2), shared so the WP 5.8 evals run the same
+ * The assistant panel's routing of typed text (WP 5.2), shared so every caller runs the same
  * path: an "open / go to" request is resolved by the app — a screen by its title, else the search
  * service's first hit of the requested kind — and never reaches the model; null = not navigation
  * (the text goes to the assistant). `search` is the search service (IPC in the renderer, the

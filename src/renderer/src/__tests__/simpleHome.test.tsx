@@ -116,8 +116,8 @@ describe('simple Home (WP 8.6)', () => {
     }
     await open('receivables', 'See who owes you', { name: 'outstandings', side: 'receivable' })
     await open('payables', 'See whom you owe', { name: 'outstandings', side: 'payable' })
-    await open('money-in', 'See today’s entries', { name: 'daybook', date: '2026-10-13' })
-    await open('money-out', 'See today’s entries', { name: 'daybook', date: '2026-10-13' })
+    await open('money-in', 'Open today’s entries in the list of all entries', { name: 'registers', tab: 'entries', from: '2026-10-13', to: '2026-10-13' })
+    await open('money-out', 'Open today’s entries in the list of all entries', { name: 'registers', tab: 'entries', from: '2026-10-13', to: '2026-10-13' })
     await open('cash', 'See each account’s balance today', { name: 'trial-balance', asOn: '2026-10-13', ledgerIds: [1, 2] })
     // WP 9.9: the GST tile opens the simple Taxes screen on its period.
     await open('gst', 'See what to pay and file for Sep 2026', { name: 'simple-taxes', period: '2026-09' })

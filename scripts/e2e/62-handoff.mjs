@@ -4,7 +4,7 @@
 //      customer, a product, a quantity, on credit) → "Accountant view" → the full sales editor shows
 //      the same customer, line and total (the hand-off banner says nothing is saved yet) → saved
 //      there → "Back to simple" lands on THAT bill's simple view.
-//   2. From the full app's sidebar (Day book) a receipt opens in its editor → "Back to simple" →
+//   2. From Money → All entries (the full app's Registers) a receipt opens in its editor → "Back to simple" →
 //      the Money view of that entry.
 //   3. ⌘K in a simple company lists the simple screens: "Make a bill" + ↵ opens it.
 //   4. "Always open the full app for this" remembers the choice: Make a bill then opens the full
@@ -152,10 +152,9 @@ await scenario('62-handoff', async (h) => {
   const receiptId = receipt.voucherIds[0]
   await h.click('simple-nav-money')
   await h.click('simple-entry-all-entries')
-  await h.waitScreen('daybook')
+  await h.waitScreen('registers')
   await attached(h, 'nav[aria-label="Main"]')
-  await h.click('nav-daybook')
-  await page.click(`[data-testid="rows-daybook"] [data-row-id="${receiptId}"]`, { timeout: 10000 })
+  await page.click(`[data-testid="rows-registers-entries"] [data-row-id="${receiptId}"]`, { timeout: 10000 })
   await h.waitScreen('voucher-entry')
   await attached(h, '[data-testid="voucher-entry-mode"][data-mode="accounting"]')
   await h.click('btn-back-to-simple')

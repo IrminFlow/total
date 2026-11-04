@@ -15,9 +15,6 @@ import { SimpleHeader } from '../simple/SimpleHeader'
 import { SimpleSidebar } from '../simple/SimpleSidebar'
 import { ViewToggle } from '../simple/ViewToggle'
 import { useNavSections } from '../lib/navSections'
-import { useDynamicNav } from '../lib/dynamicNav'
-// Registers the pinned-saved-reports source (WP 6.1) before the first render.
-import '../lib/pinnedReports'
 import { AssistantPanel } from './ai/AssistantPanel'
 import { AssistantButton } from './ai/AssistantButton'
 import { HelpPanel } from '../simple/help/HelpPanel'
@@ -42,7 +39,6 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   const chunksLoading = useChunkLoading((s) => s.count)
   const features = useFeatures()
   const sections = useNavSections(screen.name)
-  const dynamicNav = useDynamicNav()
   const t = useT()
   // WP 8.1: a simple company shows its simple screens in the simple shell (header + sidebar);
   // <main> stays in place, so switching a screen's view keeps the screen (and its state) mounted.
@@ -70,8 +66,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
   useRovingRadios(simple)
   const visibleNav = NAV.filter((s) => !s.feature || features[s.feature]).map((s) => ({
     ...s,
-    items: s.items.filter((i) => (!i.feature || features[i.feature]) && screenApplies(i, info?.gstRegistrationType)),
-    dynamic: dynamicNav.get(s.id) ?? []
+    items: s.items.filter((i) => (!i.feature || features[i.feature]) && screenApplies(i, info?.gstRegistrationType))
   }))
   const navBtnCls = (active: boolean): string =>
     `block w-full rounded-md px-2.5 py-[5px] text-left text-detail transition-colors ${
@@ -206,9 +201,7 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
                 {/* Collapsed items stay in the DOM (hidden) so aria-controls always resolves. */}
                 <div id={listId} hidden={!open}>
                   {section.items.map((item) => {
-                    // A dynamic entry (a pinned report) that is the visible screen takes the
-                    // highlight from its registry screen.
-                    const active = screen.name === item.screen.name && !section.dynamic.some((d) => d.isActive(screen))
+                    const active = screen.name === item.screen.name
                     return (
                       <button
                         type="button"
@@ -218,23 +211,6 @@ export function Shell({ children, onOpenPalette }: { children: ReactNode; onOpen
                         onClick={() => nav.go(item.screen)}
                         className={navBtnCls(active)}
                       >
-                        {item.label}
-                      </button>
-                    )
-                  })}
-                  {section.dynamic.map((item) => {
-                    const active = item.isActive(screen)
-                    return (
-                      <button
-                        type="button"
-                        key={item.key}
-                        data-testid={item.testId}
-                        title={item.title}
-                        aria-current={active ? 'page' : undefined}
-                        onClick={() => nav.go(item.screen)}
-                        className={`${navBtnCls(active)} truncate pl-5`}
-                      >
-                        <span aria-hidden="true" className="mr-1 text-micro text-muted">◆</span>
                         {item.label}
                       </button>
                     )

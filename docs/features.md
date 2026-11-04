@@ -90,10 +90,10 @@ A first-run tour, empty states that explain what to do, and a built-in help pane
 
 The sidebar sections of the full app (`NAV_SECTIONS` in `src/renderer/src/lib/screens.ts`):
 
-### Gateway, Voucher entry, Day book, Masters
+### Gateway, Voucher entry, Masters
 A dashboard with reconciled figures; the Tally-style voucher editor (sales, purchase, payment, receipt,
 journal, contra, credit and debit notes, stock journal, physical stock) with live GST and keyboard
-entry; the day book; ledgers, groups, stock items, units, godowns, currencies, price levels. Counter
+entry; every entry by date (Registers → All entries); ledgers, groups, stock items, units, godowns, currencies, price levels. Counter
 billing is a barcode-first POS. Manufacture is the production voucher (BOM versions, by-products, job
 work).
 
@@ -107,8 +107,8 @@ Fixed assets with depreciation, Year-end close, Registers. Everything is compute
 moment you open it.
 
 ### Analysis
-Outstandings with ageing, Credit control, Payables (with MSME tracking), Group consolidation, Cost
-centres, Budgets, Cash-flow forecast, Loans and EMIs, Forex, Report builder, Ratio analysis, Assistants
+Outstandings with ageing, Credit control, Payables (with MSME tracking), Cost
+centres, Cash-flow forecast, Forex, Ratio analysis, Assistants
 (month-end checklist, GSTR-2B mismatches, anomalies) and Exceptions.
 
 ### Banking
@@ -127,4 +127,4 @@ against the real portal), TDS, TCS.
 ### System
 Settings, the audit trail (an append-only, hash-chained edit log), import from Excel/CSV/Busy/Zoho,
 export books to Excel, import from Tally, company details, users and roles, backups (including
-encrypted export), and the optional AI and agent (MCP) settings. See [migration guides](migration-guides/from-tally.md).
+encrypted export), and the optional AI and agent-mirror settings. See [migration guides](migration-guides/from-tally.md).

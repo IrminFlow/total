@@ -252,27 +252,23 @@ not merged, when this was written. Their files and ids exist only after they mer
 
 ## Other
 
-49. **Loans, EMI and forecast dates**
-    - Today: EMI rounding, broken-period conventions and the statutory due dates in the cash forecast were written from memory.
-    - Confirm: your bank's convention and the dates.
-    - In the code: `src/shared/loanSchedule.ts`; `src/main/services/cashForecast.ts` (UNVERIFIED comments).
+49. **Forecast dates**
+    - Today: the statutory due dates in the cash forecast were written from memory.
+    - Confirm: the dates.
+    - In the code: `src/main/services/cashForecast.ts` (UNVERIFIED comments).
 50. **Foreign exchange**
     - Today: revaluation follows AS 11 / Ind AS 21. Paragraph numbers and quotations are as recalled.
     - Confirm: the paragraph citations and treatment.
     - In the code: `src/shared/forex.ts` (header comment).
-51. **Consolidation**
-    - Today: unrealised profit is a proportionate estimate. Uniform policies, acquisition book values, minority-loss reallocation and AS 23 are simplified.
-    - Confirm: is that acceptable for a group of small companies?
-    - In the code: `src/shared/consolidation/sources.ts`.
-52. **Audit trail**
+51. **Audit trail**
     - Today: the edit log follows s.128(5), Income-tax rule 6F and the 2025 Act (s.62, rule 46(9)) retention. The exact wording was not re-read.
     - Confirm: retention period and what the log must show.
     - In the code: `src/main/services/audit.ts` (header comments).
-53. **State codes**
+52. **State codes**
     - Today: the GST state-code list was not re-read against the latest list.
     - Confirm: any state or code added or changed.
     - In the code: `src/shared/gst/states.ts`.
-54. **Applicability and advance GST** 
+53. **Applicability and advance GST** 
     - Today: the GPT review left these for a CA: when e-invoicing applies, GST on advances, and the MSME acceptance date.
     - Confirm: your view on each (the first is also Q17).
     - In the code: to-do.md section 5, last line ("GST calendar items from the GPT review").

@@ -36,7 +36,6 @@ import {
   MadeGoods,
   ReportsScreen,
   TaxesScreen,
-  DayBook,
   ImportTallyScreen,
   ImportWizardScreen,
   BooksExportScreen,
@@ -54,7 +53,6 @@ import {
   ManufactureReportsScreen,
   FixedAssetsScreen,
   CashForecastScreen,
-  LoansScreen,
   ForexScreen,
   StockMovementsScreen,
   StockJournalScreen,
@@ -83,8 +81,6 @@ import {
   TradeReturnsScreen,
   StaleDocumentsScreen,
   UnbilledGoodsScreen,
-  ConsolidatedScreen,
-  ConsolidationScreen,
   CaptureScreen,
   BankingScreen,
   EdocsScreen,
@@ -92,8 +88,6 @@ import {
   TdsScreen,
   TcsScreen,
   CostCentresScreen,
-  BudgetsScreen,
-  ReportBuilderScreen,
   AssistantsScreen,
   RatiosScreen,
   YearEndScreen,
@@ -252,7 +246,6 @@ export default function App(): React.JSX.Element {
           {screen.name === 'simple-made-goods' && <MadeGoods key={screen.itemId ?? 'new'} itemId={screen.itemId} />}
           {screen.name === 'simple-reports' && <ReportsScreen key={`${screen.report ?? 'doing'}-${screen.side ?? ''}`} report={screen.report} side={screen.side} />}
           {screen.name === 'simple-taxes' && <TaxesScreen key={screen.period ?? 'default'} period={screen.period} />}
-          {screen.name === 'daybook' && <DayBook month={screen.month} kind={screen.kind} date={screen.date} voucherIds={screen.voucherIds} source={screen.source} />}
           {screen.name === 'import-tally' && <ImportTallyScreen />}
           {screen.name === 'data-import' && <ImportWizardScreen />}
           {screen.name === 'data-export' && <BooksExportScreen />}
@@ -300,7 +293,17 @@ export default function App(): React.JSX.Element {
           {screen.name === 'gstr9' && <Gstr9Screen />}
           {screen.name === 'itc04' && <Itc04Screen />}
           {screen.name === 'itc-reversal' && <ItcReversalScreen />}
-          {screen.name === 'registers' && <RegistersScreen key={`${screen.tab ?? 'last'}|${screen.from ?? ''}|${screen.to ?? ''}`} tab={screen.tab} from={screen.from} to={screen.to} />}
+          {screen.name === 'registers' && (
+            <RegistersScreen
+              key={`${screen.tab ?? 'last'}|${screen.from ?? ''}|${screen.to ?? ''}|${screen.kind ?? ''}|${screen.voucherIds?.join(',') ?? ''}`}
+              tab={screen.tab}
+              from={screen.from}
+              to={screen.to}
+              kind={screen.kind}
+              voucherIds={screen.voucherIds}
+              source={screen.source}
+            />
+          )}
           {screen.name === 'outstandings' && <OutstandingsScreen initialSide={screen.side} />}
           {screen.name === 'receivables' && <ReceivablesScreen key={screen.tab ?? 'control'} tab={screen.tab} />}
           {screen.name === 'payables' && <PayablesScreen key={screen.tab ?? 'plan'} tab={screen.tab} />}
@@ -329,22 +332,15 @@ export default function App(): React.JSX.Element {
           {screen.name === 'trade-returns' && <TradeReturnsScreen key={screen.tab ?? 'register'} tab={screen.tab} />}
           {screen.name === 'unbilled-goods' && <UnbilledGoodsScreen />}
           {screen.name === 'stale-documents' && <StaleDocumentsScreen />}
-          {screen.name === 'consolidated' && <ConsolidatedScreen />}
-          {screen.name === 'consolidation' && <ConsolidationScreen key={screen.groupId ?? 0} tab={screen.tab} groupId={screen.groupId} />}
           {screen.name === 'banking' && <BankingScreen key={`${screen.tab ?? 'recon'}:${screen.ledgerId ?? ''}:${screen.asOn ?? ''}`} tab={screen.tab} ledgerId={screen.ledgerId} asOn={screen.asOn} />}
           {screen.name === 'capture' && <CaptureScreen />}
           {screen.name === 'payroll' && <PayrollScreen />}
           {screen.name === 'tds' && <TdsScreen />}
           {screen.name === 'tcs' && <TcsScreen />}
           {screen.name === 'cost-centres' && <CostCentresScreen />}
-          {screen.name === 'budgets' && <BudgetsScreen />}
-          {screen.name === 'report-builder' && (
-            <ReportBuilderScreen key={screen.reportId ?? (screen.model ? `model-${screen.modelSeq ?? 0}` : 'new')} reportId={screen.reportId} initialModel={screen.model} initialName={screen.modelName} />
-          )}
           {screen.name === 'assistants' && <AssistantsScreen key={screen.tab ?? 'close'} tab={screen.tab} period={screen.period} />}
           {screen.name === 'ratios' && <RatiosScreen />}
           {screen.name === 'cash-forecast' && <CashForecastScreen />}
-          {screen.name === 'loans' && <LoansScreen key={screen.loanId ?? 'all'} loanId={screen.loanId} />}
           {screen.name === 'forex' && <ForexScreen />}
           {screen.name === 'year-end' && <YearEndScreen />}
           {screen.name === 'company-info' && <CompanyInfoScreen />}
@@ -379,7 +375,7 @@ function IntegrityWarningModal({
         {warning.unbalancedVoucherIds.length ? ` — ${warning.unbalancedVoucherIds.length} unbalanced voucher(s)` : ''}
       </p>
       <p className="mt-2 text-body-sm text-muted">
-        The books were {warning.context}. Review the Day Book and Trial Balance carefully before continuing.
+        The books were {warning.context}. Review Registers → All entries and the Trial Balance carefully before continuing.
       </p>
       <div className="mt-4 flex justify-end">
         <Button variant="primary" onClick={onClose}>

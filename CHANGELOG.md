@@ -20,6 +20,60 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
+**Plain words** (#194). Total is smaller. Seven rarely used tools are gone, and seven more stay out of
+sight until a business actually uses them. Nothing already in your books changes.
+
+- **Removed:** group consolidation (and the "Combined view" of several companies), the report
+  builder with saved and pinned reports and scheduled report packs (Assistants → "Report from a
+  question" with it), budgets and budget-versus-actual, the Loans screen (EMI schedules, Post EMI,
+  Record the disbursement), the MCP server for AI clients with `total-cli mcp` / `total-cli inbox`
+  and the agent inbox folder, the year-end "Check earlier closes" repair, and the developer AI
+  evaluation suite (`npm run ai:evals`).
+- **The Day book screen is gone** (owner decision): its list of every entry is now **Registers →
+  All entries**, with the same filters, bulk edit, files, links and PDF. Everything that opened the
+  Day book opens it on the same day or period — Home's "money in / out today → Why?" (now worded
+  "Open today’s entries in the list of all entries"), a register's month, a cash-flow line, the
+  Gateway's books card and recent entries, the month-end checklist and the AI assistant's links.
+  The CA pack's `daybook.csv` is now `all-entries.csv`. Saved table views of the Day book carry over;
+  its "Show" choice (in books / all / optional / post-dated) starts again at "In books".
+- **Hidden until used:** foreign currency (Forex, Masters → Currencies, the currency on an entry), cost
+  centres, cheque books / post-dated cheques / bulk bank payment files, interest on overdue bills,
+  the fixed-asset register, quotations / orders / delivery challans / goods receipt notes, and
+  PF / ESI / PT in payroll. A business that has any of their data sees them exactly as before; one
+  that has none no longer sees them in the sidebar, the search palette, the simple screens, their
+  tabs or Settings → Features. They appear by themselves once their first data arrives (an import,
+  a post-dated cheque …), and an owner can start one any time from Settings → Features → **More
+  features** (collapsed, in the simple Features screen too): Turn on shows its screens; Turn off
+  hides it again while it has no data.
+
+**For accountants.** One figure changes, on purpose: **the cash-flow forecast no longer counts loan
+EMIs.** It read the instalments of the old Loans screen's schedules; with that screen gone a paid
+instalment can no longer be marked posted (nor a loan closed), so the forecast would pay it twice or
+for ever. The forecast is now the remaining sources (open bills, orders, challans / GRNs, statutory
+dues, post-dated cheques, known items — add an EMI there as a monthly known item; the "Loan
+EMIs" switch and column are gone); its opening is still the trial balance's cash and bank. Every other remaining report is unchanged. Loan instalment
+and disbursement vouchers posted from the old Loans screen are ordinary vouchers now (they can be
+edited like any other). Deleting a ledger, group or cost centre that an old budget line or loan
+record points at now removes those leftover rows (each audited with its whole before-image); a
+loan's bank or interest account with no entries of its own can go (the loan record just forgets
+it), and a loan's own account stays while it has entries (in the books or the bin) or its loan has
+entries in the books (an import undo that keeps one names the loan and says which). Ratios and
+comparative P&L / balance sheet stay (without the budget column). The year-end close preview no longer warns about over-budget lines or unposted EMIs, and the Gateway no
+longer shows the over-budget chip or loan EMI reminders. Settings → Agent access keeps the read-only
+CSV / JSON mirror ("Refresh after each save" is the old inbox switch); any drafts the MCP server or
+the inbox made are still listed there until saved or discarded.
+
+**For developers.** No migration, and no table dropped: old books open and read as before, and the
+books export still carries every table. Removed IPC namespaces: `consol:*`, `consolGroup:*`,
+`consolMapping:*`, `rb:*`, `pack:*`, `assist:nlReport`, `agent:mcp:*`, `budget:*`,
+`report:budgetAmounts`, `loan:*`, `dashboard:financeReminders`, `yearEnd:repair*`; the `daybook` screen (Registers `tab: 'entries'`
+takes its params; `report:dayBook` stays as its data); AI tools
+`build_report` and `budget_variance`; the `@modelcontextprotocol/sdk` devDependency.
+`config:features:get` now also returns `unused` (services/featureUsage.ts); the renderer gates on
+`screenFeatures`. Ask Total's period reading moved verbatim to `shared/questionPeriod.ts`, the
+comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalmentDate` to
+`shared/intMath.ts`. The bundled AGENTS.md documents the mirror and the CLI only.
+
 ### Fixed
 
 - **Tally import keeps returns, stock journals and bill-wise details** (#191). Plain words: books

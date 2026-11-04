@@ -2,7 +2,7 @@
 // running total) opens in the REAL invoice editor with the tax and round off it posted, and
 // re-saves unchanged — untouched, and after a narration change.
 //   3 × ₹100.50 less ₹1 at 18 % on credit (₹355), returned 1 + 1 + 1 through simple:post: notes of
-//   ₹118, ₹118, ₹119. The last one opened from the Day book must show ₹119 (not the ₹118 its rows
+//   ₹118, ₹118, ₹119. The last one opened from Registers → All entries must show ₹119 (not the ₹118 its rows
 //   compute alone), not ask to discard on leaving, and save back to the same rows.
 import { scenario, assert, assertEq, localToday } from '../lib/harness.mjs'
 
@@ -46,15 +46,15 @@ await scenario('74-returns-in-parts-editor', async (h) => {
   })
   const before = rowsOf(last)
 
-  // Open it from the Day book in the invoice editor: the total is what it posted.
+  // Open it from Registers → All entries (the Day book went in the feature cleanup) in the invoice editor: the total is what it posted.
   await page.reload()
   await page.waitForSelector('[data-screen="company-select"], [data-screen="gateway"]', { state: 'attached', timeout: 20000 })
   if (await page.$('[data-screen="company-select"]')) await h.openCompany('Parts Returns')
   await h.stubDialogs()
   const openNote = async () => {
     await h.goto('gateway')
-    await h.goto('daybook')
-    await page.click(`[data-testid="rows-daybook"] [data-row-id="${notes[2]}"]`, { timeout: 10000 })
+    await h.gotoAllEntries()
+    await page.click(`[data-testid="rows-registers-entries"] [data-row-id="${notes[2]}"]`, { timeout: 10000 })
     await h.waitScreen('voucher-entry')
     const mode = await page.waitForSelector('[data-testid="voucher-entry-mode"]', { timeout: 10000 })
     assertEq(await mode.getAttribute('data-mode'), 'invoice', 'the note opens in the invoice editor')
@@ -65,15 +65,15 @@ await scenario('74-returns-in-parts-editor', async (h) => {
   await h.shot('01-note-in-editor')
   // Untouched: leaving asks nothing (the form is not dirty on open — a dirty one asks to discard).
   await page.click('button:has-text("Cancel")')
-  // A dirty form would stop on the discard question; an untouched one lands on the Day book.
-  await page.waitForSelector('[data-screen="daybook"][data-loading="false"], [data-testid="confirm-ok"]', { state: 'attached', timeout: 10000 })
+  // A dirty form would stop on the discard question; an untouched one lands back on All entries.
+  await page.waitForSelector('[data-screen="registers"][data-loading="false"], [data-testid="confirm-ok"]', { state: 'attached', timeout: 10000 })
   assert(!(await page.$('[data-testid="confirm-ok"]')), 'leaving an untouched note asks nothing')
-  await h.waitScreen('daybook')
+  await h.waitScreen('registers')
 
   // Saved untouched: the same rows.
   await openNote()
   await h.click('btn-save-voucher')
-  await h.waitScreen('daybook')
+  await h.waitScreen('registers')
   assertEq(rowsOf(await h.invoke('voucher:get', { id: notes[2] })), before, 'saved untouched: the same rows')
 
   // A narration change saves (it used to be refused: "Bill references must add up …"), rows unchanged.
@@ -81,7 +81,7 @@ await scenario('74-returns-in-parts-editor', async (h) => {
   const narration = page.locator('[data-testid="input-invoice-narration"]').first()
   await narration.fill('Returned in parts — checked')
   await h.click('btn-save-voucher')
-  await h.waitScreen('daybook')
+  await h.waitScreen('registers')
   const after = await h.invoke('voucher:get', { id: notes[2] })
   assertEq(after.narration, 'Returned in parts — checked', 'the narration is saved')
   assertEq(rowsOf(after), before, 'a narration change leaves the rows as they were')

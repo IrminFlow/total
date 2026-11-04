@@ -1,5 +1,5 @@
 import type { Screen } from '../state/stores'
-import type { CompanyFeatures } from '@shared/features'
+import type { CompanyFeatures, ScreenFeatures } from '@shared/features'
 import type { MessageKey } from '@shared/i18n'
 import { SIMPLE_SECTION_IDS, type SimpleSectionId, type UiMode } from '@shared/simple/uiMode'
 import type { HelpArticleId } from '../help/articles'
@@ -13,7 +13,7 @@ import type { HelpArticleId } from '../help/articles'
 export type NavSectionId = 'top' | 'trade' | 'books' | 'analysis' | 'banking' | 'payroll' | 'gst' | 'system'
 
 /** Sidebar section order + titles (null = the untitled block at the top). */
-export const NAV_SECTIONS: { id: NavSectionId; title: string | null; feature?: keyof CompanyFeatures }[] = [
+export const NAV_SECTIONS: { id: NavSectionId; title: string | null; feature?: keyof ScreenFeatures }[] = [
   { id: 'top', title: null },
   // WP 2.5b: challans, GRNs and their pending reports (orders join in WP 2.5c).
   { id: 'trade', title: 'Orders & challans', feature: 'orders' },
@@ -29,7 +29,7 @@ export const NAV_SECTIONS: { id: NavSectionId; title: string | null; feature?: k
  * WP 8.1 (plan 2026-10-13 §2.2): the simple shell's sidebar — nine sections, in order. Stock
  * shows only with inventory on. Labels are i18n keys (simple.nav.*).
  */
-export const SIMPLE_SECTIONS: { id: SimpleSectionId; label: MessageKey; feature?: keyof CompanyFeatures }[] = SIMPLE_SECTION_IDS.map((id) => ({
+export const SIMPLE_SECTIONS: { id: SimpleSectionId; label: MessageKey; feature?: keyof ScreenFeatures }[] = SIMPLE_SECTION_IDS.map((id) => ({
   id,
   label: `simple.nav.${id}` as MessageKey,
   ...(id === 'stock' ? { feature: 'inventory' as const } : {})
@@ -55,7 +55,7 @@ export interface SimpleEntry {
    *  assistant is ready. */
   needs?: 'gstRegular' | 'aiReady'
   /** Hidden when this feature is off (on top of the screen's own feature). */
-  feature?: keyof CompanyFeatures
+  feature?: keyof ScreenFeatures
 }
 
 export interface ScreenDef {
@@ -87,7 +87,7 @@ export interface ScreenDef {
   /** Sidebar label when shorter than the palette title. */
   navLabel?: string
   /** Hidden everywhere (render-only) when this feature is off. */
-  feature?: keyof CompanyFeatures
+  feature?: keyof ScreenFeatures
   /** WP 8.0: hidden from the sidebar / palette / Gateway when the company is unregistered (no GST
    *  returns or e-documents to file). The screen still opens by link and says so. */
   requiresGstRegistration?: boolean
@@ -152,19 +152,6 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'top',
     feature: 'inventory',
     invalidates: ['counterConfig', 'counterHeld', 'counterDayEnd', 'nextNumber', 'stockItems', 'ledgers', 'groups', 'units', 'pricingConfig', 'printTemplates']
-  },
-  {
-    name: 'daybook',
-    modes: ['accountant'],
-    simpleSection: 'money',
-    simpleEntries: [
-      { id: 'all-entries', label: 'simple.entries.allEntries' }
-    ],
-    title: 'Day book',
-    screen: { name: 'daybook' },
-    navSection: 'top',
-    card: { sub: 'Every entry, in order', key: 'D' },
-    invalidates: ['daybook']
   },
   {
     name: 'masters',
@@ -407,7 +394,7 @@ export const SCREENS: ScreenDef[] = [
     screen: { name: 'profit-loss' },
     navSection: 'books',
     card: { sub: 'Trading + P&L account', key: 'P' },
-    invalidates: ['pnl', 'pnlComparative', 'budgets', 'budgetAmounts']
+    invalidates: ['pnl', 'pnlComparative']
   },
   {
     name: 'balance-sheet',
@@ -471,6 +458,8 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'fixed-assets',
+    // Feature cleanup: hidden for a company with no fixed-asset data (shared/features.ts).
+    feature: 'fixedAssets',
     modes: ['accountant'],
     title: 'Fixed assets',
     keywords: ['asset register', 'depreciation', 'schedule ii', 'block of assets', 'disposal', 'asset schedule', 'net block'],
@@ -495,13 +484,15 @@ export const SCREENS: ScreenDef[] = [
     // WP 9.9: Reports → Sales and purchases by month is the simple report over these registers;
     // the CA pack export lives on this screen.
     simpleEntries: [
-      { id: 'ca-pack', label: 'simple.entries.caPack', section: 'reports', group: 'forYourCa' }
+      { id: 'ca-pack', label: 'simple.entries.caPack', section: 'reports', group: 'forYourCa' },
+      // Feature cleanup: Money → All entries opens Registers → All entries (the Day book went).
+      { id: 'all-entries', label: 'simple.entries.allEntries', section: 'money', screen: { name: 'registers', tab: 'entries' } }
     ],
-    keywords: ['sales register', 'purchase register'],
+    keywords: ['sales register', 'purchase register', 'all entries', 'day book', 'daybook', 'every voucher'],
     title: 'Registers',
     screen: { name: 'registers' },
     navSection: 'analysis',
-    invalidates: ['register']
+    invalidates: ['register', 'allEntries']
   },
   {
     name: 'outstandings',
@@ -538,27 +529,6 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'analysis',
     invalidates: ['payablesPlan', 'payablesRuns', 'msmeReport', 'msmeBankRates', 'supplierStatement', 'billsOpen']
   },
-  // WP 6.5: group consolidation with inter-company eliminations; the quick combined view of any
-  // companies (by ledger name, no eliminations) stays as "Consolidated reports".
-  {
-    name: 'consolidation',
-    modes: ['accountant'],
-    title: 'Group consolidation',
-    keywords: ['consolidated financial statements', 'group', 'subsidiary', 'inter-company', 'elimination', 'minority interest', 'goodwill', 'as 21', 'holding company'],
-    screen: { name: 'consolidation' },
-    navSection: 'analysis',
-    invalidates: ['consolGroups', 'consolRun', 'consolCharts', 'company-registry']
-  },
-  {
-    name: 'consolidated',
-    modes: ['accountant'],
-    title: 'Consolidated reports',
-    navLabel: 'Combined view',
-    keywords: ['quick combined view', 'multi-company'],
-    screen: { name: 'consolidated' },
-    navSection: 'analysis',
-    invalidates: ['consolidated', 'company-registry']
-  },
   {
     name: 'cost-centres',
     modes: ['accountant'],
@@ -567,14 +537,6 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'analysis',
     feature: 'costCentres',
     invalidates: ['costCentres', 'ccReport', 'ccStatement']
-  },
-  {
-    name: 'budgets',
-    modes: ['accountant'],
-    title: 'Budgets',
-    screen: { name: 'budgets' },
-    navSection: 'analysis',
-    invalidates: ['budgets', 'budgetMonthly', 'budgetRevisions', 'budgetDrill', 'costCentres']
   },
   // WP 4.4: cash and finance.
   {
@@ -590,17 +552,9 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['forecastBase', 'forecastItems']
   },
   {
-    name: 'loans',
-    modes: ['accountant'],
-    title: 'Loans and EMIs',
-    navLabel: 'Loans',
-    keywords: ['emi', 'loan schedule', 'term loan', 'interest', 'amortisation', 'prepayment', 'moratorium'],
-    screen: { name: 'loans' },
-    navSection: 'analysis',
-    invalidates: ['loans', 'loan', 'ledgers']
-  },
-  {
     name: 'forex',
+    // Feature cleanup: hidden for a company with no foreign-currency data (shared/features.ts).
+    feature: 'forex',
     modes: ['accountant'],
     title: 'Forex — exposures and revaluation',
     navLabel: 'Forex',
@@ -609,17 +563,7 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'analysis',
     invalidates: ['fxPreview', 'fxRates', 'fxRevaluations', 'fxLedgerCurrencies', 'fxOpenBills', 'currencies']
   },
-  // WP 6.1: report builder (pinned saved reports join the Analysis section as dynamic entries —
-  // lib/dynamicNav.ts); WP 6.2: ratio analysis.
-  {
-    name: 'report-builder',
-    modes: ['accountant'],
-    title: 'Report builder',
-    keywords: ['custom report', 'pivot', 'analysis', 'dimensions', 'measures', 'saved reports', 'sales by party', 'comparative'],
-    screen: { name: 'report-builder' },
-    navSection: 'analysis',
-    invalidates: ['rbRun', 'savedReports', 'savedReport', 'rbUsers', 'budgets']
-  },
+  // WP 6.2: ratio analysis.
   {
     name: 'ratios',
     modes: ['accountant'],
@@ -638,7 +582,7 @@ export const SCREENS: ScreenDef[] = [
     modes: ['accountant'],
     simpleSection: 'home',
     title: 'Assistants',
-    keywords: ['month end', 'close checklist', 'closing', 'gstr-2b mismatch', '2b', 'itc', 'anomalies', 'duplicates', 'unusual entries', 'fraud', 'report from a question', 'natural language report'],
+    keywords: ['month end', 'close checklist', 'closing', 'gstr-2b mismatch', '2b', 'itc', 'anomalies', 'duplicates', 'unusual entries', 'fraud'],
     screen: { name: 'assistants' },
     navSection: 'analysis',
     invalidates: ['assistClose', 'assistAnomalies', 'assistGst2b', 'assistSettings', 'aiSettings']
@@ -824,8 +768,6 @@ export const SCREENS: ScreenDef[] = [
     invalidates: [
       'backups', 'bin', 'users', 'audit', 'nicCreds', 'nicStatus',
       'features', 'invoiceConfig', 'invoicePreview', 'printTemplates', 'printTemplate', 'printPreview', 'appInfo', 'companyLock', 'agentConfig',
-      // WP 6.2 scheduled packs
-      'reportPacks', 'reportPackRuns', 'savedReports',
       'aiSettings', 'aiUsage', 'aiOutbound'
     ]
   },
@@ -1437,7 +1379,7 @@ export interface ResolvedSimpleEntry {
   group: SimpleEntry['group'] | null
   needs: SimpleEntry['needs'] | null
   /** The screen's feature and the entry's own (both must be on). */
-  features: (keyof CompanyFeatures)[]
+  features: (keyof ScreenFeatures)[]
   /** The screen it opens (its registry name). */
   screenName: Screen['name']
 }
@@ -1456,7 +1398,7 @@ export const SIMPLE_ENTRIES: ResolvedSimpleEntry[] = SCREENS.flatMap((def) =>
       screen,
       group: e.group ?? null,
       needs: e.needs ?? null,
-      features: [def.feature, e.feature].filter((f): f is keyof CompanyFeatures => !!f),
+      features: [def.feature, e.feature].filter((f): f is keyof ScreenFeatures => !!f),
       screenName: def.name
     }
   })
@@ -1485,6 +1427,8 @@ export function simpleSectionOf(screen: Screen): SimpleSectionId | null {
   if (screen.name === 'simple-section') return screen.section
   // WP 8.7: the opening setup opened from Home's step keeps Home highlighted.
   if (screen.name === 'simple-openings' && screen.from === 'home') return 'home'
+  // Registers → All entries is Money → All entries (the Day book's place before the cleanup).
+  if (screen.name === 'registers' && screen.tab === 'entries') return 'money'
   return byName.get(screen.name)?.simpleSection ?? null
 }
 
@@ -1521,13 +1465,14 @@ export const screenApplies = (s: { requiresGstRegistration?: boolean }, gstRegis
 /** What a simple entry needs to show for this company (features on, a regular GST registration,
  *  the AI assistant ready). */
 export interface SimpleEntryFacts {
-  features: CompanyFeatures
+  /** Usually useFeatures(); a flag absent here reads as off. */
+  features: CompanyFeatures & Partial<ScreenFeatures>
   regular: boolean
   aiReady: boolean
 }
 
 export function simpleEntryVisible(e: ResolvedSimpleEntry, f: SimpleEntryFacts): boolean {
-  return e.features.every((x) => f.features[x]) && (e.needs !== 'gstRegular' || f.regular) && (e.needs !== 'aiReady' || f.aiReady)
+  return e.features.every((x) => !!f.features[x]) && (e.needs !== 'gstRegular' || f.regular) && (e.needs !== 'aiReady' || f.aiReady)
 }
 
 export interface SimplePaletteRow {
@@ -1582,9 +1527,9 @@ export const SCREEN_LINK_PARAMS: { [N in Screen['name']]?: LinkParamValues<N> } 
   'simple-people': { tab: ['people', 'bills'], filter: ['all', 'customers', 'suppliers', 'owesYou', 'youOwe', 'late'] },
   'simple-stock': { filter: ['low'] },
   'simple-reports': { report: ['doing', 'cash', 'owed', 'by-month'], side: ['receivable', 'payable'] },
-  settings: { tab: ['appearance', 'backups', 'bin', 'users', 'security', 'audit', 'nic', 'features', 'invoice', 'receivables', 'agents', 'packs', 'ai', 'about'] },
+  settings: { tab: ['appearance', 'backups', 'bin', 'users', 'security', 'audit', 'nic', 'features', 'invoice', 'receivables', 'agents', 'ai', 'about'] },
   banking: { tab: ['recon', 'import', 'rules', 'cheques', 'pdc', 'bulk', 'brs'] },
-  registers: { tab: ['sales', 'purchase', 'items'] },
+  registers: { tab: ['sales', 'purchase', 'items', 'entries'] },
   receivables: { tab: ['control', 'reminders', 'interest', 'collections'] },
   payables: { tab: ['plan', 'batch', 'runs', 'msme', 'suppliers'] }
 }

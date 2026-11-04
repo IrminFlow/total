@@ -1,9 +1,9 @@
 /**
  * The assistants (WP 5.5) — shapes and IPC payload schemas shared by main and the renderer. The
- * engines are pure modules of their own: closeChecklist.ts, anomalies.ts, gst/mismatch2b.ts,
- * reportBuilder/nl.ts. Every assistant works without AI (the Assistants screen runs them
- * directly); with AI on, the same results come from the read tools close_checklist,
- * gst_2b_mismatches, find_anomalies and build_report, and the model only narrates them.
+ * engines are pure modules of their own: closeChecklist.ts, anomalies.ts, gst/mismatch2b.ts.
+ * Every assistant works without AI (the Assistants screen runs them directly); with AI on, the
+ * same results come from the read tools close_checklist, gst_2b_mismatches and find_anomalies,
+ * and the model only narrates them.
  */
 import { z } from 'zod'
 import type { Anomaly } from './anomalies'
@@ -98,8 +98,6 @@ export const gst2bResolveSchema = z.object({
 })
 
 export const gst2bDraftSchema = z.object({ period: periodSchema, key: z.string().trim().min(3).max(200) })
-
-export const nlReportSchema = z.object({ question: z.string().trim().min(2).max(500), from: iso, to: iso })
 
 export interface AnomalyRow extends Anomaly {
   dismissed: { note: string | null; by: string | null; at: string } | null

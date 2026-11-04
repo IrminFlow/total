@@ -170,7 +170,7 @@ export function voucherJsonSchema(): Record<string, unknown> {
     $schema: 'https://json-schema.org/draft-07/schema#',
     title: 'Total voucher input',
     description:
-      'One voucher for `total-cli post` or a `<company>/inbox/*.json` drop (a file may also hold an array of these). ' +
+      'One voucher for `total-cli post` (a file may also hold an array of these). ' +
       'ALL AMOUNTS ARE INTEGER PAISE (₹1 = 100 paise); quantities are integer milli-units (1000 = 1 unit). ' +
       'Debits must equal credits — the app rejects everything else. Same validation as the app UI.',
     ...node

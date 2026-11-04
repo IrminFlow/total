@@ -16,6 +16,8 @@ import { scenario, assert, assertEq, OPTION, localToday, relativeDate } from '..
 
 await scenario('31-banking-depth', async (h) => {
   await h.createDemoCompany()
+  // Feature cleanup: cheque books, PDCs and bulk payment files show only for a company that uses them.
+  await h.useFeature('cheques')
   const extraShots = process.env.WP41_SHOTS
   const shot = async (name) => {
     await h.page.mouse.move(0, 0)
@@ -157,8 +159,8 @@ await scenario('31-banking-depth', async (h) => {
   await bothThemes('05-cheque-layout')
   await h.page.keyboard.press('Escape')
   await h.goto('gateway')
-  await h.goto('daybook')
-  await h.page.click(`[data-testid="rows-daybook"] [data-row-id="${payment.id}"]`, { timeout: 10000 })
+  await h.gotoAllEntries()
+  await h.page.click(`[data-testid="rows-registers-entries"] [data-row-id="${payment.id}"]`, { timeout: 10000 })
   await h.waitScreen('voucher-entry')
   await h.click('btn-voucher-print-cheque')
   // The editor reloads the voucher (now carrying the cheque number) before the toast shows.

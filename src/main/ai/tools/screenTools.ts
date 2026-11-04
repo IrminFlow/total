@@ -19,7 +19,6 @@ import { manufactureRegister } from '../../services/manufacture'
 import { pendingOrders, pendingStockNotes } from '../../services/tradeReports'
 import { bankLedgers, bankRecon } from '../../services/banking'
 import { tdsEligible } from '../../services/tdsWorkbench'
-import { budgetVarianceReport, listBudgets } from '../../services/budgets'
 import { forecastBase } from '../../services/cashForecast'
 import { listAudit } from '../../services/audit'
 import { NOT_DELETED } from '../../services/vouchers'
@@ -33,7 +32,7 @@ const date = (what: string): z.ZodString => iso.describe(`${what} (YYYY-MM-DD); 
 
 /** Row caps for the WP 5.2 tools (said explicitly in `truncated` when hit). */
 export const SCREEN_CAPS = {
-  movements: 200, manufacture: 150, pending: 150, bank: 200, tds: 150, budget: 200, forecastPeriods: 26, forecastFlows: 40, audit: 50,
+  movements: 200, manufacture: 150, pending: 150, bank: 200, tds: 150, forecastPeriods: 26, forecastFlows: 40, audit: 50,
   explainTop: 8, explainCounter: 6, explainAnomalies: 6, voucherLines: 60
 } as const
 
@@ -358,52 +357,6 @@ export const tdsEligibleTool = defineTool({
       sources: [
         { kind: 'screen', screen: 'tds', label: `TDS workbench ${p.from} to ${p.to}` },
         ...cap.rows.slice(0, 10).map((r) => voucherSource(r.voucherId, r.voucherNumber))
-      ]
-    }
-  }
-})
-
-// ---------- budget_variance ----------
-
-export const budgetVarianceTool = defineTool({
-  name: 'budget_variance',
-  description: 'Budget against actuals up to a month: each budget line (ledger or group, by month when the budget is monthly) with budget, actual, variance and percent used.',
-  input: z.object({
-    budgetId: z.number().int().positive().optional().describe('Omit for the first budget'),
-    upToMonth: z.string().regex(/^\d{4}-\d{2}$/).optional().describe('YYYY-MM; omit for the month of the working period’s end')
-  }),
-  kind: 'read',
-  minRole: 'viewer',
-  handler: ({ budgetId, upToMonth }, ctx) => {
-    assertProfitVisible(ctx)
-    const budgets = listBudgets(ctx.db)
-    const screenBudget = typeof ctx.screen?.params?.budgetId === 'number' ? ctx.screen.params.budgetId : undefined
-    const b = budgets.find((x) => x.id === (budgetId ?? screenBudget)) ?? budgets[0]
-    if (!b) return { data: { budgets: 0, note: 'No budget has been set up.' }, sources: [{ kind: 'screen', screen: 'budgets', label: 'Budgets' }] }
-    const month = upToMonth ?? periodOf(ctx).to.slice(0, 7)
-    const rows = budgetVarianceReport(ctx.db, b.id, month)
-    const cap = capRows(rows, SCREEN_CAPS.budget, 'ask about one ledger or group')
-    return {
-      data: {
-        budgetId: b.id,
-        budget: b.name,
-        upToMonth: month,
-        otherBudgets: budgets.filter((x) => x.id !== b.id).map((x) => ({ budgetId: x.id, name: x.name })),
-        lines: rows.length,
-        truncated: cap.truncated,
-        rows: cap.rows.map((r) => ({
-          ledgerId: r.ledgerId ?? undefined,
-          target: r.targetName,
-          month: r.month ?? undefined,
-          budget: rupees(r.budget),
-          actual: rupees(r.actual),
-          variance: signedRupees(r.variance),
-          used: pct(r.pct)
-        }))
-      },
-      sources: [
-        { kind: 'screen', screen: 'budgets', label: `Budget ${b.name} to ${month}` },
-        ...cap.rows.filter((r) => r.ledgerId).slice(0, 10).map((r): AiSource => ({ kind: 'ledger', ledgerId: r.ledgerId!, label: r.targetName }))
       ]
     }
   }
@@ -880,7 +833,8 @@ const SCREEN_DATA: Record<string, Runner> = {
   'ledger-statement': (ctx, p) => (n(p.ledgerId) ? run('ledger_statement', { ledgerId: n(p.ledgerId), ...periodOf(ctx) }, ctx) : null),
   'profit-loss': (ctx) => run('profit_and_loss', periodOf(ctx), ctx),
   'balance-sheet': (ctx) => run('balance_sheet', { asOn: periodOf(ctx).to }, ctx),
-  daybook: (ctx) => run('day_book', periodOf(ctx), ctx),
+  // Registers → All entries (the Day book's list since the feature cleanup).
+  registers: (ctx, p) => (p.tab === 'entries' ? run('day_book', periodOf(ctx), ctx) : null),
   outstandings: (ctx, p) => run('outstandings', { side: p.side === 'payable' ? 'payable' : 'receivable', asOn: periodOf(ctx).to }, ctx),
   receivables: (ctx) => run('outstandings', { side: 'receivable', asOn: periodOf(ctx).to }, ctx),
   payables: (ctx) => run('outstandings', { side: 'payable', asOn: periodOf(ctx).to }, ctx),
@@ -893,7 +847,6 @@ const SCREEN_DATA: Record<string, Runner> = {
   'pending-purchase-orders': (ctx) => run('trade_pending', { stage: 'purchase_orders' }, ctx),
   banking: (ctx, p) => run('bank_unreconciled', { ledgerId: n(p.ledgerId) }, ctx),
   tds: (ctx) => run('tds_eligible', {}, ctx),
-  budgets: (ctx, p) => run('budget_variance', { budgetId: n(p.budgetId) }, ctx),
   'cash-forecast': (ctx) => run('forecast_summary', {}, ctx),
   'audit-trail': (ctx, p) => run('audit_log_recent', { voucherId: n(p.voucherId) }, ctx),
   gstr3b: (ctx) => run('gst_summary', { period: periodOf(ctx).to.slice(0, 7) }, ctx),
@@ -901,8 +854,7 @@ const SCREEN_DATA: Record<string, Runner> = {
   'company-info': (ctx) => run('get_company_info', {}, ctx),
   // WP 5.5: the Assistants screen — the tab's own assistant.
   assistants: (ctx, p) => {
-    const t = p.tab === 'gst2b' ? gst2bMismatchesTool : p.tab === 'anomalies' ? findAnomaliesTool : p.tab === 'report' ? null : closeChecklistTool
-    if (!t) return null
+    const t = p.tab === 'gst2b' ? gst2bMismatchesTool : p.tab === 'anomalies' ? findAnomaliesTool : closeChecklistTool
     const input = typeof p.period === 'string' && t !== findAnomaliesTool ? { period: p.period } : {}
     return t.handler(t.input.parse(input), ctx)
   }
@@ -941,7 +893,6 @@ export const SCREEN_TOOLS: ToolDef[] = [
   tradePendingTool,
   bankUnreconciledTool,
   tdsEligibleTool,
-  budgetVarianceTool,
   forecastSummaryTool,
   auditLogRecentTool
 ]

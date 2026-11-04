@@ -855,7 +855,7 @@ const TOOL_LABELS: Record<string, string> = {
   balance_sheet: 'Balance sheet',
   outstandings: 'Outstandings',
   search_books: 'Search',
-  day_book: 'Day book',
+  day_book: 'All entries',
   stock_summary: 'Stock summary',
   gst_summary: 'GSTR-3B summary',
   tds_summary: 'TDS summary',
@@ -868,7 +868,6 @@ const TOOL_LABELS: Record<string, string> = {
   trade_pending: 'Pending documents',
   bank_unreconciled: 'Bank reconciliation',
   tds_eligible: 'TDS workbench',
-  budget_variance: 'Budget variance',
   forecast_summary: 'Cash-flow forecast',
   audit_log_recent: 'Audit trail'
 }

@@ -40,8 +40,8 @@ import { log, revealLogs } from './log'
 import { checkForUpdatesInteractive, setAutoCheck, updateAction, updatesView } from './updater'
 import { UPDATE_ACTIONS, updatesCanSet, type UpdatesCanSet } from '@shared/updates'
 import {
-  backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
-  chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
+  backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, ccStatementSchema,
+  chequeConfigSchema, companyCreateSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
   isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, priceRateInputSchema, rendererLogSchema, reportPdfSchema,
   searchGlobalSchema, searchQuerySchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, stockCostAsOfSchema,
   stockRegisterSchema, stockReorderSchema, stockExpiryReportSchema, stockLabelsSchema, serialsListSchema, serialsAvailableSchema, tallyImportSchema, tdsExport26qSchema, tdsEnsurePayableSchema, tdsSectionInputSchema, tdsSuggestSchema,
@@ -55,6 +55,7 @@ import { todayISO } from '@shared/dates'
 import { AppError, structuredOf, type StructuredError } from '@shared/errors'
 import { formatPaise } from '@shared/money'
 import * as configSvc from './services/config'
+import { unusedFeatures } from './services/featureUsage'
 import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
 import * as undo from './services/undo'
@@ -105,15 +106,11 @@ import * as tradeClosure from './services/tradeClosure'
 import * as priceLevels from './services/priceLevels'
 import { quickCreateItem } from './services/quickCreate'
 import { quickItemSchema } from '@shared/schemas'
-import * as budgets from './services/budgets'
 import * as yearEnd from './services/yearEnd'
-import * as yearEndRepair from './services/yearEndRepair'
 import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
 import { registerPricingIpc } from './ipcPricing'
 import { registerReportsIpc } from './ipcReports'
-import { registerConsolidationIpc } from './ipcConsolidation'
-import { runDuePacksInBackground } from './packScheduler'
 import { registerAiIpc, aiRuns, type AppKeyAuditEntry } from './ai/ipc'
 import { registerCaptureIpc, captureOnCompanyOpen, captureOnCompanyClose, resumeCapture } from './ai/capture/ipc'
 import { dropPendingAttachments, flushCaptureAttachments } from './ai/capture/consume'
@@ -127,8 +124,6 @@ import { settleAskDraft } from './assist/settle'
 import { aiMockAllowed } from './ai/env'
 import { settleDraftOnSave } from './ai/drafts'
 import * as aiStore from './ai/store'
-import { listMcpLog } from './mcp/log'
-import { mcpConfigSchema, type McpSettingsView } from '@shared/mcp'
 import { appSecretStore } from './services/secretStore'
 import type { AiEvent } from '@shared/ai'
 import { registerReceivablesIpc } from './ipcReceivables'
@@ -149,11 +144,10 @@ import {
   manufactureCostPreviewSchema, manufactureRegisterSchema, manufactureSaveSchema, stockMovementsSchema,
   bomVersionInputSchema, bomExplodeSchema, manufactureReportSchema, jobWorkChallanSaveSchema, jobWorkPendingSchema
 } from '@shared/schemas'
-import * as consolidated from './services/consolidated'
 import * as caPack from './services/caPack'
 import { writeExportPdf, writePdfFile } from './services/pdf'
 import { chooseExportPath, hermeticRun, type ExportTargetRequest } from './exportTarget'
-import { MASTERS_CHANGED_EVENT, masterEntitiesOf } from './masterEvents'
+import { MASTERS_CHANGED_EVENT, changedEntitiesOf } from './masterEvents'
 import { reportHtml } from './services/reportHtml'
 import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
@@ -196,7 +190,7 @@ import {
   closeStaleQuotationsSchema
 } from '@shared/schemas'
 import type { CompanyInfo } from '@shared/domain'
-import { featuresSchema } from '@shared/features'
+import { featuresSchema, type FeaturesView } from '@shared/features'
 import { invoiceConfigPartialSchema, invoiceConfigSchema } from '@shared/invoiceConfig'
 import { printDocKindSchema, printTemplateSchema } from '@shared/printTemplates'
 
@@ -225,7 +219,7 @@ const idleClock = new IdleClock(null)
 
 /** WP 7.2: wrong passphrases per company slug — 5 in a row lock the prompt for 30 seconds (in
  *  memory: the passphrase cannot be checked against anything inside the locked file). */
-// The wrong-passphrase counter is shared with consolidation runs and total-cli (companyKeys.ts).
+// The wrong-passphrase counter is shared with total-cli (companyKeys.ts).
 
 /** Paths the Tally-import file dialog has actually issued this session. A `filePath` supplied in
  *  a tally:import payload must be one of these — otherwise the renderer could pass any path on
@@ -379,17 +373,6 @@ export function getCurrentCompany(): OpenCompany | null {
   return current
 }
 
-/** Whether background work on the open company (scheduled report packs) may run: never while the
- *  company is locked — it has users and nobody has signed in. */
-function packsAllowed(): boolean {
-  return !!current && (!current.usersExist || !!sessionUser)
-}
-
-/** The open company when it is unlocked, else null (the pack scheduler's view). */
-export function getUnlockedCompany(): OpenCompany | null {
-  return packsAllowed() ? current : null
-}
-
 /** Move a file into place. Copy+delete rather than fs.renameSync, since the source (os.tmpdir())
  *  and destination (~/Documents/total) may be on different filesystems (EXDEV). */
 function renameFile(src: string, dest: string): void {
@@ -434,8 +417,8 @@ export function closeCurrentCompany(opts: { keepKey?: boolean } = {}): void {
   idleClock.setMinutes(null)
   privacyLock = null
   pendingRemember = null
-  // Stop the inbox watcher + any pending mirror refresh before the handle closes under them.
-  agentBridge.syncInboxWatcher(null)
+  // Stop any pending mirror refresh before the handle closes under it.
+  agentBridge.cancelMirrorRefresh()
   // The cached NIC login belongs to this company's identity — never carry it into the next one.
   nic.resetNicSession()
   // In-flight AI answers belong to this company's handle — stop them before it closes.
@@ -528,9 +511,10 @@ export function ipcStructuredError(err: unknown): Partial<StructuredError> {
 const TRACE_IPC = process.env.TOTAL_IPC_TRACE === '1' && !!process.env.TOTAL_DATA_DIR
 
 /** to-do §4: after a write that can change masters, every window refetches those cached lists
- *  (masterEvents.ts) — so a screen sees an item created elsewhere without being reopened. */
+ *  (masterEvents.ts) — so a screen sees an item created elsewhere without being reopened. The
+ *  feature cleanup adds 'features' for a write that can make a hidden feature used. */
 function notifyMastersChanged(channel: string): void {
-  const entities = masterEntitiesOf(channel)
+  const entities = changedEntitiesOf(channel)
   if (!entities.length) return
   // The write has committed: a window that is going away must never turn it into a failed call
   // (the renderer would show an error for a saved change and a retry would save it twice).
@@ -646,10 +630,8 @@ export function registerIpc(): void {
   // ---------- payroll statutory (WP 3.7) — channels live in ipcPayrollStatutory.ts ----------
   registerPayrollStatutoryIpc(handle, () => requireCompany())
   registerPricingIpc(handle, () => requireCompany())
-  // ---------- report builder, comparatives, ratios, scheduled packs (WP 6.1 / 6.2) ----------
-  registerReportsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser(), canSeeProfitNow)
-  // ---------- group consolidation (WP 6.5) — channels live in ipcConsolidation.ts ----------
-  registerConsolidationIpc(handle, () => requireCompany())
+  // ---------- comparatives, ratios (WP 6.2) ----------
+  registerReportsIpc(handle, () => requireCompany())
   // ---------- AI agent (WP 5.1) — channels live in ai/ipc.ts; events stream on 'total:ai:event' ----------
   registerAiIpc(handle, {
     company: () => requireCompany(),
@@ -1304,19 +1286,13 @@ export function registerIpc(): void {
     }
     mark('prune')
     touchLastOpened(slug)
-    // Agent bridge (feature flag, default OFF): watch <company>/inbox/ for dropped files.
-    if (configSvc.getAgentBridgeEnabled(db)) agentBridge.syncInboxWatcher({ slug, db })
     // WP 5.4: interrupted capture work back to the approved queue; the capture inbox watched.
     try {
       captureOnCompanyOpen({ slug, db, usersExist: current.usersExist })
     } catch (err) {
       log('warn', 'capture-open-failed', { slug, error: err instanceof Error ? err.message : String(err) })
     }
-    // WP 6.2: scheduled report packs that came due while the app was closed run once, deferred
-    // past this reply and only while the company is unlocked (a company with users waits for the
-    // sign-in — auth:login starts the pass then).
     mark('capture')
-    void runDuePacksInBackground({ slug, db, info }, { allowed: packsAllowed, current: getUnlockedCompany, canSeeProfit: canSeeProfitNow })
     return { slug, info, integrity, locked: current.usersExist, ui: configSvc.getUi(db), encrypted: current.encrypted }
   }
 
@@ -1402,22 +1378,6 @@ export function registerIpc(): void {
     const { fyStartYear } = fyStartYearSchema.parse(p)
     const c = requireCompany()
     return yearEnd.postClose(c.db, c.info, fyStartYear)
-  }, 'owner')
-  // Guided re-close (0.4.0 closes): compare every live closing journal with today's rule (read
-  // only); the owner's repair re-closes the differing years oldest first in one transaction.
-  handle('yearEnd:repairPreview', (p) => {
-    z.object({}).strict().parse(p ?? {})
-    // The repair compares against this preview with the company's booksFrom — the same here.
-    const c = requireCompany()
-    return yearEndRepair.repairPreview(c.db, c.info.booksFrom)
-  }, 'accountant')
-  handle('yearEnd:repair', (p) => {
-    const input = z
-      .object({ fingerprint: z.string().regex(/^[0-9a-f]{64}$/), fyStartYears: z.array(z.number().int().min(1990).max(2100)).min(1).max(100).optional() })
-      .strict()
-      .parse(p)
-    const c = requireCompany()
-    return yearEndRepair.repairCloses(c.db, c.info, input)
   }, 'owner')
 
   // ---------- backups: list/run/restore + encrypted export/import ----------
@@ -2153,12 +2113,6 @@ export function registerIpc(): void {
     return reports.exceptions(requireCompany().db, from, to)
   }, 'viewer')
 
-  // ---------- consolidated (multi-company, read-only) ----------
-  handle('consol:run', (p) => {
-    const { slugs, kind, from, to } = consolidatedRunSchema.parse(p)
-    return consolidated.consolidated(slugs, kind, from, to)
-  }, 'viewer')
-
   // ---------- gst ----------
   const gstPeriodInput = periodSchema.extend({ period: z.string().regex(/^\d{6}$/) })
   handle('gst:gstr1', (p) => {
@@ -2632,18 +2586,6 @@ export function registerIpc(): void {
     return costCentres.ccStatement(requireCompany().db, ccId, from, to)
   }, 'viewer')
 
-  // ---------- budgets ----------
-  handle('budget:list', () => budgets.listBudgets(requireCompany().db), 'viewer')
-  handle('budget:save', (p) => {
-    const { id, data } = z.object({ id: z.number().int().positive().optional(), data: budgetInputSchema }).parse(p)
-    return budgets.saveBudget(requireCompany().db, data, id)
-  })
-  handle('budget:delete', (p) => budgets.deleteBudget(requireCompany().db, idSchema.parse(p).id))
-  handle('budget:variance', (p) => {
-    const { budgetId, upToMonth } = budgetVarianceSchema.parse(p)
-    return budgets.budgetVarianceReport(requireCompany().db, budgetId, upToMonth)
-  }, 'viewer')
-
   // ---------- banking ----------
   handle('bank:ledgers', () => banking.bankLedgers(requireCompany().db), 'viewer')
   handle('bank:recon', (p) => {
@@ -2922,7 +2864,11 @@ export function registerIpc(): void {
   })
 
   // ---------- F11 features + F12 invoice print config ----------
-  handle('config:features:get', () => configSvc.getFeatures(requireCompany().db), 'viewer')
+  // The stored flags + the hideable features this company has no data for (feature cleanup).
+  handle('config:features:get', (): FeaturesView => {
+    const db = requireCompany().db
+    return { ...configSvc.getFeatures(db), unused: unusedFeatures(db) }
+  }, 'viewer')
   handle('config:features:set', (p) => configSvc.setFeatures(requireCompany().db, featuresSchema.parse(p)), 'owner')
   // WP 8.3: GSTR-1 filing frequency (monthly / quarterly QRMP), meta `gstProfile`.
   handle('gstProfile:get', () => configSvc.getGstProfile(requireCompany().db), 'viewer')
@@ -3314,8 +3260,6 @@ export function registerIpc(): void {
       pendingRemember = null
       if (result.role === 'owner' && c.encrypted) rememberOpenKey(c, result.name)
     }
-    // WP 6.2: due report packs wait for the first sign-in of a locked company.
-    void runDuePacksInBackground(c, { allowed: packsAllowed, current: getUnlockedCompany, canSeeProfit: canSeeProfitNow })
     resumeCapture()
     return sessionView(result)
   })
@@ -3657,7 +3601,7 @@ export function registerIpc(): void {
     await shell.openExternal(safe)
   }, 'viewer')
 
-  // ---------- agent bridge (CSV/JSON mirrors + inbox, lane A) ----------
+  // ---------- agent bridge (read-only CSV/JSON mirrors, lane A) ----------
   handle('agent:exportMirror', (p) => {
     const input = agentExportSchema.parse(p ?? {})
     const c = requireCompany()
@@ -3670,29 +3614,12 @@ export function registerIpc(): void {
     const { enabled } = agentBridgeConfigSchema.parse(p)
     const c = requireCompany()
     configSvc.setAgentBridgeEnabled(c.db, enabled)
-    agentBridge.syncInboxWatcher(enabled ? { slug: c.slug, db: c.db } : null)
+    if (!enabled) agentBridge.cancelMirrorRefresh()
     return { enabled }
   }, 'owner')
 
-  // ---------- MCP server (WP 5.7): settings, kill switch, log, drafts from agents ----------
-  // The server itself runs in the `total-cli mcp` process (src/main/mcp/); the app only reads its
-  // log and the drafts it (or the inbox) made, and owns the per-company kill switch.
-  handle('agent:mcp:get', (): McpSettingsView => {
-    const c = requireCompany()
-    return {
-      config: configSvc.getMcpConfig(c.db),
-      // Where the CLI runs from: the source checkout in development; a packaged app has none.
-      repoDir: app.isPackaged ? null : app.getAppPath(),
-      dataDir: process.env.TOTAL_DATA_DIR ? dataRoot() : null,
-      usersExist: c.usersExist,
-      encrypted: c.encrypted
-    }
-  }, 'viewer')
-  handle('agent:mcp:set', (p) => {
-    const input = mcpConfigSchema.parse(p)
-    return configSvc.setMcpConfig(requireCompany().db, input)
-  }, 'owner')
-  handle('agent:mcp:log', () => listMcpLog(requireCompany().db), 'viewer')
+  // Drafts the removed MCP server / agent inbox made (WP 5.7) stay readable until each is saved or
+  // discarded — Settings → Agent access lists any that are left.
   handle('agent:drafts', (p) => {
     const { status } = z.object({ status: z.enum(['open', 'consumed', 'discarded']).optional() }).default({}).parse(p ?? {})
     return aiStore.listDrafts(requireCompany().db, status, undefined, ['mcp', 'inbox'])

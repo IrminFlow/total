@@ -5,12 +5,11 @@ import { pathToFileURL } from 'url'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 import { electronApp, is, optimizer } from '@electron-toolkit/utils'
-import { registerIpc, closeCurrentCompany, getCurrentCompany, getUnlockedCompany, canSeeProfitNow } from './ipc'
+import { registerIpc, closeCurrentCompany, getCurrentCompany } from './ipc'
 import { ensureDataTree, dataRoot, dataRootChoice } from './paths'
 import { initUpdater } from './updater'
 import { initLogging, log } from './log'
 import { startBackupScheduler, backupOnQuit } from './backup-scheduler'
-import { startPackScheduler } from './packScheduler'
 import { cleanupOpenedCopies, sweepStaleOpenCopies } from './services/attachments'
 import { syncFolderWarning } from '@shared/syncpath'
 import { configureI18n } from '@shared/i18n'
@@ -171,8 +170,6 @@ if (gotSingleInstanceLock) {
     ensureDataTree()
     registerIpc()
     startBackupScheduler(getCurrentCompany)
-    // WP 6.2: scheduled report packs — hourly due-check (the on-open pass runs from company:open).
-    startPackScheduler(getUnlockedCompany, 60, canSeeProfitNow)
     // WP 6.4: opened attachment copies left by a crash (> 1 day old) — this session's go on quit.
     try {
       const swept = sweepStaleOpenCopies()

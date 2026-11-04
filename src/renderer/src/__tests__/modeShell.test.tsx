@@ -46,7 +46,6 @@ beforeEach(() => {
   invoke.mockReset()
   invoke.mockImplementation(async (channel: string, payload?: unknown) => {
     if (channel === 'config:features:get') return { ok: true, data: DEFAULT_FEATURES }
-    if (channel === 'rb:list') return { ok: true, data: [] }
     if (channel === 'ui:mode:set') return { ok: true, data: { ...useSession.getState().ui, ...(payload as object) } }
     if (channel === 'company:current') return { ok: true, data: currentUi === undefined ? null : { slug: 'mode-co', info: INFO, locked: false, ui: currentUi } }
     return { ok: false, error: `unmocked channel ${channel}` }
@@ -86,7 +85,7 @@ describe('useMode and the per-screen override', () => {
 
   it('an accountant company shows everything in the full app; screens without a simple flow never show simple', () => {
     setSession({ mode: 'accountant' })
-    const { result } = renderHook(() => ({ home: useScreenView('gateway'), day: useScreenView('daybook'), tb: useScreenView('trial-balance') }))
+    const { result } = renderHook(() => ({ home: useScreenView('gateway'), day: useScreenView('exceptions'), tb: useScreenView('trial-balance') }))
     expect(result.current.home.view).toBe('accountant')
     act(() => useSession.setState({ ui: { mode: 'simple' } }))
     expect(result.current.home.view).toBe('simple')
@@ -134,7 +133,7 @@ describe('the simple shell', () => {
 
   it('a screen without its simple flow yet opens in the full shell; Back to simple goes to its section', async () => {
     setSession({ mode: 'simple' })
-    act(() => useNav.setState({ stack: [{ name: 'daybook' }] }))
+    act(() => useNav.setState({ stack: [{ name: 'registers', tab: 'entries' }] }))
     render(withClient(<Shell onOpenPalette={() => {}}><div /></Shell>))
     expect(await screen.findByTestId('nav-gateway')).toBeTruthy()
     expect(screen.queryByTestId('btn-accountant-view')).toBeNull()
@@ -169,7 +168,7 @@ describe('the simple shell', () => {
     render(withClient(<SimpleSection section="money" />))
     await waitFor(() => expect(screen.getByTestId('simple-entry-all-entries').textContent).toContain('Full app'))
     fireEvent.click(screen.getByTestId('simple-entry-all-entries'))
-    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'daybook' }))
+    await waitFor(() => expect(useNav.getState().stack.at(-1)).toEqual({ name: 'registers', tab: 'entries' }))
     cleanup()
     render(withClient(<SimpleSection section="taxes" />))
     expect(await screen.findByTestId('simple-entry-gst-summary')).toBeTruthy()

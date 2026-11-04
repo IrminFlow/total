@@ -53,9 +53,8 @@ export const EXPLAIN_RULE =
   'Quote its amounts and percentages as given; do not work any out yourself.'
 
 export const ASSISTANT_RULE =
-  'The assistant tools (close_checklist, gst_2b_mismatches, find_anomalies, build_report) compute statuses, categories and figures in the app; ' +
-  'narrate their results and link the user to the screen they name — never re-derive a status or a figure. A tool result already present when the question starts was run by the app for this question: answer from it. ' +
-  'For a custom report call build_report with ledger, group, party and item names exactly as the books spell them; if it reports problems, fix the request and call it again.'
+  'The assistant tools (close_checklist, gst_2b_mismatches, find_anomalies) compute statuses, categories and figures in the app; ' +
+  'narrate their results and link the user to the screen they name — never re-derive a status or a figure. A tool result already present when the question starts was run by the app for this question: answer from it.'
 
 export function buildSystemPrompt(ctx: PromptContext): string {
   const c = ctx.company
@@ -104,7 +103,7 @@ export function buildSystemPrompt(ctx: PromptContext): string {
     ctx.context?.explain ? `11. Explain. ${EXPLAIN_RULE}` : null,
     hasMemory ? `12. Memory. ${MEMORY_RULE}` : null,
     ctx.tools.some((t) => t.name === 'remember') ? `13. Remembering. ${REMEMBER_RULE}` : null,
-    ctx.tools.some((t) => t.name === 'close_checklist' || t.name === 'build_report') ? `14. Assistants. ${ASSISTANT_RULE}` : null,
+    ctx.tools.some((t) => t.name === 'close_checklist') ? `14. Assistants. ${ASSISTANT_RULE}` : null,
     '',
     '# Tools',
     `Read: ${read.join(', ') || 'none'}`,

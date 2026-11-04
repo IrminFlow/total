@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { assignAliases, createPseudonymiser, maskIdentifiers, mapStrings, outboundText, inboundText, aliasFor } from './privacy'
 import { anomalyRef } from '@shared/anomalies'
-import { maskFreeText } from '../mcp/mask'
 
 describe('maskIdentifiers', () => {
   it('masks GSTINs, keeping only the last three characters', () => {
@@ -41,7 +40,6 @@ describe('maskIdentifiers', () => {
       expect(ref).toMatch(/^[a-z]{10}$/)
       expect(maskIdentifiers(ref)).toBe(ref)
       expect(maskIdentifiers(`ref ${ref.toUpperCase()},`)).toBe(`ref ${ref.toUpperCase()},`)
-      expect(maskFreeText(ref)).toBe(ref)
     }
     const result = { anomalies: keys.slice(0, 5).map((k) => ({ ref: anomalyRef(k), key: k })) }
     expect(mapStrings(result, maskIdentifiers).anomalies.map((a) => a.ref)).toEqual(result.anomalies.map((a) => a.ref))

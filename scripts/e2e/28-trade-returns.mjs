@@ -2,7 +2,7 @@
 // company with Orders & challans on:
 //   a sales invoice (10 @ ₹150, stock leaves at ₹100) → Ctrl+F8 credit note → "Against invoice…"
 //   picks the invoice whole, 2 returned with a reason → the invoice can't be over-returned → the
-//   Linked documents drawer (from the credit note's header and the Day book) shows both → stock
+//   Linked documents drawer (from the credit note's header and All entries) shows both → stock
 //   comes back at the engine cost (₹100, not the ₹150 sale value) → the returns register lists it
 //   with the reason;
 //   then, for the reports: PO → GRN @ ₹100 → bill @ ₹110 for part (three-way match: rate variance
@@ -18,6 +18,8 @@ await scenario('28-trade-returns', async (h) => {
   await h.createDemoCompany()
   const features = await h.invoke('config:features:get')
   await h.invoke('config:features:set', { ...features, inventory: true, orders: true })
+  // Feature cleanup: the trade cycle shows only for a company that already uses it.
+  await h.useFeature('tradeCycle')
   // Books start a year back, so last FY is a completed (closeable) year for the year-end check.
   const now = new Date()
   const currentFyStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1
@@ -149,9 +151,9 @@ await scenario('28-trade-returns', async (h) => {
   assertEq(open.find((l) => l.voucherId === invoiceId)?.pendingMilli, 8000, '8 still returnable')
 
   // ---------- 3. linked documents ----------
-  await h.goto('daybook')
-  await page.waitForSelector(`[data-testid="rows-daybook"] tr[data-row-id="${cnId}"]`, { timeout: 10000 })
-  await page.locator(`[data-testid="rows-daybook"] tr[data-row-id="${cnId}"] [data-testid="btn-daybook-links"]`).click()
+  await h.gotoAllEntries()
+  await page.waitForSelector(`[data-testid="rows-registers-entries"] tr[data-row-id="${cnId}"]`, { timeout: 10000 })
+  await page.locator(`[data-testid="rows-registers-entries"] tr[data-row-id="${cnId}"] [data-testid="btn-entries-links"]`).click()
   await page.waitForSelector('[data-testid="drawer-linked-docs"] [data-testid="chain-node"]', { timeout: 10000 })
   const keys = await page.locator('[data-testid="drawer-linked-docs"] [data-testid="chain-node"]').evaluateAll((ns) =>
     ns.map((n) => [n.getAttribute('data-key'), n.getAttribute('data-status'), n.getAttribute('data-root')])
@@ -161,7 +163,7 @@ await scenario('28-trade-returns', async (h) => {
   await page.keyboard.press('Escape')
   await page.waitForSelector('[data-testid="drawer-linked-docs"]', { state: 'detached', timeout: 5000 })
   // From the invoice's own header (⌥L).
-  await page.locator(`[data-testid="rows-daybook"] tr[data-row-id="${invoiceId}"]`).click()
+  await page.locator(`[data-testid="rows-registers-entries"] tr[data-row-id="${invoiceId}"]`).click()
   await h.waitScreen('voucher-entry', 20000)
   await page.waitForSelector('[data-testid="btn-linked-docs"]', { timeout: 10000 })
   await page.keyboard.press('Alt+KeyL')
@@ -306,9 +308,9 @@ await scenario('28-trade-returns', async (h) => {
   assertEq((await h.invoke('tradeDocs:get', { id: qt.id })).closeReason, 'Customer bought elsewhere', 'the stale quotation is closed with the reason')
 
   // A challan short-close and reopen, from the challan form.
-  await h.goto('daybook')
-  await page.waitForSelector(`[data-testid="rows-daybook"] tr[data-row-id="${dc.id}"]`, { timeout: 10000 })
-  await page.locator(`[data-testid="rows-daybook"] tr[data-row-id="${dc.id}"]`).click()
+  await h.gotoAllEntries()
+  await page.waitForSelector(`[data-testid="rows-registers-entries"] tr[data-row-id="${dc.id}"]`, { timeout: 10000 })
+  await page.locator(`[data-testid="rows-registers-entries"] tr[data-row-id="${dc.id}"]`).click()
   await h.waitScreen('voucher-entry', 20000)
   await page.waitForSelector('[data-testid="btn-stock-note-close"]', { timeout: 10000 })
   await h.click('btn-stock-note-close')

@@ -1,7 +1,7 @@
 // Scenario 49 — WP 8.5, a simple-mode shop: saving a bill with no customer says so UNDER the
 // customer field (no corner toast) and the message goes once a customer is picked; a correct
 // bill shows the save card ("Bill ₹… saved. Ramesh still owes ₹….") with the figures main
-// computed; Undo moves it to the bin (one undo group, audited) and the Day book no longer shows
+// computed; Undo moves it to the bin (one undo group, audited) and All entries no longer shows
 // it. Light and dark screenshots of the field error, the card and the undo result.
 import { scenario, assert, assertEq, PICKER_OPTION } from '../lib/harness.mjs'
 
@@ -101,7 +101,7 @@ await scenario('49-save-card-undo', async (h) => {
   assertEq(summary.parties[0].balance, 9000, 'what Ramesh owes comes from the outstandings')
   await both('02-save-card')
 
-  // ---------- Undo → the bin; the Day book no longer shows it ----------
+  // ---------- Undo → the bin; All entries no longer shows it ----------
   await h.click('btn-save-card-undo')
   await page.waitForSelector('[data-testid="save-card"][data-state="undone"]', { timeout: 10000 })
   await h.waitIdle()
@@ -113,15 +113,15 @@ await scenario('49-save-card-undo', async (h) => {
   const audit = await h.invoke('audit:list', { entity: 'undo_group', page: 0 })
   assert(audit.rows.some((r) => r.action === 'create'), 'the undo is audited')
   const dayBook = await h.invoke('report:dayBook', { from: today, to: today })
-  assert(!dayBook.some((r) => r.voucherId === bill.id), 'the Day book no longer has the bill')
+  assert(!dayBook.some((r) => r.voucherId === bill.id), 'All entries no longer has the bill')
 
   // The bill form is a full-app screen (until its Phase 9 flow); "Back to simple" returns to Sell.
   await h.click('btn-back-to-simple')
   await h.click('simple-nav-money')
   await h.click('simple-entry-all-entries')
-  await h.waitScreen('daybook')
+  await h.waitScreen('registers')
   await h.waitIdle()
-  const rows = await page.$$eval('[data-testid="rows-daybook"] tr.dt-row', (trs) => trs.map((tr) => tr.textContent ?? ''))
-  assert(!rows.some((t) => t.includes(bill.number) && t.includes('Ramesh')), `the Day book screen doesn't show ${bill.number}`)
+  const rows = await page.$$eval('[data-testid="rows-registers-entries"] tr.dt-row', (trs) => trs.map((tr) => tr.textContent ?? ''))
+  assert(!rows.some((t) => t.includes(bill.number) && t.includes('Ramesh')), `All entries screen doesn't show ${bill.number}`)
   await h.shot('04-daybook-after-undo')
 })

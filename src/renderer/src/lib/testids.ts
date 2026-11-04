@@ -3,13 +3,13 @@
  *
  * Every load-bearing control carries a kebab-case `data-testid` following the pattern
  * `<area>-<control>`. The `<area>` segment for screen-scoped ids is the screen's registry
- * name from `lib/screens.ts` VERBATIM (e.g. `daybook`, `trial-balance`, `year-end`) — do
+ * name from `lib/screens.ts` VERBATIM (e.g. `registers`, `trial-balance`, `year-end`) — do
  * not re-hyphenate names the registry spells without a dash.
  *
  * Families in use:
  *
  *   nav-<screen>            Sidebar nav buttons (derived: 'nav-' + screen registry name,
- *                           e.g. nav-daybook, nav-masters, nav-trial-balance).
+ *                           e.g. nav-registers, nav-masters, nav-trial-balance).
  *   tile-<figure>           Gateway stat tiles (tile-cash, tile-receivables, tile-payables,
  *                           tile-sales, tile-purchases, tile-profit) — WP 1.10b replaced the
  *                           old card-<screen> menu grid; single-letter shortcuts remain.
@@ -30,7 +30,7 @@
  *                           several, e.g. picker-party).
  *   input-<what>            Form inputs. AmountInput defaults to input-amount, DateInput to
  *                           input-date (override via `testId` when a form has several).
- *   rows-<screen>[-<sub>]   The main <tbody> of each major table (rows-daybook,
+ *   rows-<screen>[-<sub>]   The main <tbody> of each major table (rows-registers-entries,
  *                           rows-ledger-statement, rows-masters-ledgers, rows-outstandings…).
  *                           Voucher entry's line grids keep short canonical ids:
  *                           rows-invoice-lines (invoice mode) and rows-voucher-lines
@@ -56,7 +56,7 @@
  *   roots carry data-screen="company-select" / data-screen="lock" with the same data-loading.
  */
 
-/** `tid('nav', 'daybook')` → `'nav-daybook'`. Prefer literals at call sites; use this when
+/** `tid('nav', 'registers')` → `'nav-registers'`. Prefer literals at call sites; use this when
  *  composing from variables (e.g. registry-derived ids). */
 export function tid(...parts: (string | number)[]): string {
   return parts.join('-')

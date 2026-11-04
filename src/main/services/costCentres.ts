@@ -2,6 +2,7 @@ import type { DB } from '../db/connection'
 import type { CostCentre } from '@shared/domain'
 import type { CostCentreInput } from '@shared/schemas'
 import { writeAudit } from './audit'
+import { removeLeftoverPlanning } from './leftoverPlanning'
 // IN_BOOKS, not NOT_DELETED: cost-centre figures must tie to the P&L for the same period, which
 // excludes optional (memorandum) and unmatured post-dated vouchers.
 import { IN_BOOKS } from './vouchers'
@@ -37,8 +38,12 @@ export function deleteCostCentre(db: DB, id: number): void {
   if (!existing) throw new Error('Cost centre not found')
   const used = db.prepare('SELECT COUNT(*) AS n FROM voucher_line_cost_allocations WHERE cost_centre_id = ?').get(id) as { n: number }
   if (used.n > 0) throw new Error('Cost centre has posted allocations; deactivate it instead of deleting it')
-  db.prepare('DELETE FROM cost_centres WHERE id = ?').run(id)
-  writeAudit(db, 'costCentre', id, 'delete', mapCc(existing), null)
+  db.transaction(() => {
+    // 1.0 cleanup: leftover budget lines split by this cost centre go with it (budget audited).
+    const cascaded = removeLeftoverPlanning(db, { costCentreId: id })
+    db.prepare('DELETE FROM cost_centres WHERE id = ?').run(id)
+    writeAudit(db, 'costCentre', id, 'delete', Object.keys(cascaded).length ? { ...mapCc(existing), cascaded } : mapCc(existing), null)
+  })()
 }
 
 export interface CcReportRow {

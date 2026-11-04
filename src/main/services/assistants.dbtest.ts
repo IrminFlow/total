@@ -1,15 +1,14 @@
 // WP 5.5 — the assistants on a real (in-memory) company: the close checklist computed from the
 // books (and its marks persisted + audited), anomalies (binned vouchers out, dismissals kept),
 // GSTR-2B mismatches from a stored statement with a draft that is ONLY a draft (the books do not
-// change until the user saves it — and then the mismatch is gone), build_report equal to the
-// report builder, the AI tools equal to the services, and "Run with AI" pre-calling a tool.
+// change until the user saves it — and then the mismatch is gone), the AI tools equal to the
+// services, and "Run with AI" pre-calling a tool.
 import { describe, expect, it } from 'vitest'
 import type { CompanyInfo } from '@shared/domain'
 import type { AiEvent, AiSettings } from '@shared/ai'
 import { TEST_INFO } from '../db/testdb'
 import { createLedger } from './masters'
 import { saveVoucher, deleteVoucher, setLockDate } from './vouchers'
-import { runReport } from './reportBuilder'
 import { tradeBooks, item, ledger, trade, typeId, type TradeBooks } from './tradeFixture.testutil'
 import * as assist from './assistants'
 import { createToolRegistry } from '../ai/tools'
@@ -21,8 +20,6 @@ import { consumeDraft, discardDraft } from '../ai/drafts'
 import * as store from '../ai/store'
 import type { ToolContext } from '../ai/tools/registry'
 import type { Role } from './roles'
-import { parseReportQuestion, requestToModel } from '@shared/reportBuilder/nl'
-import { nameLookup } from '../ai/tools/assistantTools'
 
 const GSTIN = '27AAPFU0939F1ZV'
 const INFO: CompanyInfo = { ...TEST_INFO, name: 'Assist Co', gstin: '27AAACR5055K1Z7' }
@@ -269,7 +266,7 @@ describe('GSTR-2B mismatches', () => {
     expect(() => guardDuplicate(b.db, { kind: 'purchase', date: '2025-05-12', partyLedgerId: b.vendor, reference: 'A-2', narration: 'n', split: { taxable: 1, igst: 0, cgst: 0, sgst: 0, cess: 0 } })).toThrow(/already in the books/)
   })
 
-  it('under default privacy (masked ids) the assistant drafts by the key it saw; MCP too', async () => {
+  it('under default privacy (masked ids) the assistant drafts by the key it saw', async () => {
     const b = books()
     assist.store2bStatement(b.db, { jsonText: TWO_B, period: '2025-05' }, null)
     const masked: AiSettings = { ...defaultAiSettings(), enabled: true, noticeAcceptedAt: '2025-06-01T00:00:00.000Z', noticeAcceptedBy: 'Owner', noticeVersion: 1, privacy: { maskIds: true, pseudonymiseParties: false } }
@@ -296,28 +293,6 @@ describe('GSTR-2B mismatches', () => {
     const draftId = tool.draftId!
     expect(store.getDraft(b.db, draftId)).toMatchObject({ status: 'open', payload: { voucherKind: 'purchase', partyLedgerId: b.vendor } })
     discardDraft(b.db, draftId)
-
-    // MCP: masked by field — the key survives the round trip.
-    const { createMcpServer } = await import('../mcp/server')
-    const { setMcpConfig } = await import('./config')
-    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
-    const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js')
-    setMcpConfig(b.db, { enabled: true })
-    const handle = createMcpServer({ db: b.db, slug: 'assist', identity: { role: 'accountant', userName: null, userId: null }, privacy: { maskIds: true, pseudonymiseParties: false }, version: 'test', today: () => TODAY })
-    const [ct, st] = InMemoryTransport.createLinkedPair()
-    await handle.server.connect(st)
-    const client = new Client({ name: 'Assist Test', version: '1' })
-    await client.connect(ct)
-    const text = async (name: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }> => {
-      const r = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { text: string }[] }
-      return { isError: !!r.isError, text: r.content.map((c) => c.text).join('') }
-    }
-    const list = await text('gst_2b_mismatches', { period: '2025-05' })
-    expect(list.text).not.toContain(GSTIN)
-    const key = (JSON.parse(list.text) as { result: { mismatches: { key: string; category: string }[] } }).result.mismatches.find((m) => m.category === 'Missing in books')!.key
-    const drafted = await text('draft_gst_2b_fix', { period: '2025-05', key })
-    expect(drafted.isError).toBe(false)
-    await client.close()
   })
 
   it('a saved debit-note draft (dated today) pairs with its purchase: the amount difference and the note both clear', () => {
@@ -409,40 +384,6 @@ describe('anomalies — review fixes', () => {
   })
 })
 
-describe('MCP exposure', () => {
-  it('draft_gst_2b_fix is listed for accountants and owners only; the read assistants for viewers too', async () => {
-    const { exposedTools } = await import('../mcp/server')
-    const names = (role: Role): string[] => exposedTools(createToolRegistry(), { role, userName: null } as never).map((t) => t.name)
-    expect(names('viewer')).toEqual(expect.arrayContaining(['close_checklist', 'gst_2b_mismatches', 'find_anomalies', 'build_report']))
-    expect(names('viewer')).not.toContain('draft_gst_2b_fix')
-    expect(names('accountant')).toContain('draft_gst_2b_fix')
-    expect(names('owner')).toContain('draft_gst_2b_fix')
-  })
-})
-
-describe('build_report', () => {
-  it('runs the validated model: totals equal the report builder; bad names come back as problems', async () => {
-    const b = books()
-    trade(b, 'sales', '2025-05-12', [{ item: item(b.db, 'Gadget', { opening: [10, 10_000] }), qty: 2, amount: 40_000 }])
-    trade(b, 'sales', '2025-06-02', [{ item: item(b.db, 'Gizmo', { opening: [10, 10_000] }), qty: 1, amount: 25_000 }])
-    const req = parseReportQuestion('sales by month', PERIOD)!
-    const res = requestToModel(req, nameLookup(b.db))
-    if (!res.ok) throw new Error(res.problems.join())
-    const direct = runReport(b.db, res.model, { working: PERIOD, today: TODAY })
-    const tool = createToolRegistry().get('build_report')!
-    const out = (await tool.handler(req, ctxFor(b))) as { data: { totals: Record<string, string>; rowCount: number }; sources: { kind: string; screen?: string; params?: Record<string, string> }[] }
-    expect(direct.totals[0]).toBe(65_000)
-    expect(out.data.totals['Taxable value']).toBe('₹650.00')
-    expect(out.data.rowCount).toBe(direct.rows.length)
-    const link = out.sources.find((s) => s.screen === 'report-builder')!
-    expect(JSON.parse(link.params!.model!)).toEqual(res.model)
-
-    const bad = await createToolRegistry().run('build_report', JSON.stringify({ title: 'x', source: 'accounts', measures: ['net'], ledgers: ['No Such Ledger'] }), ctxFor(b))
-    expect(bad).toMatchObject({ ok: false })
-    expect((bad as { error: string }).error).toMatch(/No ledger called “No Such Ledger”/)
-  })
-})
-
 describe('Run with AI — a pre-called assistant tool', () => {
   const ON: AiSettings = { ...defaultAiSettings(), enabled: true, noticeAcceptedAt: '2025-06-01T00:00:00.000Z', noticeAcceptedBy: 'Owner', noticeVersion: 1 }
   const deps = (b: Books, provider: MockProvider): Parameters<typeof startTurn>[0] & { events: AiEvent[] } => {
@@ -468,14 +409,9 @@ describe('Run with AI — a pre-called assistant tool', () => {
     expect(answer.figures.every((f) => f.sourced)).toBe(true)
   })
 
-  it('only read tools can be pre-called; the mock maps "report of …" to build_report', async () => {
+  it('only read tools can be pre-called', async () => {
     const b = books()
     const bad = startTurn(deps(b, new MockProvider(demoScript)), { text: 'x', preCall: { tool: 'draft_gst_2b_fix' as never, input: {} } })
     expect(await bad.finished).toMatchObject({ status: 'error' })
-    const provider = new MockProvider(demoScript)
-    const t = startTurn(deps(b, provider), { text: 'Make a report of sales by month' })
-    expect(await t.finished).toEqual({ status: 'done' })
-    const call = store.listMessages(b.db, t.threadId).find((m) => m.toolCalls.length)!.toolCalls[0]!
-    expect(call).toMatchObject({ name: 'build_report', input: { source: 'accounts', measures: ['taxable'], dimensions: [{ key: 'month' }] } })
   })
 })

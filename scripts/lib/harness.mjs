@@ -153,6 +153,24 @@ export class Harness {
     return r.data
   }
 
+  /** Turn on features hidden until used (the feature cleanup) the way an owner does: Settings →
+   *  Features → More features → Turn on, in the full app. A flag feature (cost centres, orders)
+   *  moves to the main list once on. Asserts each reads as turned on afterwards. */
+  async useFeature(...names) {
+    const FLAG = { costCentres: 'costCentres', tradeCycle: 'orders' }
+    await this.goto('settings')
+    await this.click('tab-settings-features')
+    await this.page.waitForSelector('[data-testid="btn-features-more"]', { timeout: 10000 })
+    if ((await this.page.getAttribute('[data-testid="btn-features-more"]', 'aria-expanded')) !== 'true') await this.click('btn-features-more')
+    for (const n of names) {
+      await this.click(`btn-feature-more-${n}`)
+      const done = FLAG[n] ? `[data-testid="feature-card-${FLAG[n]}"][data-on="true"]` : `[data-testid="feature-more-card-${n}"][data-on="true"]`
+      await this.page.waitForSelector(done, { state: 'attached', timeout: 10000 })
+    }
+    const features = await this.invoke('config:features:get')
+    for (const n of names) if (!(features.turnedOn ?? []).includes(n)) throw new Error(`useFeature: ${n} is not turned on`)
+  }
+
   /** Wait until the current screen marker reports data-loading="false". */
   async waitIdle(timeout = 15000) {
     await this.page.waitForSelector('[data-screen][data-loading="false"]', { state: 'attached', timeout })
@@ -176,6 +194,15 @@ export class Harness {
     }, name)
     await this.page.click(`[data-testid="nav-${name}"]`, { timeout })
     await this.waitScreen(name, timeout)
+  }
+
+  /** Registers → All entries (every voucher of the period — the Day book's list before the
+   *  feature cleanup removed that screen): the sidebar's Registers, then its All entries tab. */
+  async gotoAllEntries(timeout = 15000) {
+    await this.goto('registers', timeout)
+    await this.page.click('[data-testid="tab-registers-entries"]', { timeout })
+    await this.page.waitForSelector('[data-testid="registers-entries-table"]', { state: 'attached', timeout })
+    await this.waitIdle(timeout)
   }
 
   /** Click any control by data-testid. */

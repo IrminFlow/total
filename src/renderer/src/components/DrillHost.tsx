@@ -35,7 +35,7 @@ export function DrillHost(): React.JSX.Element {
           key={`l${ledgerEditId}`}
           ledgerId={ledgerEditId}
           onClose={() => setLedgerEdit(null)}
-          // From any edit window, one click on to the ledger's statement (Day Book, Outstandings…
+          // From any edit window, one click on to the ledger's statement (All entries, Outstandings…
           // rows open something else, so this is their path to it).
           onOpenStatement={(id) => {
             setLedgerEdit(null)

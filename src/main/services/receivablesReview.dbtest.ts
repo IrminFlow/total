@@ -6,7 +6,7 @@
 // output-tax ledgers only, date validation, the SAC setting, ledger-delete audit, and the
 // missing coverage (part-paid, leap year, grace across a year end, statement with an opening).
 import { beforeAll, describe, expect, it, vi } from 'vitest'
-import { mkdtempSync, writeFileSync, mkdirSync } from 'fs'
+import { mkdtempSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 
@@ -27,7 +27,6 @@ import { extractOutwardDocs } from './gst'
 import { counterCheckout } from './counter'
 import { pricingFixture } from './pricingFixture.testutil'
 import { dc, item, tradeBooks } from './tradeFixture.testutil'
-import { inboxDir, processInboxFile } from './agentBridge'
 import * as rx from './receivables'
 
 const COMPANY: CompanyInfo = { ...TEST_INFO, gstin: '27AAACT1234K1Z5', gstRegistrationType: 'regular' }
@@ -345,24 +344,6 @@ describe('3. credit hold: every save that creates new credit is refused', () => 
     const f = pricingFixture()
     rx.setCreditHold(f.db, f.umbrella, true, 'Overdue')
     expect(() => counterCheckout(f.db, TEST_INFO, { date: '2025-10-07', partyLedgerId: f.umbrella, lines: [{ itemId: f.pen, qtyMilli: 1000, ratePaise: 1000 }] })).toThrow(CREDIT_HOLD_PREFIX)
-  })
-
-  it('an inbox voucher drop never posts credit to a held party (legacy posting goes through the same check)', () => {
-    const b = books()
-    const held = party(b, 'Inbox Held')
-    rx.setCreditHold(b.db, held, true, 'Overdue')
-    const dir = inboxDir('rx-review')
-    mkdirSync(dir, { recursive: true })
-    const drop = JSON.stringify({ voucherTypeId: vtId(b.db, 'sales'), date: '2026-05-01', partyLedgerId: held, lines: [{ ledgerId: held, drCr: 'dr', amount: 100 }, { ledgerId: b.s18, drCr: 'cr', amount: 100 }] })
-    // WP 5.7: by default a drop only ever becomes a draft (a sales invoice cannot be one yet) …
-    writeFileSync(join(dir, 'sale.json'), drop)
-    const drafted = processInboxFile(b.db, 'rx-review', join(dir, 'sale.json'))
-    expect(drafted.ok).toBe(false)
-    // … and the deprecated `--legacy-inbox-post` path still runs saveVoucher's credit-hold check.
-    writeFileSync(join(dir, 'sale-legacy.json'), drop)
-    const out = processInboxFile(b.db, 'rx-review', join(dir, 'sale-legacy.json'), { legacyPost: true })
-    expect(out.ok).toBe(false)
-    expect(out.detail).toContain(CREDIT_HOLD_PREFIX)
   })
 })
 

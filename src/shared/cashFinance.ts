@@ -1,17 +1,13 @@
 /**
  * Cash and finance (WP 4.4) — IPC input schemas and the row shapes main returns, shared by main
- * and renderer. The maths lives in ./cashForecast.ts, ./loanSchedule.ts, ./forex.ts and
- * ./budgetPhasing.ts.
+ * and renderer. The maths lives in ./cashForecast.ts and ./forex.ts.
  */
 import { z } from 'zod'
 import { isoDate } from './schemas'
 import type { CollectionProfile, ForecastFlow, ItemCadence, ItemKind } from './cashForecast'
-import type { EmiMethod, MoratoriumMode, PrepaymentEffect, ScheduleKind } from './loanSchedule'
-import type { MonthlyVarianceRow } from './budgetPhasing'
 
 const id = z.number().int().positive()
 const paise = z.number().int().safe()
-const positivePaise = paise.positive()
 const currencyCode = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, 'Expected a 3-letter currency code')
 const rateMicro = z.number().int().positive().max(1_000_000_000_000)
 
@@ -68,138 +64,6 @@ export interface ForecastBase {
   receivableProfile: CollectionProfile
   /** Sources that could not be read (one failing never blanks the forecast). */
   warnings: string[]
-}
-
-// ---------- loans ----------
-
-export const loanInputSchema = z
-  .object({
-    name: z.string().trim().min(1).max(80),
-    /** The loan liability ledger (lender), e.g. under Secured Loans. */
-    loanLedgerId: id,
-    /** Default bank for Post EMI. */
-    bankLedgerId: id.nullable().default(null),
-    /** Interest expense ledger; null = "Interest on Loans" under Indirect Expenses (created on first post). */
-    interestLedgerId: id.nullable().default(null),
-    principal: positivePaise,
-    annualRateMilli: z.number().int().min(0).max(60_000),
-    tenureMonths: z.number().int().min(1).max(600),
-    disbursedOn: isoDate,
-    firstDueDate: isoDate,
-    method: z.enum(['reducing', 'flat']).default('reducing'),
-    moratoriumMonths: z.number().int().min(0).max(60).default(0),
-    moratoriumMode: z.enum(['capitalise', 'interest_only']).default('capitalise'),
-    emiOverride: positivePaise.nullable().default(null),
-    notes: z.string().trim().max(400).nullable().default(null)
-  })
-  .refine((v) => v.firstDueDate > v.disbursedOn, { message: 'The first instalment must fall after the disbursement date', path: ['firstDueDate'] })
-export type LoanInput = z.input<typeof loanInputSchema>
-
-export const loanPrepaymentInputSchema = z.object({
-  loanId: id,
-  date: isoDate,
-  amount: positivePaise,
-  effect: z.enum(['reduce_tenure', 'reduce_emi'])
-})
-export type LoanPrepaymentInput = z.input<typeof loanPrepaymentInputSchema>
-
-export const postEmiSchema = z.object({
-  scheduleId: id,
-  /** Defaults to the instalment's due date. */
-  date: isoDate.optional(),
-  /** Defaults to the loan's bank ledger. */
-  bankLedgerId: id.optional()
-})
-export type PostEmiInput = z.input<typeof postEmiSchema>
-
-export const loanDisbursementSchema = z.object({
-  loanId: id,
-  /** The bank the money came into; defaults to the loan's bank ledger. */
-  bankLedgerId: id.optional()
-})
-export type LoanDisbursementInput = z.input<typeof loanDisbursementSchema>
-
-/** How a loan's disbursement is in the books: a voucher posted from Loans (Dr bank / Cr the loan
- *  ledger), or — for a loan taken before the books began — the loan ledger's opening balance. */
-export type LoanDisbursement =
-  | { mode: 'voucher'; voucherId: number; voucherNumber: string; date: string; amount: number }
-  | { mode: 'opening'; amount: number }
-
-export interface LoanSummary {
-  id: number
-  name: string
-  loanLedgerId: number
-  loanLedgerName: string
-  bankLedgerId: number | null
-  bankLedgerName: string | null
-  interestLedgerId: number | null
-  interestLedgerName: string | null
-  principal: number
-  annualRateMilli: number
-  tenureMonths: number
-  disbursedOn: string
-  firstDueDate: string
-  method: EmiMethod
-  moratoriumMonths: number
-  moratoriumMode: MoratoriumMode
-  emiOverride: number | null
-  status: 'active' | 'closed'
-  notes: string | null
-  /** The schedule's EMI. */
-  emi: number
-  /** Principal still owed per the schedule after the last posted row (paise). */
-  outstanding: number
-  /** The loan ledger's book balance today (credit balance shown positive). */
-  ledgerBalance: number
-  postedCount: number
-  pendingCount: number
-  nextDue: { scheduleId: number; dueDate: string; payment: number } | null
-  /** Unposted rows due on or before today. */
-  overdueCount: number
-  /** Interest falling due in the current financial year (posted or not). */
-  interestThisFy: number
-  totalInterest: number
-  /** The disbursement as recorded (null = not in the books from Loans yet). */
-  disbursement: LoanDisbursement | null
-  /** The loan was taken before the books began: its disbursement is an opening balance, not a voucher. */
-  beforeBooks: boolean
-  /** What "Record the disbursement" would put in the books: the principal, or for a loan taken
-   *  before the books began the schedule's outstanding on the books-begin day. */
-  disbursementAmount: number
-  /** The books-begin day (instalments due before it, on a loan taken before it, are in the opening). */
-  booksBegin: string
-}
-
-export interface LoanScheduleRow {
-  id: number
-  loanId: number
-  seq: number
-  dueDate: string
-  kind: ScheduleKind
-  opening: number
-  payment: number
-  interest: number
-  principal: number
-  closing: number
-  /** Live posted voucher (null when not posted, or its voucher is in the bin). */
-  voucherId: number | null
-  voucherNumber: string | null
-  posted: boolean
-}
-
-export interface LoanDetail {
-  loan: LoanSummary
-  schedule: LoanScheduleRow[]
-  prepayments: { id: number; date: string; amount: number; effect: PrepaymentEffect }[]
-}
-
-export interface EmiReminder {
-  loanId: number
-  loanName: string
-  scheduleId: number
-  dueDate: string
-  payment: number
-  overdue: boolean
 }
 
 // ---------- forex ----------
@@ -319,89 +183,10 @@ export interface FxSettleResult {
   gainLoss: number
 }
 
-// ---------- budgets ----------
-
-export const budgetMonthlySchema = z.object({ budgetId: id, upToMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Expected YYYY-MM') })
-
-export const budgetDrillSchema = z.object({
-  budgetId: id,
-  lineId: id,
-  /** 'YYYY-MM' for one month; null = April through upToMonth. */
-  month: z.string().regex(/^\d{4}-\d{2}$/).nullable(),
-  upToMonth: z.string().regex(/^\d{4}-\d{2}$/)
-})
-
-export const budgetCsvImportSchema = z.object({
-  budgetId: id,
-  csvText: z.string().max(2 * 1024 * 1024),
-  reason: z.string().trim().max(200).nullable().default(null)
-})
-
-export interface BudgetMonthlyReport {
-  budgetId: number
-  fyStartYear: number
-  months: string[]
-  upToMonth: string
-  rows: MonthlyVarianceRow[]
-}
-
-export interface BudgetDrillRow {
-  voucherId: number
-  date: string
-  number: string
-  voucherType: string
-  ledgerId: number
-  ledgerName: string
-  /** Signed in the target's natural direction (as counted in the actual). */
-  amount: number
-}
-
-export interface BudgetRevision {
-  id: number
-  budgetId: number
-  revisionNo: number
-  revisedAt: string
-  userName: string | null
-  reason: string | null
-  totalBefore: number
-  totalAfter: number
-  linesBefore: number
-  linesAfter: number
-}
-
-export interface BudgetCsvResult {
-  lines: number
-  errors: string[]
-}
-
-export interface OverBudgetRow {
-  budgetId: number
-  budgetName: string
-  lineId: number
-  targetName: string
-  costCentreName: string | null
-  budget: number
-  actual: number
-}
-
-export interface OverBudgetChip {
-  month: string
-  rows: OverBudgetRow[]
-}
-
-// ---------- year-end / dashboard ----------
+// ---------- year-end ----------
 
 export interface CashFinanceCloseWarnings {
-  unpostedEmis: { loanId: number; loanName: string; count: number; amount: number }[]
   unrevalued: { currencyCode: string; ledgers: number; fcBalance: number }[]
   /** No revaluation as on the FY's last day while foreign balances were open. */
   revaluedOnFyEnd: boolean
-  /** Lines (department / cost-centre lines first) whose full-year actual exceeds the budget. */
-  overBudget: OverBudgetRow[]
-}
-
-/** dashboard:financeReminders — the compliance card's EMI reminders and over-budget chip. */
-export interface FinanceReminders {
-  emis: EmiReminder[]
-  overBudget: OverBudgetChip
 }

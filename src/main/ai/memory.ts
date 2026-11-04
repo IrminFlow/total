@@ -107,7 +107,7 @@ export function activeMemories(db: DB): AiMemoryDto[] {
   return listMemory(db, 'active')
 }
 
-/** The memory context outside a chat turn (MCP tool calls): the same entries a chat question's
+/** The memory context outside a chat turn (the simple screens' defaults): the same entries a chat question's
  *  block would carry (cap and order), and none while "Use memory" is off. */
 export function memoryContextFor(db: DB, useMemory: boolean): MemoryContext {
   if (!useMemory) return EMPTY_MEMORY_CONTEXT

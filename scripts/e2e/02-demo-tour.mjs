@@ -3,16 +3,17 @@
 // key warnings across the whole tour.
 import { scenario, assert } from '../lib/harness.mjs'
 
-// Sidebar screens in registry order (lib/screens.ts) with their feature gates. Kept as a
+// Sidebar screens in registry order (lib/screens.ts) with their feature gates (and the feature
+// cleanup's hidden-until-used feature, a third element). Kept as a
 // static list on purpose: if a lane adds a screen to the registry without covering it here,
 // the registry-integrity renderer test still counts it — this tour is about rendering.
 // h.goto() expands collapsed sidebar sections on the way.
 const TOUR = [
-  ['voucher-entry'], ['daybook'], ['masters'],
+  ['voucher-entry'], ['masters'],
   ['trial-balance'], ['profit-loss'], ['balance-sheet'], ['cash-flow'],
   ['stock-summary', 'inventory'], ['stock-movements', 'inventory'], ['stock-journal', 'inventory'], ['year-end'],
-  ['registers'], ['outstandings'], ['consolidated'], ['cost-centres', 'costCentres'],
-  ['budgets'], ['exceptions'], ['banking'], ['payroll', 'payroll'],
+  ['registers'], ['outstandings'], ['cost-centres', 'costCentres', 'costCentres'],
+  ['exceptions'], ['banking'], ['payroll', 'payroll'],
   ['gstr1'], ['gstr3b'], ['gstr2b'], ['edocs'], ['tds', 'tds'],
   ['settings'], ['import-tally'], ['gateway']
 ]
@@ -28,8 +29,9 @@ await scenario('02-demo-tour', async (h) => {
       const now = await h.page.evaluate(() => document.documentElement.dataset.theme)
       assert(now === theme, `theme toggled to ${theme}`)
     }
-    for (const [name, feature] of TOUR) {
+    for (const [name, feature, hideable] of TOUR) {
       if (feature && features[feature] === false) continue
+      if (hideable && (features.unused ?? []).includes(hideable)) continue
       await h.goto(name, 20000)
       await h.shot(`${theme}-${name}`)
     }

@@ -111,7 +111,7 @@ function flattenStatement(nodes: StatementNode[], depth = 0): { name: string; am
   return out
 }
 
-function daybookCsv(db: DB, from: string, to: string): string {
+function allEntriesCsv(db: DB, from: string, to: string): string {
   const rows = dayBook(db, from, to)
   return rowsToCsv(
     ['Date', 'Voucher Type', 'Number', 'Account', 'Narration', 'Debit', 'Credit'],
@@ -280,7 +280,8 @@ export function exportCaPack(db: DB, company: CompanyInfo, slug: string, from: s
 
   writeTallyXmlFiles(dir, db, from, to)
 
-  writeFileSync(join(dir, 'daybook.csv'), daybookCsv(db, from, to))
+  // Every voucher of the period (Registers → All entries; was daybook.csv).
+  writeFileSync(join(dir, 'all-entries.csv'), allEntriesCsv(db, from, to))
   writeFileSync(join(dir, 'trial-balance.csv'), trialBalanceCsv(db, to))
   writeFileSync(join(dir, 'profit-and-loss.csv'), profitAndLossCsv(db, from, to))
   const booksFrom = fyFromStartYear(company.booksFrom).from

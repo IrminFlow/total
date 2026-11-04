@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { BalanceSheet, ProfitAndLoss, StatementNode } from '@shared/reports'
-import { variance } from '@shared/reportBuilder/shape'
+import { variance } from '@shared/ratios'
 import { toDisplayDate } from '@shared/dates'
 import { reportsApi, type ComparativeColumn } from '../lib/reportsClient'
 import { Money, Panel, SkeletonRows } from './ui'
@@ -44,8 +44,6 @@ export function amountIndex(nodes: StatementNode[], out = new Map<string, number
   return out
 }
 
-const sum = (nodes: StatementNode[]): number => nodes.reduce((t, n) => t + n.amount, 0)
-
 // ---------------------------------------------------------------- view
 
 interface FlatLine {
@@ -80,27 +78,21 @@ function Line({ line }: { line: FlatLine }): React.JSX.Element {
   )
 }
 
-function Section({ title, trees, columns, budgetTree, tree, labels }: {
+function Section({ title, trees, columns, tree, labels }: {
   title: string
   trees: StatementNode[][]
   columns: ComparativeColumn[]
-  /** The budget's tree for this section (budgeted ledgers with no actuals join the tree). */
-  budgetTree: StatementNode[] | null
   tree: { expandAll: boolean; hideZero: boolean }
   labels: string[]
 }): React.JSX.Element | null {
-  const merged = useMemo(() => unionTrees(budgetTree ? [...trees, budgetTree] : trees), [trees, budgetTree])
+  const merged = useMemo(() => unionTrees(trees), [trees])
   const extra = useMemo<StatementColumn[]>(() => {
     const idx = trees.slice(1).map((t) => amountIndex(t))
     const cols: StatementColumn[] = idx.map((m, i) => ({ key: columns[i + 1]!.key, amountOf: (n) => m.get(nodeKey(n)) ?? 0 }))
-    if (budgetTree) {
-      const b = amountIndex(budgetTree)
-      cols.push({ key: 'budget', amountOf: (n) => b.get(nodeKey(n)) ?? 0 })
-    }
     const ly = idx[1]
     cols.push({ key: 'change', percent: true, amountOf: (n) => variance(n.amount, ly?.get(nodeKey(n)) ?? 0).pct })
     return cols
-  }, [trees, columns, budgetTree])
+  }, [trees, columns])
   if (merged.length === 0) return null
   return (
     <div className="mb-3">
@@ -111,63 +103,57 @@ function Section({ title, trees, columns, budgetTree, tree, labels }: {
 }
 
 /** Comparative P&L / balance sheet (WP 6.2): this period, the previous period and the same period
- *  last year side by side (and a budget for the P&L when chosen), with the change against last
- *  year. Reuses StatementTree with extra columns. */
+ *  last year side by side, with the change against last year. Reuses StatementTree with extra
+ *  columns. */
 export function ComparativeStatement({
   kind,
   from,
   to,
-  budgetId,
   tree
 }: {
   kind: 'pnl' | 'bs'
   from: string
   to: string
-  budgetId: number | null
   tree: { expandAll: boolean; hideZero: boolean }
 }): React.JSX.Element {
   const pnl = useQuery({ queryKey: ['pnlComparative', from, to], queryFn: () => reportsApi.comparativePnl(from, to), enabled: kind === 'pnl' })
   const bs = useQuery({ queryKey: ['bsComparative', from, to], queryFn: () => reportsApi.comparativeBs(from, to), enabled: kind === 'bs' })
-  const budgetQ = useQuery({ queryKey: ['budgetAmounts', budgetId, from, to], queryFn: () => reportsApi.budgetAmounts(budgetId!, from, to), enabled: kind === 'pnl' && budgetId !== null })
   const data = kind === 'pnl' ? pnl.data : bs.data
   if (!data) return <Panel><SkeletonRows /></Panel>
-  const budget = kind === 'pnl' && budgetId !== null ? (budgetQ.data ?? null) : null
   const labels = [
     ...data.columns.map((c) => (kind === 'bs' ? `${c.label === 'This period' ? 'As on' : c.label} ${toDisplayDate(c.to)}` : `${c.label}`)),
-    ...(budget ? [`Budget`] : []),
     'vs last year'
   ]
   const shortLabels = kind === 'bs' ? labels.map((l) => l.replace('Previous period', 'Prev.').replace('Same period last year', 'Last yr')) : labels
-  const flat = (label: string, get: (s: ProfitAndLoss) => number, strong = false, b: number | null = null): FlatLine => {
+  const flat = (label: string, get: (s: ProfitAndLoss) => number, strong = false): FlatLine => {
     const vals = (data.statements as ProfitAndLoss[]).map(get)
-    return { label, strong, values: [...vals, ...(budget ? [b] : []), null] }
+    return { label, strong, values: [...vals, null] }
   }
 
   return (
     <Panel className="p-4" testId={`comparative-${kind}`}>
       <p className="mb-2 text-small text-muted">
         {data.columns.map((c) => `${c.label}: ${toDisplayDate(c.from)} → ${toDisplayDate(c.to)}`).join(' · ')}
-        {budget && ` · Budget: ${budget.name}`}
       </p>
       <HeaderRow labels={shortLabels} />
       {kind === 'pnl' ? (
         <>
           {(data.statements as ProfitAndLoss[]).some((s) => s.openingStock) && <Line line={flat('Opening stock', (s) => s.openingStock)} />}
-          <Section title="Trading incomes" trees={(data.statements as ProfitAndLoss[]).map((s) => s.tradingIncomes)} columns={data.columns} budgetTree={budget ? budget.pnl.tradingIncomes : null} tree={tree} labels={labels} />
-          <Section title="Trading expenses" trees={(data.statements as ProfitAndLoss[]).map((s) => s.tradingExpenses)} columns={data.columns} budgetTree={budget ? budget.pnl.tradingExpenses : null} tree={tree} labels={labels} />
+          <Section title="Trading incomes" trees={(data.statements as ProfitAndLoss[]).map((s) => s.tradingIncomes)} columns={data.columns} tree={tree} labels={labels} />
+          <Section title="Trading expenses" trees={(data.statements as ProfitAndLoss[]).map((s) => s.tradingExpenses)} columns={data.columns} tree={tree} labels={labels} />
           {(data.statements as ProfitAndLoss[]).some((s) => s.closingStock) && <Line line={flat('Closing stock', (s) => s.closingStock)} />}
-          <Line line={flat('Gross profit', (s) => s.grossProfit, true, budget ? sum(budget.pnl.tradingIncomes) - sum(budget.pnl.tradingExpenses) : null)} />
-          <Section title="Indirect incomes" trees={(data.statements as ProfitAndLoss[]).map((s) => s.indirectIncomes)} columns={data.columns} budgetTree={budget ? budget.pnl.indirectIncomes : null} tree={tree} labels={labels} />
-          <Section title="Indirect expenses" trees={(data.statements as ProfitAndLoss[]).map((s) => s.indirectExpenses)} columns={data.columns} budgetTree={budget ? budget.pnl.indirectExpenses : null} tree={tree} labels={labels} />
+          <Line line={flat('Gross profit', (s) => s.grossProfit, true)} />
+          <Section title="Indirect incomes" trees={(data.statements as ProfitAndLoss[]).map((s) => s.indirectIncomes)} columns={data.columns} tree={tree} labels={labels} />
+          <Section title="Indirect expenses" trees={(data.statements as ProfitAndLoss[]).map((s) => s.indirectExpenses)} columns={data.columns} tree={tree} labels={labels} />
           <div className="mt-2 border-t border-line pt-1">
-            <Line line={flat('Net profit', (s) => s.netProfit, true, budget ? sum(budget.pnl.tradingIncomes) - sum(budget.pnl.tradingExpenses) + sum(budget.pnl.indirectIncomes) - sum(budget.pnl.indirectExpenses) : null)} />
+            <Line line={flat('Net profit', (s) => s.netProfit, true)} />
           </div>
         </>
       ) : (
         <>
-          <Section title="Liabilities" trees={(data.statements as BalanceSheet[]).map((s) => s.liabilities)} columns={data.columns} budgetTree={null} tree={tree} labels={labels} />
+          <Section title="Liabilities" trees={(data.statements as BalanceSheet[]).map((s) => s.liabilities)} columns={data.columns} tree={tree} labels={labels} />
           <Line line={{ label: 'Total liabilities', strong: true, values: [...(data.statements as BalanceSheet[]).map((s) => s.totalLiabilities), null] }} />
-          <Section title="Assets" trees={(data.statements as BalanceSheet[]).map((s) => s.assets)} columns={data.columns} budgetTree={null} tree={tree} labels={labels} />
+          <Section title="Assets" trees={(data.statements as BalanceSheet[]).map((s) => s.assets)} columns={data.columns} tree={tree} labels={labels} />
           <Line line={{ label: 'Total assets', strong: true, values: [...(data.statements as BalanceSheet[]).map((s) => s.totalAssets), null] }} />
         </>
       )}

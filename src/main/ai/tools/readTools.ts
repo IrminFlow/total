@@ -344,7 +344,7 @@ export const searchBooksTool = defineTool({
 
 export const dayBookTool = defineTool({
   name: 'day_book',
-  description: 'Every voucher in a period (day book): date, type, number, main account, narration and amount.',
+  description: 'Every voucher in a period (all entries, like a day book): date, type, number, main account, narration and amount.',
   input: z.object({ from: date('First day'), to: date('Last day') }),
   kind: 'read',
   minRole: 'viewer',
@@ -367,7 +367,7 @@ export const dayBookTool = defineTool({
           amount: rupees(Math.max(r.debit, r.credit))
         }))
       },
-      sources: [{ kind: 'screen', screen: 'daybook', label: `Day book ${from} to ${to}` }, ...voucherSources(rows.map((r) => ({ voucherId: r.voucherId, label: `${r.voucherType} ${r.number}` })), 10)]
+      sources: [{ kind: 'screen', screen: 'registers', label: `All entries ${from} to ${to}`, params: { tab: 'entries', from, to } }, ...voucherSources(rows.map((r) => ({ voucherId: r.voucherId, label: `${r.voucherType} ${r.number}` })), 10)]
     }
   }
 })

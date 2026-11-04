@@ -5,8 +5,8 @@ import { IN_BOOKS } from './vouchers'
 /**
  * The start year of the company's first financial year (CompanyInfo.booksFrom, stored as JSON in
  * `meta`) — drives the year-opening rule (@shared/yearOpening). Tolerant, unlike readCompanyInfo
- * (which throws on a missing row), because read-only callers such as the consolidated report open
- * other companies' files directly.
+ * (which throws on a missing row), because a read-only caller may open a
+ * file whose company row is missing or unreadable.
  *
  * Fallback when the value is missing/unreadable: the FY of the earliest in-books voucher; with no
  * vouchers at all, the current FY. Either way stored income/expense openings count in exactly one

@@ -1,4 +1,3 @@
-import type { ReportModel } from '@shared/reportBuilder/model'
 import { create } from 'zustand'
 import type { CompanyInfo, TradeDocKind, VoucherKind } from '@shared/domain'
 import type { TradeDocDraft } from '@shared/tradeCycle/types'
@@ -56,9 +55,6 @@ export interface AskOpen<S extends AssistPrefill['screen']> {
 
 export type Screen =
   | { name: 'gateway' }
-  // Optional drill params (Registers month rows → filtered Day Book): restrict to one
-  // 'YYYY-MM' month and/or one voucher-type kind ('sales' | 'purchase' | …).
-  | { name: 'daybook'; month?: string; kind?: string; date?: string; voucherIds?: number[]; source?: string }
   | { name: 'import-tally' }
   | { name: 'data-import' }
   | { name: 'data-export' }
@@ -150,7 +146,9 @@ export type Screen =
   | { name: 'itc04' }
   | { name: 'itc-reversal' }
   | { name: 'edocs'; tab?: 'documents' | 'self-invoices' }
-  | { name: 'registers'; tab?: 'sales' | 'purchase' | 'items'; from?: string; to?: string }
+  // tab 'entries' = All entries (every voucher type, the Day book's list): `kind` / `voucherIds` +
+  // `source` narrow it (a register month's kind, a cash-flow line's vouchers).
+  | { name: 'registers'; tab?: 'sales' | 'purchase' | 'items' | 'entries'; from?: string; to?: string; kind?: string; voucherIds?: number[]; source?: string }
   | { name: 'outstandings'; side?: 'receivable' | 'payable'; backTo?: 'simple-people'; backFilter?: PeopleFilter }
   // WP 4.2: credit control, reminders, interest on overdue bills, collection reports.
   | { name: 'receivables'; tab?: 'control' | 'reminders' | 'interest' | 'collections' }
@@ -179,9 +177,6 @@ export type Screen =
   | { name: 'trade-returns'; tab?: 'register' | 'item' | 'party' }
   | { name: 'unbilled-goods' }
   | { name: 'stale-documents' }
-  | { name: 'consolidated' }
-  // WP 6.5: group consolidation (statements, inter-company, eliminations, group definition).
-  | { name: 'consolidation'; tab?: 'statements' | 'intercompany' | 'eliminations' | 'groups'; groupId?: number }
   // `ledgerId` / `asOn`: the account (and BRS date) to open with (WP 9.6's "see them").
   | { name: 'banking'; tab?: 'recon' | 'import' | 'rules' | 'cheques' | 'pdc' | 'bulk' | 'brs'; ledgerId?: number; asOn?: string }
   // WP 5.4: document capture (bill photos / PDFs → purchase drafts).
@@ -190,21 +185,17 @@ export type Screen =
   | { name: 'tds' }
   | { name: 'tcs' }
   | { name: 'cost-centres' }
-  | { name: 'budgets' }
-  // WP 6.1: the report builder — a saved report by `reportId` (pinned reports open this way).
-  | { name: 'report-builder'; reportId?: number; model?: ReportModel; modelName?: string; modelSeq?: number }
-  // WP 5.5: the assistants (close checklist, GST 2B mismatches, anomalies, report from a question).
-  | { name: 'assistants'; tab?: 'close' | 'gst2b' | 'anomalies' | 'report'; period?: string }
+  // WP 5.5: the assistants (close checklist, GST 2B mismatches, anomalies).
+  | { name: 'assistants'; tab?: 'close' | 'gst2b' | 'anomalies'; period?: string }
   // WP 6.2: ratio analysis with monthly trends.
   | { name: 'ratios' }
   | { name: 'cash-forecast' }
-  | { name: 'loans'; loanId?: number }
   | { name: 'forex' }
   | { name: 'company-info'; backTo?: 'simple-taxes' }
   | { name: 'year-end' }
   | { name: 'fixed-assets'; tab?: 'register' | 'depreciation' | 'schedule' | 'income-tax' | 'setup' }
   | { name: 'audit-trail'; voucherId?: number }
-  | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'security' | 'audit' | 'nic' | 'features' | 'invoice' | 'receivables' | 'agents' | 'packs' | 'ai' | 'about' }
+  | { name: 'settings'; tab?: 'appearance' | 'backups' | 'bin' | 'users' | 'security' | 'audit' | 'nic' | 'features' | 'invoice' | 'receivables' | 'agents' | 'ai' | 'about' }
 
 interface NavState {
   stack: Screen[]

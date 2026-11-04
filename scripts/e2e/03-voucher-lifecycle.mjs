@@ -1,5 +1,5 @@
 // Scenario 03 — voucher lifecycle with trial-balance tie-outs: save → TB ties → visible in
-// Day Book (testid rows) → delete → bin → restore → TB ties again. WP 3.1: a purchase invoice
+// All entries (testid rows) → delete → bin → restore → TB ties again. WP 3.1: a purchase invoice
 // typed in the invoice form takes the TDS suggestion; saving creates the tagged payable ledger
 // and the TDS screen reflects the deduction.
 //
@@ -47,9 +47,9 @@ await scenario('03-voucher-lifecycle', async (h) => {
   assertEq(tb1.totalDebit, 123400, 'TB totalDebit after save')
   assertEq(tb1.totalCredit, 123400, 'TB totalCredit after save')
 
-  // Visible in Day Book, addressable by its data-row-id.
-  await h.goto('daybook')
-  await h.page.waitForSelector(`[data-testid="rows-daybook"] [data-row-id="${saved.id}"]`, { timeout: 10000 })
+  // Visible in All entries, addressable by its data-row-id.
+  await h.gotoAllEntries()
+  await h.page.waitForSelector(`[data-testid="rows-registers-entries"] [data-row-id="${saved.id}"]`, { timeout: 10000 })
   await h.shot('01-daybook-row')
 
   // Delete → lands in the bin, TB back to zero.
@@ -59,11 +59,11 @@ await scenario('03-voucher-lifecycle', async (h) => {
   const tb2 = await h.invoke('report:trialBalance', { asOn: today })
   assertEq(tb2.totalDebit, 0, 'TB totalDebit after delete')
 
-  // The Day Book no longer shows it (re-navigate so the scoped invalidation refetches; the
+  // The All entries no longer shows it (re-navigate so the scoped invalidation refetches; the
   // refetch may start a beat after data-loading flips, so wait for the row to detach).
   await h.goto('gateway')
-  await h.goto('daybook')
-  await h.page.waitForSelector(`[data-testid="rows-daybook"] [data-row-id="${saved.id}"]`, {
+  await h.gotoAllEntries()
+  await h.page.waitForSelector(`[data-testid="rows-registers-entries"] [data-row-id="${saved.id}"]`, {
     state: 'detached',
     timeout: 10000
   })
@@ -74,8 +74,8 @@ await scenario('03-voucher-lifecycle', async (h) => {
   assertEq(tb3.totalDebit, 123400, 'TB totalDebit after restore')
   assertEq(tb3.totalCredit, 123400, 'TB totalCredit after restore')
   await h.goto('gateway')
-  await h.goto('daybook')
-  await h.page.waitForSelector(`[data-testid="rows-daybook"] [data-row-id="${saved.id}"]`, { timeout: 10000 })
+  await h.gotoAllEntries()
+  await h.page.waitForSelector(`[data-testid="rows-registers-entries"] [data-row-id="${saved.id}"]`, { timeout: 10000 })
 
   // ---------- WP 1.4: alterations open in the mode that creates the voucher ----------
   const groupId = (name) => groups.find((g) => g.name === name).id
@@ -120,8 +120,8 @@ await scenario('03-voucher-lifecycle', async (h) => {
 
   const openFromDaybook = async (id, mode) => {
     await h.goto('gateway')
-    await h.goto('daybook')
-    await h.page.click(`[data-testid="rows-daybook"] [data-row-id="${id}"]`, { timeout: 10000 })
+    await h.gotoAllEntries()
+    await h.page.click(`[data-testid="rows-registers-entries"] [data-row-id="${id}"]`, { timeout: 10000 })
     await h.waitScreen('voucher-entry')
     const el = await h.page.waitForSelector('[data-testid="voucher-entry-mode"]', { timeout: 10000 })
     const banner = await h.page.$eval('[data-testid^="banner-"][data-testid$="-fallback"]', (b) => b.textContent).catch(() => '')
@@ -136,7 +136,7 @@ await scenario('03-voucher-lifecycle', async (h) => {
   await h.shot('02-invoice-reopened')
   await qtyInput.fill('3')
   await h.click('btn-save-voucher')
-  await h.waitScreen('daybook')
+  await h.waitScreen('registers')
   const altered = await h.invoke('voucher:get', { id: inv.id })
   // 3 × ₹500 − ₹100 = ₹1,400 taxable; CGST/SGST ₹126 each → ₹1,652.
   assertEq(altered.number, inv.number, 'alteration keeps the invoice number')
@@ -166,7 +166,7 @@ await scenario('03-voucher-lifecycle', async (h) => {
   assert((await legacyBanner.textContent()).includes('Created before 0.6.0'), 'legacy stock journal banner')
   await h.page.locator('[data-testid="input-stock-line-qty"]').first().fill('6')
   await h.click('btn-save-stock-lines')
-  await h.waitScreen('daybook')
+  await h.waitScreen('registers')
   const sj2 = await h.invoke('voucher:get', { id: sj.id })
   assertEq(JSON.stringify(sj2.inventory.map((l) => [l.stockItemId, l.qtyMilli, l.ratePaise, l.amount, l.direction])),
     JSON.stringify([[steel.id, 6000, 15000, 90000, 'out'], [chair.id, 2000, 30000, 60000, 'in']]), 'legacy stock journal altered line by line')
@@ -185,7 +185,7 @@ await scenario('03-voucher-lifecycle', async (h) => {
   assertEq(await counted.inputValue(), '50', 'reopened count shows the counted quantity')
   await counted.fill('40')
   await h.click('btn-save-physical')
-  await h.waitScreen('daybook')
+  await h.waitScreen('registers')
   const ps2 = await h.invoke('voucher:get', { id: ps.id })
   assertEq(ps2.inventory.length, 1, 'physical stock keeps one line')
   assertEq(ps2.inventory[0].qtyMilli, 40_000, 'altered count')
@@ -238,7 +238,7 @@ await scenario('03-voucher-lifecycle', async (h) => {
   assertEq(payables.length, 1, 'saving created exactly one tagged TDS payable ledger')
   assertEq(payables[0].name, 'TDS Payable 194C', 'payable ledger name')
   const purchases = await h.invoke('voucher:list', { from: today, to: today, voucherTypeId: typeOf('purchase').id })
-  assertEq(purchases.length, 1, 'the purchase invoice is in the day book')
+  assertEq(purchases.length, 1, 'the purchase invoice is in all entries')
   const purchase = await h.invoke('voucher:get', { id: purchases[0].id })
   assertEq(purchase.tds && purchase.tds.tdsAmount, 100000, 'TDS entry ₹1,000')
   assertEq(purchase.tds.baseAmount, 5000000, 'TDS base = taxable value')

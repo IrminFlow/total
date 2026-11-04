@@ -20,10 +20,6 @@
 //   7. Reopen: the closing journal's banner Move to Bin (lock moves back first) → the year reads as open again (preview +
 //      Year-end screen, P&L opening row back); restoring it from Settings → Bin closes the year
 //      again. TB ties at every step.
-//   8. Guided re-close: a stored P&L opening the close never carried (what a 0.4.0 close left)
-//      → Year-end → Check earlier closes lists the year as "Needs repair" with the corrected
-//      lines → Repair (confirm) → no "(opening)" row, Retained Earnings carries it, the lock
-//      is back where it was, a second check finds nothing.
 // The company has NO users: the Period lock card's "Change…" is offered in a company without users
 // (#107), so the scenario drives it exactly so.
 import { scenario, assert, assertEq, fixedToday, fyStartYearOf } from '../lib/harness.mjs'
@@ -169,7 +165,7 @@ await scenario('67-year-boundary', async (h) => {
   assert(preview.alreadyClosed, 'the previous FY reads as closed')
   const dayBook = await h.invoke('report:dayBook', { from: `${prev}-04-01`, to: prevEnd })
   const closing = dayBook.find((r) => r.yearEndClose)
-  assert(closing, 'the closing journal is in the day book')
+  assert(closing, 'the closing journal is in all entries')
   assertEq(closing.date, prevEnd, 'dated the last day of the FY')
   const cj = await h.invoke('voucher:get', { id: closing.voucherId })
   assert(cj.isYearEndClose, 'flagged as the year-end closing journal')
@@ -192,7 +188,7 @@ await scenario('67-year-boundary', async (h) => {
   await tbTies('after the close')
 
   // ---------------- 4. the closing journal is immutable
-  /** Click a Day book row on its Date cell (the account name is a ledger link). */
+  /** Click a All entries row on its Date cell (the account name is a ledger link). */
   const clickDate = async (rowSel) => {
     const idx = await h.page.evaluate((sel) => {
       const tr = document.querySelector(sel)
@@ -201,12 +197,12 @@ await scenario('67-year-boundary', async (h) => {
     }, rowSel)
     await h.page.click(`${rowSel} > td:nth-child(${idx + 1})`)
   }
-  await h.goto('daybook')
+  await h.gotoAllEntries()
   await h.click('btn-period')
   await h.page.locator('[role="dialog"]').getByRole('button', { name: `FY ${prevLabel}` }).click()
   await h.click('btn-apply-period')
-  const cjRow = `[data-testid="rows-daybook"] tr.dt-row[data-row-id="${closing.voucherId}"]`
-  await h.page.waitForSelector(`${cjRow} [data-testid="daybook-year-end-chip"]`, { timeout: 15000 })
+  const cjRow = `[data-testid="rows-registers-entries"] tr.dt-row[data-row-id="${closing.voucherId}"]`
+  await h.page.waitForSelector(`${cjRow} [data-testid="entries-year-end-chip"]`, { timeout: 15000 })
   await clickDate(cjRow)
   await h.waitScreen('voucher-entry')
   await h.page.waitForSelector('[data-testid="year-end-close-banner"]', { timeout: 10000 })
@@ -245,10 +241,10 @@ await scenario('67-year-boundary', async (h) => {
   await h.shot('05-period-lock')
 
   // ---------------- 6. inside the lock: the editor and the service refuse
-  await h.goto('daybook') // the period is still the previous FY
+  await h.gotoAllEntries() // the period is still the previous FY
   // June's payment is No. 1 — the same number as this FY's April payment: the editor's pre-save
   // duplicate-number check is FY-scoped (#107), so the save reaches the lock refusal.
-  const lockedRow = `[data-testid="rows-daybook"] tr.dt-row[data-row-id="${june.id}"]`
+  const lockedRow = `[data-testid="rows-registers-entries"] tr.dt-row[data-row-id="${june.id}"]`
   await h.page.waitForSelector(lockedRow, { timeout: 15000 })
   await clickDate(lockedRow)
   await h.waitScreen('voucher-entry')
@@ -266,8 +262,8 @@ await scenario('67-year-boundary', async (h) => {
 
   // ---------------- 7. reopen: the closing journal's banner "Move to Bin" (#107) moves the close's
   // own lock back to the day before the FY, then bins it; restore closes the year again
-  await h.goto('daybook') // the period is still the previous FY
-  await h.page.waitForSelector(`${cjRow} [data-testid="daybook-year-end-chip"]`, { timeout: 15000 })
+  await h.gotoAllEntries() // the period is still the previous FY
+  await h.page.waitForSelector(`${cjRow} [data-testid="entries-year-end-chip"]`, { timeout: 15000 })
   await clickDate(cjRow)
   await h.waitScreen('voucher-entry')
   await h.page.waitForSelector('[data-testid="year-end-close-banner"]', { timeout: 10000 })
@@ -302,39 +298,4 @@ await scenario('67-year-boundary', async (h) => {
   await tbTies('after restoring the closing journal')
   await h.goto('year-end')
   await h.page.waitForFunction((l) => document.body.innerText.includes(`Books for FY ${l} are already closed`), prevLabel, { timeout: 10000 })
-
-  // ---------------- 8. guided re-close (the 0.4.0 upgrade note): a stored P&L opening the close
-  // never carried. Office Rent gets a ₹3,000 Dr opening in the books' first FY — exactly what a
-  // 0.4.0 close left behind (it netted movements only) — so the "(opening)" row shows ₹3,000 Dr.
-  const STORED_RENT = 300_000
-  const rentLedger = (await h.invoke('master:ledgers:list')).find((l) => l.id === rent.id)
-  await h.invoke('master:ledgers:update', { id: rent.id, data: { ...rentLedger, openingBalance: STORED_RENT } })
-  // …balanced by ₹3,000 more capital, so the openings still agree (Dr = Cr).
-  const capital = (await h.invoke('master:ledgers:list')).find((l) => l.name === 'Owner Capital')
-  await h.invoke('master:ledgers:update', { id: capital.id, data: { ...capital, openingBalance: capital.openingBalance - STORED_RENT } })
-  await tbTies('a stored P&L opening the close missed')
-  assertEq(await tbRow(-5), STORED_RENT, 'the stored opening the close missed sits in the P&L opening row')
-  const lockBeforeRepair = (await h.invoke('company:lock:get')).date
-  await h.click('btn-year-end-recheck')
-  const fyRow = `[data-testid="rows-year-end-recheck-years"] tr.dt-row[data-row-id="${prev}"]`
-  await h.page.waitForSelector(`${fyRow}[data-state="repair"]`, { timeout: 15000 })
-  await h.page.waitForSelector(`[data-testid="rows-year-end-recheck-lines-${prev}"] tr.dt-row`, { timeout: 10000 })
-  const rp = await h.invoke('yearEnd:repairPreview', {})
-  const y = rp.years.find((x) => x.fyStartYear === prev)
-  assertEq(y.residual, STORED_RENT, 'preview: ₹3,000 of loss left in the opening row')
-  assertEq(y.netProfit, -(PRIOR_RENT + STORED_RENT), 'preview: the year’s loss under today’s rule')
-  await h.shot('08-recheck-preview')
-  await h.click('btn-year-end-repair')
-  const repairDialog = h.page.getByRole('dialog')
-  await repairDialog.waitFor()
-  assert((await repairDialog.textContent()).includes('to the Bin and post corrected ones'), 'the confirm says what Repair does')
-  await repairDialog.getByRole('button', { name: 'Repair' }).click()
-  await h.page.waitForSelector('[data-testid="year-end-recheck-ok"]', { timeout: 15000 })
-  assertEq(await tbRow(-5), 0, 'after the repair: no P&L opening row')
-  assertEq(await tbRow(retained.id), PRIOR_RENT + STORED_RENT, 'Retained Earnings carries the whole loss')
-  assertEq(await tbRow(rent.id), RENT_CUR, 'Rent this FY unchanged by the repair')
-  assertEq((await h.invoke('company:lock:get')).date, lockBeforeRepair, 'the lock is where it was')
-  assert(!(await h.invoke('yearEnd:repairPreview', {})).years.some((x) => x.needsRepair), 'a second check finds nothing')
-  await tbTies('after the guided re-close')
-  await h.shot('08-recheck-repaired')
 })

@@ -8,7 +8,7 @@
 //   GST                         gst.gstr3b (GSTR-3B screen) + compliance.upcomingDeadlines
 //   TDS                         tds.tdsSummary (TDS screen) + the "TDS Payable …" ledger balances
 //   stock alerts                stockAnalysis.negativeStock (Exceptions) + reports.stockAgeing
-//   activity                    the Day Book's scope (bin excluded, optional / PDC included)
+//   activity                    the All entries list's scope (bin excluded, optional / PDC included)
 // Each section runs in its own try/catch so one failing query can't blank the Gateway.
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'

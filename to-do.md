@@ -43,7 +43,7 @@ done on main were dropped. One line each; the pointer says where to look.
 
 ## 3. Things only the owner can supply
 
-- OpenAI API key for a live AI run (only mock runs so far; default model ids `gpt-6.1-sol` / `gpt-6-luna` unverified) — `npm run ai:evals -- --live`, workflow `ai-evals.yml` secret `OPENAI_API_KEY`
+- OpenAI API key for a live AI run (only mock runs so far; default model ids `gpt-6.1-sol` / `gpt-6-luna` unverified)
 - NIC e-invoice / e-way sandbox credentials (the client has never talked to the real portal) — `src/main/services/nic.ts`
 - Apple Developer ID certificate (`CSC_LINK` / `CSC_KEY_PASSWORD`) for signed, silently updating macOS builds — `release.yml`, `src/main/updater.ts`
 - A Windows code-signing certificate (SmartScreen warning until then) — PR #109
@@ -97,7 +97,6 @@ done on main were dropped. One line each; the pointer says where to look.
 ### Accountant (full app)
 - ~~Credit hold doesn't cover restoring a binned invoice or automatic PDC maturing~~ DONE — restore of a held party's invoice / challan needs the owner's override; maturing a cheque never creates credit, a post-dated invoice to a held party waits (`blockedByHold`) — PR #126
 - ~~Cheque register is empty after upgrade (old instrument numbers not backfilled)~~ DONE — Banking → Cheques → "Fill the register from earlier entries" (preview accountant+, owner applies; no migration) — PR #146; ~~cash forecast ignores pending post-dated cheques~~ DONE — option, off by default — PR #126; ~~ledger form has no credit-hold control~~ DONE — PR #126 — WP 4.4 upgrade check
-- ~~Companies that closed a year on 0.4.0 show a permanent "Profit & Loss A/c (opening)" residual; a guided re-close would fix it — upgrade notes~~ DONE — PR #168 (Year-end → Check earlier closes → Repair, owner)
 - Pre-0.6 manufacture vouchers don't appear in the Manufacture register (Day book / Stock movements only) — by design, release notes
 - ~~e-invoice original-bill lookup takes the newest sales voucher with that number at ANY party (wrong once numbers restart yearly)~~ DONE — the note's own party, its FY first — PR #120
 - ~~Import undo keeps a party ledger whose opening bill has a user receipt against it (openings stay unequal until fixed by hand)~~ DONE — the batch's openings are kept as imported (and reported) while an entry rests on one of its opening bills; Dr = Cr holds — PR #150 — PR #107, `services/dataImport.ts`
@@ -109,11 +108,10 @@ done on main were dropped. One line each; the pointer says where to look.
 - ~~Fixed assets not done:~~ DONE (all five, PR #158): ~~partial disposals~~ DONE — a quantity / share split off and disposed of (PR #158), ~~GST on asset sale~~ DONE — s.18(6) tax invoice + the extra output tax on that invoice in GSTR-1 / 3B 3.1(a) / GSTR-9 (rule 44(6) proviso; portal acceptance UNVERIFIED) (PR #158), ~~extra-shift depreciation~~ DONE — per-run double / triple-shift days, NESD refused (PR #158), ~~component lives~~ DONE — split off before the first run, own life (PR #158), ~~rule 25(2) 40 % cap~~ DONE — the Income-tax tab's concessional-regime switch, 2025-Act years (PR #158) — WP 3.6
 - Trade cycle not done: ~~16-char invoice-number warning~~ DONE — PR #140 (NIC DocDtls.No warning for e-invoicing companies: gstValidate + the sales editor; an explicit e-invoicing switch in Company details; unset = the history heuristic — PR #144), ~~challan / GRN list screens, convert-to-invoice~~ DONE — PR #149 (Trade → Challans / GRNs lists, "Convert to invoice / bill", several challans of one party onto one invoice), live NIC e-way for challans — WP 2.5b
 - TCS not modelled: ~~206C(1G) 20 % slab~~ DONE — 5 % up to ₹10 lakh a year per buyer, 20 % above (FY 2025-26), 27EQ split rows — PR #163; ~~206C(1C)~~ DONE — parking / toll / mine sections, added by the owner on TCS → Sections — PR #163; LRS stays out of scope (authorised dealers only, `shared/tcsSources.ts` TCS_NOT_MODELLED) — WP 3.3
-- Cash & finance not done: ~~MSME deadlines in the forecast~~ DONE — PR #156 (Options → Include, off by default; earlier of own due / s.15 date (from the bill date), overdue + indicative s.16 interest line, PDC date wins), loan disbursement posting, foreign opening balances — WP 4.4
+- Cash & finance not done: ~~MSME deadlines in the forecast~~ DONE — PR #156 (Options → Include, off by default; earlier of own due / s.15 date (from the bill date), overdue + indicative s.16 interest line, PDC date wins), foreign opening balances — WP 4.4
 - ~~NIC follow-ups needing a migration: store signed QR / signed invoice; cancel IRN / cancel + extend e-way UI~~ DONE — PR #164 (signed copies stored + printed QR, e-Documents → IRN details: Cancel IRN, cancel / extend e-way bill with its history; experimental, never run against the real portal) — WP 3.5
 - ~~ITC-reversal apply has no audit row of its own~~ DONE — `itc_reversal` rows on apply and post — PR #120; ~~an apply with nothing changed still writes a row~~ DONE — no-op, and so is an unchanged `setGst3bManual` — PR #150
 - ~~Backup file names use UTC timestamps~~ DONE — local time since PR #114; one stamp helper + old-name test PR #118 (the list reads mtime) — PR #111
-- ~~Report-pack / saved-report folders use the company slug ("Con" → `con-company/`)~~ DONE — pack folders via `portableFileName`, old folders kept (~~files inside still slugified, e.g. a saved report "Con" → `NN-con-company.csv`~~ DONE — `packFileBase`, `02-Con.csv` — PR #150) — PR #120
 
 ### GST / tax
 - (Phase 2) Debit-note side for parties under imported group names — revisit behind the upgrade-diff report. `gst.ts outwardDebitNoteIds` still reads only the seeded Sundry Debtors tree, so a debit note to a "Trade Receivables" customer with no income line stays purchase-side (owner, 4 Nov: GST returns untouched by PR #188; pinned in `partyGroups.dbtest.ts`)
@@ -138,7 +136,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - NSIS install / uninstall, SmartScreen dialog, in-place update (first one works only from the release after 0.11.0) — PR #109
 - Explorer reveal and the default PDF viewer; printing to a real printer; HiDPI scaling; Hindi print fonts — PR #109 / #105
 - Capture inbox with a file another program holds open; DPAPI after a password reset / roaming profile; OneDrive-redirected Documents (~~no setting to move the data folder~~ DONE — PR #133; the move itself is only tested on macOS) — PR #109
-- Only a 4-scenario e2e subset runs on Windows CI; MCP single-quoted commands work in PowerShell / Git Bash, not cmd.exe; PowerShell Documents fallback only unit-tested on macOS — PR #109
+- Only a 4-scenario e2e subset runs on Windows CI; PowerShell Documents fallback only unit-tested on macOS — PR #109
 - Slow dbtests on the Windows runner: dataRootMove locked case (30 s timeout once, run 38985114949), cli locked case — trimmed in PR #155 (the fixed 1.7 s relaunch wait is now a poll); the rest of its time is `backup:run`'s restore check and scrypt at N=2^14. Watch for a recurrence.
 - Windows CI flake: backup.dbtest `rollbackRestore` (after #111) and `restoreCompanyDb` happy path (run 38913361210, 70 s) timed out at 30 s — not file locks or the check worker (those tests are synchronous and start no check): the fixtures were raw `new Database(path)` files in rollback-journal mode, fsyncing at every one of ~60 commits; dbtests now open writable files with `testFileDb` (synchronous OFF, lint `scratchDbLint.dbtest.ts`) — PR #129. Watch for a recurrence.
 - Windows CI crash seen once (run 38908291078, ~2 s after encryption.dbtest finished — which starts checkHost.pragmaCheck workers; the file running then is not named in the log, dbtests share one fork): Electron's Node aborted natively (`node_platform.cc` `Assertion failed: !flush_tasks_` in `~PerIsolatePlatformData`, a worker thread's teardown), so the vitest fork died and tinypool reported `ERR_IPC_CHANNEL_CLOSED` — not a hang in checkHost's pool. Not reproduced on macOS (25 runs); suspect is `worker.terminate()` racing a worker's own exit / native code (pragmaCheck terminates every worker right after its answer, while it is still closing its connection). Needs a Windows repro before a fix — PR #129
@@ -192,8 +190,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Payroll (WP 3.7): EPF ceiling ₹25,000 from 17 Sep 2026 and its proration, admin / EDLI notifications, ECR `#~#` separator, ESI ceilings under the Code, PT slabs (WB / TN / AP / MP) and due dates, gratuity ₹20 L, bonus ₹21k / ₹7k, Form 16 Part B rows — `src/shared/payrollStatutory.ts` UNVERIFIED_WP37
 - MSME: RBI bank-rate history before Oct 2025, s.37 FA 2026, s.43B(h) excluding traders, Form 1 S.O. number, Udyam number layout — `src/shared/payables/msmeSources.ts`
 - Receivables: time of supply of interest (on receipt), GSTR-1 route of interest notes, SAC 9971 for interest — `src/shared/receivables/sources.ts`
-- AS 11 / Ind AS 21 paragraph citations; EMI rounding / broken-period conventions; forecast statutory due dates written from memory — `shared/forex.ts`, `shared/loanSchedule.ts`, `services/cashForecast.ts`
-- Consolidation: proportionate unrealised-profit estimate, uniform policies, acquisition book values, minority loss re-allocation, AS 23 — `src/shared/consolidation/sources.ts`
+- AS 11 / Ind AS 21 paragraph citations; forecast statutory due dates written from memory — `shared/forex.ts`, `services/cashForecast.ts`
 - Audit trail: s.128(5) wording, IT rule 6F, IT Act 2025 s.62 / Rules 2026 r.46(9) retention — `src/main/services/audit.ts`
 - Busy / Zoho import header spellings and XML roots — `src/shared/dataImport/busy.ts`, `zoho.ts`
 - GST calendar items from the GPT review that still need a CA: e-invoice applicability, advance GST, MSME acceptance date (section 4, GST)
@@ -202,8 +199,8 @@ done on main were dropped. One line each; the pointer says where to look.
 
 - WP 6.x / 7.5 site: marketing site work deferred by the owner (WP 10.7); ~~site FAQ says "nothing leaves the machine" (false once AI / capture / NIC are on)~~ DONE — PR #189 (AI, e-invoice / e-way filing and the update check named as the user-enabled exceptions) — `site/app/docs/faq/page.tsx`
 - WP 7.1: server-side DataTable paging not needed yet (Sales / People under budget at 100k) — PR #104
-- WP 7.2: encrypt ~~attachments~~ (DONE — PR #152) / exports / logs — PR #112 (member-passphrase prompt on the consolidation screen DONE in PR #144; CLI / MCP passphrase DONE in PR #132; remember-on-this-computer DONE in PR #142)
-- WP 7.3: ~~no data-folder move setting for OneDrive users~~ DONE — PR #133 (~~the CLI / MCP still ignore the pointer~~ DONE — PR #138); full e2e on Windows — PR #109
+- WP 7.2: encrypt ~~attachments~~ (DONE — PR #152) / exports / logs — PR #112 (CLI passphrase DONE in PR #132; remember-on-this-computer DONE in PR #142)
+- WP 7.3: ~~no data-folder move setting for OneDrive users~~ DONE — PR #133 (~~the CLI still ignores the pointer~~ DONE — PR #138); full e2e on Windows — PR #109
 - ~~WP 7.4: tighten e2e 67–71 to the paths #107 fixed~~ DONE (68–71 in the earlier reviews; 67 now runs in a company without users) — PR #170
 - WP 7.4: deferred coverage in `docs/e2e-coverage.md` (live NIC sandbox, price-list editor, TDS lower-deduction certificates) — PR #110
 - ~~WP 7.6: before tagging the release, finish `CHANGELOG.md`'s Unreleased section — it has no entries for #107, #108, #110, #111, #112 and still calls #104 open (#109's Windows text has no PR link); then confirm main's CI is green on all five jobs (the tag run does not repeat e2e or perf)~~ DONE — all are under 0.12.0 with their PR links (checked in the Phase 1 triage) — owner-docs review
@@ -231,7 +228,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - ~~e2e harness can lose a failed scenario's result line on macOS (process.exit while writing to a pipe; exit code still fails)~~ DONE — PR #128 (also closing over an unsaved form crashed / hung the harness) — PR #110
 - ~~e2e 63 uses `page.focus()` twice~~ DONE — PR #128. ~~e2e 12 "mid-fade" flake diagnosis unproven~~ DONE — PR #134: `node scripts/run-e2e.mjs 12 --repeat 5` on 16–17 Oct 2026, 5 / 5 passed (124 / 171 / 190 / 255 / 233 s, no flaky run), and again on the PR's build; no code change — PR #103
 - ~~Plain AI drawer a11y and the escalated drawer checked in renderer tests only~~ DONE — e2e 35 sweeps the plain drawer in both themes — PR #170
-- No live-model run of AI evals, capture or Ask Total escalation — PR #98 / #101
+- No live-model run of capture or Ask Total escalation — PR #98 / #101
 - No live NIC sandbox scenario — WP 3.5, `docs/e2e-coverage.md`
 - 500k-voucher run and the packaged DMG / EXE perf not verified by the reviewer — PR #104
 - ~~Interrupted multi-migration upgrade not tested~~ DONE — `db/interruptedUpgrade.dbtest.ts`, no runner bug — PR #118

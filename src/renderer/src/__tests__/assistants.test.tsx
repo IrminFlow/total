@@ -1,7 +1,7 @@
 // WP 5.5: the Assistants screen — the close checklist (statuses, expandable rows, mark done with a
 // note, viewers read only), the GST 2B tab (categories, "Draft the purchase" opens the voucher
-// editor on the draft), anomalies (dismiss with a note) and a report from a question (opens the
-// report builder pre-filled). "Run with AI" shows only while the assistant is on.
+// editor on the draft) and anomalies (dismiss with a note). "Run with AI" shows only while the
+// assistant is on.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -10,7 +10,6 @@ import { buildCloseChecklist, type CloseFacts } from '@shared/closeChecklist'
 import { reconcile2b } from '@shared/gst/recon2b'
 import { categoriseMismatches, summariseMismatches } from '@shared/gst/mismatch2b'
 import { DEFAULT_ASSISTANT_SETTINGS, type AnomalyReport, type Gst2bMismatchReport } from '@shared/assistants'
-import { reportModelSchema } from '@shared/reportBuilder/model'
 import { AssistantsScreen } from '../screens/assistants/Assistants'
 import { DialogHost } from '../components/dialogs'
 import { useNav, useSession } from '../state/stores'
@@ -44,7 +43,6 @@ const anomalies: AnomalyReport = {
   from: '2026-04-01', to: '2027-03-31', historyFrom: '2025-04-01', settings: DEFAULT_ASSISTANT_SETTINGS, counts: { high: 1, medium: 0, low: 0, dismissed: 0 },
   rows: [{ key: 'duplicate_party_amount:5:6', kind: 'duplicate_party_amount', severity: 'high', voucherId: 6, relatedVoucherIds: [5], date: '2026-05-06', label: 'Payment 6', partyLedgerId: 9, partyName: 'Acme Supplies', ledgerId: null, itemId: null, amount: 25_000_00, detail: '₹25,000.00 to Acme Supplies on 2026-05-06, and Payment 5 for the same amount on 2026-05-05 (1 days apart)', metric: 1, dismissed: null }]
 }
-const MODEL = reportModelSchema.parse({ source: 'accounts', dimensions: [{ key: 'month' }], measures: ['taxable'], filters: { voucherKinds: ['sales'] } })
 
 beforeEach(() => {
   useSession.setState({
@@ -62,9 +60,6 @@ beforeEach(() => {
       case 'assist:gst2b:draft': return { ok: true, data: { id: 31, payload: { voucherKind: 'purchase' } } }
       case 'assist:anomalies': return { ok: true, data: anomalies }
       case 'assist:anomaly:dismiss': return { ok: true, data: null }
-      case 'assist:nlReport': return { ok: true, data: { ok: true, title: 'Sales by month', model: MODEL, request: { title: 'Sales by month', source: 'accounts', measures: ['taxable'] } } }
-      case 'rb:run':
-        return { ok: true, data: { from: '2026-04-01', to: '2027-03-31', dims: [{ key: 'month', label: 'Month', link: 'month' }], measures: [{ key: 'taxable', label: 'Taxable value', kind: 'money', signed: false }], rows: [{ keys: [{ id: '2026-05', label: 'May 2026' }], values: [65_000] }], totals: [65_000], compare: null, compareTotals: null, truncated: false, rowCap: 20000, warnings: [] } }
       default: return { ok: false, error: `unmocked ${channel} ${JSON.stringify(payload)}` }
     }
   })
@@ -138,24 +133,9 @@ describe('Anomalies', () => {
   })
 })
 
-describe('Report from a question', () => {
-  it('maps the question, previews the report and opens it in the report builder pre-filled', async () => {
-    wrap(<AssistantsScreen tab="report" />)
-    fireEvent.change(screen.getByTestId('input-assistants-report-question'), { target: { value: 'sales by month' } })
-    fireEvent.click(screen.getByTestId('btn-assistants-report-build'))
-    expect((await screen.findByTestId('assistants-report-title')).textContent).toBe('Sales by month')
-    await waitFor(() => expect(screen.getByTestId('rows-assistants-report').textContent).toContain('May 2026'))
-    fireEvent.click(screen.getByTestId('btn-assistants-report-open'))
-    await waitFor(() => expect(useNav.getState().stack.at(-1)).toMatchObject({ name: 'report-builder', model: MODEL, modelName: 'Sales by month' }))
-  })
-})
-
 describe('assistant links', () => {
-  it('build_report links open the report builder pre-filled; assistant links open their tab', async () => {
+  it('assistant links open their tab', async () => {
     const { screenFor } = await import('../components/ai/screenTargets')
-    const s = screenFor({ kind: 'screen', screen: 'report-builder', label: 'Open', params: { model: JSON.stringify(MODEL), title: 'Sales by month' } })
-    expect(s).toMatchObject({ name: 'report-builder', model: MODEL, modelName: 'Sales by month' })
-    expect(screenFor({ kind: 'screen', screen: 'report-builder', label: 'Open', params: { model: '{"source":"nope"}' } })).toEqual({ name: 'report-builder' })
     expect(screenFor({ kind: 'screen', screen: 'assistants', label: 'x', params: { tab: 'gst2b', period: '2026-05' } })).toEqual({ name: 'assistants', tab: 'gst2b', period: '2026-05' })
   })
 })

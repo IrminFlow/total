@@ -7,7 +7,6 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { openCompanyDb } from '../db/connection'
 import { upsertCompany } from '../registry'
-import { consolidated } from './consolidated'
 import { exportCaPack } from './caPack'
 import { freshDb, seededDb, TEST_INFO } from '../db/testdb'
 import { seedCompany } from '../db/seed'
@@ -16,7 +15,6 @@ import { createLedger } from './masters'
 import { deleteVoucher, getVoucher, listVouchers, restoreVoucher, saveVoucher, setLockDate } from './vouchers'
 import { closePreview, postClose } from './yearEnd'
 import { balanceSheet, cashFlow, dashboard, dayBook, exceptions, ledgerStatement, profitAndLoss, trialBalance } from './reports'
-import { budgetVarianceReport, saveBudget } from './budgets'
 
 function ledger(db: DB, name: string, groupName: string, openingBalance = 0): number {
   const group = db.prepare('SELECT id FROM groups WHERE name = ?').get(groupName) as { id: number }
@@ -215,20 +213,6 @@ describe('year-end closing journal flag', () => {
     expect(two.rows.every((r) => /more than one/.test(r.detail))).toBe(true)
   })
 
-  it('budget variance actuals exclude closing journals', () => {
-    const b = books()
-    const budget = saveBudget(b.db, {
-      name: 'FY1', fyStartYear: 2025,
-      lines: [{ ledgerId: b.sales, groupId: null, month: '2026-03', amount: 1_00 }, { ledgerId: b.sales, groupId: null, month: null, amount: 1_00 }]
-    })
-    const before = budgetVarianceReport(b.db, budget.id, '2026-03')
-    postClose(b.db, TEST_INFO, 2025)
-    const after = budgetVarianceReport(b.db, budget.id, '2026-03')
-    expect(after).toEqual(before)
-    expect(after.find((r) => r.month === null)!.actual).toBe(30_000_00)
-    expect(after.find((r) => r.month === '2026-03')!.actual).toBe(0)
-  })
-
   it('two consecutive closed years each keep their P&L; TB and BS balance at every boundary', () => {
     const db = freshDb()
     const info = { ...TEST_INFO, booksFrom: 2024 }
@@ -261,7 +245,7 @@ describe('year-end closing journal flag', () => {
   })
 })
 
-describe('profit consumers after a close (dashboard, CA pack, consolidated)', () => {
+describe('profit consumers after a close (dashboard, CA pack)', () => {
   let dataDir = ''
   beforeEach(() => {
     dataDir = mkdtempSync(join(tmpdir(), 'total-yeflag-'))
@@ -299,10 +283,5 @@ describe('profit consumers after a close (dashboard, CA pack, consolidated)', ()
     const pnlCsv = readFileSync(join(dir, 'profit-and-loss.csv'), 'utf8')
     expect(pnlCsv).toMatch(/Net Profit"?,"?25000\.00/)
     db.close()
-
-    const result = consolidated([slug], 'pnl', '2025-04-01', '2026-03-31')
-    expect(result.warnings).toEqual([])
-    expect(result.rows.find((r) => r.name === 'Sales')!.perCompany).toEqual([-40_000_00])
-    expect(result.rows.find((r) => r.name === 'Purchase')!.perCompany).toEqual([15_000_00])
   })
 })

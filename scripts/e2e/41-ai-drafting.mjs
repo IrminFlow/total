@@ -4,7 +4,7 @@
 //      Review opens the INVOICE editor pre-filled, GST computed by the editor (CGST + SGST on
 //      ₹90,000.00 = ₹1,06,200.00), under the "AI draft — review before saving" banner with its
 //      assumptions and matched entities (inspectable), the drafted fields highlighted → save →
-//      the draft is consumed and the Day book shows the invoice.
+//      the draft is consumed and All entries shows the invoice.
 //   2. "Pay Northwind Supplies against bills NW-101 and NW-102 from HDFC Bank" → the amount is the
 //      bills' pending total (computed by the app), allocated bill-wise → save → both bills settled.
 //   3. "Make a quotation for Umbrella Retail for 3 Office Chair at 6,500" → reviewed in the quotation editor →
@@ -130,9 +130,9 @@ await scenario('41-ai-drafting', async (h) => {
   assertEq(sale.lines.find((l) => l.drCr === 'dr').amount, 10_620_000, 'Umbrella Retail debited ₹1,06,200.00')
   assertEq(sale.inventory[0].qtyMilli, 2000, '2 laptops')
   assertEq(sale.lines.filter((l) => l.drCr === 'cr').map((l) => l.amount).sort((a, b) => b - a).join(','), '9000000,810000,810000', 'sales + CGST + SGST')
-  await h.goto('daybook')
-  await h.page.waitForSelector(`[data-testid="rows-daybook"] [data-row-id="${sale.id}"]`, { timeout: 10000 })
-  assert((await h.page.$eval(`[data-testid="rows-daybook"] [data-row-id="${sale.id}"]`, (el) => el.textContent)).includes('Umbrella Retail'), 'the Day book shows the invoice')
+  await h.gotoAllEntries()
+  await h.page.waitForSelector(`[data-testid="rows-registers-entries"] [data-row-id="${sale.id}"]`, { timeout: 10000 })
+  assert((await h.page.$eval(`[data-testid="rows-registers-entries"] [data-row-id="${sale.id}"]`, (el) => el.textContent)).includes('Umbrella Retail'), 'All entries shows the invoice')
   await bothThemes('03-daybook-invoice')
 
   // ---------- 2. a payment against two open bills ----------

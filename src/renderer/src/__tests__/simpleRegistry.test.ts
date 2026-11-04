@@ -111,7 +111,7 @@ describe('screen registry modes (WP 8.1)', () => {
   it('plan §2.3 placements: People → customers and suppliers, Money → all entries, Settings → business details', () => {
     // WP 9.8: People is the simple People screen (Masters → parties stays the accountant view).
     expect(simpleEntriesOf('people')[0]).toMatchObject({ id: 'customers-suppliers', screen: { name: 'simple-people' } })
-    expect(simpleEntriesOf('money').find((e) => e.id === 'all-entries')?.screen).toEqual({ name: 'daybook' })
+    expect(simpleEntriesOf('money').find((e) => e.id === 'all-entries')?.screen).toEqual({ name: 'registers', tab: 'entries' })
     // WP 9.6: Money → Bank is the simple Bank screen (the full Banking stays the accountant view).
     expect(simpleEntriesOf('money').find((e) => e.id === 'bank')?.screen).toEqual({ name: 'simple-bank' })
     expect(simpleEntriesOf('settings')[0]).toMatchObject({ id: 'business', screen: { name: 'company-info' } })
@@ -122,11 +122,11 @@ describe('screen registry modes (WP 8.1)', () => {
     expect(screenView('accountant', 'gateway', false)).toBe('accountant')
     expect(screenView('simple', 'gateway', false)).toBe('simple')
     expect(screenView('simple', 'gateway', true)).toBe('accountant')
-    expect(screenView('simple', 'daybook', false)).toBe('accountant')
+    expect(screenView('simple', 'registers', false)).toBe('accountant')
     expect(screenView('simple', 'trial-balance', false)).toBe('accountant')
     expect(screenView('simple', 'simple-section', false)).toBe('simple')
     expect(simpleSectionOf({ name: 'simple-section', section: 'buy' })).toBe('buy')
-    expect(simpleSectionOf({ name: 'daybook' })).toBe('money')
+    expect(simpleSectionOf({ name: 'registers', tab: 'entries' })).toBe('money')
   })
 })
 

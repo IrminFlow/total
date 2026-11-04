@@ -1,33 +1,23 @@
 // Assistant tools (WP 5.5). Read tools over the deterministic assistants — the close checklist,
-// the GSTR-2B mismatches, the anomaly finder — and build_report, which turns the model's
-// structured REPORT REQUEST (names, not ids) into a report-builder model, validates it with the
-// WP 6.1 schema and runs the compiled report. The model only ever produces the request JSON;
-// every figure comes from the services and leaves here formatted (the numbers rule).
+// the GSTR-2B mismatches, the anomaly finder. Every figure comes from the services and leaves
+// here formatted (the numbers rule).
 // draft_gst_2b_fix is the one draft tool: it turns a mismatch's suggested action into an
 // ai_drafts row — never a posting.
 import { z } from 'zod'
-import { formatQtyMilli } from '@shared/money'
 import type { AiSource } from '@shared/ai'
 import { ANOMALY_LABELS, anomalyRef, type AnomalyKind } from '@shared/anomalies'
 import { MISMATCH_LABELS, type MismatchCategory } from '@shared/gst/mismatch2b'
-import { reportRequestSchema, requestToModel, type NameKind, type NameLookup } from '@shared/reportBuilder/nl'
-import type { ReportResult } from '@shared/reportBuilder/model'
 import { anomalies, closeChecklist, gst2bMismatches } from '../../services/assistants'
-import { profitRevealedBy, runReport } from '../../services/reportBuilder'
 import { buildPlanDraft } from '../assistantDrafts'
 import { runDraft } from '../drafting/tools'
-import { capRows, drCr, rupees } from './readTools'
+import { capRows, rupees } from './readTools'
 import { defineTool, type ToolContext, type ToolDef } from './registry'
-import type { DB } from '../../db/connection'
-import { partyGroupIdsBySide } from '../../services/masters'
-import { profitHidden } from './profitGuard'
-import { PROFIT_HIDDEN_TOOL_MESSAGE } from '@shared/profitRedaction'
 
 const month = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'Expected YYYY-MM')
 const iso = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD')
 
 /** Row caps (said in `truncated` when hit). */
-export const ASSISTANT_CAPS = { checkRows: 8, mismatches: 60, anomalies: 80, reportRows: 50 } as const
+export const ASSISTANT_CAPS = { checkRows: 8, mismatches: 60, anomalies: 80 } as const
 
 /** The month a tool works on when none is given: the screen's, else the month of the working
  *  period's end — never past today. */
@@ -226,77 +216,4 @@ export const findAnomaliesTool = defineTool({
   }
 })
 
-// ---------- build_report ----------
-
-/** Names → ids over the masters: exact (case-insensitive) first, else contains (the request is
- *  then refused with the candidates). Parties are the ledgers under Sundry Debtors / Creditors. */
-export function nameLookup(db: DB): NameLookup {
-  const partyGroups = [...partyGroupIdsBySide(db, 'debtor'), ...partyGroupIdsBySide(db, 'creditor')]
-  const tables: Record<NameKind, string> = {
-    ledger: 'SELECT id, name FROM ledgers',
-    party: partyGroups.length ? `SELECT id, name FROM ledgers WHERE group_id IN (${partyGroups.join(',')})` : 'SELECT id, name FROM ledgers WHERE 0',
-    group: 'SELECT id, name FROM groups',
-    item: 'SELECT id, name FROM stock_items'
-  }
-  return (kind, name) => {
-    const n = name.trim().toLowerCase()
-    const all = db.prepare(tables[kind]).all() as { id: number; name: string }[]
-    const exact = all.filter((r) => r.name.toLowerCase() === n)
-    return exact.length ? exact : all.filter((r) => r.name.toLowerCase().includes(n)).slice(0, 10)
-  }
-}
-
-/** One report cell as text (money formatted, Dr/Cr for signed measures). */
-export function cellText(v: number | null, kind: 'money' | 'quantity' | 'number', signed: boolean): string | undefined {
-  if (v === null) return undefined
-  if (kind === 'money') return signed ? drCr(v) : rupees(v)
-  if (kind === 'quantity') return formatQtyMilli(v)
-  return String(v)
-}
-
-export function reportForModel(r: ReportResult, cap: number): Record<string, unknown> {
-  const rows = capRows(r.rows, cap, 'open it in the report builder for every row')
-  const rowOut = (keys: { label: string }[], values: (number | null)[]): Record<string, string | undefined> => {
-    const o: Record<string, string | undefined> = {}
-    r.dims.forEach((d, i) => (o[d.label] = keys[i]?.label))
-    r.measures.forEach((m, i) => (o[m.label] = cellText(values[i] ?? null, m.kind, m.signed)))
-    return o
-  }
-  return {
-    from: r.from,
-    to: r.to,
-    columns: [...r.dims.map((d) => d.label), ...r.measures.map((m) => m.label)],
-    rowCount: r.rows.length,
-    truncated: rows.truncated ?? (r.truncated ? `the report stopped at ${r.rowCap} rows` : undefined),
-    rows: rows.rows.map((row) => rowOut(row.keys, row.values)),
-    totals: Object.fromEntries(r.measures.map((m, i) => [m.label, cellText(r.totals[i] ?? null, m.kind, m.signed)])),
-    warnings: r.warnings.length ? r.warnings : undefined
-  }
-}
-
-export const buildReportTool = defineTool({
-  name: 'build_report',
-  description:
-    'Build and run a custom report with the report builder: give a REQUEST (source, dimensions to group by, measures, period, filters by name, sort, top N). It is checked against the report builder’s rules (problems come back as an error to fix), run over the books, and the result rows and totals returned with a link that opens it in the report builder pre-filled (where the user can save it). Measures: debit, credit, net, count, taxable, cgst, sgst, igst, cess, gst, tds, tcs, profit, balance (accounts); qtyIn, qtyOut, qtyNet, value, count (inventory). For sales / purchases use taxable with voucherKinds ["sales"] / ["purchase"].',
-  input: reportRequestSchema,
-  kind: 'read',
-  minRole: 'viewer',
-  handler: (req, ctx) => {
-    const res = requestToModel(req, nameLookup(ctx.db))
-    if (!res.ok) throw new Error(`The report request is not valid: ${res.problems.join('; ')}`)
-    // WP 7.2: a report that would show the profit is refused for a user who may not see it.
-    if (profitHidden(ctx)) {
-      const why = profitRevealedBy(ctx.db, res.model)
-      if (why) throw new Error(`${why}. ${PROFIT_HIDDEN_TOOL_MESSAGE}`)
-    }
-    const working = { from: ctx.screen?.from ?? ctx.period.from, to: ctx.screen?.to ?? ctx.period.to }
-    const r = runReport(ctx.db, res.model, { working, today: ctx.today })
-    const modelJson = JSON.stringify(res.model)
-    return {
-      data: { title: res.title, resolvedNames: res.resolved.length ? res.resolved.map((x) => `${x.asked} → ${x.name}`) : undefined, ...reportForModel(r, ASSISTANT_CAPS.reportRows) },
-      sources: [{ kind: 'screen', screen: 'report-builder', label: `Open “${res.title}” in the report builder`, params: { model: modelJson, title: res.title } }]
-    }
-  }
-})
-
-export const ASSISTANT_TOOLS: ToolDef[] = [closeChecklistTool, gst2bMismatchesTool, findAnomaliesTool, buildReportTool, draftGst2bFixTool]
+export const ASSISTANT_TOOLS: ToolDef[] = [closeChecklistTool, gst2bMismatchesTool, findAnomaliesTool, draftGst2bFixTool]

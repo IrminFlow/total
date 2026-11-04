@@ -57,8 +57,6 @@ const load_simple_reports_ReportsScreen = () => import('./simple/reports/Reports
 export const ReportsScreen = lazyScreen(load_simple_reports_ReportsScreen, 'ReportsScreen')
 const load_simple_taxes_TaxesScreen = () => import('./simple/taxes/TaxesScreen')
 export const TaxesScreen = lazyScreen(load_simple_taxes_TaxesScreen, 'TaxesScreen')
-const load_screens_DayBook = () => import('./screens/DayBook')
-export const DayBook = lazyScreen(load_screens_DayBook, 'DayBook')
 const load_screens_ImportTally = () => import('./screens/ImportTally')
 export const ImportTallyScreen = lazyScreen(load_screens_ImportTally, 'ImportTallyScreen')
 const load_screens_ImportWizard = () => import('./screens/ImportWizard')
@@ -93,8 +91,6 @@ const load_screens_FixedAssets = () => import('./screens/FixedAssets')
 export const FixedAssetsScreen = lazyScreen(load_screens_FixedAssets, 'FixedAssetsScreen')
 const load_screens_CashForecast = () => import('./screens/CashForecast')
 export const CashForecastScreen = lazyScreen(load_screens_CashForecast, 'CashForecastScreen')
-const load_screens_Loans = () => import('./screens/Loans')
-export const LoansScreen = lazyScreen(load_screens_Loans, 'LoansScreen')
 const load_screens_Forex = () => import('./screens/Forex')
 export const ForexScreen = lazyScreen(load_screens_Forex, 'ForexScreen')
 const load_screens_StockMovements = () => import('./screens/StockMovements')
@@ -147,10 +143,6 @@ export const TradeReturnsScreen = lazyScreen(load_screens_TradeReturns, 'TradeRe
 const load_screens_TradeUnbilled = () => import('./screens/TradeUnbilled')
 export const StaleDocumentsScreen = lazyScreen(load_screens_TradeUnbilled, 'StaleDocumentsScreen')
 export const UnbilledGoodsScreen = lazyScreen(load_screens_TradeUnbilled, 'UnbilledGoodsScreen')
-const load_screens_Consolidated = () => import('./screens/Consolidated')
-export const ConsolidatedScreen = lazyScreen(load_screens_Consolidated, 'ConsolidatedScreen')
-const load_screens_consolidation_Consolidation = () => import('./screens/consolidation/Consolidation')
-export const ConsolidationScreen = lazyScreen(load_screens_consolidation_Consolidation, 'ConsolidationScreen')
 const load_screens_Capture = () => import('./screens/Capture')
 export const CaptureScreen = lazyScreen(load_screens_Capture, 'CaptureScreen')
 const load_screens_Banking = () => import('./screens/Banking')
@@ -165,10 +157,6 @@ const load_screens_Tcs = () => import('./screens/Tcs')
 export const TcsScreen = lazyScreen(load_screens_Tcs, 'TcsScreen')
 const load_screens_CostCentres = () => import('./screens/CostCentres')
 export const CostCentresScreen = lazyScreen(load_screens_CostCentres, 'CostCentresScreen')
-const load_screens_Budgets = () => import('./screens/Budgets')
-export const BudgetsScreen = lazyScreen(load_screens_Budgets, 'BudgetsScreen')
-const load_screens_reportBuilder_ReportBuilder = () => import('./screens/reportBuilder/ReportBuilder')
-export const ReportBuilderScreen = lazyScreen(load_screens_reportBuilder_ReportBuilder, 'ReportBuilderScreen')
 const load_screens_assistants_Assistants = () => import('./screens/assistants/Assistants')
 export const AssistantsScreen = lazyScreen(load_screens_assistants_Assistants, 'AssistantsScreen')
 const load_screens_Ratios = () => import('./screens/Ratios')
@@ -218,7 +206,6 @@ export const SCREEN_CHUNKS: { readonly [N in Screen['name']]?: readonly LazyComp
   'simple-made-goods': [MadeGoods],
   'simple-reports': [ReportsScreen],
   'simple-taxes': [TaxesScreen],
-  'daybook': [DayBook],
   'import-tally': [ImportTallyScreen],
   'data-import': [ImportWizardScreen],
   'data-export': [BooksExportScreen],
@@ -268,20 +255,15 @@ export const SCREEN_CHUNKS: { readonly [N in Screen['name']]?: readonly LazyComp
   'trade-returns': [TradeReturnsScreen],
   'unbilled-goods': [UnbilledGoodsScreen],
   'stale-documents': [StaleDocumentsScreen],
-  'consolidated': [ConsolidatedScreen],
-  'consolidation': [ConsolidationScreen],
   'banking': [BankingScreen],
   'capture': [CaptureScreen],
   'payroll': [PayrollScreen],
   'tds': [TdsScreen],
   'tcs': [TcsScreen],
   'cost-centres': [CostCentresScreen],
-  'budgets': [BudgetsScreen],
-  'report-builder': [ReportBuilderScreen],
   'assistants': [AssistantsScreen],
   'ratios': [RatiosScreen],
   'cash-forecast': [CashForecastScreen],
-  'loans': [LoansScreen],
   'forex': [ForexScreen],
   'year-end': [YearEndScreen],
   'company-info': [CompanyInfoScreen],
