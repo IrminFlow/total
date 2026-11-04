@@ -94,7 +94,6 @@ import type { InvoiceConfig } from '@shared/invoiceConfig'
 import type { PrintDocKind, PrintTemplate, TemplateList } from '@shared/printTemplates'
 import type { CloseLedgerRow, CloseRepairPreview } from '@shared/yearEnd'
 import type { DepreciationYearStatus } from '@shared/fixedAssets'
-import type { ConsolidatedResult } from '@shared/consolidate'
 import type { Registry } from '../types'
 import type { ChainVerification } from '@shared/auditChain'
 import type { AuditAction } from '@shared/auditEntities'
@@ -1114,10 +1113,6 @@ export const api = {
     stockAgeing: (asOn: string) => call<StockAgeingRow[]>('report:stockAgeing', { asOn }),
     itemProfitability: (from: string, to: string) => call<ItemProfitRow[]>('report:itemProfitability', { from, to }),
     exceptions: (from: string, to: string) => call<ExceptionsReport>('report:exceptions', { from, to })
-  },
-  consolidated: {
-    run: (slugs: string[], kind: 'tb' | 'pnl', from: string, to: string) =>
-      call<ConsolidatedResult>('consol:run', { slugs, kind, from, to })
   },
   gst: {
     gstr1: (from: string, to: string, period: string) => call<Gstr1Result>('gst:gstr1', { from, to, period }),

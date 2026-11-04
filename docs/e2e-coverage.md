@@ -89,7 +89,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 6.3 | Busy import + undo | 71 (gap filled) | |
 | 6.4 | Bulk edit of vouchers, attachments in backups | 38 | |
 | 6.4 | Bulk edit of masters / party notes | 71 (gap filled) | see 71's header |
-| 6.5 | Consolidation with eliminations | 40 | |
+| 6.5 | ~~Consolidation with eliminations~~ — removed (feature cleanup) | — | |
 
 ## Phase 7 — Platform
 

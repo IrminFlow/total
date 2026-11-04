@@ -147,10 +147,6 @@ export const TradeReturnsScreen = lazyScreen(load_screens_TradeReturns, 'TradeRe
 const load_screens_TradeUnbilled = () => import('./screens/TradeUnbilled')
 export const StaleDocumentsScreen = lazyScreen(load_screens_TradeUnbilled, 'StaleDocumentsScreen')
 export const UnbilledGoodsScreen = lazyScreen(load_screens_TradeUnbilled, 'UnbilledGoodsScreen')
-const load_screens_Consolidated = () => import('./screens/Consolidated')
-export const ConsolidatedScreen = lazyScreen(load_screens_Consolidated, 'ConsolidatedScreen')
-const load_screens_consolidation_Consolidation = () => import('./screens/consolidation/Consolidation')
-export const ConsolidationScreen = lazyScreen(load_screens_consolidation_Consolidation, 'ConsolidationScreen')
 const load_screens_Capture = () => import('./screens/Capture')
 export const CaptureScreen = lazyScreen(load_screens_Capture, 'CaptureScreen')
 const load_screens_Banking = () => import('./screens/Banking')
@@ -268,8 +264,6 @@ export const SCREEN_CHUNKS: { readonly [N in Screen['name']]?: readonly LazyComp
   'trade-returns': [TradeReturnsScreen],
   'unbilled-goods': [UnbilledGoodsScreen],
   'stale-documents': [StaleDocumentsScreen],
-  'consolidated': [ConsolidatedScreen],
-  'consolidation': [ConsolidationScreen],
   'banking': [BankingScreen],
   'capture': [CaptureScreen],
   'payroll': [PayrollScreen],

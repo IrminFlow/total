@@ -538,27 +538,6 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'analysis',
     invalidates: ['payablesPlan', 'payablesRuns', 'msmeReport', 'msmeBankRates', 'supplierStatement', 'billsOpen']
   },
-  // WP 6.5: group consolidation with inter-company eliminations; the quick combined view of any
-  // companies (by ledger name, no eliminations) stays as "Consolidated reports".
-  {
-    name: 'consolidation',
-    modes: ['accountant'],
-    title: 'Group consolidation',
-    keywords: ['consolidated financial statements', 'group', 'subsidiary', 'inter-company', 'elimination', 'minority interest', 'goodwill', 'as 21', 'holding company'],
-    screen: { name: 'consolidation' },
-    navSection: 'analysis',
-    invalidates: ['consolGroups', 'consolRun', 'consolCharts', 'company-registry']
-  },
-  {
-    name: 'consolidated',
-    modes: ['accountant'],
-    title: 'Consolidated reports',
-    navLabel: 'Combined view',
-    keywords: ['quick combined view', 'multi-company'],
-    screen: { name: 'consolidated' },
-    navSection: 'analysis',
-    invalidates: ['consolidated', 'company-registry']
-  },
   {
     name: 'cost-centres',
     modes: ['accountant'],

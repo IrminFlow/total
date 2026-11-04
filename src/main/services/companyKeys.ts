@@ -137,14 +137,13 @@ export async function unlockKey(dbPath: string, envelopes: readonly KeyEnvelope[
 // ---------------------------------------------------------------- the throttled unlock
 //
 // ONE wrong-passphrase counter per process, keyed by company slug, shared by every way in that
-// unwraps a company key: the app's company:open / company:delete / session:unlock (ipc.ts), a
-// consolidation run's member passphrases (ipcConsolidation.ts) and total-cli / MCP
-// (cli/unlock.ts). Five wrong tries → 30 s refusal. The counter lives in memory only, as it always
+// unwraps a company key: the app's company:open / company:delete / session:unlock (ipc.ts) and
+// total-cli (cli/unlock.ts). Five wrong tries → 30 s refusal. The counter lives in memory only, as it always
 // has in the app: the real cost of a guess is the scrypt work in the envelope (N = 2^17, ~0.5 s a
 // try), and whoever can start a process here can copy company.key.json and guess offline anyway —
 // the counter only slows a person (or an agent) typing at a prompt. A CLI process tries once and
 // exits, so its counter never reaches the limit; that is documented, not hidden
-// (docs/security/encryption-at-rest.md §CLI, MCP and consolidation).
+// (docs/security/encryption-at-rest.md §CLI).
 
 export const PASSPHRASE_MAX_FAILS = 5
 export const PASSPHRASE_LOCKOUT_MS = 30_000

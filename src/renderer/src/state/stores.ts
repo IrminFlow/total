@@ -179,9 +179,6 @@ export type Screen =
   | { name: 'trade-returns'; tab?: 'register' | 'item' | 'party' }
   | { name: 'unbilled-goods' }
   | { name: 'stale-documents' }
-  | { name: 'consolidated' }
-  // WP 6.5: group consolidation (statements, inter-company, eliminations, group definition).
-  | { name: 'consolidation'; tab?: 'statements' | 'intercompany' | 'eliminations' | 'groups'; groupId?: number }
   // `ledgerId` / `asOn`: the account (and BRS date) to open with (WP 9.6's "see them").
   | { name: 'banking'; tab?: 'recon' | 'import' | 'rules' | 'cheques' | 'pdc' | 'bulk' | 'brs'; ledgerId?: number; asOn?: string }
   // WP 5.4: document capture (bill photos / PDFs → purchase drafts).

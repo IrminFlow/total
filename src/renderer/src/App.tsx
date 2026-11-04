@@ -83,8 +83,6 @@ import {
   TradeReturnsScreen,
   StaleDocumentsScreen,
   UnbilledGoodsScreen,
-  ConsolidatedScreen,
-  ConsolidationScreen,
   CaptureScreen,
   BankingScreen,
   EdocsScreen,
@@ -329,8 +327,6 @@ export default function App(): React.JSX.Element {
           {screen.name === 'trade-returns' && <TradeReturnsScreen key={screen.tab ?? 'register'} tab={screen.tab} />}
           {screen.name === 'unbilled-goods' && <UnbilledGoodsScreen />}
           {screen.name === 'stale-documents' && <StaleDocumentsScreen />}
-          {screen.name === 'consolidated' && <ConsolidatedScreen />}
-          {screen.name === 'consolidation' && <ConsolidationScreen key={screen.groupId ?? 0} tab={screen.tab} groupId={screen.groupId} />}
           {screen.name === 'banking' && <BankingScreen key={`${screen.tab ?? 'recon'}:${screen.ledgerId ?? ''}:${screen.asOn ?? ''}`} tab={screen.tab} ledgerId={screen.ledgerId} asOn={screen.asOn} />}
           {screen.name === 'capture' && <CaptureScreen />}
           {screen.name === 'payroll' && <PayrollScreen />}

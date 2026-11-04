@@ -7,7 +7,6 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { openCompanyDb } from '../db/connection'
 import { upsertCompany } from '../registry'
-import { consolidated } from './consolidated'
 import { exportCaPack } from './caPack'
 import { freshDb, seededDb, TEST_INFO } from '../db/testdb'
 import { seedCompany } from '../db/seed'
@@ -261,7 +260,7 @@ describe('year-end closing journal flag', () => {
   })
 })
 
-describe('profit consumers after a close (dashboard, CA pack, consolidated)', () => {
+describe('profit consumers after a close (dashboard, CA pack)', () => {
   let dataDir = ''
   beforeEach(() => {
     dataDir = mkdtempSync(join(tmpdir(), 'total-yeflag-'))
@@ -299,10 +298,5 @@ describe('profit consumers after a close (dashboard, CA pack, consolidated)', ()
     const pnlCsv = readFileSync(join(dir, 'profit-and-loss.csv'), 'utf8')
     expect(pnlCsv).toMatch(/Net Profit"?,"?25000\.00/)
     db.close()
-
-    const result = consolidated([slug], 'pnl', '2025-04-01', '2026-03-31')
-    expect(result.warnings).toEqual([])
-    expect(result.rows.find((r) => r.name === 'Sales')!.perCompany).toEqual([-40_000_00])
-    expect(result.rows.find((r) => r.name === 'Purchase')!.perCompany).toEqual([15_000_00])
   })
 })

@@ -276,7 +276,6 @@ This is the full app. It is built to match what an accountant expects from Tally
 - Multi-currency and foreign-exchange revaluation.
 - Ratio analysis.
 - A **report builder** for custom reports, which can be saved, pinned and sent as scheduled packs.
-- **Group consolidation** of several companies, with inter-company items removed openly.
 
 #### Books and year-end
 

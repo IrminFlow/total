@@ -41,7 +41,7 @@ import { checkForUpdatesInteractive, setAutoCheck, updateAction, updatesView } f
 import { UPDATE_ACTIONS, updatesCanSet, type UpdatesCanSet } from '@shared/updates'
 import {
   backupFileSchema, bankRuleInputSchema, batchInputSchema, billsOpenSchema, budgetInputSchema, budgetVarianceSchema, ccStatementSchema,
-  chequeConfigSchema, companyCreateSchema, consolidatedRunSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
+  chequeConfigSchema, companyCreateSchema, costCentreInputSchema, exportCsvSchema, godownInputSchema, groupInputSchema, gst3bManualSchema, gstr2bSchema,
   isoDate, ledgerInputSchema, notifyDeadlinesSchema, passphraseSchema, periodSchema, priceLevelInputSchema, priceRateInputSchema, rendererLogSchema, reportPdfSchema,
   searchGlobalSchema, searchQuerySchema, stockGroupInputSchema, stockItemInputSchema, stockQuerySchema, stockCostAsOfSchema,
   stockRegisterSchema, stockReorderSchema, stockExpiryReportSchema, stockLabelsSchema, serialsListSchema, serialsAvailableSchema, tallyImportSchema, tdsExport26qSchema, tdsEnsurePayableSchema, tdsSectionInputSchema, tdsSuggestSchema,
@@ -112,7 +112,6 @@ import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
 import { registerPricingIpc } from './ipcPricing'
 import { registerReportsIpc } from './ipcReports'
-import { registerConsolidationIpc } from './ipcConsolidation'
 import { runDuePacksInBackground } from './packScheduler'
 import { registerAiIpc, aiRuns, type AppKeyAuditEntry } from './ai/ipc'
 import { registerCaptureIpc, captureOnCompanyOpen, captureOnCompanyClose, resumeCapture } from './ai/capture/ipc'
@@ -149,7 +148,6 @@ import {
   manufactureCostPreviewSchema, manufactureRegisterSchema, manufactureSaveSchema, stockMovementsSchema,
   bomVersionInputSchema, bomExplodeSchema, manufactureReportSchema, jobWorkChallanSaveSchema, jobWorkPendingSchema
 } from '@shared/schemas'
-import * as consolidated from './services/consolidated'
 import * as caPack from './services/caPack'
 import { writeExportPdf, writePdfFile } from './services/pdf'
 import { chooseExportPath, hermeticRun, type ExportTargetRequest } from './exportTarget'
@@ -225,7 +223,7 @@ const idleClock = new IdleClock(null)
 
 /** WP 7.2: wrong passphrases per company slug — 5 in a row lock the prompt for 30 seconds (in
  *  memory: the passphrase cannot be checked against anything inside the locked file). */
-// The wrong-passphrase counter is shared with consolidation runs and total-cli (companyKeys.ts).
+// The wrong-passphrase counter is shared with total-cli (companyKeys.ts).
 
 /** Paths the Tally-import file dialog has actually issued this session. A `filePath` supplied in
  *  a tally:import payload must be one of these — otherwise the renderer could pass any path on
@@ -648,8 +646,6 @@ export function registerIpc(): void {
   registerPricingIpc(handle, () => requireCompany())
   // ---------- report builder, comparatives, ratios, scheduled packs (WP 6.1 / 6.2) ----------
   registerReportsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser(), canSeeProfitNow)
-  // ---------- group consolidation (WP 6.5) — channels live in ipcConsolidation.ts ----------
-  registerConsolidationIpc(handle, () => requireCompany())
   // ---------- AI agent (WP 5.1) — channels live in ai/ipc.ts; events stream on 'total:ai:event' ----------
   registerAiIpc(handle, {
     company: () => requireCompany(),
@@ -2151,12 +2147,6 @@ export function registerIpc(): void {
   handle('report:exceptions', (p) => {
     const { from, to } = periodSchema.parse(p)
     return reports.exceptions(requireCompany().db, from, to)
-  }, 'viewer')
-
-  // ---------- consolidated (multi-company, read-only) ----------
-  handle('consol:run', (p) => {
-    const { slugs, kind, from, to } = consolidatedRunSchema.parse(p)
-    return consolidated.consolidated(slugs, kind, from, to)
   }, 'viewer')
 
   // ---------- gst ----------

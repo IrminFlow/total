@@ -26,13 +26,10 @@ export const PROFIT_CHANNELS: readonly string[] = [
   'report:cashFlow',
   'budget:variance',
   'simple:reports:doing',
-  // PR #127 review: the year-end close preview IS the net profit to transfer; a consolidated
-  // P&L / trial balance includes the open business's own statement.
+  // PR #127 review: the year-end close preview IS the net profit to transfer.
   'yearend:preview',
   // The re-close check shows each closed year's net profit and the lines it would post.
   'yearEnd:repairPreview',
-  'consol:run',
-  'consolGroup:run'
 ]
 
 export const EXPORT_CHANNELS: readonly string[] = [

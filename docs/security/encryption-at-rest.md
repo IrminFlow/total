@@ -39,7 +39,6 @@ A node-sqlite3 (callback, async) API, not better-sqlite3's synchronous one: ever
 | Crash safety | SQLite's own (WAL, atomic commits) | a crash between "write temp" and "re-encrypt" loses or exposes data; needs its own journal |
 | Open cost (raw 32-byte key, no KDF per open) | see `src/main/db/encryption.perf.dbtest.ts` (100k vouchers, open + migrate check + quick_check + trial balance): measured on this (heavily loaded) laptop — see the PR for the printed figures; the guard is "encrypted ≤ 3× plaintext + 1 s" | decrypt the whole file on every open (O(file size)), re-encrypt on every close / backup |
 | Backups | `VACUUM INTO` copies keep the key → every backup encrypted automatically; the online backup API refuses an encrypted source (uses `VACUUM INTO` instead) | every backup must be re-encrypted separately |
-| `withMemberDb` (consolidation, read-only) | opens a member read-only with its key **if** that member is the open business or its passphrase was given for the run (PR #132); otherwise skipped with "locked with a passphrase" | needs a decrypted copy of every member |
 | MCP CLI (`total-cli`) | opens plaintext businesses as before; a locked one opens with `TOTAL_PASSPHRASE` (PR #132), else it is refused | same refusal |
 | e2e harness | unchanged; encryption in tests uses the insecure test cipher for the secret store and a cheap (still accepted) scrypt cost | — |
 | CI (mac / win / linux) | native module like better-sqlite3 (`allowScripts` entry updated); `npm run build:mac` packages it | none |
@@ -170,7 +169,7 @@ C was rejected because of its asynchronous API.
   false` also redacts the trial balance (income / expense ledgers, the computed P&L row and the
   totals left out), refuses report-builder models and AI tools that show the profit, skips profit
   reports in report packs and answers Ask Total's profit questions with a note; the year-end
-  close preview, consolidation runs, the CA pack and the agent mirror's trial balance (app export
+  close preview, the CA pack and the agent mirror's trial balance (app export
   and MCP resource) follow the flag too. Deliberately not covered: the raw books (day book, ledger
   statements, registers, the books export, the voucher mirrors) — one side of the P&L at a time is
   allowed by design, so the profit stays derivable by anyone who may read every voucher. The renderer hides
@@ -229,10 +228,9 @@ Opt-in per business, off by default, never pre-ticked (`services/companyKeys.ts`
   the remembered key, so a real lock needs people with PINs. Use it only on a computer that only
   you use.
 - **Not used by `total-cli` / MCP** — they read `TOTAL_PASSPHRASE` only (and have no safeStorage
-  under Electron-as-Node anyway); consolidation reads a locked member with the open business's key
-  or a passphrase given for the run, never a remembered key.
+  under Electron-as-Node anyway).
 
-## CLI, MCP and consolidation access (PR #132)
+## CLI and MCP access (PR #132)
 
 - **`total-cli` and the MCP server** (`src/main/cli/unlock.ts`). Every command that opens a
   business (`--company`: `post`, `import-masters`, `trial-balance`, `next-number`, `export`,
@@ -254,8 +252,8 @@ Opt-in per business, off by default, never pre-ticked (`services/companyKeys.ts`
     for a wrong one) and **exits with code 2** (other failures stay 1). A plaintext business ignores
     a passphrase given for it.
   - **The throttle.** The wrong-passphrase counter (5 wrong → 30 s) is one per-process map keyed by
-    slug in `companyKeys.ts`, shared by `company:open` / `company:delete` / `session:unlock`,
-    consolidation runs and the CLI. The app never persisted it and neither does the CLI: a CLI
+    slug in `companyKeys.ts`, shared by `company:open` / `company:delete` / `session:unlock`
+    and the CLI. The app never persisted it and neither does the CLI: a CLI
     process tries once and exits, so its counter never reaches the limit. That is acceptable
     because the counter is not the defence against guessing — the envelope's scrypt cost
     (N = 2^17, ~0.5 s and 128 MB a try) is, and anyone who can start a process as this user can
@@ -273,17 +271,6 @@ Opt-in per business, off by default, never pre-ticked (`services/companyKeys.ts`
     copied Claude Code / Claude Desktop snippets for a locked business, with a warning: the client's
     configuration file holds it in plain text, and anyone who can read that file can open the books.
     Prefer a viewer session, and keep that file private.
-- **Consolidation** (`services/consolidated.ts`). `withMemberDb` reads a locked member with its
-  folder's remembered key — the open business; keys are forgotten when a business closes, so "opened
-  earlier this session" does not count — or with a key unwrapped for **one run** from the optional
-  `memberPassphrases: { [slug]: passphrase }` of `consolGroup:run` (Zod-strict payload). Each one goes
-  through the same throttled unlock (a wrong one refuses the run, naming the member); members of
-  other groups, plaintext members and the open business ignore their entry; the keys are never
-  remembered and are zeroed when the run ends (`dropMemberKeys`); the passphrases are never stored,
-  logged or audited. A locked member with no key is skipped exactly as before ("locked with a
-  passphrase — skipped …"), so no figure changes. The renderer does not ask for member passphrases
-  yet (the payload field is there for it); member charts and pair suggestions still skip a locked
-  member that is not open.
 
 ## Electron window hardening (D7, PR #161)
 
@@ -313,5 +300,3 @@ not its own. They live in two pure, unit-tested modules applied by `main/index.t
 
 - Exports, logs, the capture inbox and the temporary plaintext snapshot inside an encrypted export
   are not encrypted (attachments and captured bills are, since the files follow-up — see Design).
-- The consolidation screen does not ask for member passphrases yet (the run payload takes them,
-  PR #132); member charts / pair suggestions skip a locked member that is not open.

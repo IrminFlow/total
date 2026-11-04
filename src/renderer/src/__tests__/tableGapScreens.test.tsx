@@ -2,7 +2,7 @@
 // bank-rules tables and Payroll's pay-head / employee-head / PT tables now live inside their
 // modals on DataTable; GSTR-2B gets its Portal | Books header band back; Masters → Ledgers and
 // e-Invoice host their pre-filters in the table toolbar (which no longer vanishes at zero rows);
-// Day Book's footer is the platform's; Consolidated has one CSV, written as plain numbers.
+// Day Book's footer is the platform's.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -14,7 +14,6 @@ import { BankingScreen } from '../screens/Banking'
 import { PayrollScreen } from '../screens/Payroll'
 import { Masters } from '../screens/Masters'
 import { EdocsScreen } from '../screens/Edocs'
-import { ConsolidatedScreen } from '../screens/Consolidated'
 
 const invoke = vi.fn()
 let handlers: Record<string, (payload: unknown) => unknown> = {}
@@ -258,31 +257,5 @@ describe('e-Invoice doc-type filter', () => {
     expect(within(screen.getByTestId('edocs-table-toolbar')).getByTestId('input-edocs-doctype')).toBe(select)
     fireEvent.click(screen.getByTestId('edocs-clear-doctype'))
     expect(bodyRows('edocs')).toHaveLength(2)
-  })
-})
-
-// ---------------------------------------------------------------- consolidated
-
-describe('Consolidated', () => {
-  it('has a single CSV (the table’s), written as plain signed numbers', async () => {
-    handlers['company:list'] = () => ({ companies: [{ slug: 'a', name: 'Alpha' }, { slug: 'b', name: 'Beta' }] })
-    handlers['consol:run'] = () => ({
-      columns: ['Alpha', 'Beta'],
-      warnings: [],
-      rows: [{ name: 'Cash', group: 'Cash-in-hand', perCompany: [1_234_50, null], total: 1_234_50 }, { name: 'Capital', group: 'Capital Account', perCompany: [-5_000_00, -100], total: -5_001_00 }]
-    })
-    handlers['export:csv'] = () => ({ path: '/tmp/c.csv' })
-    renderScreen(<ConsolidatedScreen />)
-    await waitFor(() => expect(screen.getByTestId('check-consolidated-a')).toBeTruthy())
-    fireEvent.click(screen.getByTestId('check-consolidated-a'))
-    fireEvent.click(screen.getByTestId('check-consolidated-b'))
-    fireEvent.click(screen.getByTestId('btn-consolidated-run'))
-    await waitFor(() => expect(bodyRows('consolidated')).toHaveLength(2))
-    expect(screen.queryByTestId('btn-consolidated-csv')).toBeNull()
-    expect(bodyRows('consolidated')[1]!.textContent).toContain('5,000.00 Cr') // on screen: display format
-    fireEvent.click(screen.getByTestId('consolidated-table-csv'))
-    await waitFor(() => expect(invoke).toHaveBeenCalledWith('export:csv', expect.anything()))
-    const csv = (invoke.mock.calls.find((c) => c[0] === 'export:csv')![1] as { csv: string }).csv
-    expect(csv.replace(/^﻿/, '').trim().split(/\r?\n/)).toEqual(['Name,Group,Alpha,Beta,Total', 'Cash,Cash-in-hand,1234.50,,1234.50', 'Capital,Capital Account,-5000.00,-1.00,-5001.00'])
   })
 })

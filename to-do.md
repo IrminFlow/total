@@ -190,7 +190,6 @@ done on main were dropped. One line each; the pointer says where to look.
 - MSME: RBI bank-rate history before Oct 2025, s.37 FA 2026, s.43B(h) excluding traders, Form 1 S.O. number, Udyam number layout — `src/shared/payables/msmeSources.ts`
 - Receivables: time of supply of interest (on receipt), GSTR-1 route of interest notes, SAC 9971 for interest — `src/shared/receivables/sources.ts`
 - AS 11 / Ind AS 21 paragraph citations; EMI rounding / broken-period conventions; forecast statutory due dates written from memory — `shared/forex.ts`, `shared/loanSchedule.ts`, `services/cashForecast.ts`
-- Consolidation: proportionate unrealised-profit estimate, uniform policies, acquisition book values, minority loss re-allocation, AS 23 — `src/shared/consolidation/sources.ts`
 - Audit trail: s.128(5) wording, IT rule 6F, IT Act 2025 s.62 / Rules 2026 r.46(9) retention — `src/main/services/audit.ts`
 - Busy / Zoho import header spellings and XML roots — `src/shared/dataImport/busy.ts`, `zoho.ts`
 - GST calendar items from the GPT review that still need a CA: e-invoice applicability, advance GST, MSME acceptance date (section 4, GST)
