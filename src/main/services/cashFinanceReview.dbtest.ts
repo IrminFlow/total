@@ -1,4 +1,4 @@
-// WP 4.4 review fixes: loan / revaluation / settlement vouchers are bin-only and restore safely;
+// WP 4.4 review fixes: revaluation / settlement vouchers are bin-only and restore safely;
 // rupee entries on a foreign party are not revalued; foreign openings; bill-wise settlement with
 // bill references; challans in the forecast.
 import { describe, expect, it } from 'vitest'
@@ -6,10 +6,9 @@ import { seededDb, TEST_INFO } from '../db/testdb'
 import type { DB } from '../db/connection'
 import type { VoucherInput } from '@shared/schemas'
 import { createLedger } from './masters'
-import { deleteVoucher, getVoucher, purgeVoucher, restoreVoucher, saveVoucher } from './vouchers'
-import { closingBalances, pnlLedgerAmounts } from './reports'
+import { deleteVoucher, getVoucher, restoreVoucher, saveVoucher } from './vouchers'
+import { closingBalances } from './reports'
 import { outstandings } from './analysis'
-import { addPrepayment, deleteLoan, getLoan, postEmi, saveLoan } from './loans'
 import { listRevaluations, openBills, postRevaluation, revaluationPreview, saveRate, setLedgerCurrency, settle } from './forex'
 import { forecastBase } from './cashForecast'
 import { dc, item, tradeBooks } from './tradeFixture.testutil'
@@ -31,60 +30,6 @@ const editAttempt = (db: DB, id: number): void => {
   const v = getVoucher(db, id)!
   saveVoucher(db, { ...v, narration: 'changed', lines: v.lines.map((l) => ({ ...l, costAllocations: [] })), inventory: [], billRefs: [], tds: null } as unknown as VoucherInput, id)
 }
-
-function loanBooks() {
-  const db = seededDb()
-  const bank = ledger(db, 'HDFC', 'Bank Accounts', 5_00_000_00)
-  const loanLedger = ledger(db, 'Term Loan', 'Secured Loans')
-  const d = saveLoan(db, { name: 'TL', loanLedgerId: loanLedger, bankLedgerId: bank, principal: 1_00_000_00, annualRateMilli: 12_000, tenureMonths: 12, disbursedOn: '2026-04-01', firstDueDate: '2026-05-05' })
-  return { db, bank, loanLedger, d }
-}
-
-describe('loan vouchers are bin-only and never double-post', () => {
-  it('edit refused; bin → re-post → restore refused (no double posting)', () => {
-    const { db, d } = loanBooks()
-    const first = postEmi(db, { scheduleId: d.schedule[0]!.id })
-    expect(() => editAttempt(db, first.voucherId!)).toThrow(/posted from Loans/)
-    deleteVoucher(db, first.voucherId!)
-    const again = postEmi(db, { scheduleId: d.schedule[0]!.id })
-    expect(again.voucherId).not.toBe(first.voucherId)
-    expect(() => restoreVoucher(db, first.voucherId!)).toThrow(/posted again/)
-    expect(getLoan(db, d.loan.id).schedule.filter((r) => r.posted)).toHaveLength(1)
-  })
-
-  it('bin → restore (nothing re-posted) brings the instalment back as posted', () => {
-    const { db, d } = loanBooks()
-    const first = postEmi(db, { scheduleId: d.schedule[0]!.id })
-    deleteVoucher(db, first.voucherId!)
-    expect(getLoan(db, d.loan.id).schedule[0]!.posted).toBe(false)
-    restoreVoucher(db, first.voucherId!)
-    expect(getLoan(db, d.loan.id).schedule[0]).toMatchObject({ posted: true, voucherId: first.voucherId })
-  })
-
-  it('a regenerated schedule orphans the binned voucher: restore refused, delete refused until purged', () => {
-    const { db, d } = loanBooks()
-    const first = postEmi(db, { scheduleId: d.schedule[0]!.id })
-    deleteVoucher(db, first.voucherId!)
-    addPrepayment(db, { loanId: d.loan.id, date: '2026-04-20', amount: 10_000_00, effect: 'reduce_emi' })
-    expect(() => restoreVoucher(db, first.voucherId!)).toThrow(/schedule changed/)
-    expect(() => deleteLoan(db, d.loan.id)).toThrow(/in the bin/)
-    purgeVoucher(db, first.voucherId!)
-    deleteLoan(db, d.loan.id)
-    expect(db.prepare('SELECT COUNT(*) AS n FROM loans').get()).toEqual({ n: 0 })
-  })
-
-  it('ledgers are fixed once an instalment is posted; the audit row records the interest ledger', () => {
-    const { db, d, bank, loanLedger } = loanBooks()
-    postEmi(db, { scheduleId: d.schedule[0]!.id })
-    const other = ledger(db, 'SBI', 'Bank Accounts')
-    const input = { name: 'TL', loanLedgerId: loanLedger, bankLedgerId: other, principal: 1_00_000_00, annualRateMilli: 12_000, tenureMonths: 12, disbursedOn: '2026-04-01', firstDueDate: '2026-05-05' }
-    expect(() => saveLoan(db, input, d.loan.id)).toThrow(/can no longer change/)
-    expect(saveLoan(db, { ...input, bankLedgerId: bank, name: 'TL renamed' }, d.loan.id).loan.name).toBe('TL renamed')
-    const row = db.prepare("SELECT before_json AS b, after_json AS a FROM audit_log WHERE entity = 'loan' AND after_json LIKE '%voucherId%' ORDER BY id DESC LIMIT 1").get() as { b: string; a: string }
-    expect(JSON.parse(row.b).interestLedgerId).toBeNull()
-    expect(JSON.parse(row.a).interestLedgerId).toBe(lid(db, 'Interest on Loans'))
-  })
-})
 
 function usdBooks() {
   const db = seededDb()

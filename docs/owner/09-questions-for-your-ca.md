@@ -252,10 +252,10 @@ not merged, when this was written. Their files and ids exist only after they mer
 
 ## Other
 
-49. **Loans, EMI and forecast dates**
-    - Today: EMI rounding, broken-period conventions and the statutory due dates in the cash forecast were written from memory.
-    - Confirm: your bank's convention and the dates.
-    - In the code: `src/shared/loanSchedule.ts`; `src/main/services/cashForecast.ts` (UNVERIFIED comments).
+49. **Forecast dates**
+    - Today: the statutory due dates in the cash forecast were written from memory.
+    - Confirm: the dates.
+    - In the code: `src/main/services/cashForecast.ts` (UNVERIFIED comments).
 50. **Foreign exchange**
     - Today: revaluation follows AS 11 / Ind AS 21. Paragraph numbers and quotations are as recalled.
     - Confirm: the paragraph citations and treatment.

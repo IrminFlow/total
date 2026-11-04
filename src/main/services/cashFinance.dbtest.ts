@@ -1,6 +1,6 @@
 // WP 4.4 — cash and finance against a real (in-memory) company: the forecast's opening equals the
-// trial balance's cash and bank, Post EMI books a balanced principal / interest split and marks
-// the schedule, forex revaluation posts and reverses and settlement books the realised difference.
+// trial balance's cash and bank, a loan schedule already in the books still forecasts its EMIs,
+// forex revaluation posts and reverses and settlement books the realised difference.
 import { describe, expect, it } from 'vitest'
 import { seededDb, TEST_INFO } from '../db/testdb'
 import type { DB } from '../db/connection'
@@ -8,19 +8,30 @@ import type { VoucherInput } from '@shared/schemas'
 import { createLedger } from './masters'
 import { deleteVoucher, getVoucher, saveVoucher } from './vouchers'
 import { closingBalances, trialBalance, pnlLedgerAmounts } from './reports'
-import { addPrepayment, getLoan, listLoans, postEmi, saveLoan, emiReminders } from './loans'
 import { postRevaluation, revaluationPreview, saveRate, settle, exposure, listRevaluations, reverseRevaluation, setLedgerCurrency } from './forex'
 import { forecastBase, saveForecastItem, listForecastItems } from './cashForecast'
 import { cashNext30 } from './simpleReports'
-import { closeWarnings, financeReminders } from './cashFinanceChecks'
+import { closeWarnings } from './cashFinanceChecks'
 import { buildForecast, SCENARIO_PRESETS } from '@shared/cashForecast'
-import { emiFor } from '@shared/loanSchedule'
 import { payablesPlan } from './payables'
 import { createToolRegistry } from '../ai/tools'
 import type { ToolContext } from '../ai/tools/registry'
 
 const gid = (db: DB, name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
 const lid = (db: DB, name: string): number => (db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number }).id
+
+/** A loan schedule as the removed Loans screen stored it (books from before the cleanup): the
+ *  first two reducing-balance instalments of ₹1,00,000 at 12 % over 12 months (EMI ₹8,884.88). */
+function legacyLoan(db: DB, loanLedger: number, bank: number): number {
+  const id = Number(db.prepare(
+    `INSERT INTO loans (name, loan_ledger_id, bank_ledger_id, principal, annual_rate_milli, tenure_months, disbursed_on, first_due_date)
+     VALUES ('Term loan', ?, ?, 10000000, 12000, 12, '2026-05-01', '2026-06-05')`
+  ).run(loanLedger, bank).lastInsertRowid)
+  const row = db.prepare('INSERT INTO loan_schedules (loan_id, seq, due_date, kind, opening, payment, interest, principal, closing) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  row.run(id, 1, '2026-06-05', 'emi', 1_00_000_00, 8_884_88, 1_000_00, 7_884_88, 92_115_12)
+  row.run(id, 2, '2026-07-05', 'emi', 92_115_12, 8_884_88, 921_15, 7_963_73, 84_151_39)
+  return id
+}
 function ledger(db: DB, name: string, group: string, extra: { openingBalance?: number; creditDays?: number | null } = {}): number {
   return createLedger(db, {
     name, groupId: gid(db, group), openingBalance: extra.openingBalance ?? 0, gstin: null, stateCode: null, address: null,
@@ -66,7 +77,7 @@ describe('cash-flow forecast base', () => {
     saveForecastItem(db, { name: 'Office rent', amount: 25_000_00, cadence: 'monthly', startDate: '2026-06-05', endDate: null, kind: 'outflow' })
     expect(listForecastItems(db)).toHaveLength(1)
     const loanLedger = ledger(db, 'HDFC Term Loan', 'Secured Loans')
-    saveLoan(db, { name: 'Term loan', loanLedgerId: loanLedger, bankLedgerId: bank, principal: 1_00_000_00, annualRateMilli: 12_000, tenureMonths: 12, disbursedOn: '2026-05-01', firstDueDate: '2026-06-05' })
+    legacyLoan(db, loanLedger, bank)
 
     const base = forecastBase(db, TEST_INFO, '2026-06-01', '2026-08-31')
     const rec = base.flows.find((f) => f.source === 'receivable')!
@@ -188,78 +199,26 @@ describe('cash-flow forecast — MSME s.15 deadlines (msmeDue)', () => {
   })
 })
 
-describe('loans and EMI', () => {
-  function withLoan() {
-    const c = company()
-    const loanLedger = ledger(c.db, 'HDFC Term Loan', 'Secured Loans')
-    // Disbursement: Dr Bank / Cr Loan.
-    post(c.db, 'receipt', '2026-04-01', [dr(c.bank, 1_00_000_00), cr(loanLedger, 1_00_000_00)])
-    const detail = saveLoan(c.db, {
-      name: 'HDFC term loan', loanLedgerId: loanLedger, bankLedgerId: c.bank, principal: 1_00_000_00, annualRateMilli: 12_000,
-      tenureMonths: 12, disbursedOn: '2026-04-01', firstDueDate: '2026-05-05'
-    })
-    return { ...c, loanLedger, detail }
-  }
-
-  it('generates the schedule and Post EMI books a balanced principal / interest split', () => {
-    const { db, bank, loanLedger, detail } = withLoan()
-    expect(detail.schedule).toHaveLength(12)
-    expect(detail.loan.emi).toBe(emiFor(1_00_000_00, 12_000, 12))
-    const first = detail.schedule[0]!
-    const posted = postEmi(db, { scheduleId: first.id })
-    expect(posted.posted).toBe(true)
-    const v = getVoucher(db, posted.voucherId!)!
-    const sum = (side: 'dr' | 'cr') => v.lines.filter((l) => l.drCr === side).reduce((s, l) => s + l.amount, 0)
-    expect(sum('dr')).toBe(sum('cr'))
-    expect(v.lines.find((l) => l.ledgerId === loanLedger)).toMatchObject({ drCr: 'dr', amount: 7_884_88 })
-    expect(v.lines.find((l) => l.ledgerId === bank)).toMatchObject({ drCr: 'cr', amount: 8_884_88 })
-    const interestId = lid(db, 'Interest on Loans')
-    expect(v.lines.find((l) => l.ledgerId === interestId)).toMatchObject({ drCr: 'dr', amount: 1_000_00 })
-    expect(v.date).toBe('2026-05-05')
-
-    const after = getLoan(db, detail.loan.id, '2026-05-10')
-    expect(after.loan.postedCount).toBe(1)
-    expect(after.loan.outstanding).toBe(first.closing)
-    // the loan ledger now carries the outstanding principal
-    expect(-(closingBalances(db, '2026-05-10').get(loanLedger) ?? 0)).toBe(first.closing)
-    expect(after.loan.ledgerBalance).toBe(first.closing)
-    // no double posting, and instalments post in order
-    expect(() => postEmi(db, { scheduleId: first.id })).toThrow(/already posted/)
-    expect(() => postEmi(db, { scheduleId: detail.schedule[2]!.id })).toThrow(/first/)
-  })
-
-  it('binning the EMI voucher re-opens the instalment; reminders and the forecast see it', () => {
-    const { db, detail } = withLoan()
-    const first = postEmi(db, { scheduleId: detail.schedule[0]!.id })
-    expect(emiReminders(db, '2026-06-01', 7).map((r) => r.dueDate)).toEqual(['2026-06-05'])
-    deleteVoucher(db, first.voucherId!)
-    expect(getLoan(db, detail.loan.id).schedule[0]!.posted).toBe(false)
-    expect(emiReminders(db, '2026-06-01', 7).map((r) => r.dueDate)).toEqual(['2026-05-05', '2026-06-05'])
-    expect(financeReminders(db, '2026-06-01').emis[0]).toMatchObject({ overdue: true })
-  })
-
-  it('a prepayment regenerates the unposted rows but never a posted one', () => {
-    const { db, detail } = withLoan()
-    postEmi(db, { scheduleId: detail.schedule[0]!.id })
-    expect(() => addPrepayment(db, { loanId: detail.loan.id, date: '2026-05-01', amount: 10_000_00, effect: 'reduce_tenure' })).toThrow(/posted/)
-    const d = addPrepayment(db, { loanId: detail.loan.id, date: '2026-05-20', amount: 30_000_00, effect: 'reduce_tenure' })
-    expect(d.schedule[0]!.posted).toBe(true)
-    expect(d.schedule.find((r) => r.kind === 'prepayment')).toMatchObject({ dueDate: '2026-05-20', payment: 30_000_00 })
-    expect(d.schedule.length).toBeLessThan(13)
-    expect(d.schedule.reduce((s, r) => s + r.principal, 0)).toBe(1_00_000_00)
-    // terms of a loan with a posted instalment that would change it are refused
-    expect(() => saveLoan(db, { ...loanInput(d), annualRateMilli: 10_000 }, d.loan.id)).toThrow(/already posted/)
-    expect(listLoans(db, '2026-05-21')[0]!.interestThisFy).toBeGreaterThan(0)
+describe('loan schedules already in the books (the loans screen was removed)', () => {
+  it('an unposted instalment stays in the forecast; once its voucher exists it does not', () => {
+    const { db, bank } = company()
+    const loanLedger = ledger(db, 'HDFC Term Loan', 'Secured Loans')
+    const loanId = legacyLoan(db, loanLedger, bank)
+    const emis = (): string[] => forecastBase(db, TEST_INFO, '2026-06-01', '2026-08-31').flows.filter((f) => f.source === 'emi').map((f) => f.date)
+    expect(emis()).toEqual(['2026-06-05', '2026-07-05'])
+    // Past-due rows no longer count (nothing can mark them posted any more): from the as-on date on.
+    expect(forecastBase(db, TEST_INFO, '2026-06-10', '2026-08-31').flows.filter((f) => f.source === 'emi').map((f) => f.date)).toEqual(['2026-07-05'])
+    // An instalment voucher Post EMI made is an ordinary voucher now: editable, and it marks the row.
+    const v = post(db, 'payment', '2026-06-05', [dr(loanLedger, 7_884_88), dr(ledger(db, 'Interest on Loans', 'Indirect Expenses'), 1_000_00), cr(bank, 8_884_88)])
+    db.prepare('INSERT INTO loan_vouchers (voucher_id, loan_id, seq, kind) VALUES (?, ?, 1, ?)').run(v, loanId, 'emi')
+    db.prepare('UPDATE loan_schedules SET voucher_id = ? WHERE loan_id = ? AND seq = 1').run(v, loanId)
+    expect(emis()).toEqual(['2026-07-05'])
+    const before = getVoucher(db, v)!
+    expect(() => saveVoucher(db, { ...before, narration: 'EMI 1' } as never, v)).not.toThrow()
+    deleteVoucher(db, v)
+    expect(emis()).toEqual(['2026-06-05', '2026-07-05'])
   })
 })
-
-function loanInput(d: ReturnType<typeof getLoan>) {
-  const l = d.loan
-  return {
-    name: l.name, loanLedgerId: l.loanLedgerId, bankLedgerId: l.bankLedgerId, interestLedgerId: l.interestLedgerId, principal: l.principal,
-    annualRateMilli: l.annualRateMilli, tenureMonths: l.tenureMonths, disbursedOn: l.disbursedOn, firstDueDate: l.firstDueDate
-  }
-}
 
 describe('forex revaluation and settlement', () => {
   function withUsdCustomer() {

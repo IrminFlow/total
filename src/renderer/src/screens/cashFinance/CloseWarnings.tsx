@@ -1,11 +1,11 @@
-// WP 4.4 — year-end close warnings for cash and finance (warn-only, additive to YearEnd.tsx):
-// EMIs due in the year but not posted and foreign-currency balances not revalued on 31 March.
+// WP 4.4 — year-end close warning for cash and finance (warn-only, additive to YearEnd.tsx):
+// foreign-currency balances not revalued on 31 March.
 import { useQuery } from '@tanstack/react-query'
 import { fyFromStartYear, toDisplayDate } from '@shared/dates'
 import { formatFc } from '@shared/forex'
 import { cfApi } from '../../lib/cashFinanceClient'
 import { useNav } from '../../state/stores'
-import { Banner, Button, Money } from '../../components/ui'
+import { Banner, Button } from '../../components/ui'
 
 export function CashFinanceCloseWarnings({ fyStartYear, closed }: { fyStartYear: number; closed: boolean }): React.JSX.Element | null {
   const nav = useNav()
@@ -14,22 +14,6 @@ export function CashFinanceCloseWarnings({ fyStartYear, closed }: { fyStartYear:
   const fy = fyFromStartYear(fyStartYear)
   return (
     <>
-      {data.unpostedEmis.length > 0 && (
-        <Banner
-          tone="warning"
-          className="mb-section"
-          testId="year-end-unposted-emis"
-          title={`Loan instalments due in FY ${fy.label} are not posted`}
-          action={<Button size="sm" onClick={() => nav.go({ name: 'loans' })}>Open loans</Button>}
-        >
-          {data.unpostedEmis.map((e) => (
-            <span key={e.loanId} className="mr-3 inline-block">
-              {e.loanName}: {e.count} instalment{e.count === 1 ? '' : 's'}, <Money paise={e.amount} />
-            </span>
-          ))}
-          The year’s interest and the loan balance are understated until they are posted.
-        </Banner>
-      )}
       {data.unrevalued.length > 0 && (
         <Banner
           tone="warning"

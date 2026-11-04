@@ -561,16 +561,6 @@ export const SCREENS: ScreenDef[] = [
     invalidates: ['forecastBase', 'forecastItems']
   },
   {
-    name: 'loans',
-    modes: ['accountant'],
-    title: 'Loans and EMIs',
-    navLabel: 'Loans',
-    keywords: ['emi', 'loan schedule', 'term loan', 'interest', 'amortisation', 'prepayment', 'moratorium'],
-    screen: { name: 'loans' },
-    navSection: 'analysis',
-    invalidates: ['loans', 'loan', 'ledgers']
-  },
-  {
     name: 'forex',
     modes: ['accountant'],
     title: 'Forex — exposures and revaluation',

@@ -5,6 +5,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { FxExposureRow, FxRate, FxRevaluationRow } from '@shared/cashFinance'
+import type { Group } from '@shared/domain'
 import { formatFc, microToRateText, parseRateMicro, settleBills } from '@shared/forex'
 import { toDisplayDate, todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
@@ -18,8 +19,18 @@ import { OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
 import { LedgerLink, VoucherLink } from '../components/links'
 import { LedgerPicker } from '../components/pickers'
-import { underGroup } from './Loans'
 import { confirmDialog } from '../lib/dialogs'
+
+/** True when `groupId` is (under) one of the named groups. */
+export function underGroup(groupId: number, names: readonly string[], groups: Map<number, Group>): boolean {
+  const wanted = new Set(names.map((n) => n.toLowerCase()))
+  let g = groups.get(groupId)
+  for (let i = 0; g && i < 50; i++) {
+    if (wanted.has(g.name.toLowerCase())) return true
+    g = g.parentId != null ? groups.get(g.parentId) : undefined
+  }
+  return false
+}
 
 const KIND_OPTIONS = [
   { value: 'receivable', label: 'Receivable' },

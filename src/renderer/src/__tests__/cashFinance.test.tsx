@@ -1,16 +1,14 @@
 // WP 4.4 — cash and finance screens against a mocked IPC bridge: the forecast (periods, scenario
-// switch, shortfall highlighting), Loans (schedule, Post EMI payload), Forex (exposures, the
-// revaluation post), the year-end warnings and the Gateway reminder rows, plus the registry entries.
+// switch, shortfall highlighting), Forex (exposures, the revaluation post), the year-end warning,
+// plus the registry entries.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ForecastBase, FxRevaluationPreview, LoanDetail, LoanSummary, CashFinanceCloseWarnings as CloseWarningsData, FinanceReminders } from '@shared/cashFinance'
+import type { ForecastBase, FxRevaluationPreview, CashFinanceCloseWarnings as CloseWarningsData } from '@shared/cashFinance'
 import { DEFAULT_BUCKET_BP, buildForecast, SCENARIO_PRESETS } from '@shared/cashForecast'
 import { CashForecastScreen, periodViews } from '../screens/CashForecast'
-import { LoansScreen } from '../screens/Loans'
 import { ForexScreen } from '../screens/Forex'
 import { CashFinanceCloseWarnings } from '../screens/cashFinance/CloseWarnings'
-import { FinanceReminderRows } from '../screens/gateway/FinanceReminders'
 import { SCREENS } from '../lib/screens'
 import { useSession } from '../state/stores'
 import { todayISO } from '@shared/dates'
@@ -37,23 +35,6 @@ const BASE: ForecastBase = {
   warnings: []
 }
 
-const LOAN: LoanSummary = {
-  id: 1, name: 'HDFC term loan', loanLedgerId: 20, loanLedgerName: 'HDFC Term Loan', bankLedgerId: 2, bankLedgerName: 'HDFC Current',
-  interestLedgerId: null, interestLedgerName: null, principal: 1_00_000_00, annualRateMilli: 12_000, tenureMonths: 12, disbursedOn: '2026-04-01',
-  firstDueDate: '2026-05-05', method: 'reducing', moratoriumMonths: 0, moratoriumMode: 'capitalise', emiOverride: null, status: 'active', notes: null,
-  emi: 8_884_88, outstanding: 1_00_000_00, ledgerBalance: 1_00_000_00, postedCount: 0, pendingCount: 12,
-  nextDue: { scheduleId: 101, dueDate: '2026-05-05', payment: 8_884_88 }, overdueCount: 1, interestThisFy: 6_618_55, totalInterest: 6_618_55,
-  disbursement: null, beforeBooks: false, disbursementAmount: 1_00_000_00, booksBegin: '2025-04-01'
-}
-const DETAIL: LoanDetail = {
-  loan: LOAN,
-  schedule: [
-    { id: 101, loanId: 1, seq: 1, dueDate: '2026-05-05', kind: 'emi', opening: 1_00_000_00, payment: 8_884_88, interest: 1_000_00, principal: 7_884_88, closing: 92_115_12, voucherId: null, voucherNumber: null, posted: false },
-    { id: 102, loanId: 1, seq: 2, dueDate: '2026-06-05', kind: 'emi', opening: 92_115_12, payment: 8_884_88, interest: 921_15, principal: 7_963_73, closing: 84_151_39, voucherId: null, voucherNumber: null, posted: false }
-  ],
-  prepayments: []
-}
-
 const FX: FxRevaluationPreview = {
   asOf: TODAY,
   rows: [{
@@ -75,10 +56,6 @@ beforeEach(() => {
     switch (channel) {
       case 'forecast:base': return { ok: true, data: BASE }
       case 'forecast:items': return { ok: true, data: [] }
-      case 'loan:list': return { ok: true, data: [LOAN] }
-      case 'loan:get': return { ok: true, data: DETAIL }
-      case 'loan:recordDisbursement': return { ok: true, data: DETAIL }
-      case 'loan:postEmi': return { ok: true, data: { ...DETAIL.schedule[0], posted: true, voucherId: 500, voucherNumber: '12' } }
       case 'fx:ledgerCurrencies': return { ok: true, data: [] }
       case 'fx:setForeignOpening': return { ok: true, data: { ledgerId: 40, currencyCode: 'USD', fc: 1000_00, openingInr: 82_000_00, rateMicro: 82_000_000, rateDate: null, booksBegin: '2025-04-01' } }
       case 'fx:preview': return { ok: true, data: FX }
@@ -106,8 +83,8 @@ function renderUi(ui: React.ReactNode): void {
 }
 
 describe('registry', () => {
-  it('lists the forecast, loans and forex under Analysis', () => {
-    for (const name of ['cash-forecast', 'loans', 'forex'] as const) {
+  it('lists the forecast and forex under Analysis', () => {
+    for (const name of ['cash-forecast', 'forex'] as const) {
       expect(SCREENS.find((s) => s.name === name)).toMatchObject({ navSection: 'analysis' })
     }
   })
@@ -138,31 +115,6 @@ describe('cash-flow forecast', () => {
     await waitFor(() => expect(screen.getByTestId('forecast-scenario-summary').textContent).toContain('70%'))
     // worst: 70 % of the 80 % bucket probability = 56 % of 50,000
     expect(document.getElementById('tile-forecast-in-value')!.textContent).toContain('28,000.00')
-  }, 20_000)
-})
-
-describe('loans', () => {
-  it('lists the loan, shows its schedule and posts the next EMI', async () => {
-    renderUi(<LoansScreen />)
-    expect(await screen.findByText('HDFC term loan', { selector: 'td *, td' })).toBeTruthy()
-    const sched = await screen.findByTestId('rows-loan-schedule')
-    await waitFor(() => expect(within(sched).getAllByRole('row').length).toBe(2))
-    expect(sched.textContent).toContain('7,884.88')
-    fireEvent.click(screen.getByTestId('btn-loan-post-next'))
-    const modal = await screen.findByTestId('loan-post-modal')
-    expect(modal.textContent).toContain('1,000.00')
-    fireEvent.click(screen.getByTestId('btn-loan-post-confirm'))
-    await waitFor(() => expect(calls.find((c) => c.channel === 'loan:postEmi')?.payload).toEqual({ scheduleId: 101, date: '2026-05-05', bankLedgerId: 2 }))
-  }, 20_000)
-
-  it('records the disbursement (Dr bank / Cr loan) into the loan’s bank', async () => {
-    renderUi(<LoansScreen />)
-    fireEvent.click(await screen.findByTestId('btn-loan-disburse'))
-    const modal = await screen.findByTestId('loan-disburse-modal')
-    expect(modal.textContent).toContain('Cr HDFC Term Loan')
-    expect(modal.textContent).toContain('1,00,000.00')
-    fireEvent.click(screen.getByTestId('btn-loan-disburse-confirm'))
-    await waitFor(() => expect(calls.find((c) => c.channel === 'loan:recordDisbursement')?.payload).toEqual({ loanId: 1, bankLedgerId: 2 }))
   }, 20_000)
 })
 
@@ -197,25 +149,15 @@ describe('forex', () => {
   }, 20_000)
 })
 
-describe('year-end and dashboard additions', () => {
-  it('warns about unposted EMIs and unrevalued balances', async () => {
+describe('year-end addition', () => {
+  it('warns about unrevalued balances', async () => {
     const w: CloseWarningsData = {
-      unpostedEmis: [{ loanId: 1, loanName: 'HDFC term loan', count: 2, amount: 17_769_76 }],
       unrevalued: [{ currencyCode: 'USD', ledgers: 1, fcBalance: 1000_00 }],
       revaluedOnFyEnd: false
     }
     invoke.mockImplementation(async (channel: string) => (channel === 'yearEnd:cashFinanceWarnings' ? { ok: true, data: w } : { ok: false, error: channel }))
     renderUi(<CashFinanceCloseWarnings fyStartYear={2025} closed={false} />)
-    expect((await screen.findByTestId('year-end-unposted-emis')).textContent).toContain('2 instalments')
-    expect(screen.getByTestId('year-end-unrevalued').textContent).toContain('1,000.00 USD')
-  })
-
-  it('the compliance card shows EMIs due', async () => {
-    const r: FinanceReminders = {
-      emis: [{ loanId: 1, loanName: 'HDFC term loan', scheduleId: 101, dueDate: addDays(TODAY, -2), payment: 8_884_88, overdue: true }]
-    }
-    invoke.mockImplementation(async (channel: string) => (channel === 'dashboard:financeReminders' ? { ok: true, data: r } : { ok: false, error: channel }))
-    renderUi(<FinanceReminderRows />)
-    expect((await screen.findByTestId('chip-emi')).textContent).toBe('2 days overdue')
+    expect((await screen.findByTestId('year-end-unrevalued')).textContent).toContain('1,000.00 USD')
   })
 })
+

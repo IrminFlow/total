@@ -54,7 +54,6 @@ import {
   ManufactureReportsScreen,
   FixedAssetsScreen,
   CashForecastScreen,
-  LoansScreen,
   ForexScreen,
   StockMovementsScreen,
   StockJournalScreen,
@@ -334,7 +333,6 @@ export default function App(): React.JSX.Element {
           {screen.name === 'assistants' && <AssistantsScreen key={screen.tab ?? 'close'} tab={screen.tab} period={screen.period} />}
           {screen.name === 'ratios' && <RatiosScreen />}
           {screen.name === 'cash-forecast' && <CashForecastScreen />}
-          {screen.name === 'loans' && <LoansScreen key={screen.loanId ?? 'all'} loanId={screen.loanId} />}
           {screen.name === 'forex' && <ForexScreen />}
           {screen.name === 'year-end' && <YearEndScreen />}
           {screen.name === 'company-info' && <CompanyInfoScreen />}

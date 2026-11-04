@@ -40,7 +40,7 @@ export function useAiScreenContext(screen: Screen['name'], params: Record<string
 }
 
 /** Nav-state fields that are worth telling (ids, tabs, filters) — never drafts or prefill objects. */
-const PARAM_KEYS = ['ledgerId', 'voucherId', 'itemId', 'godownId', 'loanId', 'tab', 'kind', 'month', 'q', 'id', 'aiDraftId'] as const
+const PARAM_KEYS = ['ledgerId', 'voucherId', 'itemId', 'godownId', 'tab', 'kind', 'month', 'q', 'id', 'aiDraftId'] as const
 
 export function screenTitle(name: string): string | undefined {
   return SCREENS.find((s) => s.name === name)?.title

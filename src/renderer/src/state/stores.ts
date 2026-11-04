@@ -191,7 +191,6 @@ export type Screen =
   // WP 6.2: ratio analysis with monthly trends.
   | { name: 'ratios' }
   | { name: 'cash-forecast' }
-  | { name: 'loans'; loanId?: number }
   | { name: 'forex' }
   | { name: 'company-info'; backTo?: 'simple-taxes' }
   | { name: 'year-end' }

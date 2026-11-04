@@ -272,7 +272,6 @@ This is the full app. It is built to match what an accountant expects from Tally
 
 - Cost centres.
 - Cash-flow forecast.
-- Loans and EMI schedules.
 - Multi-currency and foreign-exchange revaluation.
 - Ratio analysis.
 

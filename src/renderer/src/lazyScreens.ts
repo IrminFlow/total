@@ -93,8 +93,6 @@ const load_screens_FixedAssets = () => import('./screens/FixedAssets')
 export const FixedAssetsScreen = lazyScreen(load_screens_FixedAssets, 'FixedAssetsScreen')
 const load_screens_CashForecast = () => import('./screens/CashForecast')
 export const CashForecastScreen = lazyScreen(load_screens_CashForecast, 'CashForecastScreen')
-const load_screens_Loans = () => import('./screens/Loans')
-export const LoansScreen = lazyScreen(load_screens_Loans, 'LoansScreen')
 const load_screens_Forex = () => import('./screens/Forex')
 export const ForexScreen = lazyScreen(load_screens_Forex, 'ForexScreen')
 const load_screens_StockMovements = () => import('./screens/StockMovements')
@@ -269,7 +267,6 @@ export const SCREEN_CHUNKS: { readonly [N in Screen['name']]?: readonly LazyComp
   'assistants': [AssistantsScreen],
   'ratios': [RatiosScreen],
   'cash-forecast': [CashForecastScreen],
-  'loans': [LoansScreen],
   'forex': [ForexScreen],
   'year-end': [YearEndScreen],
   'company-info': [CompanyInfoScreen],

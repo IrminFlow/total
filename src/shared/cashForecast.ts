@@ -37,7 +37,7 @@
  * forecast instantly with `buildForecast` as the sliders move.
  */
 import type { BillEvent } from './outstanding'
-import { mulDivRound, instalmentDate } from './loanSchedule'
+import { mulDivRound, instalmentDate } from './intMath'
 
 // ---------- dates ----------
 
