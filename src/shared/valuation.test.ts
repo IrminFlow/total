@@ -193,6 +193,11 @@ describe('a physical count of a product with nothing on hand (Phase 1 triage)', 
     expect(valueStock('fifo', 0, 0, [count(10_000, 25_000)]).closingValue).toBe(25_000)
     expect(valueStock('weighted_avg', 0, 0, [count(10_000)]).closingValue).toBe(0)
   })
+  it('after a sale below zero (2 sold, none bought) a count of 10 at ₹25 is worth ₹250 in both methods', () => {
+    const sold = mv('out', 2_000)
+    expect(valueStock('weighted_avg', 0, 0, [sold, count(10_000, 25_000)]).closingValue).toBe(25_000)
+    expect(valueStock('fifo', 0, 0, [sold, count(10_000, 25_000)]).closingValue).toBe(25_000)
+  })
   it('never once there is stock on hand: the average on the books wins', () => {
     // 10 on hand at ₹10 each, counted 12 with a stray ₹99 cost: +2 at the ₹10 average.
     expect(valueStock('weighted_avg', 10_000, 10_000, [count(12_000, 99 * 12 * 100)]).closingValue).toBe(12_000)

@@ -15,6 +15,8 @@ import { partySide, replaceOpeningBills } from './openingBills'
 import { postIntent } from './simplePost'
 import { simpleHome } from './simpleHome'
 import { peopleList } from './simplePeople'
+import { openingsState } from './openings'
+import { askTotal } from '../assist/answer'
 
 const INFO: CompanyInfo = { ...TEST_INFO, name: 'Groups Co', gstin: null, stateCode: '27', gstRegistrationType: 'unregistered' }
 const TODAY = '2025-08-14'
@@ -106,5 +108,16 @@ describe('parties under imported group names (Trade Receivables / Trade Payables
       return { receivables: h.receivables, payables: h.payables }
     }
     expect(home(imported.db)).toEqual(home(seeded.db))
+  })
+
+  it('Ask Total and the opening setup take the side from the role too', () => {
+    // "baki" reads as money owed to you; Bharat Steel is a supplier, so the answer is the payable side.
+    const ask = (db: DB): string => askTotal(db, INFO, { text: 'Bharat Steel ka kitna baki', today: TODAY, lang: 'en' }, { canDraft: false }).sentences.join(' ')
+    expect(ask(imported.db)).toBe(ask(seeded.db))
+    expect(ask(imported.db)).toContain('3,000')
+    const names = (db: DB) => { const o = openingsState(db); return { customers: o.customers.map((c) => c.name), suppliers: o.suppliers.map((c) => c.name) } }
+    expect(names(imported.db)).toEqual(names(seeded.db))
+    expect(names(imported.db).customers).toContain('Gopal')
+    expect(names(imported.db).suppliers).toContain('Lakshmi')
   })
 })

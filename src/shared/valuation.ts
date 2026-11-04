@@ -185,9 +185,15 @@ class ItemCostState {
     const delta = countedQtyMilli - cur
     if (delta > 0) {
       const value = this.totalValue
+      // Nothing on hand but a cost per unit on the count line: the counted quantity is worth
+      // countAmount. FIFO books the whole delta at that rate (the part filling a deficit goes to
+      // the consumption it backfills); weighted average already took the overdrawn part out at
+      // its own cost, so it books what makes the stock on hand exactly countAmount.
       const cost = cur > 0
         ? Math.round((value * delta) / cur)
-        : countAmount > 0 && countedQtyMilli > 0 ? mulDivRound(countAmount, delta, countedQtyMilli) : 0
+        : countAmount > 0 && countedQtyMilli > 0
+          ? this.method === 'weighted_avg' ? countAmount - value : mulDivRound(countAmount, delta, countedQtyMilli)
+          : 0
       this.inward(delta, cost)
     } else if (delta < 0) {
       this.outward(-delta)
