@@ -141,13 +141,29 @@ function vacuumInto(db: DB, dest: string): void {
   db.exec(`VACUUM INTO '${dest.replace(/'/g, "''")}'`)
 }
 
+/** How `rekeyFile` writes.
+ *  - `durable` (the default): SQLite's crash-safe rewrite — a rollback journal FILE holding every
+ *    page, flushed at each step.
+ *  - `scratch`: only for a throwaway COPY that its caller re-verifies (quick_check) and, before it
+ *    replaces anything, fsyncs itself — a backup's `.converting` copy, a fresh VACUUM INTO target,
+ *    the restore's `.restore-tmp`. The journal is kept in memory (SQLite3MC needs one to roll a
+ *    failed rekey back; it refuses OFF) and SQLite flushes nothing: an interrupted rekey only spoils
+ *    the copy, which the caller removes. The durable rewrite wrote every page twice and flushed
+ *    several times per file; on Windows each flush is a FlushFileBuffers to the disk, and a lock
+ *    change rekeys every backup (up to 20), so that is where its time went.
+ *  Never pass `scratch` for a company file or a backup in place. */
+export type RekeyMode = 'durable' | 'scratch'
+
 /** Change the key of a CLOSED database file in place (null = plaintext). SQLite3MC refuses to
- *  rekey in WAL mode, so the file is switched to DELETE first; the next open turns WAL back on. */
-export function rekeyFile(path: string, from: Buffer | null, to: Buffer | null): void {
+ *  rekey in WAL mode, so the file is switched to DELETE first (and, for a `scratch` copy, on to an
+ *  in-memory journal — SQLite leaves WAL only for DELETE); the next open turns WAL back on. */
+export function rekeyFile(path: string, from: Buffer | null, to: Buffer | null, mode: RekeyMode = 'durable'): void {
   const db = new Database(path, { fileMustExist: true })
   try {
     if (from) applyKey(db, from)
+    if (mode === 'scratch') db.pragma('synchronous = OFF')
     db.pragma('journal_mode = DELETE')
+    if (mode === 'scratch') db.pragma('journal_mode = MEMORY')
     cipherPragmas(db)
     db.exec(`PRAGMA rekey = ${to ? keyPragma(to) : "''"}`)
   } finally {
@@ -167,7 +183,9 @@ export function copyWithKey(db: DB, dest: string, to: Buffer | null): void {
   const same = from && to ? from.equals(to) : !from && !to
   if (!same) {
     try {
-      rekeyFile(dest, from, to)
+      // `dest` is a fresh copy nothing relies on yet; every caller checks it before use
+      // (prepareConvertedCopy, the encrypted export).
+      rekeyFile(dest, from, to, 'scratch')
     } catch (err) {
       removeDbFiles(dest)
       throw err
