@@ -10,7 +10,7 @@ import { writeCompanyInfo } from '../db/seed'
 import type { DB } from '../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import { createGroup, createLedger, partyGroupIdsBySide } from './masters'
-import { outstandingsWithAdvances, partyAllocation } from './analysis'
+import { openBills, outstandingsWithAdvances, partyAllocation } from './analysis'
 import { partySide, replaceOpeningBills } from './openingBills'
 import { postIntent } from './simplePost'
 import { simpleHome } from './simpleHome'
@@ -177,5 +177,23 @@ describe('parties under imported group names (Trade Receivables / Trade Payables
     const i = note(imported)
     expect(outwardDebitNoteIds(seeded.db, '2025-08-01', '2025-08-31').has(s)).toBe(true)
     expect(outwardDebitNoteIds(imported.db, '2025-08-01', '2025-08-31').has(i)).toBe(false)
+  })
+
+  it('GST rule 37 (ITC reversal, GSTR-3B) keeps main\'s side: a purchase from a "Trade Receivables" party is an open bill there', () => {
+    // A customer under an imported group who also sells to the business. The role rule nets the
+    // purchase against his sales; main's seeded-tree side (what gstItcReversal reads, seededSide)
+    // keeps it as a supplier bill still to pay — so the reversal at day 180 is unchanged.
+    const { db, L } = imported
+    const gid = (n: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(n) as { id: number }).id
+    const type = (db.prepare("SELECT id FROM voucher_types WHERE kind = 'purchase' ORDER BY id").get() as { id: number }).id
+    const id = saveVoucher(db, {
+      voucherTypeId: type, date: '2025-08-13', partyLedgerId: L('Ramesh'), narration: null, reference: 'R-77',
+      lines: [{ ledgerId: L('Purchases'), drCr: 'dr', amount: 80_000 }, { ledgerId: L('Ramesh'), drCr: 'cr', amount: 80_000 }], inventory: [],
+      billRefs: [{ kind: 'new', name: 'R-77', amount: 80_000 }]
+    }).id
+    expect(gid('Trade Receivables')).toBeGreaterThan(0)
+    // (main's own allocation also nets this party's earlier debits against it — open, whatever they are)
+    expect(openBills(db, L('Ramesh'), TODAY, { seededSide: true }).find((b) => b.voucherId === id)?.pending ?? 0).toBeGreaterThan(0)
+    expect(openBills(db, L('Ramesh'), TODAY).find((b) => b.voucherId === id)).toBeUndefined()
   })
 })

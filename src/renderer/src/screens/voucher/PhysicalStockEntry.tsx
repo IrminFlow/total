@@ -98,10 +98,9 @@ export function PhysicalStockEntry({
 
   const save = useCallback(async (): Promise<void> => {
     if (saving) return
-    // A mistyped cost per unit must not save silently as "no cost" (PR #188 re-review).
-    if (rows.some((r) => r.costText != null && r.costText.trim() !== '' && parseAmountText(r.costText) == null)) {
-      return void toast.push('error', 'A cost per unit is not a valid amount; fix it or clear the box')
-    }
+    // A cost per unit that isn't an amount is never dropped silently (PR #188 review).
+    const badCost = rows.find((r) => r.itemId != null && r.costText != null && r.costText.trim() !== '' && parseAmountText(r.costText) == null)
+    if (badCost) return void toast.push('error', `Cost / unit for ${itemName(badCost.itemId!) || 'an item'} is not an amount — type it like 25 or 12.50, or clear it`)
     const built = buildPhysicalPayload(formState, { voucherTypeId: typeId, itemName })
     if (!built.ok) return void toast.push('error', built.error)
     const counted = built.payload.inventory.length

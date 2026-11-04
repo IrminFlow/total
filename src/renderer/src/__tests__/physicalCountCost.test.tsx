@@ -6,7 +6,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-libra
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { CompanyInfo } from '@shared/domain'
 import { emptyPhysicalState, type PhysicalFormState } from '@shared/voucherEdit'
-import { useNav, useSession } from '../state/stores'
+import { useNav, useSession, useToasts } from '../state/stores'
 import { PhysicalStockEntry } from '../screens/voucher/PhysicalStockEntry'
 
 const invoke = vi.fn()
@@ -72,5 +72,15 @@ describe('Physical Stock editor: a count line’s cost per unit', () => {
     await waitFor(() => expect(invoke.mock.calls.some(([c]) => c === 'voucher:save')).toBe(true))
     expect(saved().inventory[0]).toMatchObject({ stockItemId: 1, ratePaise: 0, amount: 0 })
     expect(saved().inventory[0]!.countCost).toBeUndefined()
+  })
+
+  it('a cost that is not an amount stops the save with a message (never dropped silently)', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(<QueryClientProvider client={client}><PhysicalStockEntry typeId={5} initial={initial} /></QueryClientProvider>)
+    const box = (await waitFor(() => screen.getAllByTestId('input-count-cost')))[0]!
+    fireEvent.change(box, { target: { value: '12,3x' } })
+    fireEvent.click(screen.getByTestId('btn-save-physical'))
+    await waitFor(() => expect(useToasts.getState().toasts.some((t) => /Cost \/ unit for Jam is not an amount/.test(t.text))).toBe(true))
+    expect(invoke.mock.calls.some(([c]) => c === 'voucher:save')).toBe(false)
   })
 })
