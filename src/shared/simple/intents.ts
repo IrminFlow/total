@@ -31,6 +31,7 @@ import {
   type TaxLedgerIds, type TaxSide, type VoucherPayload
 } from '../voucherEdit'
 import { qtyText } from '../voucherEdit/payload'
+import { parseQtyText } from '../qty'
 import type { PhysicalFormState } from '../voucherEdit/physical'
 import type { ManufactureFormState } from '../voucherEdit/manufacture'
 import type { ManufactureInput } from '../manufacture'
@@ -310,10 +311,9 @@ export function readQty(v: number | string, field: string): number {
     if (!Number.isSafeInteger(v) || v <= 0) return fail('simple_bad_qty', `${v} is not a quantity`, field)
     return v
   }
-  const m = /^(\d{1,3}(?:,\d{2,3})+|\d+)(?:\.(\d{1,3}))?$/.exec(v.trim())
-  if (!m) return fail('simple_bad_qty', `“${v}” is not a quantity`, field)
-  const milli = Number(m[1]!.replace(/,/g, '')) * 1000 + Number((m[2] ?? '').padEnd(3, '0'))
-  if (!Number.isSafeInteger(milli) || milli <= 0) return fail('simple_bad_qty', `“${v}” is not a quantity`, field)
+  // The editors' reader (shared/qty.ts); simple answers may not carry more than 3 decimals.
+  const milli = /\.\d{4,}$/.test(v.trim()) ? null : parseQtyText(v)
+  if (milli == null || milli <= 0) return fail('simple_bad_qty', `“${v}” is not a quantity`, field)
   return milli
 }
 

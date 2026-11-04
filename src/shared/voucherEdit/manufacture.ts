@@ -11,6 +11,7 @@ import {
   type ManufactureDetails, type ManufactureInput, type ManufactureIssue, type ManufactureOutputKind
 } from '../manufacture'
 import { confirmRoundTrip, qtyText, type Representation, type VoucherPayload } from './payload'
+import { parseQtyText } from '../qty'
 
 export interface ManufactureRowState {
   itemId: number | null
@@ -88,13 +89,9 @@ export function emptyManufactureState(date: string): ManufactureFormState {
   }
 }
 
-/** "2.5" → 2500 thousandths; null for blank or unparseable text. */
+/** "2.5" → 2500 thousandths, "1,500" → 1500000 (shared/qty.ts); null for blank or unparseable text. */
 export function parseQtyMilli(text: string): number | null {
-  const t = text.trim()
-  if (t === '') return null
-  if (!/^\d*\.?\d*$/.test(t) || t === '.') return null
-  const n = Math.round(parseFloat(t) * 1000)
-  return Number.isFinite(n) ? n : null
+  return parseQtyText(text)
 }
 
 const rowIsBlank = (r: ManufactureRowState): boolean => r.itemId == null && r.qtyText.trim() === ''

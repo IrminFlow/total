@@ -15,6 +15,7 @@ import {
   confirmRoundTrip, passthroughOf, qtyText,
   type BuildResult, type HeaderPassthrough, type Representation
 } from './payload'
+import { parseQtyText } from '../qty'
 
 export type StockNoteKind = 'delivery_note' | 'receipt_note'
 
@@ -114,7 +115,7 @@ export function computeStockNote(state: StockNoteFormState, ctx: StockNoteContex
   const lines: StockNoteLine[] = []
   for (const r of state.rows) {
     const item = r.itemId != null ? ctx.items.get(r.itemId) : undefined
-    const qtyMilli = Math.round(parseFloat(r.qtyText || '0') * 1000)
+    const qtyMilli = (parseQtyText(r.qtyText) ?? 0)
     if (!item || r.itemId == null || !Number.isFinite(qtyMilli) || qtyMilli <= 0) continue
     const ratePaise = r.rate ?? 0
     const gross = Math.round((qtyMilli * ratePaise) / 1000)

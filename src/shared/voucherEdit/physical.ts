@@ -6,6 +6,7 @@ import {
   confirmRoundTrip, EMPTY_PASSTHROUGH, passthroughOf, qtyText,
   type BuildResult, type HeaderPassthrough, type Representation
 } from './payload'
+import { parseQtyText } from '../qty'
 
 export interface CountRowState {
   itemId: number | null
@@ -36,9 +37,7 @@ export function emptyPhysicalState(date: string): PhysicalFormState {
 /** Counted qtyMilli for a row, or null while the row isn't complete/parseable (0 is a count). */
 export function countedMilli(r: CountRowState): number | null {
   if (r.itemId == null || r.qtyText.trim() === '') return null
-  const n = Number(r.qtyText)
-  if (!Number.isFinite(n) || n < 0) return null
-  return Math.round(n * 1000)
+  return parseQtyText(r.qtyText)
 }
 
 export function buildPhysicalPayload(
