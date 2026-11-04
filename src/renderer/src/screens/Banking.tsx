@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { BankLineRow } from '@shared/reports'
 import { api, type BrsItem } from '../lib/client'
 import { useAiScreenContext } from '../lib/aiContext'
+import { useFeatures } from '../lib/useFeatures'
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import { useNav, useSession, useToasts } from '../state/stores'
 import {
@@ -22,6 +23,9 @@ import { AUTOSELECT_CHOICES, SUGGEST_CHOICES, TOLERANCE_CHOICES, WINDOW_CHOICES,
 export type BankTab = 'recon' | 'import' | 'rules' | 'cheques' | 'pdc' | 'bulk' | 'brs'
 
 const TAB_ORDER: BankTab[] = ['recon', 'import', 'rules', 'cheques', 'pdc', 'bulk', 'brs']
+/** Feature cleanup: cheque books, post-dated cheques and bulk payment files are listed only for a
+ *  company that has their data (shared/features.ts `cheques`). */
+const CHEQUE_TABS: ReadonlySet<BankTab> = new Set<BankTab>(['cheques', 'pdc', 'bulk'])
 const TAB_LABELS: Record<BankTab, string> = {
   recon: 'Reconcile',
   import: 'Import',
@@ -130,6 +134,9 @@ export function BankingScreen({ tab: initialTab, ledgerId: initialLedgerId, asOn
   const queryClient = useQueryClient()
   const { data: ledgers } = useQuery({ queryKey: ['bankLedgers'], queryFn: api.bank.ledgers })
   const [tab, setTab] = useState<BankTab>(initialTab ?? 'recon')
+  const { cheques } = useFeatures()
+  // A link straight to one of them (e.g. Payables → bulk file) still shows that tab.
+  const tabOrder = cheques ? TAB_ORDER : TAB_ORDER.filter((t) => !CHEQUE_TABS.has(t) || t === tab)
   const [ledgerId, setLedgerId] = useState<number | null>(initialLedgerId ?? null)
   // WP 5.2: the assistant's screen context names the bank ledger being reconciled.
   useAiScreenContext('banking', { ledgerId, tab })
@@ -191,7 +198,7 @@ export function BankingScreen({ tab: initialTab, ledgerId: initialLedgerId, asOn
     <Page>
       <PageHeader
         title="Banking"
-        tabs={<TabBar screen="banking" label="Banking view" tabs={TAB_ORDER.map((t) => ({ id: t, label: TAB_LABELS[t] }))} active={tab} onSelect={setTab} />}
+        tabs={<TabBar screen="banking" label="Banking view" tabs={tabOrder.map((t) => ({ id: t, label: TAB_LABELS[t] }))} active={tab} onSelect={setTab} />}
         controls={
           PER_BANK.has(tab) ? (
             <Select value={ledgerId ?? ''} onChange={(e) => setLedgerId(Number(e.target.value))} className="w-52" aria-label="Bank account" data-testid="banking-ledger">

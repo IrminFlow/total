@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useIsFetching } from '@tanstack/react-query'
-import type { CompanyFeatures } from '@shared/features'
+import type { CompanyFeatures, ScreenFeatures } from '@shared/features'
 import { useScreen, type Screen } from '../state/stores'
 import { ACCOUNTANT_NAV, SCREENS, SIMPLE_ENTRIES } from '../lib/screens'
 import { useFeatures } from '../lib/useFeatures'
@@ -16,8 +16,8 @@ const SIMPLE_NATIVE = new Set<string>(SCREENS.filter((d) => d.simpleView).map((d
  * balance, Settings …) are rare there and their chunks are the biggest, so they load on first
  * visit instead of competing with Home's own reads on a slow machine.
  */
-export function sidebarScreens(simple: boolean, features: CompanyFeatures): Screen['name'][] {
-  const on = (f: keyof CompanyFeatures | undefined): boolean => !f || !!features[f]
+export function sidebarScreens(simple: boolean, features: CompanyFeatures & Partial<ScreenFeatures>): Screen['name'][] {
+  const on = (f: keyof ScreenFeatures | undefined): boolean => !f || !!features[f]
   if (simple) {
     const names = SIMPLE_ENTRIES.filter((e) => e.features.every(on)).map((e) => e.screen.name)
     return [...new Set(['simple-section' as Screen['name'], ...names])].filter((n) => SIMPLE_NATIVE.has(n))

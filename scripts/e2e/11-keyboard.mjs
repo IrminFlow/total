@@ -80,6 +80,8 @@ await scenario('11-keyboard', async (h) => {
   // With Orders & challans on, Alt+F8 / Alt+F9 open the challan / GRN.
   const features = await h.invoke('config:features:get')
   await h.invoke('config:features:set', { ...features, inventory: true, orders: true })
+  // Feature cleanup: the trade cycle shows only for a company that already uses it.
+  await h.useFeature('tradeCycle')
   await h.relaunch()
   await h.openCompany('Demo Traders')
   await h.goto('voucher-entry')

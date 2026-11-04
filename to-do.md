@@ -108,7 +108,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - ~~Fixed assets not done:~~ DONE (all five, PR #158): ~~partial disposals~~ DONE — a quantity / share split off and disposed of (PR #158), ~~GST on asset sale~~ DONE — s.18(6) tax invoice + the extra output tax on that invoice in GSTR-1 / 3B 3.1(a) / GSTR-9 (rule 44(6) proviso; portal acceptance UNVERIFIED) (PR #158), ~~extra-shift depreciation~~ DONE — per-run double / triple-shift days, NESD refused (PR #158), ~~component lives~~ DONE — split off before the first run, own life (PR #158), ~~rule 25(2) 40 % cap~~ DONE — the Income-tax tab's concessional-regime switch, 2025-Act years (PR #158) — WP 3.6
 - Trade cycle not done: ~~16-char invoice-number warning~~ DONE — PR #140 (NIC DocDtls.No warning for e-invoicing companies: gstValidate + the sales editor; an explicit e-invoicing switch in Company details; unset = the history heuristic — PR #144), ~~challan / GRN list screens, convert-to-invoice~~ DONE — PR #149 (Trade → Challans / GRNs lists, "Convert to invoice / bill", several challans of one party onto one invoice), live NIC e-way for challans — WP 2.5b
 - TCS not modelled: ~~206C(1G) 20 % slab~~ DONE — 5 % up to ₹10 lakh a year per buyer, 20 % above (FY 2025-26), 27EQ split rows — PR #163; ~~206C(1C)~~ DONE — parking / toll / mine sections, added by the owner on TCS → Sections — PR #163; LRS stays out of scope (authorised dealers only, `shared/tcsSources.ts` TCS_NOT_MODELLED) — WP 3.3
-- Cash & finance not done: ~~MSME deadlines in the forecast~~ DONE — PR #156 (Options → Include, off by default; earlier of own due / s.15 date (from the bill date), overdue + indicative s.16 interest line, PDC date wins), loan disbursement posting, foreign opening balances — WP 4.4
+- Cash & finance not done: ~~MSME deadlines in the forecast~~ DONE — PR #156 (Options → Include, off by default; earlier of own due / s.15 date (from the bill date), overdue + indicative s.16 interest line, PDC date wins), foreign opening balances — WP 4.4
 - ~~NIC follow-ups needing a migration: store signed QR / signed invoice; cancel IRN / cancel + extend e-way UI~~ DONE — PR #164 (signed copies stored + printed QR, e-Documents → IRN details: Cancel IRN, cancel / extend e-way bill with its history; experimental, never run against the real portal) — WP 3.5
 - ~~ITC-reversal apply has no audit row of its own~~ DONE — `itc_reversal` rows on apply and post — PR #120; ~~an apply with nothing changed still writes a row~~ DONE — no-op, and so is an unchanged `setGst3bManual` — PR #150
 - ~~Backup file names use UTC timestamps~~ DONE — local time since PR #114; one stamp helper + old-name test PR #118 (the list reads mtime) — PR #111
@@ -187,7 +187,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Payroll (WP 3.7): EPF ceiling ₹25,000 from 17 Sep 2026 and its proration, admin / EDLI notifications, ECR `#~#` separator, ESI ceilings under the Code, PT slabs (WB / TN / AP / MP) and due dates, gratuity ₹20 L, bonus ₹21k / ₹7k, Form 16 Part B rows — `src/shared/payrollStatutory.ts` UNVERIFIED_WP37
 - MSME: RBI bank-rate history before Oct 2025, s.37 FA 2026, s.43B(h) excluding traders, Form 1 S.O. number, Udyam number layout — `src/shared/payables/msmeSources.ts`
 - Receivables: time of supply of interest (on receipt), GSTR-1 route of interest notes, SAC 9971 for interest — `src/shared/receivables/sources.ts`
-- AS 11 / Ind AS 21 paragraph citations; EMI rounding / broken-period conventions; forecast statutory due dates written from memory — `shared/forex.ts`, `shared/loanSchedule.ts`, `services/cashForecast.ts`
+- AS 11 / Ind AS 21 paragraph citations; forecast statutory due dates written from memory — `shared/forex.ts`, `services/cashForecast.ts`
 - Audit trail: s.128(5) wording, IT rule 6F, IT Act 2025 s.62 / Rules 2026 r.46(9) retention — `src/main/services/audit.ts`
 - Busy / Zoho import header spellings and XML roots — `src/shared/dataImport/busy.ts`, `zoho.ts`
 - GST calendar items from the GPT review that still need a CA: e-invoice applicability, advance GST, MSME acceptance date (section 4, GST)
@@ -196,7 +196,7 @@ done on main were dropped. One line each; the pointer says where to look.
 
 - WP 6.x / 7.5 site: marketing site work deferred by the owner (WP 10.7); site FAQ says "nothing leaves the machine" (false once AI / capture / NIC are on) — `site/app/docs/faq/page.tsx`
 - WP 7.1: server-side DataTable paging not needed yet (Sales / People under budget at 100k) — PR #104
-- WP 7.2: encrypt ~~attachments~~ (DONE — PR #152) / exports / logs — PR #112 (member-passphrase prompt on the consolidation screen DONE in PR #144; CLI / MCP passphrase DONE in PR #132; remember-on-this-computer DONE in PR #142)
+- WP 7.2: encrypt ~~attachments~~ (DONE — PR #152) / exports / logs — PR #112 (CLI passphrase DONE in PR #132; remember-on-this-computer DONE in PR #142)
 - WP 7.3: ~~no data-folder move setting for OneDrive users~~ DONE — PR #133 (the CLI still ignores the pointer — follow-up); full e2e on Windows — PR #109
 - ~~WP 7.4: tighten e2e 67–71 to the paths #107 fixed~~ DONE (68–71 in the earlier reviews; 67 now runs in a company without users) — PR #170
 - WP 7.4: deferred coverage in `docs/e2e-coverage.md` (live NIC sandbox, price-list editor, TDS lower-deduction certificates) — PR #110

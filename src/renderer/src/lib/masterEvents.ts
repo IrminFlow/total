@@ -13,7 +13,9 @@ export const MASTER_QUERY_KEYS: Record<string, string> = {
   godown: 'godowns',
   group: 'groups',
   stockGroup: 'stockGroups',
-  priceLevel: 'priceLevels'
+  priceLevel: 'priceLevels',
+  // Feature cleanup (main/masterEvents.ts FEATURES_CHANGED): a hidden feature may now be used.
+  features: 'features'
 }
 
 export function bindMasterEvents(queryClient: QueryClient, bridge: Pick<Window['total'], 'onMastersChanged'> | undefined = window.total): () => void {

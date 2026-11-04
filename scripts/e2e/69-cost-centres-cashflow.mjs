@@ -45,6 +45,8 @@ await scenario('69-cost-centres-cashflow', async (h) => {
   const typeOf = (kind) => types.find((t) => t.kind === kind)
 
   // ---------- 1. a cost centre through its screen ----------
+  // Feature cleanup: cost centres show only for a company that already uses them.
+  await h.useFeature('costCentres')
   await h.goto('cost-centres')
   await h.click('btn-cost-centres-new')
   const dialog = page.locator('[role="dialog"]')

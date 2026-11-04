@@ -61,7 +61,7 @@ import type {
   TdsRateInput, TdsCertificateInput, TdsChallanInput,
   VoucherInputParsed
 } from '@shared/schemas'
-import type { CompanyFeatures } from '@shared/features'
+import type { CompanyFeatures, FeaturesView } from '@shared/features'
 import type { AssistAnswer, AssistAskInput, AssistDraftResult } from '@shared/assist'
 import type { StockCostPosition, ConsumptionCosting, ProposedOutward } from '@shared/valuation'
 import type { ManufactureDetails, ManufactureInput } from '@shared/manufacture'
@@ -1342,7 +1342,7 @@ export const api = {
   },
   config: {
     features: {
-      get: () => call<CompanyFeatures>('config:features:get'),
+      get: () => call<FeaturesView>('config:features:get'),
       set: (data: CompanyFeatures) => call<CompanyFeatures>('config:features:set', data)
     },
     invoice: {

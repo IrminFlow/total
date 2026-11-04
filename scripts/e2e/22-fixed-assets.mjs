@@ -9,6 +9,8 @@ import { scenario, assert, assertEq, OPTION } from '../lib/harness.mjs'
 
 await scenario('22-fixed-assets', async (h) => {
   await h.createCompanyUI('Asset Works')
+  // Feature cleanup: the asset register shows only for a company that already keeps one.
+  await h.useFeature('fixedAssets')
   const page = h.page
   const extraShots = process.env.WP36_SHOTS
   const shot = async (name) => {

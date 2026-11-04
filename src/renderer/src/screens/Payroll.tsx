@@ -6,6 +6,7 @@ import { fyOf, todayISO } from '@shared/dates'
 import { api, type EmployeeHeadRow, type PayHead, type PtSummaryRow } from '../lib/client'
 import { formatPaise, parseRupees } from '@shared/money'
 import { useNav, useSession, useToasts } from '../state/stores'
+import { useFeatures } from '../lib/useFeatures'
 import {
   AmountInput, Button, DrawerSection, EmptyState, Field, Modal, Money, Page, PageHeader, Panel, ScrollList, Select, SkeletonRows, Spinner, TextInput, inputCls
 } from '../components/ui'
@@ -104,14 +105,20 @@ function StatutorySection(): React.JSX.Element {
 
 export function PayrollScreen(): React.JSX.Element {
   const [tab, setTab] = useState<Tab>('employees')
+  // Feature cleanup: the PF / ESI / PT tabs only for a company with statutory payroll data.
+  const { payrollStatutory } = useFeatures()
   const tabs = (
     <TabBar
       screen="payroll"
       tabs={[
         { id: 'employees', label: 'Employees' },
         { id: 'runs', label: 'Pay runs' },
-        { id: 'statutory', label: 'Statutory' },
-        { id: 'rates', label: 'Statutory rates' }
+        ...(payrollStatutory
+          ? [
+              { id: 'statutory' as const, label: 'Statutory' },
+              { id: 'rates' as const, label: 'Statutory rates' }
+            ]
+          : [])
       ]}
       active={tab}
       onSelect={setTab}

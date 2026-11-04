@@ -16,6 +16,8 @@ import { scenario, assert, assertEq, OPTION, localToday, relativeDate } from '..
 
 await scenario('31-banking-depth', async (h) => {
   await h.createDemoCompany()
+  // Feature cleanup: cheque books, PDCs and bulk payment files show only for a company that uses them.
+  await h.useFeature('cheques')
   const extraShots = process.env.WP41_SHOTS
   const shot = async (name) => {
     await h.page.mouse.move(0, 0)

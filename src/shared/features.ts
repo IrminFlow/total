@@ -76,3 +76,60 @@ export function mergeFeatures(partial: unknown): CompanyFeatures {
 export function effectiveFeatures(f: CompanyFeatures): CompanyFeatures & { manufacturing: boolean } {
   return { ...f, manufacturing: f.inventory && f.manufacturing !== false }
 }
+
+// ---------------------------------------------------------------- features hidden until used
+//
+// The feature cleanup hides these for a company that has none of their data (main computes
+// `unused` — services/featureUsage.ts — and returns it with the stored flags on
+// config:features:get). Hidden = no sidebar / palette / simple entry, no Settings → Features card
+// and none of the in-form affordances the matching flag gates; every report keeps reading the
+// data exactly as before, and a company with data keeps everything. The stored flags are never
+// changed by this.
+export const HIDEABLE_FEATURES = ['forex', 'costCentres', 'cheques', 'interest', 'fixedAssets', 'tradeCycle', 'payrollStatutory'] as const
+export type HideableFeature = (typeof HIDEABLE_FEATURES)[number]
+
+/** config:features:get — the stored flags plus the hideable features this company has no data for. */
+export type FeaturesView = CompanyFeatures & { unused?: HideableFeature[] }
+
+/** The stored flags whose feature can be hidden — their Settings → Features card goes with it. */
+export const FLAG_FEATURE: Partial<Record<keyof CompanyFeatures, HideableFeature>> = { costCentres: 'costCentres', multiCurrency: 'forex', orders: 'tradeCycle' }
+
+/** Split a features view into the stored flags (what config:features:set takes) and the hidden set. */
+export function splitFeaturesView(v: FeaturesView): { stored: CompanyFeatures; unused: ReadonlySet<HideableFeature> } {
+  const { unused, ...stored } = v
+  return { stored, unused: new Set(unused ?? []) }
+}
+
+/** Whether a stored flag's Settings → Features card is shown (hidden with its feature). */
+export const flagCardShown = (key: keyof CompanyFeatures, unused: ReadonlySet<HideableFeature>): boolean => {
+  const h = FLAG_FEATURE[key]
+  return !h || !unused.has(h)
+}
+
+/** What screens, the sidebar and the palette gate on: `effectiveFeatures`, with the flags of a
+ *  hidden feature off (costCentres, multiCurrency ← forex, orders ← tradeCycle) and one flag per
+ *  hideable feature that has no stored flag of its own. `unused` absent = nothing hidden. */
+export interface ScreenFeatures extends CompanyFeatures {
+  manufacturing: boolean
+  forex: boolean
+  fixedAssets: boolean
+  cheques: boolean
+  interest: boolean
+  payrollStatutory: boolean
+}
+
+export function screenFeatures(f: FeaturesView): ScreenFeatures {
+  const { stored, unused } = splitFeaturesView(f)
+  const used = (h: HideableFeature): boolean => !unused.has(h)
+  return {
+    ...effectiveFeatures(stored),
+    costCentres: stored.costCentres && used('costCentres'),
+    multiCurrency: stored.multiCurrency && used('forex'),
+    orders: stored.orders && used('tradeCycle'),
+    forex: used('forex'),
+    fixedAssets: used('fixedAssets'),
+    cheques: used('cheques'),
+    interest: used('interest'),
+    payrollStatutory: used('payrollStatutory')
+  }
+}

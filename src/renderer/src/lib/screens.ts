@@ -1,5 +1,5 @@
 import type { Screen } from '../state/stores'
-import type { CompanyFeatures } from '@shared/features'
+import type { CompanyFeatures, ScreenFeatures } from '@shared/features'
 import type { MessageKey } from '@shared/i18n'
 import { SIMPLE_SECTION_IDS, type SimpleSectionId, type UiMode } from '@shared/simple/uiMode'
 import type { HelpArticleId } from '../help/articles'
@@ -13,7 +13,7 @@ import type { HelpArticleId } from '../help/articles'
 export type NavSectionId = 'top' | 'trade' | 'books' | 'analysis' | 'banking' | 'payroll' | 'gst' | 'system'
 
 /** Sidebar section order + titles (null = the untitled block at the top). */
-export const NAV_SECTIONS: { id: NavSectionId; title: string | null; feature?: keyof CompanyFeatures }[] = [
+export const NAV_SECTIONS: { id: NavSectionId; title: string | null; feature?: keyof ScreenFeatures }[] = [
   { id: 'top', title: null },
   // WP 2.5b: challans, GRNs and their pending reports (orders join in WP 2.5c).
   { id: 'trade', title: 'Orders & challans', feature: 'orders' },
@@ -29,7 +29,7 @@ export const NAV_SECTIONS: { id: NavSectionId; title: string | null; feature?: k
  * WP 8.1 (plan 2026-10-13 §2.2): the simple shell's sidebar — nine sections, in order. Stock
  * shows only with inventory on. Labels are i18n keys (simple.nav.*).
  */
-export const SIMPLE_SECTIONS: { id: SimpleSectionId; label: MessageKey; feature?: keyof CompanyFeatures }[] = SIMPLE_SECTION_IDS.map((id) => ({
+export const SIMPLE_SECTIONS: { id: SimpleSectionId; label: MessageKey; feature?: keyof ScreenFeatures }[] = SIMPLE_SECTION_IDS.map((id) => ({
   id,
   label: `simple.nav.${id}` as MessageKey,
   ...(id === 'stock' ? { feature: 'inventory' as const } : {})
@@ -55,7 +55,7 @@ export interface SimpleEntry {
    *  assistant is ready. */
   needs?: 'gstRegular' | 'aiReady'
   /** Hidden when this feature is off (on top of the screen's own feature). */
-  feature?: keyof CompanyFeatures
+  feature?: keyof ScreenFeatures
 }
 
 export interface ScreenDef {
@@ -87,7 +87,7 @@ export interface ScreenDef {
   /** Sidebar label when shorter than the palette title. */
   navLabel?: string
   /** Hidden everywhere (render-only) when this feature is off. */
-  feature?: keyof CompanyFeatures
+  feature?: keyof ScreenFeatures
   /** WP 8.0: hidden from the sidebar / palette / Gateway when the company is unregistered (no GST
    *  returns or e-documents to file). The screen still opens by link and says so. */
   requiresGstRegistration?: boolean
@@ -471,6 +471,8 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'fixed-assets',
+    // Feature cleanup: hidden for a company with no fixed-asset data (shared/features.ts).
+    feature: 'fixedAssets',
     modes: ['accountant'],
     title: 'Fixed assets',
     keywords: ['asset register', 'depreciation', 'schedule ii', 'block of assets', 'disposal', 'asset schedule', 'net block'],
@@ -562,6 +564,8 @@ export const SCREENS: ScreenDef[] = [
   },
   {
     name: 'forex',
+    // Feature cleanup: hidden for a company with no foreign-currency data (shared/features.ts).
+    feature: 'forex',
     modes: ['accountant'],
     title: 'Forex — exposures and revaluation',
     navLabel: 'Forex',
@@ -1386,7 +1390,7 @@ export interface ResolvedSimpleEntry {
   group: SimpleEntry['group'] | null
   needs: SimpleEntry['needs'] | null
   /** The screen's feature and the entry's own (both must be on). */
-  features: (keyof CompanyFeatures)[]
+  features: (keyof ScreenFeatures)[]
   /** The screen it opens (its registry name). */
   screenName: Screen['name']
 }
@@ -1405,7 +1409,7 @@ export const SIMPLE_ENTRIES: ResolvedSimpleEntry[] = SCREENS.flatMap((def) =>
       screen,
       group: e.group ?? null,
       needs: e.needs ?? null,
-      features: [def.feature, e.feature].filter((f): f is keyof CompanyFeatures => !!f),
+      features: [def.feature, e.feature].filter((f): f is keyof ScreenFeatures => !!f),
       screenName: def.name
     }
   })
@@ -1470,13 +1474,14 @@ export const screenApplies = (s: { requiresGstRegistration?: boolean }, gstRegis
 /** What a simple entry needs to show for this company (features on, a regular GST registration,
  *  the AI assistant ready). */
 export interface SimpleEntryFacts {
-  features: CompanyFeatures
+  /** Usually useFeatures(); a flag absent here reads as off. */
+  features: CompanyFeatures & Partial<ScreenFeatures>
   regular: boolean
   aiReady: boolean
 }
 
 export function simpleEntryVisible(e: ResolvedSimpleEntry, f: SimpleEntryFacts): boolean {
-  return e.features.every((x) => f.features[x]) && (e.needs !== 'gstRegular' || f.regular) && (e.needs !== 'aiReady' || f.aiReady)
+  return e.features.every((x) => !!f.features[x]) && (e.needs !== 'gstRegular' || f.regular) && (e.needs !== 'aiReady' || f.aiReady)
 }
 
 export interface SimplePaletteRow {

@@ -18,6 +18,8 @@ await scenario('28-trade-returns', async (h) => {
   await h.createDemoCompany()
   const features = await h.invoke('config:features:get')
   await h.invoke('config:features:set', { ...features, inventory: true, orders: true })
+  // Feature cleanup: the trade cycle shows only for a company that already uses it.
+  await h.useFeature('tradeCycle')
   // Books start a year back, so last FY is a completed (closeable) year for the year-end check.
   const now = new Date()
   const currentFyStart = now.getMonth() >= 3 ? now.getFullYear() : now.getFullYear() - 1

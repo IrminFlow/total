@@ -130,6 +130,16 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 10.6 | AI panel in plain words | 35 | the escalated plain drawer (`ai-panel-plain`) gets the a11y sweep + layout check in both themes, with the "what is sent" strip and "Answered by the AI service" asserted |
 | 10.8 | Beginner journey | 60 (extended by WP 10.8) |
 
+## Feature cleanup (Unreleased)
+
+Removed (their rows above are struck through): group consolidation (6.5), the report builder and
+scheduled packs (6.1), the MCP server and agent inbox (5.7), budgets, loan schedules, the AI evals
+(5.8) and the year-end repair tool. Hidden until a company has their data: forex / multi-currency,
+cost centres, cheque books + PDC + bulk payment files, interest, the fixed-asset register, the trade
+cycle and payroll statutory — the scenarios that drive one (11, 22, 24, 26, 28, 31, 69) start with
+`h.useFeature(name)`; 32, 34 and 72 make theirs used by their own first entries. The hiding itself
+is covered by `__tests__/hiddenFeatures.test.tsx` and `featureUsage.dbtest.ts`.
+
 ## Remaining gaps (deferred)
 
 - Live NIC IRN / e-way generation against the real sandbox (no credentials; the fake NIC covers the

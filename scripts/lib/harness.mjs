@@ -153,6 +153,36 @@ export class Harness {
     return r.data
   }
 
+  /**
+   * Feature cleanup: forex / multi-currency, cost centres, cheque books (+ PDC, bulk payment
+   * files), interest, the fixed-asset register and the trade cycle are hidden for a company with
+   * none of their data (services/featureUsage.ts). A scenario that drives one of them starts from
+   * a company that already uses it: one harmless row through the app's own IPC (the write's
+   * masters-changed event makes the renderer re-read the features), then the features answer
+   * no longer lists it as unused.
+   */
+  async useFeature(...names) {
+    const seed = {
+      forex: () => this.invoke('currency:create', { code: 'EUR', symbol: '€', name: 'Euro (existing)' }),
+      costCentres: () => this.invoke('cc:save', { data: { name: 'Head office (existing)', parentId: null, active: true } }),
+      cheques: () =>
+        this.invoke('bulkPay:saveTemplate', {
+          data: {
+            name: 'Existing bank format', delimiter: ',', extension: 'csv', includeHeader: true, headerLine: null,
+            columns: [{ header: 'Amount', field: 'amount' }], dateFormat: 'DD/MM/YYYY', amountFormat: 'rupees', quoteAll: false, rtgsThreshold: 0, corporateId: ''
+          }
+        }),
+      fixedAssets: () => this.invoke('fa:groupSave', { data: { name: 'Existing asset group', lifeMonths: 60 } }),
+      tradeCycle: () => this.invoke('tradeDocTypes:save', { data: { name: 'Existing order type', kind: 'purchase_order', prefix: 'XPO-' } })
+    }
+    for (const n of names) {
+      if (!seed[n]) throw new Error(`useFeature: no seed for ${n}`)
+      await seed[n]()
+    }
+    const unused = (await this.invoke('config:features:get')).unused ?? []
+    for (const n of names) if (unused.includes(n)) throw new Error(`useFeature: ${n} still reads as unused`)
+  }
+
   /** Wait until the current screen marker reports data-loading="false". */
   async waitIdle(timeout = 15000) {
     await this.page.waitForSelector('[data-screen][data-loading="false"]', { state: 'attached', timeout })

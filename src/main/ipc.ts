@@ -55,6 +55,7 @@ import { todayISO } from '@shared/dates'
 import { AppError, structuredOf, type StructuredError } from '@shared/errors'
 import { formatPaise } from '@shared/money'
 import * as configSvc from './services/config'
+import { unusedFeatures } from './services/featureUsage'
 import * as masters from './services/masters'
 import * as vouchers from './services/vouchers'
 import * as undo from './services/undo'
@@ -146,7 +147,7 @@ import {
 import * as caPack from './services/caPack'
 import { writeExportPdf, writePdfFile } from './services/pdf'
 import { chooseExportPath, hermeticRun, type ExportTargetRequest } from './exportTarget'
-import { MASTERS_CHANGED_EVENT, masterEntitiesOf } from './masterEvents'
+import { MASTERS_CHANGED_EVENT, changedEntitiesOf } from './masterEvents'
 import { reportHtml } from './services/reportHtml'
 import { globalSearch, search } from './services/search'
 import { createDemoCompany } from './services/demo'
@@ -189,7 +190,7 @@ import {
   closeStaleQuotationsSchema
 } from '@shared/schemas'
 import type { CompanyInfo } from '@shared/domain'
-import { featuresSchema } from '@shared/features'
+import { featuresSchema, type FeaturesView } from '@shared/features'
 import { invoiceConfigPartialSchema, invoiceConfigSchema } from '@shared/invoiceConfig'
 import { printDocKindSchema, printTemplateSchema } from '@shared/printTemplates'
 
@@ -510,9 +511,10 @@ export function ipcStructuredError(err: unknown): Partial<StructuredError> {
 const TRACE_IPC = process.env.TOTAL_IPC_TRACE === '1' && !!process.env.TOTAL_DATA_DIR
 
 /** to-do §4: after a write that can change masters, every window refetches those cached lists
- *  (masterEvents.ts) — so a screen sees an item created elsewhere without being reopened. */
+ *  (masterEvents.ts) — so a screen sees an item created elsewhere without being reopened. The
+ *  feature cleanup adds 'features' for a write that can make a hidden feature used. */
 function notifyMastersChanged(channel: string): void {
-  const entities = masterEntitiesOf(channel)
+  const entities = changedEntitiesOf(channel)
   if (!entities.length) return
   // The write has committed: a window that is going away must never turn it into a failed call
   // (the renderer would show an error for a saved change and a retry would save it twice).
@@ -2862,7 +2864,11 @@ export function registerIpc(): void {
   })
 
   // ---------- F11 features + F12 invoice print config ----------
-  handle('config:features:get', () => configSvc.getFeatures(requireCompany().db), 'viewer')
+  // The stored flags + the hideable features this company has no data for (feature cleanup).
+  handle('config:features:get', (): FeaturesView => {
+    const db = requireCompany().db
+    return { ...configSvc.getFeatures(db), unused: unusedFeatures(db) }
+  }, 'viewer')
   handle('config:features:set', (p) => configSvc.setFeatures(requireCompany().db, featuresSchema.parse(p)), 'owner')
   // WP 8.3: GSTR-1 filing frequency (monthly / quarterly QRMP), meta `gstProfile`.
   handle('gstProfile:get', () => configSvc.getGstProfile(requireCompany().db), 'viewer')
