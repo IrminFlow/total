@@ -68,6 +68,12 @@ export interface InvoiceFormState {
   /** WP 8.0: a credit / debit note set against a bill raised while the company charged GST
    *  (s.34) — computed at the item rates like that bill. Set by the editor / drafting. */
   taxedOriginal?: boolean
+  /** Bug hunt 2026-11: tax is rounded per LINE (as GSTR-1 / 3B and the e-invoice compute it). An
+   *  invoice saved before that rounded per rate group; invoiceRepresentation sets this to the
+   *  `taxInputsKey` of the state as loaded, and while those inputs are unchanged the editor keeps
+   *  rounding per group, so the voucher saves back unchanged. Any change to a line, the date, the
+   *  party, the account, the place of supply or the currency recomputes the whole bill per line. */
+  legacyGroupTax?: string
 }
 
 /** A purchase invoice's TDS deduction: the party (vendor) line is reduced by `tdsAmount` and a
@@ -226,6 +232,17 @@ export function computeInvoice(state: InvoiceFormState, ctx: InvoiceContext): In
     })
   }
 
+  // Tax per line, as GSTR-1 / 3B (gst.ts extractOutwardDocs) and the e-invoice (NIC validates each
+  // item's tax) compute it — except a saved group-rounded invoice left unedited (legacyGroupTax).
+  const gst = state.legacyGroupTax != null && state.legacyGroupTax === taxInputsKey(state)
+    ? groupRoundedTax(detail, supply)
+    : addBreakups(detail.map((d) => computeGst(d.amount, d.rate, supply, d.cessRate)))
+  const rounded = roundToRupee(gst.total)
+  return { supply, chargesGst: charges, fxActive, fxRate: fxActive ? fxRate : null, detail, gst, rounded, roundDiff: rounded - gst.total }
+}
+
+/** The tax as the editor computed it before per-line rounding: one computeGst per (rate, cess). */
+function groupRoundedTax(detail: InvoiceLineDetail[], supply: SupplyType): GstBreakup {
   const buckets = new Map<string, { rate: number; cessRate: number; taxable: number }>()
   for (const d of detail) {
     const key = `${d.rate}|${d.cessRate}`
@@ -233,9 +250,16 @@ export function computeInvoice(state: InvoiceFormState, ctx: InvoiceContext): In
     b.taxable += d.amount
     buckets.set(key, b)
   }
-  const gst = addBreakups([...buckets.values()].map((b) => computeGst(b.taxable, b.rate, supply, b.cessRate)))
-  const rounded = roundToRupee(gst.total)
-  return { supply, chargesGst: charges, fxActive, fxRate: fxActive ? fxRate : null, detail, gst, rounded, roundDiff: rounded - gst.total }
+  return addBreakups([...buckets.values()].map((b) => computeGst(b.taxable, b.rate, supply, b.cessRate)))
+}
+
+/** Everything the tax of an invoice depends on (legacyGroupTax compares it with the loaded form). */
+export function taxInputsKey(state: InvoiceFormState): string {
+  return JSON.stringify([
+    state.date, state.partyId, state.accountId, state.posOverride, state.currencyCode, state.fxRateText,
+    !!state.legacyTax, !!state.taxedOriginal,
+    state.rows.map((r) => [r.itemId, r.qtyText, r.rate, r.discount])
+  ])
 }
 
 /** Which tax / round-off ledgers a computed invoice posts to (the form ensures these exist). */
@@ -506,7 +530,12 @@ export function invoiceRepresentation(
   if (!loaded.ok) return loaded
   // WP 8.0: tax saved before the registration rule stays exactly as saved (legacyTax).
   const state = !chargesGstOn(ctx, v.date) && voucherCarriesGst(v, taxLedgers) ? { ...loaded.state, legacyTax: true } : loaded.state
-  return confirmRoundTrip(v, state, buildInvoicePayload(state, ctx, v.voucherTypeId, taxLedgers))
+  const rep = confirmRoundTrip(v, state, buildInvoicePayload(state, ctx, v.voucherTypeId, taxLedgers))
+  if (rep.ok) return rep
+  // Saved before tax was rounded per line: it round-trips with its own (per-group) rounding.
+  const legacy = { ...state, legacyGroupTax: taxInputsKey(state) }
+  const old = confirmRoundTrip(v, legacy, buildInvoicePayload(legacy, ctx, v.voucherTypeId, taxLedgers))
+  return old.ok ? old : rep
 }
 
 /** Does a saved voucher post to one of the GST component ledgers (CGST / SGST / IGST / cess)? */
