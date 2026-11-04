@@ -197,7 +197,7 @@ done on main were dropped. One line each; the pointer says where to look.
 
 ## 6. Deferred engineering (per WP)
 
-- WP 6.x / 7.5 site: marketing site work deferred by the owner (WP 10.7); ~~site FAQ says "nothing leaves the machine" (false once AI / capture / NIC are on)~~ DONE — PR #PRB (AI, e-invoice / e-way filing and the update check named as the user-enabled exceptions) — `site/app/docs/faq/page.tsx`
+- WP 6.x / 7.5 site: marketing site work deferred by the owner (WP 10.7); ~~site FAQ says "nothing leaves the machine" (false once AI / capture / NIC are on)~~ DONE — PR #189 (AI, e-invoice / e-way filing and the update check named as the user-enabled exceptions) — `site/app/docs/faq/page.tsx`
 - WP 7.1: server-side DataTable paging not needed yet (Sales / People under budget at 100k) — PR #104
 - WP 7.2: encrypt ~~attachments~~ (DONE — PR #152) / exports / logs — PR #112 (member-passphrase prompt on the consolidation screen DONE in PR #144; CLI / MCP passphrase DONE in PR #132; remember-on-this-computer DONE in PR #142)
 - WP 7.3: ~~no data-folder move setting for OneDrive users~~ DONE — PR #133 (~~the CLI / MCP still ignore the pointer~~ DONE — PR #138); full e2e on Windows — PR #109
@@ -218,7 +218,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Electron 37 → 43 major (PR #3 open): fixes ~50 alerts (fixed in 38.8.6 / 39.8.x / 41.10.x); needs its own WP — rebuild the SQLite cipher driver, full e2e on mac + Windows, DMG / EXE install check
 - vitest 3 → 5 major (PRs #7 and #14 open; removes tinypool): fixes tinypool (critical, dev-only), vitest / @vitest/mocker alerts; needs its own WP (test:db under Electron-as-Node, renderer config)
 - No fix published: sprintf-js (medium), http-cache-semantics (high), extract-zip (high, via electron's installer) — `package-lock.json`, re-check when Electron moves
-- ~~site/ (deferred): next 16.3.1 → 16.3.8 (PR #63, fixes critical / high alerts), sharp 0.35.5 (PR #16), source-map-js 1.2.2 (PR #13)~~ DONE — PR #PRB (one bump, `npm run build` passes; supersedes #16 / #13; next 16.4.x (#184) left to the site work)
+- ~~site/ (deferred): next 16.3.1 → 16.3.8 (PR #63, fixes critical / high alerts), sharp 0.35.5 (PR #16), source-map-js 1.2.2 (PR #13)~~ DONE — PR #189 (one bump, `npm run build` passes; supersedes #16 / #13; next 16.4.x (#184) left to the site work)
 - Closed as superseded by f3c9bf59 (#112): #6 xmldom, #10 js-yaml, #11 undici, #15 fast-uri, #17 brace-expansion, #62 source-map-js
 
 ## 8. Test gaps
