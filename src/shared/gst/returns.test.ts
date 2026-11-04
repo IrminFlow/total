@@ -734,7 +734,7 @@ describe('validateGstr1', () => {
 // Bug hunt 2026-11: GSTN's CDNUR help (tutorial.gst.gov.in/contextualhelp/Einv/CDNUR.htm) lists the
 // notes "issued in respect of" B2C Large invoices and exports — the ORIGINAL invoice decides.
 describe('9B CDNUR follows the original invoice', () => {
-  const zero = { valDiff: 0, missingHsnCount: 0 }
+  const zero = zeroValidation
   const note = (over: Partial<GstDoc>): GstDoc => ({
     voucherId: 91, kind: 'credit_note', date: '2026-07-20', number: 'CRN-9',
     partyName: 'Walk-in', partyGstin: null, pos: '29', invoiceValue: 2_360_000,
