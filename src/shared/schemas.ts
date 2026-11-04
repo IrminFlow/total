@@ -514,14 +514,6 @@ export type Period = z.infer<typeof periodSchema>
 export const gstr2bSchema = z.object({ jsonText: z.string().min(2), from: isoDate, to: isoDate })
 export type Gstr2bInput = z.infer<typeof gstr2bSchema>
 
-export const currencyInputSchema = z.object({
-  code: z.string().trim().length(3).transform((s) => s.toUpperCase()),
-  symbol: z.string().trim().min(1).max(4),
-  name: z.string().trim().min(1).max(60),
-  decimals: z.number().int().min(0).max(4).default(2)
-})
-export type CurrencyInput = z.infer<typeof currencyInputSchema>
-
 export const employeeInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
   code: z.string().trim().max(30).nullable().default(null),

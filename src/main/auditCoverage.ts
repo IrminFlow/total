@@ -210,7 +210,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // + leftover budget lines of the removed Budgets screen (services/leftoverPlanning.ts).
   'master:groups:delete': a('group', 'budget'),
   'master:ledgers:create': a('ledger'),
-  'master:ledgers:update': a('ledger', 'opening_bills'),
+  // + a stored foreign opening cleared when the rupee opening flips side / becomes zero (#195 follow-up).
+  'master:ledgers:update': a('ledger', 'opening_bills', 'fx_ledger_currency'),
   // + leftover budget lines / loan records of the removed Budgets and Loans screens.
   'master:ledgers:delete': a('ledger', 'budget', 'loan'),
   'master:voucherTypes:create': a('voucherType'),

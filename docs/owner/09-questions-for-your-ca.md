@@ -256,9 +256,9 @@ not merged, when this was written. Their files and ids exist only after they mer
     - Today: the statutory due dates in the cash forecast were written from memory.
     - Confirm: the dates.
     - In the code: `src/main/services/cashForecast.ts` (UNVERIFIED comments).
-50. **Foreign exchange**
-    - Today: revaluation follows AS 11 / Ind AS 21. Paragraph numbers and quotations are as recalled.
-    - Confirm: the paragraph citations and treatment.
+50. **Foreign exchange** — no longer applied
+    - Today: Total no longer revalues foreign balances or settles them at an actual rate (forex was cut in 1.0, PR #195). Books that already hold revaluation or settlement entries keep them as they are, and an un-reversed revaluation can still be reversed.
+    - Confirm: nothing, unless your clients need foreign-currency books again. The old AS 11 / Ind AS 21 citations (as recalled) are still in the code for those entries.
     - In the code: `src/shared/forex.ts` (header comment).
 51. **Audit trail**
     - Today: the edit log follows s.128(5), Income-tax rule 6F and the 2025 Act (s.62, rule 46(9)) retention. The exact wording was not re-read.

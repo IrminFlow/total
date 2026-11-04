@@ -153,14 +153,25 @@ describe('a foreign opening entered on the old Forex screen', () => {
   it('the ledger form says it stays as it was once the rupee opening changes; nothing for other ledgers', async () => {
     invoke.mockImplementation(async (channel: string, payload: unknown) =>
       channel === 'fx:foreignOpening' ? { ok: true, data: (payload as { ledgerId: number }).ledgerId === 40 ? { currencyCode: 'USD', openingFc: 1000_00 } : null } : { ok: false, error: channel })
-    renderUi(<ForeignOpeningNote ledgerId={40} changed={false} />)
+    renderUi(<ForeignOpeningNote ledgerId={40} openingBalance={82_000_00} newOpening={82_000_00} />)
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('fx:foreignOpening', { ledgerId: 40 }))
     expect(screen.queryByTestId('ledger-foreign-opening-note')).toBeNull()
     cleanup()
-    renderUi(<ForeignOpeningNote ledgerId={40} changed />)
-    expect((await screen.findByTestId('ledger-foreign-opening-note')).textContent).toContain('1,000.00 USD')
+    renderUi(<ForeignOpeningNote ledgerId={40} openingBalance={82_000_00} newOpening={83_000_00} />)
+    const note = await screen.findByTestId('ledger-foreign-opening-note')
+    expect(note.textContent).toContain('1,000.00 USD')
+    expect(note.dataset.cleared).toBe('false')
     cleanup()
-    renderUi(<ForeignOpeningNote ledgerId={41} changed />)
+    // flipped to Cr, or zero: the note says it will be cleared on save (as masters.updateLedger does)
+    for (const newOpening of [-5_000_00, 0]) {
+      renderUi(<ForeignOpeningNote ledgerId={40} openingBalance={82_000_00} newOpening={newOpening} />)
+      const n = await screen.findByTestId('ledger-foreign-opening-note')
+      expect(n.dataset.cleared).toBe('true')
+      expect(n.textContent).toContain('will be cleared')
+      cleanup()
+    }
+    cleanup()
+    renderUi(<ForeignOpeningNote ledgerId={41} openingBalance={0} newOpening={5_00} />)
     await waitFor(() => expect(invoke).toHaveBeenCalledWith('fx:foreignOpening', { ledgerId: 41 }))
     expect(screen.queryByTestId('ledger-foreign-opening-note')).toBeNull()
   })
@@ -208,10 +219,16 @@ describe('a saved foreign-currency invoice (CodeRabbit on #195)', () => {
     expect([...select.options].map((o) => o.value)).toEqual(['', 'USD'])
     expect((screen.getByTestId('input-invoice-fx-rate') as HTMLInputElement).value).toBe('83.25')
     cleanup()
-    // listed in the master: not offered twice
+    // with other currencies in the master: only the invoice's own currency and ₹ (no switching to
+    // another foreign currency — #195 follow-up), the saved one once, with its symbol
     renderUi(
-      <SavedCurrencyPicker currencies={[{ id: 1, code: 'USD', symbol: '$', name: 'US Dollar', decimals: 2 }]} savedCode="USD" currencyCode="USD" setCurrencyCode={setCode} fxRateText="83.25" setFxRateText={() => {}} fxActive />
+      <SavedCurrencyPicker
+        currencies={[{ id: 1, code: 'USD', symbol: '$', name: 'US Dollar', decimals: 2 }, { id: 2, code: 'EUR', symbol: '€', name: 'Euro', decimals: 2 }]}
+        savedCode="USD" currencyCode="USD" setCurrencyCode={setCode} fxRateText="83.25" setFxRateText={() => {}} fxActive
+      />
     )
-    expect([...(screen.getByTestId('select-invoice-currency') as HTMLSelectElement).options].map((o) => o.value)).toEqual(['', 'USD'])
+    const options = [...(screen.getByTestId('select-invoice-currency') as HTMLSelectElement).options]
+    expect(options.map((o) => o.value)).toEqual(['', 'USD'])
+    expect(options[1]!.textContent).toBe('$ USD')
   })
 })

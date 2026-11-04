@@ -360,14 +360,16 @@ function BulkModal({ level, date, onClose, onDone }: { level: PriceLevel; date: 
   )
 }
 
-/** Every row of one item under one level: date ranges, quantity slabs with their discounts, and
- *  foreign-currency rates. */
-function SlabsModal({ level, itemId, itemName, onClose, onChanged }: { level: PriceLevel; itemId: number; itemName: string; onClose: () => void; onChanged: () => Promise<void> }): React.JSX.Element {
+/** Every row of one item under one level: date ranges and quantity slabs with their discounts. The
+ *  Currency column shows only when a slab is in another currency (one saved before the forex cut,
+ *  #195 follow-up); new slabs are always in ₹. */
+export function SlabsModal({ level, itemId, itemName, onClose, onChanged }: { level: PriceLevel; itemId: number; itemName: string; onClose: () => void; onChanged: () => Promise<void> }): React.JSX.Element {
   const toast = useToasts()
   const { workingDate } = useSession()
   const queryClient = useQueryClient()
   const { data } = useQuery({ queryKey: ['priceRates', level.id], queryFn: () => api.priceLevels.rates(level.id) })
   const rows = (data ?? []).filter((r) => r.stockItemId === itemId)
+  const foreignSlab = rows.some((r) => (r.currency ?? 'INR') !== 'INR')
   const [from, setFrom] = useState(workingDate)
   const [to, setTo] = useState('')
   const [minQty, setMinQty] = useState('')
@@ -404,7 +406,7 @@ function SlabsModal({ level, itemId, itemName, onClose, onChanged }: { level: Pr
             <th className="r">From qty</th>
             <th className="r">Rate{level.inclusiveOfTax ? ' (incl. GST)' : ''}</th>
             <th className="r">Disc. %</th>
-            <th>Currency</th>
+            {foreignSlab && <th>Currency</th>}
             <th className="w-16" />
           </tr>
         </thead>
@@ -416,7 +418,7 @@ function SlabsModal({ level, itemId, itemName, onClose, onChanged }: { level: Pr
               <td className="r num">{(r.minQtyMilli ?? 0) > 0 ? (r.minQtyMilli ?? 0) / 1000 : '—'}</td>
               <td className="r num">{formatPaise(r.rate)}</td>
               <td className="r num">{r.discountBp ? r.discountBp / 100 : '—'}</td>
-              <td>{r.currency ?? 'INR'}</td>
+              {foreignSlab && <td>{r.currency ?? 'INR'}</td>}
               <td className="r">
                 <button
                   type="button"

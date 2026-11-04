@@ -355,7 +355,7 @@ function LedgerForm({
                 {openingSide === 'dr' ? 'Dr' : 'Cr'}
               </button>
             </div>
-            {ledger && <ForeignOpeningNote ledgerId={ledger.id} changed={(opening ?? 0) * (openingSide === 'cr' ? -1 : 1) !== ledger.openingBalance} />}
+            {ledger && <ForeignOpeningNote ledgerId={ledger.id} openingBalance={ledger.openingBalance} newOpening={(opening ?? 0) * (openingSide === 'cr' ? -1 : 1)} />}
           </Field>
           {isTaxLedger && !tdsPayableSectionId && !tcsPayableSectionId && (
             <Field label="GST component" hint="Marks this ledger for GST computation and ITC">
