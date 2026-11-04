@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 /** Features hidden until used (the feature cleanup — see below). */
-export const HIDEABLE_FEATURES = ['forex', 'costCentres', 'cheques', 'interest', 'fixedAssets', 'tradeCycle', 'payrollStatutory'] as const
+export const HIDEABLE_FEATURES = ['costCentres', 'cheques', 'interest', 'fixedAssets', 'tradeCycle', 'payrollStatutory'] as const
 export type HideableFeature = (typeof HIDEABLE_FEATURES)[number]
 
 /**
@@ -17,6 +17,8 @@ export interface CompanyFeatures {
   /** TCS on sales (WP 3.3): the invoice / receipt banner and the TCS screen (the banner only
    *  appears for buyers, goods or sales ledgers flagged with a TCS section). */
   tcs: boolean
+  /** Stored but no longer read: foreign-currency invoicing went in the 1.0 cleanup (PR #195).
+   *  Kept so stored features objects keep validating. */
   multiCurrency: boolean
   payroll: boolean
   /** Turn negative-stock save warnings into hard blocks. */
@@ -107,7 +109,7 @@ export function effectiveFeatures(f: CompanyFeatures): CompanyFeatures & { manuf
 export type FeaturesView = CompanyFeatures & { unused?: HideableFeature[] }
 
 /** The stored flags whose feature can be hidden — their Settings → Features card goes with it. */
-export const FLAG_FEATURE: Partial<Record<keyof CompanyFeatures, HideableFeature>> = { costCentres: 'costCentres', multiCurrency: 'forex', orders: 'tradeCycle' }
+export const FLAG_FEATURE: Partial<Record<keyof CompanyFeatures, HideableFeature>> = { costCentres: 'costCentres', orders: 'tradeCycle' }
 const FLAG_OF: Partial<Record<HideableFeature, keyof CompanyFeatures>> = Object.fromEntries(Object.entries(FLAG_FEATURE).map(([k, h]) => [h, k]))
 
 /** Split a features view into the stored flags (what config:features:set takes), the hidden set
@@ -126,12 +128,12 @@ const TURN_ON: Partial<Record<HideableFeature, Partial<CompanyFeatures>>> = {
   payrollStatutory: { payroll: true }
 }
 
-/** The "More features" list: the hideable features with no data, except forex (being removed) and
- *  a flag feature already turned on (its own card is back in the main list). */
+/** The "More features" list: the hideable features with no data, except a flag feature already
+ *  turned on (its own card is back in the main list). */
 export interface MoreFeature { feature: HideableFeature; on: boolean }
 export function moreFeatures(noData: ReadonlySet<HideableFeature>, stored: CompanyFeatures): MoreFeature[] {
   const on = new Set(stored.turnedOn ?? [])
-  return HIDEABLE_FEATURES.filter((h) => h !== 'forex' && noData.has(h) && !(on.has(h) && FLAG_OF[h])).map((h) => ({ feature: h, on: on.has(h) }))
+  return HIDEABLE_FEATURES.filter((h) => noData.has(h) && !(on.has(h) && FLAG_OF[h])).map((h) => ({ feature: h, on: on.has(h) }))
 }
 
 export function turnOnFeature(stored: CompanyFeatures, h: HideableFeature): CompanyFeatures {
@@ -159,11 +161,10 @@ export const flagCardShown = (key: keyof CompanyFeatures, unused: ReadonlySet<Hi
 }
 
 /** What screens, the sidebar and the palette gate on: `effectiveFeatures`, with the flags of a
- *  hidden feature off (costCentres, multiCurrency ← forex, orders ← tradeCycle) and one flag per
+ *  hidden feature off (costCentres, orders ← tradeCycle) and one flag per
  *  hideable feature that has no stored flag of its own. `unused` absent = nothing hidden. */
 export interface ScreenFeatures extends CompanyFeatures {
   manufacturing: boolean
-  forex: boolean
   fixedAssets: boolean
   cheques: boolean
   interest: boolean
@@ -176,9 +177,7 @@ export function screenFeatures(f: FeaturesView): ScreenFeatures {
   return {
     ...effectiveFeatures(stored),
     costCentres: stored.costCentres && used('costCentres'),
-    multiCurrency: stored.multiCurrency && used('forex'),
     orders: stored.orders && used('tradeCycle'),
-    forex: used('forex'),
     fixedAssets: used('fixedAssets'),
     cheques: used('cheques'),
     interest: used('interest'),

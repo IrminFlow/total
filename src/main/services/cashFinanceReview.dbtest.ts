@@ -9,7 +9,9 @@ import { createLedger } from './masters'
 import { deleteVoucher, getVoucher, restoreVoucher, saveVoucher } from './vouchers'
 import { closingBalances } from './reports'
 import { outstandings } from './analysis'
-import { listRevaluations, openBills, postRevaluation, revaluationPreview, saveRate, setLedgerCurrency, settle } from './forex'
+import { listRevaluations, openBills } from './forex'
+// The forex writes went in the 1.0 cleanup; the legacy fixture writes what an older Total wrote.
+import { postRevaluation, revaluationPreview, saveRate, setLedgerCurrency, settle } from './forexLegacy.testutil'
 import { forecastBase } from './cashForecast'
 import { dc, item, tradeBooks } from './tradeFixture.testutil'
 

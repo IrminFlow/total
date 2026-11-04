@@ -1,4 +1,4 @@
-// Feature cleanup: forex / multi-currency, cost centres, cheque books + PDC + bulk payment files,
+// Feature cleanup: cost centres, cheque books + PDC + bulk payment files,
 // interest on overdue bills, the fixed-asset register, the trade cycle and payroll statutory are
 // hidden for a company that has none of their data (`unused` on config:features:get) — no sidebar
 // entry, no Features card, no tab — and shown exactly as before for one that has.
@@ -48,7 +48,7 @@ beforeEach(() => {
 })
 afterEach(() => cleanup())
 
-const HIDDEN_NAV = ['nav-cost-centres', 'nav-forex', 'nav-fixed-assets', 'nav-pending-challans', 'nav-quotations']
+const HIDDEN_NAV = ['nav-cost-centres', 'nav-fixed-assets', 'nav-pending-challans', 'nav-quotations']
 
 async function shell(): Promise<void> {
   renderUi(
@@ -76,11 +76,10 @@ describe('hidden until used', () => {
   })
 
   it('Settings → Features leaves out the cards of hidden features only', async () => {
-    unused = ['costCentres', 'forex', 'tradeCycle']
+    unused = ['costCentres', 'tradeCycle']
     renderUi(<FeaturesSection />)
     await screen.findByTestId('feature-card-inventory')
     await waitFor(() => expect(screen.queryByTestId('feature-card-costCentres')).toBeNull())
-    expect(screen.queryByTestId('feature-card-multiCurrency')).toBeNull()
     expect(screen.queryByTestId('feature-card-orders')).toBeNull()
     for (const k of ['tds', 'tcs', 'payroll', 'billWise']) expect(screen.getByTestId(`feature-card-${k}`)).toBeTruthy()
   })

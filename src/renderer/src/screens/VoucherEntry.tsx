@@ -10,6 +10,7 @@ import {
 import type { HandoffEntry, HandoffPendingRefs, SimpleHandoff } from '@shared/simple/handoff'
 import { reportHandoffEditor } from '../lib/handoff'
 import { HandoffBanner } from '../components/HandoffBanner'
+import { RevaluationReverseBanner } from './voucher/RevaluationReverseBanner'
 import { api } from '../lib/client'
 import { confirmDialog } from '../lib/dialogs'
 import { isOwnerOrNoUsers } from '../lib/roles'
@@ -333,6 +334,7 @@ export function VoucherEntry({
           The assistant draft could not be opened: {(aiDraftError as Error).message}
         </Banner>
       )}
+      {voucherId && existing && !closingEntry && <RevaluationReverseBanner voucherId={voucherId} />}
       {closingEntry && (
         <Banner
           tone="info"

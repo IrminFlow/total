@@ -31,9 +31,9 @@ function ownerOf(db: DB, voucherId: number): Owner | null {
 }
 
 const EDIT_REFUSED: Record<Owner['kind'], string> = {
-  revaluation: 'This is a forex revaluation journal — move it to the bin (its reversal goes with it) and revalue again',
-  reversal: 'This reverses a forex revaluation — move it to the bin (the revaluation goes with it) and revalue again',
-  settlement: 'This is a forex settlement from the Forex screen — move it to the bin and settle again'
+  revaluation: 'This is a forex revaluation journal — it can’t be edited; move it to the bin (its reversal goes with it)',
+  reversal: 'This reverses a forex revaluation — it can’t be edited; move it to the bin (the revaluation goes with it)',
+  settlement: 'This is a forex settlement — it can’t be edited; move it to the bin'
 }
 
 export function assertCashFinanceVoucherEditable(db: DB, voucherId: number): void {

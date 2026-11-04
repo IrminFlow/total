@@ -8,16 +8,6 @@ import { HIDEABLE_FEATURES, type HideableFeature } from '@shared/features'
 
 /** One EXISTS probe per table (or filtered row set) that holds the feature's data. */
 const PROBES: Record<HideableFeature, readonly string[]> = {
-  // Multi-currency and forex: rates, currencies, foreign ledgers, revaluations, settlements and
-  // any voucher or trade document in a foreign currency.
-  forex: [
-    'SELECT 1 FROM currencies',
-    'SELECT 1 FROM fx_rates',
-    'SELECT 1 FROM fx_ledger_currency',
-    'SELECT 1 FROM fx_revaluations',
-    'SELECT 1 FROM fx_settlements',
-    'SELECT 1 FROM trade_docs WHERE currency_code IS NOT NULL'
-  ],
   costCentres: ['SELECT 1 FROM cost_centres', 'SELECT 1 FROM voucher_line_cost_allocations'],
   // Cheque books / the register, cheque print calibration, post-dated cheques and bulk bank
   // payment files (templates and the batches written).
@@ -52,13 +42,11 @@ const PROBES: Record<HideableFeature, readonly string[]> = {
   ]
 }
 
-/** Probes over a voucher COLUMN (no index leads with it): a foreign-currency voucher (forex) and
- *  a post-dated one (cheques). Read incrementally — only the vouchers added since the last look at
+/** Probes over a voucher COLUMN (no index leads with it): a post-dated voucher (cheques). Read incrementally — only the vouchers added since the last look at
  *  this handle (by id, the primary key) — so the renderer's re-read after every save stays cheap
- *  on a big file. A voucher EDITED into a foreign currency / post-dated is seen when the company is
+ *  on a big file. A voucher EDITED into post-dated is seen when the company is
  *  next opened. */
 const VOUCHER_PROBES: Partial<Record<HideableFeature, string>> = {
-  forex: 'currency_code IS NOT NULL',
   cheques: 'post_dated = 1'
 }
 const voucherScan = new WeakMap<DB, Partial<Record<HideableFeature, number>>>()

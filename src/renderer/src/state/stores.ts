@@ -75,7 +75,7 @@ export type Screen =
   | { name: 'manufacture'; jobWork?: boolean; prefill?: { itemId: number; qtyMilli: number } }
   | { name: 'manufacture-register' }
   | { name: 'manufacture-reports'; tab?: 'production' | 'cost-sheet' | 'margin' | 'variance' | 'job-work' }
-  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'currencies' | 'godowns' | 'stock-groups' | 'price-lists' | 'party-rates' | 'schemes'; itemId?: number; parties?: boolean }
+  | { name: 'masters'; tab?: 'ledgers' | 'groups' | 'items' | 'units' | 'types' | 'godowns' | 'stock-groups' | 'price-lists' | 'party-rates' | 'schemes'; itemId?: number; parties?: boolean }
   // WP 8.1: a simple section's page (the simple shell's sidebar targets).
   | { name: 'simple-section'; section: SimpleSectionId }
   | { name: 'simple-looks' }
@@ -148,7 +148,7 @@ export type Screen =
   | { name: 'edocs'; tab?: 'documents' | 'self-invoices' }
   // tab 'entries' = All entries (every voucher type, the Day book's list): `kind` / `voucherIds` +
   // `source` narrow it (a register month's kind, a cash-flow line's vouchers).
-  | { name: 'registers'; tab?: 'sales' | 'purchase' | 'items' | 'entries'; from?: string; to?: string; kind?: string; voucherIds?: number[]; source?: string }
+  | { name: 'registers'; tab?: 'sales' | 'purchase' | 'items' | 'entries'; from?: string; to?: string; kind?: string; voucherIds?: number[]; source?: string; visit?: boolean }
   | { name: 'outstandings'; side?: 'receivable' | 'payable'; backTo?: 'simple-people'; backFilter?: PeopleFilter }
   // WP 4.2: credit control, reminders, interest on overdue bills, collection reports.
   | { name: 'receivables'; tab?: 'control' | 'reminders' | 'interest' | 'collections' }
@@ -190,7 +190,6 @@ export type Screen =
   // WP 6.2: ratio analysis with monthly trends.
   | { name: 'ratios' }
   | { name: 'cash-forecast' }
-  | { name: 'forex' }
   | { name: 'company-info'; backTo?: 'simple-taxes' }
   | { name: 'year-end' }
   | { name: 'fixed-assets'; tab?: 'register' | 'depreciation' | 'schedule' | 'income-tax' | 'setup' }

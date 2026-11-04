@@ -1,14 +1,15 @@
 // WP 4.4 — cash and finance screens against a mocked IPC bridge: the forecast (periods, scenario
-// switch, shortfall highlighting), Forex (exposures, the revaluation post), the year-end warning,
-// plus the registry entries.
+// switch, shortfall highlighting), the registry entries, and the one forex action left after the
+// 1.0 cleanup: reversing a revaluation posted without its reversal, from the journal's view.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ForecastBase, FxRevaluationPreview, CashFinanceCloseWarnings as CloseWarningsData } from '@shared/cashFinance'
+import type { ForecastBase } from '@shared/cashFinance'
 import { DEFAULT_BUCKET_BP, buildForecast, SCENARIO_PRESETS } from '@shared/cashForecast'
 import { CashForecastScreen, periodViews } from '../screens/CashForecast'
-import { ForexScreen } from '../screens/Forex'
-import { CashFinanceCloseWarnings } from '../screens/cashFinance/CloseWarnings'
+import { RevaluationReverseBanner } from '../screens/voucher/RevaluationReverseBanner'
+import { DialogHost } from '../components/dialogs'
+import { ForeignOpeningNote } from '../components/ForeignOpeningNote'
 import { SCREENS } from '../lib/screens'
 import { useSession } from '../state/stores'
 import { todayISO } from '@shared/dates'
@@ -35,14 +36,6 @@ const BASE: ForecastBase = {
   warnings: []
 }
 
-const FX: FxRevaluationPreview = {
-  asOf: TODAY,
-  rows: [{
-    ledgerId: 30, ledgerName: 'Globex Inc', kind: 'receivable', currencyCode: 'USD', fcBalance: 1000_00, inrBook: 82_000_00, carryingRateMicro: 82_000_000,
-    closingRateMicro: 83_250_000, closingRateDate: TODAY, target: 83_250_00, gainLoss: 1_250_00, rupeeLines: 0
-  }],
-  missingRates: [], gain: 1_250_00, loss: 0, blocked: null
-}
 
 beforeEach(() => {
   calls.length = 0
@@ -56,13 +49,6 @@ beforeEach(() => {
     switch (channel) {
       case 'forecast:base': return { ok: true, data: BASE }
       case 'forecast:items': return { ok: true, data: [] }
-      case 'fx:ledgerCurrencies': return { ok: true, data: [] }
-      case 'fx:setForeignOpening': return { ok: true, data: { ledgerId: 40, currencyCode: 'USD', fc: 1000_00, openingInr: 82_000_00, rateMicro: 82_000_000, rateDate: null, booksBegin: '2025-04-01' } }
-      case 'fx:preview': return { ok: true, data: FX }
-      case 'fx:rates': return { ok: true, data: [{ id: 1, date: TODAY, currencyCode: 'USD', rateMicro: 83_250_000, note: null }] }
-      case 'fx:revaluations': return { ok: true, data: [] }
-      case 'fx:revalue': return { ok: true, data: { id: 1, asOf: TODAY, voucherId: 600, voucherNumber: '7', reversalVoucherId: 601, reversalVoucherNumber: '8', autoReverse: true, gain: 1_250_00, loss: 0, createdAt: '', live: true } }
-      case 'currency:list': return { ok: true, data: [{ id: 1, code: 'USD', symbol: '$', name: 'US Dollar', decimals: 2 }] }
       case 'cc:list': return { ok: true, data: [{ id: 4, name: 'Mumbai', parentId: null, active: true }] }
       case 'master:ledgers:list': return { ok: true, data: [{ id: 40, name: 'Rent', groupId: 8 }, { id: 2, name: 'HDFC Current', groupId: 9 }, { id: 20, name: 'HDFC Term Loan', groupId: 10 }] }
       case 'master:groups:list': return { ok: true, data: [{ id: 8, name: 'Indirect Expenses', parentId: null, nature: 'expense' }, { id: 9, name: 'Bank Accounts', parentId: null, nature: 'asset' }, { id: 10, name: 'Secured Loans', parentId: null, nature: 'liability' }] }
@@ -83,8 +69,9 @@ function renderUi(ui: React.ReactNode): void {
 }
 
 describe('registry', () => {
-  it('lists the forecast and forex under Analysis', () => {
-    for (const name of ['cash-forecast', 'forex'] as const) {
+  it('lists the forecast under Analysis; the forex screen is gone (1.0 cleanup)', () => {
+    expect(SCREENS.some((s) => (s.name as string) === 'forex')).toBe(false)
+    for (const name of ['cash-forecast'] as const) {
       expect(SCREENS.find((s) => s.name === name)).toMatchObject({ navSection: 'analysis' })
     }
   })
@@ -118,46 +105,62 @@ describe('cash-flow forecast', () => {
   }, 20_000)
 })
 
-describe('forex', () => {
-  it('sets a foreign opening from the foreign amount and the books-begin rate', async () => {
-    renderUi(<ForexScreen />)
-    await screen.findByTestId('btn-forex-revalue')
-    fireEvent.click(document.querySelector('button[aria-haspopup="dialog"][data-testid$="-options"]')!)
-    fireEvent.click(await screen.findByTestId('btn-forex-designate'))
-    const picker = await screen.findByTestId('picker-forex-designate')
-    fireEvent.focus(picker)
-    fireEvent.change(picker, { target: { value: 'HDFC Cur' } })
-    await waitFor(() => expect(screen.getAllByRole('option').some((o) => o.textContent?.includes('HDFC Current'))).toBe(true))
-    fireEvent.keyDown(picker, { key: 'Enter' })
-    await waitFor(() => expect((picker as HTMLInputElement).value).toBe('HDFC Current'))
-    fireEvent.change(screen.getByTestId('input-forex-opening-fc'), { target: { value: '1000.00' } })
-    fireEvent.change(screen.getByTestId('input-forex-opening-rate'), { target: { value: '82' } })
-    fireEvent.click(screen.getByTestId('btn-forex-opening-set'))
-    await waitFor(() => expect(calls.find((c) => c.channel === 'fx:setForeignOpening')?.payload).toEqual({ ledgerId: 2, currencyCode: 'USD', fc: 1000_00, rateMicro: 82_000_000 }))
-  }, 20_000)
-
-  it('lists the USD exposure with its unrealised gain and posts the revaluation with auto-reversal', async () => {
-    renderUi(<ForexScreen />)
-    const rows = await screen.findByTestId('rows-forex-exposures')
-    await waitFor(() => expect(rows.textContent).toContain('1,000.00 USD'))
-    expect(rows.textContent).toContain('+1,250.00')
-    fireEvent.click(screen.getByTestId('btn-forex-revalue'))
-    const modal = await screen.findByTestId('forex-revalue-modal')
-    expect(modal.textContent).toContain('Unrealised Forex Gain')
-    fireEvent.click(screen.getByTestId('btn-forex-revalue-post'))
-    await waitFor(() => expect(calls.find((c) => c.channel === 'fx:revalue')?.payload).toEqual({ asOf: TODAY, autoReverse: true }))
-  }, 20_000)
-})
-
-describe('year-end addition', () => {
-  it('warns about unrevalued balances', async () => {
-    const w: CloseWarningsData = {
-      unrevalued: [{ currencyCode: 'USD', ledgers: 1, fcBalance: 1000_00 }],
-      revaluedOnFyEnd: false
+describe('a revaluation posted without its reversal (the one forex write left)', () => {
+  it('its journal offers Reverse…, which reverses it the next day; a reversed one or any other voucher offers nothing', async () => {
+    let reversed = false
+    invoke.mockImplementation(async (channel: string, payload: unknown) => {
+      calls.push({ channel, payload })
+      if (channel === 'fx:revaluationOf') return { ok: true, data: (payload as { voucherId: number }).voucherId === 600 ? { id: 7, asOf: '2026-03-31', reversed } : null }
+      if (channel === 'fx:reverse') {
+        reversed = true
+        return { ok: true, data: { id: 7, asOf: '2026-03-31', voucherId: 600, reversalVoucherId: 601, live: true } }
+      }
+      return { ok: false, error: `unmocked ${channel}` }
+    })
+    renderUi(<><RevaluationReverseBanner voucherId={600} /><DialogHost /></>)
+    const banner = await screen.findByTestId('fx-revaluation-banner')
+    expect(banner.textContent).toContain('31-Mar-26')
+    fireEvent.click(screen.getByTestId('btn-fx-reverse'))
+    fireEvent.click(await screen.findByTestId('confirm-ok'))
+    await waitFor(() => expect(calls.find((c) => c.channel === 'fx:reverse')?.payload).toEqual({ id: 7 }))
+    await waitFor(() => expect(screen.queryByTestId('fx-revaluation-banner')).toBeNull())
+    cleanup()
+    renderUi(<RevaluationReverseBanner voucherId={601} />)
+    await waitFor(() => expect(calls.some((c) => c.channel === 'fx:revaluationOf' && (c.payload as { voucherId: number }).voucherId === 601)).toBe(true))
+    expect(screen.queryByTestId('fx-revaluation-banner')).toBeNull()
+    cleanup()
+    // a viewer is not offered it (main would refuse the reversal), even on an un-reversed journal
+    reversed = false
+    for (const user of [{ id: 2, name: 'Vee', role: 'viewer' }, { id: 3, name: 'Acc', role: 'accountant', capabilities: { canPost: false } }]) {
+      calls.length = 0
+      useSession.setState({ user: user as never })
+      renderUi(<RevaluationReverseBanner voucherId={600} />)
+      await waitFor(() => expect(calls.some((c) => c.channel === 'fx:revaluationOf')).toBe(true))
+      await new Promise((r) => setTimeout(r, 20))
+      expect(screen.queryByTestId('fx-revaluation-banner'), user.role).toBeNull()
+      cleanup()
     }
-    invoke.mockImplementation(async (channel: string) => (channel === 'yearEnd:cashFinanceWarnings' ? { ok: true, data: w } : { ok: false, error: channel }))
-    renderUi(<CashFinanceCloseWarnings fyStartYear={2025} closed={false} />)
-    expect((await screen.findByTestId('year-end-unrevalued')).textContent).toContain('1,000.00 USD')
+    // the same un-reversed journal for an accountant who may post: offered
+    useSession.setState({ user: { id: 4, name: 'Ok', role: 'accountant' } as never })
+    renderUi(<RevaluationReverseBanner voucherId={600} />)
+    expect(await screen.findByTestId('fx-revaluation-banner')).toBeTruthy()
+    useSession.setState({ user: null })
   })
 })
 
+describe('a foreign opening entered on the old Forex screen', () => {
+  it('the ledger form says it stays as it was once the rupee opening changes; nothing for other ledgers', async () => {
+    invoke.mockImplementation(async (channel: string, payload: unknown) =>
+      channel === 'fx:foreignOpening' ? { ok: true, data: (payload as { ledgerId: number }).ledgerId === 40 ? { currencyCode: 'USD', openingFc: 1000_00 } : null } : { ok: false, error: channel })
+    renderUi(<ForeignOpeningNote ledgerId={40} changed={false} />)
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('fx:foreignOpening', { ledgerId: 40 }))
+    expect(screen.queryByTestId('ledger-foreign-opening-note')).toBeNull()
+    cleanup()
+    renderUi(<ForeignOpeningNote ledgerId={40} changed />)
+    expect((await screen.findByTestId('ledger-foreign-opening-note')).textContent).toContain('1,000.00 USD')
+    cleanup()
+    renderUi(<ForeignOpeningNote ledgerId={41} changed />)
+    await waitFor(() => expect(invoke).toHaveBeenCalledWith('fx:foreignOpening', { ledgerId: 41 }))
+    expect(screen.queryByTestId('ledger-foreign-opening-note')).toBeNull()
+  })
+})

@@ -36,8 +36,7 @@ sight until a business actually uses them. Nothing already in your books changes
   Gateway's books card and recent entries, the month-end checklist and the AI assistant's links.
   The CA pack's `daybook.csv` is now `all-entries.csv`. Saved table views of the Day book carry over;
   its "Show" choice (in books / all / optional / post-dated) starts again at "In books".
-- **Hidden until used:** foreign currency (Forex, Masters → Currencies, the currency on an entry), cost
-  centres, cheque books / post-dated cheques / bulk bank payment files, interest on overdue bills,
+- **Hidden until used:** cost centres, cheque books / post-dated cheques / bulk bank payment files, interest on overdue bills,
   the fixed-asset register, quotations / orders / delivery challans / goods receipt notes, and
   PF / ESI / PT in payroll. A business that has any of their data sees them exactly as before; one
   that has none no longer sees them in the sidebar, the search palette, the simple screens, their
@@ -45,6 +44,27 @@ sight until a business actually uses them. Nothing already in your books changes
   a post-dated cheque …), and an owner can start one any time from Settings → Features → **More
   features** (collapsed, in the simple Features screen too): Turn on shows its screens; Turn off
   hides it again while it has no data.
+- **Forex and new foreign-currency entries are gone** (#195; owner decision, upgrade plan PR #186).
+  Plain words: the Forex screen (closing rates, revaluation, bill-wise settlement, foreign
+  openings), Masters → Currencies, the "Foreign currency" feature card and the currency picker on
+  NEW invoices are gone. Books that already hold foreign-currency data read exactly as before: a
+  saved foreign invoice still opens with its currency and rate (and round-trips), statements still
+  show a foreign opening, revaluation / settlement entries stay bin-only and bin / restore as before,
+  and the AI helper still prices in rupees from a dollar rate already stored (else in US dollars). A
+  revaluation posted without its next-day reversal can still be reversed: open its journal and
+  press **Reverse…** (by hand it would throw Outstandings off the books). Editing the rupee opening of
+  an account whose opening was entered in a foreign currency says the foreign amount stays as it was
+  (nothing can change it now). The year-end close no longer warns about balances "not revalued".
+  Still possible on purpose: the Excel data import and the books export / import keep their
+  Currency / Exchange rate columns, so a file can still bring foreign-currency vouchers in (the
+  books round trip needs them). For accountants: no figure changes — every reader
+  (`NOT_FX_REVALUATION` ageing, `foreignOpening`, the restore guards) is unchanged. For developers:
+  the `forex` screen, `fx:*` write channels except `fx:reverse`, `currency:create` / `currency:delete`
+  and `yearEnd:cashFinanceWarnings` are removed; `fx:rates`, `currency:list` and the new reads
+  `fx:revaluationOf` / `fx:foreignOpening` stay. `forex` is no longer a hidden-until-used feature (a
+  stored `turnedOn: ['forex']` is dropped on read). The old write code lives on only as
+  `services/forexLegacy.testutil.ts` for dbtests of books an older version wrote. No migration, no
+  table dropped; the stored `multiCurrency` flag is kept but read by nothing.
 
 **For accountants.** One figure changes, on purpose: **the cash-flow forecast no longer counts loan
 EMIs.** It read the instalments of the old Loans screen's schedules; with that screen gone a paid

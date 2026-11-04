@@ -157,7 +157,7 @@ export default function ComingFromTallyPage(): React.JSX.Element {
       <h2>Known limits</h2>
       <ul>
         <li>Cost centres and bill references in the Tally XML are skipped on import — re-enter these in Total.</li>
-        <li>Multi-currency amounts import as INR; re-tag foreign-currency vouchers after import if you need them.</li>
+        <li>Multi-currency amounts import as INR; Total keeps its books in rupees only.</li>
       </ul>
     </>
   )

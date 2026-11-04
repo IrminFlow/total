@@ -12,7 +12,6 @@ import { createLedger } from './masters'
 const ledgerId = (db: DB, name: string): number => (db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number }).id
 
 const SEED: Record<HideableFeature, (db: DB) => void> = {
-  forex: (db) => db.prepare("INSERT INTO currencies (code, symbol, name) VALUES ('USD', '$', 'US Dollar')").run(),
   costCentres: (db) => void saveCostCentre(db, { name: 'Mumbai', parentId: null, active: true }),
   cheques: (db) => db.prepare("INSERT INTO cheque_books (bank_ledger_id, name, from_no, to_no) VALUES (?, 'Book 1', 1, 50)").run(ledgerId(db, 'Cash')),
   interest: (db) => db.prepare('UPDATE ledgers SET interest_rate_bp = 1800 WHERE id = ?').run(ledgerId(db, 'Cash')),
@@ -50,12 +49,11 @@ describe('voucher-column probes (read incrementally)', () => {
     } as never)
   }
 
-  it('a voucher in a foreign currency saved after the last look makes forex used', () => {
+  it('forex is no longer a hideable feature (removed in the 1.0 cleanup): a foreign voucher shows nothing new', () => {
     const db = seededDb()
-    journal(db, {})
-    expect(unusedFeatures(db)).toContain('forex')
     journal(db, { currencyCode: 'USD', exchangeRate: 83 })
-    expect(unusedFeatures(db)).not.toContain('forex')
+    expect(unusedFeatures(db)).toEqual([...HIDEABLE_FEATURES])
+    expect((HIDEABLE_FEATURES as readonly string[]).includes('forex')).toBe(false)
   })
 
   it('a post-dated voucher makes cheques used', () => {

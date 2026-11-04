@@ -258,8 +258,6 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'receivables:setHold': a('credit_hold'),
   'receivables:addFollowup': a('bill_followup'),
   'receivables:deleteFollowup': a('bill_followup'),
-  'currency:create': a('currency'),
-  'currency:delete': a('currency'),
   'cc:save': a('costCentre'),
   'cc:delete': a('costCentre', 'budget'),
   'bom:set': a('bom'),
@@ -517,14 +515,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // ---------- cash and finance (WP 4.4) ----------
   'forecast:itemSave': a('forecast_item'),
   'forecast:itemDelete': a('forecast_item'),
-  'fx:rateSave': a('fx_rate'),
-  'fx:rateDelete': a('fx_rate'),
-  'fx:setLedgerCurrency': a('fx_ledger_currency'),
-  // The rupee opening (ledger, opening bills cleared when they no longer fit) + the foreign amount.
-  'fx:setForeignOpening': a('fx_ledger_currency', 'ledger', 'opening_bills'),
-  'fx:revalue': a('fx_revaluation', 'voucher'),
   'fx:reverse': a('fx_revaluation', 'voucher'),
-  'fx:settle': a('fx_settlement', 'voucher'),
 
   // ---------- bulk edit, attachments, party notes (WP 6.4) ----------
   'bulk:preview': r('a dry run: every save runs inside a transaction that is rolled back — nothing is kept, not even its audit rows'),

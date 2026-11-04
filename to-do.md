@@ -17,7 +17,10 @@ done on main were dropped. One line each; the pointer says where to look.
 - Change price when there is no default price level but a non-default "Selling price" level exists: which level becomes the default [the row lands on that level; walk-in bills don't read it] — PR #91, `services/simpleStock.ts`
 - Binning a closing journal moves the lock to the day before the reopened year; store the earlier lock instead? [not stored; the confirm says so] — PR #107
 - Backup verification on open could move after the open reply (changes audit-row order) [not moved] — PR #104
-- AI cost is shown in US dollars unless the company has a USD forex rate: set a default rate? [no default] — PR #101
+- Forex cut (#195): an exporter now books new sales in ₹ only — no foreign invoice, revaluation or settlement in the app; old foreign data still reads and an un-reversed revaluation can still be reversed. Bring back a minimal "invoice in USD"? [no — cut per the plan, PR #186]
+- Excel data import / books import still accept Currency / Exchange rate columns, so a file can still create foreign-currency vouchers (needed for the books round trip): refuse them on the Excel import? [kept] — `shared/dataImport/targets.ts`
+- A wrong foreign opening (`fx_ledger_currency.opening_fc`, entered on the removed Forex screen) can no longer be corrected; the ledger form only notes it stays as it was when the rupee opening changes. Offer a "forget the foreign opening" action? [not now] — `components/ForeignOpeningNote.tsx`
+- AI cost is shown in US dollars unless the company has a USD forex rate (only books from before the forex cut can have one): set a default rate? [no default] — PR #101
 - Product "usual cost" (`standard_cost_paise`) is stored but read by nothing: use it for purchase prefill? [no] — WP 8.4, `services/quickCreate.ts`
 - No tour for existing / full-form companies [run it from Help or Settings only] — PR #100
 - ~~Downgrade 0.11 → 0.10 is not blocked: add a schema-version guard before 1.0?~~ DONE — `db_newer_version` guard + pre-upgrade copy (protects files from 1.0 on; 0.11.0 can't be changed) — PR #116

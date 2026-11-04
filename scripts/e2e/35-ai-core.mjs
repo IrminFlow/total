@@ -190,11 +190,10 @@ await scenario('35-ai-core', async (h) => {
   await h.page.evaluate(() => document.querySelector('[data-testid="btn-switch-company"]')?.click())
   await h.waitScreen('company-select')
   await h.createCompanyUI('Plain AI Shop', { mode: 'simple' })
-  // A price for the model (full app, Settings → AI) and the business's own dollar rate: costs are
-  // then said in rupees (never with an assumed rate).
+  // A price for the model (full app, Settings → AI). The business has no dollar rate of its own
+  // (the rates screen went with Forex in the 1.0 cleanup), so costs are said in US dollars —
+  // never with an assumed rate.
   await h.invoke('ai:settings:set', { prices: { 'gpt-6.1-sol': { inputPerM: 2_000_000, cachedInputPerM: null, outputPerM: 8_000_000 } } })
-  const today = await h.page.evaluate(() => new Date().toLocaleDateString('en-CA'))
-  await h.invoke('fx:rateSave', { date: today, currencyCode: 'USD', rateMicro: 84_100_000, note: null })
   await h.click('simple-nav-settings')
   await h.click('simple-entry-ai-helper')
   await h.page.waitForSelector('[data-testid="simple-ai"][data-on="false"]', { timeout: 10000 })
@@ -238,7 +237,7 @@ await scenario('35-ai-core', async (h) => {
   assertEq(await h.page.$('[data-testid="ai-panel-plain"] [data-testid="ai-tool-chip"]'), null, 'no tool chips in the plain panel')
   assertEq(await h.page.$('[data-testid="ai-panel-plain"] [data-testid="ai-context"]'), null, 'no raw context strip')
   assert(await plain.$('[data-testid="ai-plain-details"]'), 'Details is there')
-  assert(/This answer cost about ₹\d/.test(plainText), `the turn's cost in rupees: ${plainText}`)
+  assert(/This answer cost about .+\(in US dollars\)/.test(plainText), `the turn's cost in US dollars: ${plainText}`)
   await plainBoth('12-simple-panel-answer')
   // to-do §8: the escalated (plain) drawer, swept in both themes — the "what is sent" strip and the
   // "Answered by the AI service" line are there, and names / contrast / layout are clean.
@@ -271,7 +270,8 @@ await scenario('35-ai-core', async (h) => {
   await h.click('btn-capture-process')
   await h.page.waitForSelector('[data-testid="capture-estimate"][data-plain="true"]', { timeout: 10000 })
   const estimate = await h.page.$eval('[data-testid="text-capture-cost"]', (el) => el.textContent)
-  assert(/^About ₹[\d.,]+ to read 1 bill\.$/.test(estimate), `the estimate in plain words first: ${estimate}`)
+  // No dollar rate can be stored since the forex cut, so the estimate is in US dollars.
+  assert(/^About \$[\d.,]+ to read 1 bill\.$/.test(estimate), `the estimate in plain words first: ${estimate}`)
   assert(!(await visibleText('[data-testid="capture-estimate"]')).match(/gpt-|token/i), 'model and tokens only behind Details')
   await plainBoth('14-simple-capture-estimate')
 })

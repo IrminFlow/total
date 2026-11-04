@@ -29,7 +29,7 @@ It was written from the project's own documents (the feature list, the roadmap, 
 
 Both modes write to **the same books**. A shopkeeper records sales in simple mode; their CA opens the same file in the accountant view and sees proper vouchers, ready for the year-end. Every simple screen has an "Accountant view" button, and every full screen has "Back to simple". This is the heart of the product: **the owner and the accountant no longer need two different programs.**
 
-What is already in the box (both modes together): bills and invoices with PDF printing, purchases, money in and out, bank statement import and matching, stock and simple manufacturing, customers and suppliers with reminders, GST workings (GSTR-1, GSTR-3B, GSTR-9, GSTR-2B check), e-invoice and e-way bill files, TDS and TCS, payroll with PF/ESI/PT, multi-currency, budgets, loans, Tally import, Excel import/export, backups (with an optional passphrase lock), users and roles, an audit trail of every change, and an optional AI helper that uses the user's own key.
+What is already in the box (both modes together): bills and invoices with PDF printing, purchases, money in and out, bank statement import and matching, stock and simple manufacturing, customers and suppliers with reminders, GST workings (GSTR-1, GSTR-3B, GSTR-9, GSTR-2B check), e-invoice and e-way bill files, TDS and TCS, payroll with PF/ESI/PT, Tally import, Excel import/export, backups (with an optional passphrase lock), users and roles, an audit trail of every change, and an optional AI helper that uses the user's own key.
 
 Today the version on GitHub is 0.12.0 (22 October 2026): the simple screens for selling, buying, money, bank, stock, people, reports, taxes, Ask Total and Hindi are all in that release.
 

@@ -407,7 +407,7 @@ function StatTiles({
               <Sparkline values={sparkOf(trade.data, (m) => m.sales)} color="blue" label="Sales by month, last 6 months" />
             )
           }
-          onClick={() => nav.go({ name: 'registers', tab: 'sales' })}
+          onClick={() => nav.go({ name: 'registers', tab: 'sales', visit: true })}
           openLabel="Open the sales register"
         />
       </li>
@@ -427,7 +427,7 @@ function StatTiles({
               <Sparkline values={sparkOf(trade.data, (m) => m.purchases)} color="amber" label="Purchases by month, last 6 months" />
             )
           }
-          onClick={() => nav.go({ name: 'registers', tab: 'purchase' })}
+          onClick={() => nav.go({ name: 'registers', tab: 'purchase', visit: true })}
           openLabel="Open the purchase register"
         />
       </li>

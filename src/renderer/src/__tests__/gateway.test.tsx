@@ -128,7 +128,8 @@ describe('Gateway dashboard', () => {
     fireEvent.click(screen.getByTestId('tile-profit'))
     expect(go).toHaveBeenLastCalledWith({ name: 'profit-loss' })
     fireEvent.click(screen.getByTestId('tile-sales'))
-    expect(go).toHaveBeenLastCalledWith({ name: 'registers', tab: 'sales' })
+    // visit-only: the tile never overwrites the remembered register (review of #195)
+    expect(go).toHaveBeenLastCalledWith({ name: 'registers', tab: 'sales', visit: true })
     // A top-customer row opens the ledger statement (the name itself opens the edit window).
     const row = within(screen.getByTestId('dash-top-customers')).getByTestId('top-ledger')
     fireEvent.click(row)

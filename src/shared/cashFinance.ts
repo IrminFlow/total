@@ -8,8 +8,6 @@ import type { CollectionProfile, ForecastFlow, ItemCadence, ItemKind } from './c
 
 const id = z.number().int().positive()
 const paise = z.number().int().safe()
-const currencyCode = z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, 'Expected a 3-letter currency code')
-const rateMicro = z.number().int().positive().max(1_000_000_000_000)
 
 // ---------- forecast ----------
 
@@ -66,15 +64,7 @@ export interface ForecastBase {
   warnings: string[]
 }
 
-// ---------- forex ----------
-
-export const fxRateInputSchema = z.object({
-  date: isoDate,
-  currencyCode,
-  rateMicro,
-  note: z.string().trim().max(120).nullable().default(null)
-})
-export type FxRateInput = z.input<typeof fxRateInputSchema>
+// ---------- forex (read-only since the 1.0 cleanup; the old write schemas live in main's forexLegacy.testutil.ts) ----------
 
 export interface FxRate {
   id: number
@@ -83,51 +73,6 @@ export interface FxRate {
   rateMicro: number
   note: string | null
 }
-
-export const fxLedgerCurrencySchema = z.object({
-  ledgerId: id,
-  currencyCode: currencyCode.nullable(),
-  /** Foreign amount (hundredths, dr-positive) behind the ledger's rupee opening; null = none. */
-  openingFc: z.number().int().safe().nullable().default(null)
-})
-
-/** A foreign-currency opening entered in its currency: the rupee opening (ledgers.opening_balance)
- *  becomes fc × the rate on the books-begin day (`rateMicro`, else the closing rate stored for
- *  that day or the latest before it). */
-export const fxForeignOpeningSchema = z.object({
-  ledgerId: id,
-  currencyCode,
-  /** Foreign amount (hundredths, dr-positive: negative = a credit opening). */
-  fc: z.number().int().safe().refine((v) => v !== 0, 'Enter the foreign amount'),
-  rateMicro: z.number().int().positive().safe().optional()
-})
-export type FxForeignOpeningInput = z.input<typeof fxForeignOpeningSchema>
-
-export interface FxForeignOpeningResult { ledgerId: number; currencyCode: string; fc: number; openingInr: number; rateMicro: number; rateDate: string | null; booksBegin: string }
-
-export interface FxOpenBill { name: string; voucherId: number | null; date: string; fcOpen: number; bookOpen: number }
-
-export const fxAsOfSchema = z.object({ asOf: isoDate })
-
-export const fxRevaluePostSchema = z.object({
-  asOf: isoDate,
-  /** Post the reversal dated the next day (Tally-style adjustment). */
-  autoReverse: z.boolean().default(true)
-})
-
-export const fxSettleInputSchema = z.object({
-  partyLedgerId: id,
-  bankLedgerId: id,
-  date: isoDate,
-  /** Foreign amount settled, hundredths of the currency — spread over the open bills oldest
-   *  first when `bills` is empty. */
-  fcAmount: z.number().int().positive().safe().optional(),
-  /** Bill-wise: the foreign amount taken off each open bill (by its name). */
-  bills: z.array(z.object({ name: z.string().min(1).max(80), fc: z.number().int().positive().safe() })).max(100).default([]),
-  settleRateMicro: rateMicro,
-  narration: z.string().trim().max(200).nullable().default(null)
-})
-export type FxSettleInput = z.input<typeof fxSettleInputSchema>
 
 export interface FxExposureRow {
   ledgerId: number
@@ -149,17 +94,6 @@ export interface FxExposureRow {
   rupeeLines: number
 }
 
-export interface FxRevaluationPreview {
-  asOf: string
-  rows: FxExposureRow[]
-  /** Currencies with an open balance but no closing rate on or before asOf. */
-  missingRates: string[]
-  gain: number
-  loss: number
-  /** Why posting is refused, if it is. */
-  blocked: string | null
-}
-
 export interface FxRevaluationRow {
   id: number
   asOf: string
@@ -172,21 +106,4 @@ export interface FxRevaluationRow {
   loss: number
   createdAt: string
   live: boolean
-}
-
-export interface FxSettleResult {
-  /** The one settlement voucher (Receipt / Payment, or Journal when the difference sits on the money side). */
-  voucherId: number
-  bills: { name: string; voucherId: number | null; fc: number; bookInr: number }[]
-  bankInr: number
-  partyInr: number
-  gainLoss: number
-}
-
-// ---------- year-end ----------
-
-export interface CashFinanceCloseWarnings {
-  unrevalued: { currencyCode: string; ledgers: number; fcBalance: number }[]
-  /** No revaluation as on the FY's last day while foreign balances were open. */
-  revaluedOnFyEnd: boolean
 }

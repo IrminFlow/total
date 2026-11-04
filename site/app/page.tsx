@@ -14,7 +14,6 @@ const FEATURES: { f: string; p: string }[] = [
   { f: 'Banking', p: 'Reconciliation with statement CSV import that matches entries by amount and date' },
   { f: 'Payroll', p: 'EPF, ESI and professional tax computed to the rupee; payslip PDFs; one balanced posting' },
   { f: 'Registers & ageing', p: 'Sales and purchase registers, receivable and payable ageing with FIFO bill settlement' },
-  { f: 'Multi-currency', p: 'Invoice in USD or EUR at your rate; the books stay in rupees' },
   { f: 'Tally import', p: "Bring your masters and vouchers across from Tally's XML export" }
 ]
 

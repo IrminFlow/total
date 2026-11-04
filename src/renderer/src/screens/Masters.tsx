@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useDeepLinkOpen } from '../lib/useDeepLinkOpen'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { TRADE_DOC_KINDS, type Currency, type Godown, type Ledger, type StockGroup, type StockItem, type TradeDocType, type Unit, type VoucherType } from '@shared/domain'
+import { TRADE_DOC_KINDS, type Godown, type Ledger, type StockGroup, type StockItem, type TradeDocType, type Unit, type VoucherType } from '@shared/domain'
 import { filterLedgers, isPartyLedger, partyGroupIds, type ChartGroupNode } from '@shared/chartOfAccounts'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts, type Screen } from '../state/stores'
@@ -37,7 +37,6 @@ const TABS: { id: MastersTab; label: string }[] = [
   { id: 'godowns', label: 'Godowns' },
   { id: 'units', label: 'Units' },
   { id: 'types', label: 'Voucher types' },
-  { id: 'currencies', label: 'Currencies' },
   // WP 2.6 (inventory on): price lists, party-wise rates, discount schemes.
   { id: 'price-lists', label: 'Price lists' },
   { id: 'party-rates', label: 'Party rates' },
@@ -48,8 +47,7 @@ const PRICING_TABS: readonly MastersTab[] = ['price-lists', 'party-rates', 'sche
 export function Masters({ tab, itemId, parties }: { tab?: MastersTab; itemId?: number; parties?: boolean }): React.JSX.Element {
   const nav = useNav()
   const features = useFeatures()
-  // Feature cleanup: Currencies only for a company that uses foreign currency (shared/features.ts).
-  const tabs = TABS.filter((t) => (features.inventory || !PRICING_TABS.includes(t.id)) && (features.forex || t.id !== 'currencies'))
+  const tabs = TABS.filter((t) => features.inventory || !PRICING_TABS.includes(t.id))
   const active = tab && tabs.some((t) => t.id === tab) ? tab : 'ledgers'
   return (
     <Page width={active === 'price-lists' ? 'wide' : undefined}>
@@ -85,7 +83,6 @@ export function Masters({ tab, itemId, parties }: { tab?: MastersTab; itemId?: n
       {active === 'godowns' && <GodownsTab />}
       {active === 'units' && <UnitsTab />}
       {active === 'types' && <TypesTab />}
-      {active === 'currencies' && <CurrenciesTab />}
       {active === 'price-lists' && <PriceListsTab />}
       {active === 'party-rates' && <PartyRatesTab />}
       {active === 'schemes' && <SchemesTab />}
@@ -100,101 +97,9 @@ const TABLE_AREA: Partial<Record<MastersTab, string>> = {
   units: 'masters-units',
   types: 'masters-types',
   godowns: 'masters-godowns',
-  currencies: 'masters-currencies',
   'price-lists': 'masters-price-lists',
   'party-rates': 'masters-party-rates',
   schemes: 'masters-schemes'
-}
-
-// ---------- currencies ----------
-
-const CURRENCY_COLUMNS = defineColumns<Currency>([
-  { id: 'code', header: 'Code', kind: 'text', value: (c) => c.code, className: 'num', width: 110, hideable: false, groupable: false },
-  { id: 'symbol', header: 'Symbol', kind: 'text', value: (c) => c.symbol, width: 110, groupable: false },
-  { id: 'name', header: 'Name', kind: 'text', value: (c) => c.name, className: 'text-muted', groupable: false }
-])
-
-function CurrenciesTab(): React.JSX.Element {
-  const { data: currencies } = useQuery({ queryKey: ['currencies'], queryFn: api.currencies.list })
-  const toast = useToasts()
-  const queryClient = useQueryClient()
-  const [creating, setCreating] = useState(false)
-  const [code, setCode] = useState('')
-  const [symbol, setSymbol] = useState('')
-  const [name, setName] = useState('')
-
-  const create = async (): Promise<void> => {
-    try {
-      await api.currencies.create({ code: code.trim().toUpperCase(), symbol: symbol.trim(), name: name.trim(), decimals: 2 })
-      await queryClient.invalidateQueries({ queryKey: ['currencies'] })
-      toast.push('success', `${code.toUpperCase()} added`)
-      setCreating(false)
-      setCode(''); setSymbol(''); setName('')
-    } catch (err) {
-      toast.push('error', (err as Error).message)
-    }
-  }
-
-  return (
-    <>
-      <PageActions>
-        <Button variant="primary" onClick={() => setCreating(true)}>
-          Add currency
-        </Button>
-      </PageActions>
-      <Panel>
-        <DataTable
-          viewId="masters-currencies"
-          testId="masters-currencies"
-          ariaLabel="Currencies"
-          columns={CURRENCY_COLUMNS}
-          rows={currencies ?? []}
-          rowKey={(c) => c.id}
-          rowAttrs={(c) => ({ 'data-row-id': c.id })}
-          empty={{ title: 'Base books are in ₹ (INR)', hint: 'Add USD, EUR… to raise foreign-currency invoices with an exchange rate' }}
-          trailing={(c) => (
-            <button
-              type="button"
-              className="text-small text-cr hover:underline"
-              onClick={async () => {
-                try {
-                  await api.currencies.remove(c.id)
-                  await queryClient.invalidateQueries({ queryKey: ['currencies'] })
-                } catch (err) {
-                  toast.push('error', (err as Error).message)
-                }
-              }}
-            >
-              Remove
-            </button>
-          )}
-          trailingWidth={84}
-          exportOptions={{ title: 'Currencies', periodLabel: 'Masters', filename: 'currencies' }}
-        />
-      </Panel>
-      {creating && (
-        <Modal title="Add currency" onClose={() => setCreating(false)}>
-          <div className="grid grid-cols-3 gap-3">
-            <Field label="ISO code">
-              <TextInput autoFocus value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder="USD" className="num" />
-            </Field>
-            <Field label="Symbol">
-              <TextInput value={symbol} onChange={(e) => setSymbol(e.target.value)} placeholder="$" />
-            </Field>
-            <Field label="Name">
-              <TextInput value={name} onChange={(e) => setName(e.target.value)} placeholder="US Dollar" />
-            </Field>
-          </div>
-          <div className="mt-4 flex justify-end gap-2">
-            <Button onClick={() => setCreating(false)}>Cancel</Button>
-            <Button variant="primary" onClick={() => void create()}>
-              Add currency
-            </Button>
-          </div>
-        </Modal>
-      )}
-    </>
-  )
 }
 
 // ---------- ledgers ----------

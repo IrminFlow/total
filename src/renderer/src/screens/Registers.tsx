@@ -113,7 +113,7 @@ export function monthWithin(month: string, from: string, to: string): { from: st
   return { from: start < from ? from : start, to: end > to ? to : end }
 }
 
-export function RegistersScreen({ tab: requestedTab, from: askedFrom, to: askedTo, kind: askedKind, voucherIds, source }: {
+export function RegistersScreen({ tab: requestedTab, from: askedFrom, to: askedTo, kind: askedKind, voucherIds, source, visit: visitOnly }: {
   tab?: Tab
   from?: string
   to?: string
@@ -122,6 +122,9 @@ export function RegistersScreen({ tab: requestedTab, from: askedFrom, to: askedT
   /** All entries: only these vouchers (a cash-flow line's), with where they came from. */
   voucherIds?: number[]
   source?: string
+  /** Show the asked tab for this visit only, never as the remembered register (the Gateway's
+   *  Sales / Purchases tiles — review of #195). All entries is always visit-only. */
+  visit?: boolean
 } = {}): React.JSX.Element {
   const { from: sessionFrom, to: sessionTo } = useSession()
   // A simple "Why?" link may ask for one month (Reports → by month); absent = the session period,
@@ -142,8 +145,9 @@ export function RegistersScreen({ tab: requestedTab, from: askedFrom, to: askedT
   // A link to All entries (a month, today's entries, a cash-flow line …) shows it for this visit
   // only — it never becomes the remembered register, so Back / the sidebar return to the register
   // that was open. Choosing the tab yourself does remember it.
-  const [pending, setPending] = useState(requestedTab && requestedTab !== 'entries' ? requestedTab : null)
-  const [visit, setVisit] = useState<Tab | null>(requestedTab === 'entries' ? 'entries' : null)
+  const visitTab = requestedTab === 'entries' || (requestedTab && visitOnly)
+  const [pending, setPending] = useState(requestedTab && !visitTab ? requestedTab : null)
+  const [visit, setVisit] = useState<Tab | null>(visitTab ? requestedTab! : null)
   const tab = visit ?? pending ?? opts.options.tab
   useEffect(() => {
     if (pending === null) return

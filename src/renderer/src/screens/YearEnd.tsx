@@ -4,7 +4,6 @@ import { fyFromStartYear, fyOf, todayISO, toDisplayDate } from '@shared/dates'
 import { planClose, type CloseLedgerRow } from '@shared/yearEnd'
 import { api } from '../lib/client'
 import { useNav, useSession, useToasts } from '../state/stores'
-import { CashFinanceCloseWarnings } from './cashFinance/CloseWarnings'
 import { Banner, Button, DrawerSection, EmptyState, Money, Page, PageHeader, Panel, Select, TextInput } from '../components/ui'
 import { OptionsTable } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
@@ -287,8 +286,6 @@ export function YearEndScreen(): React.JSX.Element {
           Nothing is posted automatically.
         </Banner>
       )}
-      {/* WP 4.4: unrevalued forex balances (warn-only). */}
-      <CashFinanceCloseWarnings fyStartYear={fyStartYear} closed={!!preview?.alreadyClosed} />
 
       {step === 1 && (
         <>

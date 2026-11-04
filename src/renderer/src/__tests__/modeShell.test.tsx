@@ -231,6 +231,16 @@ describe('Registers honours a requested tab (Purchase list)', () => {
     render(withClient(<RegistersScreen />))
     await waitFor(() => expect(screen.getByTestId('tab-registers-purchase').getAttribute('aria-selected')).toBe('true'))
   })
+
+  it('a visit-only link (the Gateway’s Sales / Purchases tiles) shows the tab but never becomes the remembered one', async () => {
+    setSession({ mode: 'accountant' })
+    localStorage.setItem(screenOptionsKey('mode-co', 'registers'), JSON.stringify({ tab: 'items' }))
+    render(withClient(<RegistersScreen tab="purchase" visit />))
+    await waitFor(() => expect(screen.getByTestId('tab-registers-purchase').getAttribute('aria-selected')).toBe('true'))
+    cleanup()
+    render(withClient(<RegistersScreen />))
+    await waitFor(() => expect(screen.getByTestId('tab-registers-items').getAttribute('aria-selected')).toBe('true'))
+  })
 })
 
 describe('Settings → How Total looks → mode', () => {

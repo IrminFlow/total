@@ -179,7 +179,7 @@ Simple mode uses plain words. Accounting words are banned from its screens, and 
 
 #### Settings (simple)
 
-Business details, Bills & printing, **Backups** (with an automatic check that each backup can actually be restored), People & roles, **Features** ("Turn on" cards for orders, payroll, TDS, multi-currency and so on), the AI helper, **How Total looks** (mode, light or dark theme, language), **Lock and safety**, Help & tour, and Advanced (the full Settings).
+Business details, Bills & printing, **Backups** (with an automatic check that each backup can actually be restored), People & roles, **Features** ("Turn on" cards for orders, payroll, TDS and so on), the AI helper, **How Total looks** (mode, light or dark theme, language), **Lock and safety**, Help & tour, and Advanced (the full Settings).
 
 **Lock and safety** offers:
 
@@ -272,7 +272,6 @@ This is the full app. It is built to match what an accountant expects from Tally
 
 - Cost centres.
 - Cash-flow forecast.
-- Multi-currency and foreign-exchange revaluation.
 - Ratio analysis.
 
 #### Books and year-end

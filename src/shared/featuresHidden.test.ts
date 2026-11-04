@@ -5,21 +5,21 @@ describe('screenFeatures (feature cleanup)', () => {
   it('nothing hidden when `unused` is absent or empty: the stored flags as before, every hideable feature on', () => {
     for (const v of [{ ...DEFAULT_FEATURES }, { ...DEFAULT_FEATURES, unused: [] }]) {
       const f = screenFeatures(v)
-      expect(f).toMatchObject({ ...DEFAULT_FEATURES, manufacturing: true, forex: true, fixedAssets: true, cheques: true, interest: true, payrollStatutory: true })
+      expect(f).toMatchObject({ ...DEFAULT_FEATURES, manufacturing: true, fixedAssets: true, cheques: true, interest: true, payrollStatutory: true })
     }
   })
 
   it('an unused feature turns its flags off; the stored flags are untouched', () => {
     const view = { ...DEFAULT_FEATURES, orders: true, unused: [...HIDEABLE_FEATURES] }
     const f = screenFeatures(view)
-    expect(f).toMatchObject({ costCentres: false, multiCurrency: false, orders: false, forex: false, fixedAssets: false, cheques: false, interest: false, payrollStatutory: false })
+    expect(f).toMatchObject({ costCentres: false, orders: false, fixedAssets: false, cheques: false, interest: false, payrollStatutory: false })
     expect(f).toMatchObject({ inventory: true, tds: true, payroll: true, billWise: true })
     expect(splitFeaturesView(view).stored).toEqual({ ...DEFAULT_FEATURES, orders: true })
   })
 
   it('a hidden feature’s Settings → Features card goes with it', () => {
-    const unused = splitFeaturesView({ ...DEFAULT_FEATURES, unused: ['costCentres', 'forex', 'tradeCycle'] }).unused
-    expect(['costCentres', 'multiCurrency', 'orders'].map((k) => flagCardShown(k as never, unused))).toEqual([false, false, false])
+    const unused = splitFeaturesView({ ...DEFAULT_FEATURES, unused: ['costCentres', 'tradeCycle'] }).unused
+    expect(['costCentres', 'orders'].map((k) => flagCardShown(k as never, unused))).toEqual([false, false])
     expect(['inventory', 'tds', 'payroll', 'billWise'].map((k) => flagCardShown(k as never, unused))).toEqual([true, true, true, true])
     expect(flagCardShown('costCentres', new Set())).toBe(true)
   })
@@ -28,7 +28,7 @@ describe('screenFeatures (feature cleanup)', () => {
 describe('More features — the door to a hidden feature (review of #194)', () => {
   const none = (): ReturnType<typeof splitFeaturesView> => splitFeaturesView({ ...DEFAULT_FEATURES, unused: [...HIDEABLE_FEATURES] })
 
-  it('lists every hidden feature except forex (removed separately), with its plain name', () => {
+  it('lists every hidden feature (forex is gone — 1.0 cleanup)', () => {
     expect(moreFeatures(none().noData, DEFAULT_FEATURES).map((m) => m.feature)).toEqual(['costCentres', 'cheques', 'interest', 'fixedAssets', 'tradeCycle', 'payrollStatutory'])
     expect(moreFeatures(new Set(), DEFAULT_FEATURES)).toEqual([])
   })
@@ -40,7 +40,7 @@ describe('More features — the door to a hidden feature (review of #194)', () =
     next = turnOnFeature(turnOnFeature(turnOnFeature(next, 'costCentres'), 'payrollStatutory'), 'fixedAssets')
     expect(next).toMatchObject({ costCentres: true, payroll: true, turnedOn: ['tradeCycle', 'costCentres', 'payrollStatutory', 'fixedAssets'] })
     const f = screenFeatures({ ...next, unused: [...HIDEABLE_FEATURES] })
-    expect(f).toMatchObject({ orders: true, costCentres: true, payrollStatutory: true, fixedAssets: true, cheques: false, interest: false, forex: false })
+    expect(f).toMatchObject({ orders: true, costCentres: true, payrollStatutory: true, fixedAssets: true, cheques: false, interest: false })
     // a turned-on flag feature's card is back in the main list; More lists it no more
     const { unused, noData } = splitFeaturesView({ ...next, unused: [...HIDEABLE_FEATURES] })
     expect(flagCardShown('costCentres', unused)).toBe(true)
