@@ -22,7 +22,7 @@ Things to know about the version numbers:
 
 ### Fixed
 
-- **Tally import keeps returns, stock journals and bill-wise details** (PR_TALLY). Plain words: books
+- **Tally import keeps returns, stock journals and bill-wise details** (#191). Plain words: books
   brought over from Tally now have their sales / purchase returns, their stock and manufacturing
   journals and which bill each payment settled — so stock and "who owes me" match Tally.
   For accountants — figures that change after an import:
