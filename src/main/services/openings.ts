@@ -117,8 +117,13 @@ export function openingsState(db: DB): OpeningsState {
   const isOd = (l: LedgerLite): boolean => l.opening_balance < 0 || (l.opening_balance === 0 && odIds.has(l.group_id))
   const banks = allBanks.filter((l) => !isOd(l))
   const overdrafts = allBanks.filter(isOd)
-  const debtors = ledgersIn(db, [DEBTORS])
-  const creditors = ledgersIn(db, [CREDITORS])
+  // Listed by the group's role (an imported "Trade Receivables" too); new parties still go under the seeded groups.
+  const partyRows = (role: 'debtor' | 'creditor'): LedgerLite[] => {
+    const ids = masters.partyGroupIdsBySide(db, role)
+    return (db.prepare('SELECT * FROM ledgers ORDER BY name COLLATE NOCASE').all() as LedgerLite[]).filter((l) => ids.has(l.group_id))
+  }
+  const debtors = partyRows('debtor')
+  const creditors = partyRows('creditor')
   const bills = openingBillsByParty(db)
   const customers = debtors.filter((l) => l.opening_balance > 0 || bills.has(l.id)).map((l) => partyState(l, 1, bills.get(l.id)))
   const suppliers = creditors.filter((l) => l.opening_balance < 0 || bills.has(l.id)).map((l) => partyState(l, -1, bills.get(l.id)))
@@ -186,6 +191,9 @@ function groupId(db: DB, name: string): number {
  *  that name in those groups, or a new one under `createIn`. */
 function resolveLedger(ctx: RunCtx, row: { ledgerId: number | null; name: string }, groups: string[], field: string): { id: number | null; ledger: LedgerLite | null; name: string } {
   const allowed = masters.descendantIdsByName(ctx.db, groups)
+  // Parties by their group's role: a customer under an imported "Trade Receivables" is one too.
+  if (groups.includes(DEBTORS)) for (const id of masters.partyGroupIdsBySide(ctx.db, 'debtor')) allowed.add(id)
+  if (groups.includes(CREDITORS)) for (const id of masters.partyGroupIdsBySide(ctx.db, 'creditor')) allowed.add(id)
   if (row.ledgerId != null) {
     const l = ctx.db.prepare('SELECT * FROM ledgers WHERE id = ?').get(row.ledgerId) as LedgerLite | undefined
     if (!l) throw new AppError('ledger_not_found', 'Ledger not found', { field })

@@ -355,6 +355,9 @@ export interface InventoryLine {
   direction: 'in' | 'out'
   /** Physical Stock line: qtyMilli is the counted closing quantity, not a movement. */
   isAbsolute: boolean
+  /** Physical Stock line whose rate / amount are a typed cost per unit (inventory_lines.count_cost,
+   *  PR #188 review); absent = not marked. */
+  countCost?: boolean
   /** Serial numbers this line moves (serial-tracked items, WP 2.3); getVoucher always sets it
    *  ([] when none). Optional only so older hand-built fixtures keep compiling. */
   serials?: string[]

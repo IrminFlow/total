@@ -15,7 +15,7 @@ import { AppError } from '@shared/errors'
 import { fyOf, todayISO } from '@shared/dates'
 import { writeAudit } from './audit'
 import { checkStock, deleteVoucher, getLockDate, getVoucher, lockedError, MOVES_STOCK, NOT_DELETED, restoreVoucher } from './vouchers'
-import { cashBankGroupIds, descendantIdsByName } from './masters'
+import { cashBankGroupIds, descendantIdsByName, partyGroupIdsBySide } from './masters'
 import { partyAllocation } from './analysis'
 
 /** Most vouchers one undo may carry (an intent saves a handful; a guard against a runaway list). */
@@ -208,8 +208,8 @@ const TRADE_KINDS: ReadonlySet<string> = new Set(['sales', 'purchase', 'credit_n
 export function saveSummary(db: DB, voucherIds: readonly number[]): SaveSummary {
   const cashBank = cashBankGroupIds(db)
   const cashOnly = descendantIdsByName(db, ['Cash-in-Hand'])
-  const debtors = descendantIdsByName(db, ['Sundry Debtors'])
-  const creditors = descendantIdsByName(db, ['Sundry Creditors'])
+  const debtors = partyGroupIdsBySide(db, 'debtor')
+  const creditors = partyGroupIdsBySide(db, 'creditor')
   const ledgerStmt = db.prepare('SELECT id, name, group_id AS groupId FROM ledgers WHERE id = ?')
   const ledger = (id: number): { id: number; name: string; groupId: number } | undefined =>
     ledgerStmt.get(id) as { id: number; name: string; groupId: number } | undefined

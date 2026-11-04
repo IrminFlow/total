@@ -433,6 +433,10 @@ describe('review: dashboard tiles explain the dates they show', () => {
     const ex = tileExplainSources(w)
     expect(ex.cash).toEqual({ groupName: 'Cash-in-Hand + Bank Accounts', asOn: '2026-10-08' })
     expect(ex.receivables).toEqual({ groupName: 'Sundry Debtors', asOn: '2026-10-08' })
+    // The tiles add up every party root (an imported "Trade Receivables" too): the explanation names them.
+    const both = tileExplainSources(w, { debtor: ['Sundry Debtors', 'Trade Receivables'], creditor: ['Trade Payables'] })
+    expect(both.receivables).toEqual({ groupName: 'Sundry Debtors + Trade Receivables', asOn: '2026-10-08' })
+    expect(both.payables).toEqual({ groupName: 'Trade Payables', asOn: '2026-10-08' })
     expect(ex.sales).toEqual({ groupName: 'Sales Accounts', from: '2026-10-01', to: '2026-10-08' })
     expect(ex.profit).toMatchObject({ from: '2026-04-01', to: '2026-10-08' })
     // a past period: everything as on its end

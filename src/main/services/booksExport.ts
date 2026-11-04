@@ -189,10 +189,10 @@ export function buildBooksWorkbook(db: DB, info: CompanyInfo, appVersion: string
   }
   const inv = byVoucher(all<{
     voucher_id: number; item: string; godown: string | null; batch: string | null; qty_milli: number; rate_paise: number; amount: number; direction: string
-    discount_paise: number; serials: string | null; line_uid: string | null; moves_stock: number; is_absolute: number
+    discount_paise: number; serials: string | null; line_uid: string | null; moves_stock: number; is_absolute: number; count_cost: number
   } & LineSnap>(
     `SELECT il.voucher_id, s.name AS item, g.name AS godown, b.name AS batch, il.qty_milli, il.rate_paise, il.amount, il.direction,
-            il.discount_paise, il.serials, il.line_uid, il.moves_stock, il.is_absolute${SNAP_COLS.replace(/vl\./g, 'il.')}
+            il.discount_paise, il.serials, il.line_uid, il.moves_stock, il.is_absolute, il.count_cost${SNAP_COLS.replace(/vl\./g, 'il.')}
        FROM inventory_lines il JOIN stock_items s ON s.id = il.stock_item_id LEFT JOIN godowns g ON g.id = il.godown_id
        LEFT JOIN batches b ON b.id = il.batch_id JOIN vouchers v ON v.id = il.voucher_id WHERE v.deleted_at IS NULL ORDER BY il.voucher_id, il.line_order, il.id`
   ))
@@ -232,7 +232,7 @@ export function buildBooksWorkbook(db: DB, info: CompanyInfo, appVersion: string
       const lm: DbRow = {
         ...(i.line_uid ? { line_uid: i.line_uid } : {}), ...(i.discount_paise ? { discount_paise: i.discount_paise } : {}),
         ...(i.serials ? { serials: JSON.parse(i.serials) } : {}), ...(i.moves_stock === 0 ? { moves_stock: 0 } : {}),
-        ...(i.is_absolute ? { is_absolute: 1 } : {}), ...(link ? { link } : {}), ...snapOf(v, i)
+        ...(i.is_absolute ? { is_absolute: 1 } : {}), ...(i.count_cost ? { count_cost: 1 } : {}), ...(link ? { link } : {}), ...snapOf(v, i)
       }
       rows.push({
         item: i.item, godown: i.godown, batch: i.batch, qty: i.qty_milli, rate: i.rate_paise, itemAmount: i.amount, direction: i.direction,

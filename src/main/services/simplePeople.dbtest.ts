@@ -24,6 +24,7 @@ import { postIntent } from './simplePost'
 import { simpleHome } from './simpleHome'
 import { reminderLog } from './receivables'
 import { billsToPay, peopleList, personReminded, personView, updatePerson } from './simplePeople'
+import { lateDays } from '@shared/simple/late'
 
 const handlers = new Map<string, (event: unknown, payload: unknown) => Promise<{ ok: boolean; data?: unknown; error?: string; code?: string }>>()
 vi.mock('electron', () => ({
@@ -107,7 +108,8 @@ describe('the People list = the Outstandings allocation as on today', () => {
       for (const p of list.people.filter((x) => x.side === wantSide)) {
         const row = o.parties.find((r) => r.ledgerId === p.ledgerId)
         expect(p.open, p.name).toBe(row?.pending ?? 0)
-        expect(p.late, p.name).toBe((row?.bills ?? []).filter((b) => b.overdueDays > 0).reduce((s, b) => s + b.pending, 0))
+        // Late = past a due date (no days to pay and no date on the bill = never late: lateDays).
+        expect(p.late, p.name).toBe((row?.bills ?? []).filter((b) => lateDays(b) > 0).reduce((s, b) => s + b.pending, 0))
         expect(p.ahead, p.name).toBe(partyAllocation(db, p.ledgerId, TODAY).unappliedCredit)
       }
       // Every Outstandings row is in the list.
@@ -159,8 +161,43 @@ describe('the People list = the Outstandings allocation as on today', () => {
     expect(b.bills.slice(0, 2).map((x) => [x.party, x.name, x.pending])).toEqual([['Lakshmi', 'Opening', 120_000], ['Bharat Steel', 'BS-1', 360_000]])
     expect(b.bills.map((x) => x.overdueDays)).toEqual([...b.bills.map((x) => x.overdueDays)].sort((x, y) => y - x))
     // 14 Aug 2025 is a Thursday: the week ends Sunday 17 Aug. Late: BS-1 ₹3,600 and Lakshmi's
-    // opening (books-begin 1 Apr, no credit days) ₹1,200; BS-2 (5 Aug + 30 days) is due 4 Sep.
+    // opening ₹1,200 — an opening without a due date is due on its own date (1 Apr, WP 8.7), so it
+    // IS late (review of the no-due-date rule, which covers ordinary bills only); BS-2 (5 Aug + 30
+    // days) is due 4 Sep.
     expect(b).toMatchObject({ weekEnd: '2025-08-17', monthEnd: '2025-08-31', late: 480_000, dueThisWeek: 480_000, dueThisMonth: 480_000 })
+  })
+})
+
+// Review of the no-due-date rule: it covers ORDINARY bills only. An opening balance / opening bill
+// without a due date is due on its own date (WP 8.7), so it can be late and reminded.
+describe('an opening without a due date is late from its date; an ordinary bill without one is not', () => {
+  it('₹5,000 opening dated 353 days ago (no days to pay): late, on Home and People, and can be reminded', () => {
+    ledger('Ravi', 'Sundry Debtors', { openingBalance: 500_000 })
+    replaceOpeningBills(db, L('Ravi'), [{ name: 'Old dues', date: '2024-08-26', dueDate: null, amount: 500_000 }])
+    const person = personView(db, INFO, L('Ravi'), TODAY)!
+    expect(person.bills).toEqual([expect.objectContaining({ name: 'Old dues', dueDate: '2024-08-26', pending: 500_000, overdueDays: 353 })])
+    expect(peopleList(db, TODAY).people.find((p) => p.ledgerId === L('Ravi'))).toMatchObject({ open: 500_000, late: 500_000 })
+    expect(person.reminder).not.toBeNull()
+    const { logId } = personReminded(db, L('Ravi'), 'copied', TODAY)
+    expect(reminderLog(db, TODAY, TODAY, L('Ravi'))).toEqual([expect.objectContaining({ id: logId, amount: 500_000, days: 353 })])
+  })
+  it('the unnamed opening (no opening bills, no days to pay) is due on its date too', () => {
+    ledger('Usha', 'Sundry Debtors', { openingBalance: 80_000 })
+    const usha = personView(db, INFO, L('Usha'), TODAY)!
+    // The Outstandings engine dates it the FY start, 1 Apr 2025: 135 days to 14 Aug.
+    expect(usha.bills).toEqual([expect.objectContaining({ name: 'Opening', dueDate: '2025-04-01', overdueDays: 135 })])
+    expect(() => personReminded(db, L('Usha'), 'sms', TODAY)).not.toThrow()
+  })
+  it('an ordinary bill with no days to pay and no due date is never late (no due date set), and is not reminded', () => {
+    ledger('Arun', 'Sundry Debtors')
+    const sale = post({ kind: 'sale', date: '2025-06-01', customerId: L('Arun'), amount: { amount: '900' }, payment: { how: 'credit' } })
+    // A bill with no due date on it (as the accountant's invoice without a bill-wise due date
+    // stores it — the simple sale writes its date as the due date, WP 10.8).
+    db.prepare('UPDATE bill_refs SET due_date = NULL WHERE voucher_id = ?').run(sale.voucherIds[0]!)
+    const arun = personView(db, INFO, L('Arun'), TODAY)!
+    expect(arun.bills).toEqual([expect.objectContaining({ dueDate: null, overdueDays: 0, pending: 90_000 })])
+    expect(peopleList(db, TODAY).people.find((p) => p.ledgerId === L('Arun'))).toMatchObject({ open: 90_000, late: 0 })
+    expect(() => personReminded(db, L('Arun'), 'sms', TODAY)).toThrow(expect.objectContaining({ code: 'simple_people_nothing_late' }))
   })
 })
 

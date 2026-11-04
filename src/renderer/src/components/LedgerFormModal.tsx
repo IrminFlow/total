@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { DEDUCTEE_TYPES, DEDUCTEE_TYPE_LABELS, deducteeTypeFromPan } from '@shared/tds'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Group, Ledger } from '@shared/domain'
+import { partyRoleOf } from '@shared/chartOfAccounts'
 import { api } from '../lib/client'
 import { useSession, useToasts } from '../state/stores'
 import { chargesGst } from '@shared/gst/registration'
@@ -41,7 +42,6 @@ const ITC_ELIGIBILITY: { value: Ledger['itcEligibility']; label: string }[] = [
 
 const PAN_RE = /^[A-Z]{5}\d{4}[A-Z]$/
 
-export const PARTY_GROUPS = ['Sundry Debtors', 'Sundry Creditors']
 export const TAX_GROUPS = ['Duties & Taxes']
 export const TRADING_GROUPS = [
   'Sales Accounts', 'Purchase Accounts', 'Direct Incomes', 'Direct Expenses', 'Indirect Incomes', 'Indirect Expenses'
@@ -196,11 +196,13 @@ function LedgerForm({
   const [supplierTerms, setSupplierTerms] = useState(() => initialSupplierTerms(ledger))
 
   const ancestry = useMemo(() => groupAncestryNames(groupId, groups), [groupId, groups])
-  const isParty = ancestry.some((n) => PARTY_GROUPS.includes(n))
-  const isCreditor = ancestry.includes('Sundry Creditors')
+  // A party by its group's ROLE (Sundry Debtors / Creditors or an imported "Trade Receivables" …).
+  const partyRole = useMemo(() => partyRoleOf(groupId, groups), [groupId, groups])
+  const isParty = partyRole != null
+  const isCreditor = partyRole === 'creditor'
   const isTaxLedger = !isParty && ancestry.some((n) => TAX_GROUPS.includes(n))
   const isTradingLedger = !isParty && !isTaxLedger && ancestry.some((n) => TRADING_GROUPS.includes(n))
-  const isDebtor = ancestry.includes('Sundry Debtors')
+  const isDebtor = partyRole === 'debtor'
   const interestBp = percentToBp(interestPct)
   const interestError = Number.isNaN(interestBp) || (interestBp ?? 0) > 10000 ? 'A yearly rate like 18 or 1.5' : null
   const phoneError = phone.trim() && !isPhoneNumber(phone) ? 'Not a phone number' : null

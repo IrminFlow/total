@@ -21,6 +21,7 @@ import { resolveDateText, toDisplayDate } from '@shared/dates'
 import { resolveName, type ResolveCandidate, type ResolveChoice } from '@shared/aiResolve'
 import { stateName } from '@shared/gst/states'
 import { listGroups, listLedgers, listStockItems, listUnits } from '../../services/masters'
+import { partyRoleOf } from '@shared/chartOfAccounts'
 
 export interface Clarification {
   field: string
@@ -65,8 +66,9 @@ export function groupChain(m: DraftMasters, groupId: number | null): string[] {
 }
 
 export const underGroup = (m: DraftMasters, l: Ledger, names: readonly string[]): boolean => groupChain(m, l.groupId).some((g) => names.includes(g))
-export const isDebtor = (m: DraftMasters, l: Ledger): boolean => underGroup(m, l, ['Sundry Debtors'])
-export const isCreditor = (m: DraftMasters, l: Ledger): boolean => underGroup(m, l, ['Sundry Creditors'])
+// A party by its group's role (Sundry Debtors / Creditors or an imported "Trade Receivables" …).
+export const isDebtor = (m: DraftMasters, l: Ledger): boolean => partyRoleOf(l.groupId, m.groups) === 'debtor'
+export const isCreditor = (m: DraftMasters, l: Ledger): boolean => partyRoleOf(l.groupId, m.groups) === 'creditor'
 export const isParty = (m: DraftMasters, l: Ledger): boolean => isDebtor(m, l) || isCreditor(m, l)
 export const isCashOrBank = (m: DraftMasters, l: Ledger): boolean => underGroup(m, l, ['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c'])
 

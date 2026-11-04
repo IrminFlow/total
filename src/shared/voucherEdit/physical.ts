@@ -16,6 +16,10 @@ export interface CountRowState {
   batchId: number | null
   /** Stable line uid of a saved count line (WP 2.5). */
   lineUid?: string
+  /** Cost per unit, paise — only for a product with nothing on hand (the simple Count stock asks
+   *  it for a never-stocked product); the line's value = counted qty × this, which the valuation
+   *  engine uses only while nothing is on hand. Absent / 0 = the engine's cost (rate 0, as ever). */
+  ratePaise?: number
 }
 
 export interface PhysicalFormState {
@@ -38,6 +42,11 @@ export function emptyPhysicalState(date: string): PhysicalFormState {
 export function countedMilli(r: CountRowState): number | null {
   if (r.itemId == null || r.qtyText.trim() === '') return null
   return parseQtyText(r.qtyText)
+}
+
+/** A count line's value: counted qty (thousandths) × cost per unit (paise), half-up, exact. */
+export function countValue(qtyMilli: number, ratePaise: number): number {
+  return Number((BigInt(qtyMilli) * BigInt(ratePaise) + 500n) / 1000n)
 }
 
 export function buildPhysicalPayload(
@@ -69,10 +78,12 @@ export function buildPhysicalPayload(
         godownId: r.godownId,
         batchId: r.batchId,
         qtyMilli,
-        ratePaise: 0,
-        amount: 0,
+        ratePaise: r.ratePaise ?? 0,
+        amount: r.ratePaise ? countValue(qtyMilli, r.ratePaise) : 0,
         direction: 'in' as const,
         isAbsolute: true,
+        // The typed cost per unit is marked, so the engine reads it (PR #188 review).
+        ...(r.ratePaise && countValue(qtyMilli, r.ratePaise) > 0 ? { countCost: true } : {}),
         ...(r.lineUid ? { lineUid: r.lineUid } : {})
       })),
       billRefs: [],
@@ -93,7 +104,9 @@ export function physicalRepresentation(
     number: v.number,
     rows: v.inventory.map((l) => ({
       itemId: l.stockItemId, qtyText: qtyText(l.qtyMilli), godownId: l.godownId, batchId: l.batchId,
-      ...(l.lineUid ? { lineUid: l.lineUid } : {})
+      ...(l.lineUid ? { lineUid: l.lineUid } : {}),
+      // Only a MARKED count line carries a cost per unit (an unmarked rate is not one — PR #188 review).
+      ...(l.countCost && l.ratePaise ? { ratePaise: l.ratePaise } : {})
     })),
     narration: v.narration ?? '',
     passthrough: passthroughOf(v),

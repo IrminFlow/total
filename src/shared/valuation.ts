@@ -28,6 +28,11 @@ export interface StockMovement {
   /** Physical Stock voucher line: `qtyMilli` is the absolute counted quantity, and the engine
    *  books the delta as an inward/outward adjustment at the current average cost. */
   isAbsolute?: boolean
+  /** Physical Stock line only: its stored value (counted qty × the cost per unit typed, paise).
+   *  Used ONLY when nothing is on hand (no average cost to take): the counted-up quantity is then
+   *  valued at that cost instead of ₹0 (Phase 1 triage: a count of a never-stocked product).
+   *  Every count saved before carries 0 and is valued exactly as before. */
+  countAmount?: number
 }
 
 export interface ValuationResult {
@@ -175,12 +180,20 @@ class ItemCostState {
   }
 
   /** Physical count: pin the quantity to `countedQtyMilli`, booking the delta. */
-  absolute(countedQtyMilli: number): void {
+  absolute(countedQtyMilli: number, countAmount = 0): void {
     const cur = this.qtyMilli
     const delta = countedQtyMilli - cur
     if (delta > 0) {
       const value = this.totalValue
-      const cost = cur > 0 ? Math.round((value * delta) / cur) : 0
+      // Nothing on hand but a cost per unit on the count line: the counted quantity is worth
+      // countAmount. FIFO books the whole delta at that rate (the part filling a deficit goes to
+      // the consumption it backfills); weighted average already took the overdrawn part out at
+      // its own cost, so it books what makes the stock on hand exactly countAmount.
+      const cost = cur > 0
+        ? Math.round((value * delta) / cur)
+        : countAmount > 0 && countedQtyMilli > 0
+          ? this.method === 'weighted_avg' ? countAmount - value : mulDivRound(countAmount, delta, countedQtyMilli)
+          : 0
       this.inward(delta, cost)
     } else if (delta < 0) {
       this.outward(-delta)
@@ -188,7 +201,7 @@ class ItemCostState {
   }
 
   apply(m: StockMovement): void {
-    if (m.isAbsolute) this.absolute(m.qtyMilli)
+    if (m.isAbsolute) this.absolute(m.qtyMilli, m.countAmount)
     else if (m.direction === 'in') this.inward(m.qtyMilli, m.amount)
     else this.outward(m.qtyMilli)
   }
@@ -653,7 +666,7 @@ class InventoryPass {
     for (let k = from; k < to; k++) {
       const m = moves[k]!
       if (isPlainInward(m)) inward.push(m)
-      else if (m.isAbsolute) this.step(m, (st) => st.absolute(m.qtyMilli))
+      else if (m.isAbsolute) this.step(m, (st) => st.absolute(m.qtyMilli, m.countAmount))
       else {
         this.step(m, (st) => {
           const cost = st.outward(m.qtyMilli)
@@ -697,7 +710,7 @@ class InventoryPass {
     for (let k = from; k < to; k++) {
       const m = moves[k]!
       if (m.isAbsolute) {
-        this.step(m, (st) => st.absolute(m.qtyMilli))
+        this.step(m, (st) => st.absolute(m.qtyMilli, m.countAmount))
       } else if (m.direction === 'out') {
         this.step(m, (st) => pending.push({ itemId: m.itemId, qtyMilli: m.qtyMilli, cost: st.outward(m.qtyMilli) }))
       } else {

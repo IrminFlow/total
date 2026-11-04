@@ -18,7 +18,7 @@ import {
   DEFAULT_ASSISTANT_SETTINGS, type AnomalyReport, type AnomalyRow, type AssistantKind, type AssistantSettings, type Gst2bMismatchReport, type Gst2bStatementInfo
 } from '@shared/assistants'
 import { IN_BOOKS, NOT_DELETED, NOT_YEAR_END_CLOSE, getLockDate } from './vouchers'
-import { listGroups, listLedgers, descendantIdsByName } from './masters'
+import { listGroups, listLedgers, descendantIdsByName, partyGroupIdsBySide } from './masters'
 import { closingBalances, descendantIdSet, exceptions } from './reports'
 import { outstandingsWithAdvances, partyAllocation } from './analysis'
 import { bankLedgers, brs } from './banking'
@@ -32,6 +32,7 @@ import { extractPurchaseDocs } from './gst'
 import { getRecon2bTolerances } from './gstIms'
 import { writeAudit } from './audit'
 import { listDrafts } from '../ai/store'
+import { partyGroupIds, partySideGroupIds } from '@shared/chartOfAccounts'
 
 // ---------------------------------------------------------------- marks
 
@@ -207,15 +208,15 @@ export function closeFacts(db: DB, company: CompanyInfo, period: string, today: 
   })
 
   // Parties: unallocated settlements and overdue bills (as on the month end).
-  const partyGroups = descendantIdSet(groups, ['Sundry Debtors', 'Sundry Creditors'])
-  const debtorGroups = descendantIdSet(groups, ['Sundry Debtors'])
+  const partyGroups = partyGroupIds(groups)
+  const debtorGroups = partySideGroupIds(groups, 'debtor')
   // WP 7.1: per ledger, does any in-books line exist (stops at the first) — the same set as a
   // DISTINCT over every line, without reading them all.
   const used = new Set((db.prepare(`SELECT l.id FROM ledgers l WHERE EXISTS (SELECT 1 FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id WHERE vl.ledger_id = l.id AND v.date <= ? AND ${IN_BOOKS})`).all(to) as { id: number }[]).map((r) => r.id))
   // WP 7.1: one Outstandings run per side (the engine partyAllocation runs, over the same events)
   // instead of one allocation per party; a party outside both sides' groups keeps its own run.
   const sides = { receivable: outstandingsWithAdvances(db, 'receivable', to), payable: outstandingsWithAdvances(db, 'payable', to) }
-  const sideGroups = { receivable: descendantIdsByName(db, ['Sundry Debtors']), payable: descendantIdsByName(db, ['Sundry Creditors']) }
+  const sideGroups = { receivable: partyGroupIdsBySide(db, 'debtor'), payable: partyGroupIdsBySide(db, 'creditor') }
   const unallocated: CloseFacts['unallocated'] = []
   for (const l of ledgers) {
     if (!partyGroups.has(l.groupId) || !used.has(l.id)) continue
@@ -354,7 +355,7 @@ export const ANOMALY_HISTORY_MONTHS = 12
 export function anomalyInput(db: DB, from: string, to: string): { vouchers: AnomalyVoucher[]; historyFrom: string; ledgers: Map<number, { name: string; role: LedgerRole }> } {
   const historyFrom = `${addMonths(from.slice(0, 7), -ANOMALY_HISTORY_MONTHS)}-01`
   const groups = listGroups(db)
-  const partyGroups = descendantIdSet(groups, ['Sundry Debtors', 'Sundry Creditors'])
+  const partyGroups = partyGroupIds(groups)
   const cashBank = descendantIdSet(groups, ['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c'])
   const ledgers = new Map(
     listLedgers(db).map((l): [number, { name: string; role: LedgerRole }] => [

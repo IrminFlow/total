@@ -28,7 +28,7 @@ import type {
 import { bankRateInputSchema, paymentRunSchema, type PaymentRunInput } from '@shared/payables/schemas'
 import { outstandings, openBills, partyBillEvents } from './analysis'
 import { settlementTimeline } from '@shared/payables/settlements'
-import { descendantIdsByName } from './masters'
+import { descendantIdsByName, partyGroupIdsBySide } from './masters'
 import { saveVoucher, IN_BOOKS, NOT_DELETED } from './vouchers'
 import { ledgerStatement } from './reports'
 import { tdsSuggestion } from './tds'
@@ -285,7 +285,7 @@ function prepareRun(db: DB, input: ReturnType<typeof paymentRunSchema.parse>, ru
   const byId = new Map(ledgerRows.map((l) => [l.id, l]))
   const cashBank = descendantIdsByName(db, ['Cash-in-Hand', 'Bank Accounts', 'Bank OD A/c'])
   const tdsOn = input.applyTds && getFeatures(db).tds
-  const creditors = descendantIdsByName(db, ['Sundry Creditors'])
+  const creditors = partyGroupIdsBySide(db, 'creditor')
   const lines: PreparedLine[] = []
   const seen = new Set<number>()
 
@@ -533,7 +533,7 @@ export function paymentRunCsv(db: DB, id: number): { csv: string; filename: stri
 // ---------------------------------------------------------------------------------------------
 
 function coveredSuppliers(db: DB): SupplierRow[] {
-  const creditorGroups = descendantIdsByName(db, ['Sundry Creditors'])
+  const creditorGroups = partyGroupIdsBySide(db, 'creditor')
   const groupOf = new Map((db.prepare('SELECT id, group_id AS g FROM ledgers').all() as { id: number; g: number }[]).map((l) => [l.id, l.g]))
   return [...supplierFacts(db).values()].filter((s) => s.msme?.covered && creditorGroups.has(groupOf.get(s.id) ?? -1))
 }
