@@ -248,6 +248,16 @@ export function createLedger(db: DB, raw: LedgerInput): Ledger {
   return created
 }
 
+function clearMismatchedForeignOpening(db: DB, ledgerId: number, openingBalance: number): void {
+  const fx = db.prepare('SELECT currency_code AS currencyCode, opening_fc AS openingFc FROM fx_ledger_currency WHERE ledger_id = ?').get(ledgerId) as
+    | { currencyCode: string; openingFc: number | null }
+    | undefined
+  if (!fx || fx.openingFc == null) return
+  if (openingBalance !== 0 && Math.sign(openingBalance) === Math.sign(fx.openingFc)) return
+  db.prepare('UPDATE fx_ledger_currency SET opening_fc = NULL WHERE ledger_id = ?').run(ledgerId)
+  writeAudit(db, 'fx_ledger_currency', ledgerId, 'update', { ledgerId, ...fx }, { ledgerId, currencyCode: fx.currencyCode, openingFc: null })
+}
+
 export function updateLedger(db: DB, id: number, raw: LedgerInput): Ledger {
   // One transaction: clearing opening bills (WP 8.7) and the update land together or not at all.
   return db.transaction(() => updateLedgerNow(db, id, raw))()
@@ -274,6 +284,11 @@ function updateLedgerNow(db: DB, id: number, raw: LedgerInput): Ledger {
   // WP 8.7: opening bills follow the opening — cleared (audited) when they no longer fit, or the
   // change is refused when one of them is in use (openingBills.ts).
   if (input.openingBalance !== existing.openingBalance || groupChanged) guardOpeningChange(db, id, input.openingBalance, input.groupId)
+  // Follow-up to #195: a foreign opening (fx_ledger_currency.opening_fc, entered on the removed
+  // Forex screen) is dr-positive like the rupee one — when the rupee opening flips side or becomes
+  // zero it no longer describes it, so it is cleared (audited); on the same side it stays and the
+  // rate it implies (rupee ÷ foreign) follows the new rupee opening.
+  if (input.openingBalance !== existing.openingBalance) clearMismatchedForeignOpening(db, id, input.openingBalance)
   db.prepare(
     `UPDATE ledgers SET name = ?, group_id = ?, opening_balance = ?, gstin = ?, state_code = ?,
      address = ?, tax_type = ?, gst_rate = ?, hsn = ?, tds_section_id = ?, pan = ?, credit_days = ?, export_type = ?,

@@ -26,7 +26,7 @@
  */
 import type { DB } from '../db/connection'
 import type { Voucher, VoucherKind } from '@shared/domain'
-import { ledgerInputSchema, stockItemInputSchema, type VoucherInput } from '@shared/schemas'
+import { ledgerInputSchema, stockItemInputSchema, type LedgerInput, type VoucherInput } from '@shared/schemas'
 import { toUqc } from '@shared/gst/uqc'
 import { fyOf } from '@shared/dates'
 import { plainRupees } from '@shared/money'
@@ -456,7 +456,7 @@ function applyLedgers(ctx: Ctx, rows: LedgerRow[]): void {
         } else if (r.partyType) groupId = resolveLedgerGroup(ctx, r)
         // System ledgers (Cash) keep their group.
         const { input, rest } = ledgerInput(ctx, r, before.isSystem ? before.groupId : groupId, before.name, before)
-        masters.updateLedger(ctx.db, existing, input)
+        updateLedgerTracked(ctx, existing, input, r.line)
         applyLedgerRest(ctx, existing, rest)
         track(ctx, 'ledger', existing, 'update', before, r.line)
         outcome(ctx, r.line, r.name, 'update')
@@ -774,10 +774,26 @@ export function openingTotals(db: DB): { debit: number; credit: number; differen
   return { debit: r.dr + stock, credit: r.cr, difference: r.dr + stock - r.cr, stockOpening: stock }
 }
 
+type ForeignOpeningRow = { ledgerId: number; currencyCode: string; openingFc: number | null }
+const foreignOpeningRow = (db: DB, id: number): ForeignOpeningRow | undefined =>
+  db.prepare('SELECT ledger_id AS ledgerId, currency_code AS currencyCode, opening_fc AS openingFc FROM fx_ledger_currency WHERE ledger_id = ?').get(id) as ForeignOpeningRow | undefined
+
+/** masters.updateLedger, plus (#196 review) the before-image of a stored foreign opening it clears
+ *  (a rupee opening that flipped side / became zero): the undo puts it back. Tracked BEFORE the
+ *  caller tracks the ledger, so the undo (newest first) restores the rupee opening first. */
+function updateLedgerTracked(ctx: Ctx, id: number, input: LedgerInput, line: number | null): void {
+  const fx = foreignOpeningRow(ctx.db, id)
+  const rupeeOpening = masters.getLedger(ctx.db, id)?.openingBalance ?? 0
+  masters.updateLedger(ctx.db, id, input)
+  // `rupeeOpening` = the opening the foreign amount described (before this import's change): the
+  // undo restores the foreign amount only once the ledger is back at exactly that opening.
+  if (fx?.openingFc != null && foreignOpeningRow(ctx.db, id)?.openingFc == null) track(ctx, 'fx_ledger_currency', id, 'update', { ...fx, rupeeOpening }, line)
+}
+
 function setLedgerOpening(ctx: Ctx, id: number, opening: number, line: number | null): boolean {
   const before = masters.getLedger(ctx.db, id)!
   if (before.openingBalance === opening) return false
-  masters.updateLedger(ctx.db, id, ledgerInputSchema.parse({ ...before, openingBalance: opening }))
+  updateLedgerTracked(ctx, id, ledgerInputSchema.parse({ ...before, openingBalance: opening }), line)
   track(ctx, 'ledger', id, 'update', before, line)
   return true
 }
@@ -1468,8 +1484,27 @@ function openingsPinnedBy(db: DB, items: readonly UndoItem[]): string | null {
 }
 
 /** Does this batch item put an opening into the books (what a pin keeps)? */
+/** Undo of a foreign opening the import's opening change cleared (#196 review): put it back only
+ *  while it is still the cleared row (same currency, no amount — nothing set it again since) and the
+ *  ledger is back at EXACTLY the rupee opening that amount described (`rupeeOpening`, recorded
+ *  before the import's change — the ledger item is undone first, newest first). A ledger kept
+ *  because it was edited after the import (any other opening, even on the same side) keeps its
+ *  foreign amount cleared and the item is listed as kept. Audited with the same shape as the clear
+ *  (ledgerId, currencyCode, openingFc). Rows tracked before `rupeeOpening` was recorded fall back
+ *  to the same-side check. */
+function restoreForeignOpening(db: DB, tracked: ForeignOpeningRow & { rupeeOpening?: number }): void {
+  const { rupeeOpening, ...before } = tracked
+  const now = foreignOpeningRow(db, before.ledgerId)
+  const opening = (db.prepare('SELECT opening_balance AS ob FROM ledgers WHERE id = ?').get(before.ledgerId) as { ob: number } | undefined)?.ob ?? 0
+  if (!now || now.currencyCode !== before.currencyCode || now.openingFc != null || before.openingFc == null) throw new Error('changed after the import — left as it is')
+  const fits = rupeeOpening !== undefined ? opening === rupeeOpening : opening !== 0 && Math.sign(opening) === Math.sign(before.openingFc)
+  if (!fits) throw new Error('the account\'s opening was changed after the import — its foreign opening stays cleared')
+  db.prepare('UPDATE fx_ledger_currency SET opening_fc = ? WHERE ledger_id = ?').run(before.openingFc, before.ledgerId)
+  writeAudit(db, 'fx_ledger_currency', before.ledgerId, 'update', { ...before, openingFc: null }, before)
+}
+
 function carriesOpening(db: DB, it: UndoItem): boolean {
-  if (it.entity === 'opening_bills') return true
+  if (it.entity === 'opening_bills' || it.entity === 'fx_ledger_currency') return true
   if (it.entity === 'ledger') {
     const now = db.prepare('SELECT opening_balance AS ob, group_id AS g FROM ledgers WHERE id = ?').get(it.entity_id) as { ob: number; g: number } | undefined
     if (!now) return false
@@ -1567,6 +1602,7 @@ export function undoImport(db: DB, batchId: number): UndoResult {
                 billsBack.push({ id: it.id, ledgerId: it.entity_id, bills: earlier })
               }
             } else if (it.entity === 'ledger') masters.updateLedger(db, it.entity_id, ledgerInputSchema.parse(before))
+            else if (it.entity === 'fx_ledger_currency') restoreForeignOpening(db, before as ForeignOpeningRow)
             else if (it.entity === 'stockItem') masters.updateStockItem(db, it.entity_id, stockItemInputSchema.parse(itemInputFromRow(before as StockItemRowDb)))
             else if (it.entity === 'voucher') saveVoucher(db, voucherToInput(before as Voucher), it.entity_id, { historicImport: true, taxFacts: taxFactsFrom((before as { taxFacts?: unknown }).taxFacts) })
             else if (it.entity === 'bank_date') setBankDate(db, it.entity_id, (before as { bankDate: string | null }).bankDate)

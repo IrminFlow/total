@@ -216,7 +216,7 @@ This is the full app. It is built to match what an accountant expects from Tally
 - **Masters.**
   - Ledgers (accounts) and groups: the chart of accounts.
   - Stock items, units and godowns (stock places).
-  - Currencies and price levels.
+  - Price levels.
 - A dashboard (the Gateway) with figures that agree with the reports.
 
 #### GST and other taxes

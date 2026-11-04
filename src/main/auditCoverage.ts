@@ -33,7 +33,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // opening bills and one batch row; "I started fresh" is a company (meta ui) update.
   'simple:openings:get': QUERY,
   'simple:openings:preview': r('rehearses the opening setup in a transaction that is always rolled back; writes nothing'),
-  'simple:openings': a('opening_batch', 'opening_bills', 'ledger', 'stockItem'),
+  // + a stored foreign opening cleared by an opening that flips side / becomes zero (#196).
+  'simple:openings': a('opening_batch', 'opening_bills', 'ledger', 'stockItem', 'fx_ledger_currency'),
   'simple:openings:skip': a('company'),
   // WP 9.3: the simple Buy screens' reads (suppliers / accounts / defaults, the purchase list, one bill).
   'simple:buy:setup': QUERY,
@@ -210,7 +211,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // + leftover budget lines of the removed Budgets screen (services/leftoverPlanning.ts).
   'master:groups:delete': a('group', 'budget'),
   'master:ledgers:create': a('ledger'),
-  'master:ledgers:update': a('ledger', 'opening_bills'),
+  // + a stored foreign opening cleared when the rupee opening flips side / becomes zero (#195 follow-up).
+  'master:ledgers:update': a('ledger', 'opening_bills', 'fx_ledger_currency'),
   // + leftover budget lines / loan records of the removed Budgets and Loans screens.
   'master:ledgers:delete': a('ledger', 'budget', 'loan'),
   'master:voucherTypes:create': a('voucherType'),
@@ -309,7 +311,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // ---------- imports ----------
   'import:pickCsv': r('file dialog; returns the text'),
   'import:preview': QUERY,
-  'import:apply': a('csv_import', 'ledger', 'stockItem', 'opening_bills'),
+  'import:apply': a('csv_import', 'ledger', 'stockItem', 'opening_bills', 'fx_ledger_currency'),
   'import:template': EXPORT,
   // WP 6.3: orders land in trade_docs (saveTradeDoc audits them); booksFrom is company info.
   'tally:import': a('tally_import', 'trade_doc', 'company', 'ledger'),
@@ -320,12 +322,12 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'importwiz:preview': r('dry run: applies inside a transaction that is always rolled back'),
   'importwiz:run': a(
     'csv_import', 'import_template', 'group', 'ledger', 'unit', 'stockGroup', 'godown', 'stockItem', 'batch', 'priceLevel', 'priceRate',
-    'voucherType', 'voucher', 'voucher_line', 'trade_doc', 'bank_statement', 'costCentre', 'company', 'backup', 'opening_bills'
+    'voucherType', 'voucher', 'voucher_line', 'trade_doc', 'bank_statement', 'costCentre', 'company', 'backup', 'opening_bills', 'fx_ledger_currency'
   ),
   'importwiz:planPreview': r('dry run: applies inside a transaction that is always rolled back'),
-  'importwiz:planRun': a('csv_import', 'company', 'costCentre', 'voucher_line', 'group', 'ledger', 'unit', 'stockGroup', 'godown', 'stockItem', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'voucher', 'trade_doc', 'backup', 'opening_bills'),
+  'importwiz:planRun': a('csv_import', 'company', 'costCentre', 'voucher_line', 'group', 'ledger', 'unit', 'stockGroup', 'godown', 'stockItem', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'voucher', 'trade_doc', 'backup', 'opening_bills', 'fx_ledger_currency'),
   'importwiz:batches': QUERY,
-  'importwiz:undo': a('import_batch', 'voucher', 'voucher_line', 'costCentre', 'trade_doc', 'ledger', 'stockItem', 'group', 'unit', 'stockGroup', 'godown', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'backup', 'opening_bills', 'budget', 'loan'),
+  'importwiz:undo': a('import_batch', 'voucher', 'voucher_line', 'costCentre', 'trade_doc', 'ledger', 'stockItem', 'group', 'unit', 'stockGroup', 'godown', 'batch', 'priceLevel', 'priceRate', 'voucherType', 'backup', 'opening_bills', 'budget', 'loan', 'fx_ledger_currency'),
   'importwiz:templates': QUERY,
   'importwiz:templateSave': a('import_template'),
   'importwiz:templateDelete': a('import_template'),

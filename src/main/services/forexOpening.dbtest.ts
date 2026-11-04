@@ -7,14 +7,16 @@ import { describe, expect, it } from 'vitest'
 import { seededDb } from '../db/testdb'
 import type { DB } from '../db/connection'
 import type { VoucherInput } from '@shared/schemas'
-import { createLedger, getLedger } from './masters'
+import { createLedger, getLedger, updateLedger } from './masters'
 import { getVoucher, saveVoucher } from './vouchers'
 import { ledgerStatement } from './reports'
 import { outstandings } from './analysis'
 import { replaceOpeningBills } from './openingBills'
 import { openBills } from './forex'
+import { runImport, undoImport } from './dataImport'
+import { autoPlan, parseImportFile } from './importFiles'
 // The foreign-opening editor went in the 1.0 cleanup; the legacy fixture writes what it wrote.
-import { postRevaluation, revaluationPreview, saveRate, setForeignOpening, settle } from './forexLegacy.testutil'
+import { postRevaluation, revaluationPreview, saveRate, setForeignOpening, setLedgerCurrency, settle } from './forexLegacy.testutil'
 
 const gid = (db: DB, name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
 const lid = (db: DB, name: string): number => (db.prepare('SELECT id FROM ledgers WHERE name = ?').get(name) as { id: number }).id
@@ -122,5 +124,127 @@ describe('foreign opening entered in its currency', () => {
     const st = ledgerStatement(db, cust, '2025-04-01', '2025-09-30')
     expect('foreignOpening' in st).toBe(false)
     expect(openBills(db, cust, '2025-09-30').bills.map((b) => b.name)).toEqual(['1'])
+  })
+})
+
+describe('a stored foreign opening when the rupee opening is edited later (follow-up to #195)', () => {
+  const fx = (db: DB, id: number) => db.prepare('SELECT currency_code AS c, opening_fc AS fc FROM fx_ledger_currency WHERE ledger_id = ?').get(id) as { c: string; fc: number | null } | undefined
+  const lastFxAudit = (db: DB, id: number) =>
+    db.prepare("SELECT action, before_json AS b, after_json AS a FROM audit_log WHERE entity = 'fx_ledger_currency' AND entity_id = ? ORDER BY id DESC LIMIT 1").get(id) as
+      | { action: string; b: string; a: string }
+      | undefined
+
+  it('same side: the foreign amount stays (the implied rate follows the rupee opening)', () => {
+    const { db, cust } = books()
+    setForeignOpening(db, { ledgerId: cust, currencyCode: 'USD', fc: 1000_00, rateMicro: 82_000_000 }) // Dr ₹82,000
+    const audits = (db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'fx_ledger_currency'").get() as { n: number }).n
+    updateLedger(db, cust, { ...getLedger(db, cust)!, openingBalance: 83_000_00 } as never)
+    expect(fx(db, cust)).toEqual({ c: 'USD', fc: 1000_00 })
+    expect((db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE entity = 'fx_ledger_currency'").get() as { n: number }).n).toBe(audits)
+    expect(ledgerStatement(db, cust, '2025-04-01', '2026-03-31').foreignOpening).toMatchObject({ currencyCode: 'USD', fc: 1000_00 })
+  })
+
+  it('flipped side: the foreign amount is cleared (audited) — never a Dr foreign amount on a Cr rupee opening', () => {
+    const { db, cust } = books()
+    setForeignOpening(db, { ledgerId: cust, currencyCode: 'USD', fc: 1000_00, rateMicro: 82_000_000 })
+    updateLedger(db, cust, { ...getLedger(db, cust)!, openingBalance: -5_000_00 } as never)
+    expect(fx(db, cust)).toEqual({ c: 'USD', fc: null })
+    const a = lastFxAudit(db, cust)!
+    expect(a.action).toBe('update')
+    expect(JSON.parse(a.b)).toMatchObject({ ledgerId: cust, currencyCode: 'USD', openingFc: 1000_00 })
+    expect(JSON.parse(a.a)).toMatchObject({ ledgerId: cust, currencyCode: 'USD', openingFc: null })
+    expect(ledgerStatement(db, cust, '2025-04-01', '2026-03-31').foreignOpening).toBeUndefined()
+  })
+
+  it('zero: the foreign amount is cleared too (a supplier with a Cr foreign opening)', () => {
+    const { db, supp } = books()
+    setForeignOpening(db, { ledgerId: supp, currencyCode: 'USD', fc: -2000_00, rateMicro: 80_000_000 })
+    updateLedger(db, supp, { ...getLedger(db, supp)!, openingBalance: 0 } as never)
+    expect(fx(db, supp)).toEqual({ c: 'USD', fc: null })
+    expect(lastFxAudit(db, supp)!.action).toBe('update')
+  })
+})
+
+describe('an import that clears a foreign opening is undone with it (review of #196)', () => {
+  const fx = (db: DB, id: number) => db.prepare('SELECT currency_code AS c, opening_fc AS fc FROM fx_ledger_currency WHERE ledger_id = ?').get(id) as { c: string; fc: number | null } | undefined
+  const openings = (db: DB, csv: string) => {
+    const f = parseImportFile('o.csv', new TextEncoder().encode(csv))
+    const { steps, profile } = autoPlan(db, f, '27', { profileId: 'generic:openings' })
+    return runImport(db, steps, { openingDifference: 'leave' }, { source: profile.source, profileId: profile.id, fileName: 'o.csv' }, false)
+  }
+
+  it('undo puts the rupee opening AND the foreign amount back (audited, same shape as the clear)', () => {
+    const { db, cust } = books()
+    setForeignOpening(db, { ledgerId: cust, currencyCode: 'USD', fc: 1000_00, rateMicro: 82_000_000 }) // ₹82,000 Dr
+    const r = openings(db, 'Ledger,Opening Balance,Dr/Cr\nGlobex,5000,Cr')
+    expect(getLedger(db, cust)!.openingBalance).toBe(-5_000_00)
+    expect(fx(db, cust)).toEqual({ c: 'USD', fc: null })
+    undoImport(db, r.batchId!)
+    expect(getLedger(db, cust)!.openingBalance).toBe(82_000_00)
+    expect(fx(db, cust)).toEqual({ c: 'USD', fc: 1000_00 })
+    const a = db.prepare("SELECT action, before_json AS b, after_json AS a FROM audit_log WHERE entity = 'fx_ledger_currency' AND entity_id = ? ORDER BY id DESC LIMIT 1").get(cust) as { action: string; b: string; a: string }
+    expect(a.action).toBe('update')
+    expect(JSON.parse(a.b)).toEqual({ ledgerId: cust, currencyCode: 'USD', openingFc: null })
+    expect(JSON.parse(a.a)).toEqual({ ledgerId: cust, currencyCode: 'USD', openingFc: 1000_00 })
+    expect(ledgerStatement(db, cust, '2025-04-01', '2026-03-31').foreignOpening).toMatchObject({ currencyCode: 'USD', fc: 1000_00 })
+    expect(openBills(db, cust, '2025-04-01').bills).toEqual([expect.objectContaining({ name: 'Opening', fcOpen: 1000_00 })])
+  })
+
+  it('a foreign amount set again after the import is left alone (the idempotent-undo rule)', () => {
+    const { db, cust } = books()
+    setForeignOpening(db, { ledgerId: cust, currencyCode: 'USD', fc: 1000_00, rateMicro: 82_000_000 })
+    const r = openings(db, 'Ledger,Opening Balance,Dr/Cr\nGlobex,5000,Cr')
+    // The user edits the opening again after the import (Cr ₹6,000): the ledger item is "edited
+    // after the import" and kept — so is the foreign amount (a Dr USD 1,000 would not fit the Cr
+    // opening the user left).
+    updateLedger(db, cust, { ...getLedger(db, cust)!, openingBalance: -6_000_00 } as never)
+    const u = undoImport(db, r.batchId!)
+    expect(getLedger(db, cust)!.openingBalance).toBe(-6_000_00)
+    expect(fx(db, cust)).toEqual({ c: 'USD', fc: null })
+    expect(u.kept).toEqual(expect.arrayContaining([expect.objectContaining({ entity: 'fx_ledger_currency', id: cust })]))
+
+    // And one set again since (an older version's write, raw here) is never overwritten.
+    const { db: db2, cust: c2 } = books()
+    setForeignOpening(db2, { ledgerId: c2, currencyCode: 'USD', fc: 1000_00, rateMicro: 82_000_000 })
+    const r2 = openings(db2, 'Ledger,Opening Balance,Dr/Cr\nGlobex,5000,Cr')
+    updateLedger(db2, c2, { ...getLedger(db2, c2)!, openingBalance: -6_000_00 } as never)
+    db2.prepare('UPDATE fx_ledger_currency SET opening_fc = -60_00 WHERE ledger_id = ?').run(c2)
+    undoImport(db2, r2.batchId!)
+    expect(fx(db2, c2)).toEqual({ c: 'USD', fc: -60_00 })
+  })
+
+  it('a positive rupee edit after the import (ledger kept) does not get the old foreign amount back (CodeRabbit on #196)', () => {
+    const { db, cust } = books()
+    setForeignOpening(db, { ledgerId: cust, currencyCode: 'USD', fc: 1000_00, rateMicro: 82_000_000 })
+    const r = openings(db, 'Ledger,Opening Balance,Dr/Cr\nGlobex,5000,Cr')
+    // After the import the user sets a Dr opening again — same side as the old USD 1,000, but not
+    // the opening that amount described (₹82,000).
+    updateLedger(db, cust, { ...getLedger(db, cust)!, openingBalance: 10_000_00 } as never)
+    const u = undoImport(db, r.batchId!)
+    expect(getLedger(db, cust)!.openingBalance).toBe(10_000_00)
+    expect(fx(db, cust)).toEqual({ c: 'USD', fc: null })
+    expect(u.kept).toEqual(expect.arrayContaining([expect.objectContaining({ entity: 'fx_ledger_currency', id: cust })]))
+  })
+
+  it('a foreign amount set again later with NO ledger edit is not overwritten by the undo (CodeRabbit on #196)', () => {
+    // (a) set again on the side the import left (Cr, through the old writer — audited): the undo
+    //     restores the Dr rupee opening, which clears that Cr amount (masters rule), and the old
+    //     USD 1,000 is NOT put back over it — the item is kept.
+    const { db, cust } = books()
+    setForeignOpening(db, { ledgerId: cust, currencyCode: 'USD', fc: 1000_00, rateMicro: 82_000_000 })
+    const r = openings(db, 'Ledger,Opening Balance,Dr/Cr\nGlobex,5000,Cr')
+    setLedgerCurrency(db, cust, 'USD', -50_00)
+    const u = undoImport(db, r.batchId!)
+    expect(getLedger(db, cust)!.openingBalance).toBe(82_000_00)
+    expect(fx(db, cust)?.fc).not.toBe(1000_00)
+    expect(u.kept).toEqual(expect.arrayContaining([expect.objectContaining({ entity: 'fx_ledger_currency', id: cust })]))
+    // (b) set again on the Dr side (raw): it fits the restored opening and stays as set.
+    const { db: db2, cust: c2 } = books()
+    setForeignOpening(db2, { ledgerId: c2, currencyCode: 'USD', fc: 1000_00, rateMicro: 82_000_000 })
+    const r2 = openings(db2, 'Ledger,Opening Balance,Dr/Cr\nGlobex,5000,Cr')
+    db2.prepare('UPDATE fx_ledger_currency SET opening_fc = 500_00 WHERE ledger_id = ?').run(c2)
+    undoImport(db2, r2.batchId!)
+    expect(getLedger(db2, c2)!.openingBalance).toBe(82_000_00)
+    expect(fx(db2, c2)).toEqual({ c: 'USD', fc: 500_00 })
   })
 })
