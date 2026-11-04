@@ -674,6 +674,11 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
         setGstTried(true)
         return void toast.push('error', rateError)
       }
+      // Unreadable quantities are refused, never saved as 0 (a wrong opening stock moves valuation).
+      const openQtyMilli = openQty.trim() ? parseQtyText(openQty) : 0
+      if (openQtyMilli == null) return void toast.push('error', 'Opening quantity must be a number')
+      const reorderMilli = reorderText.trim() ? parseQtyText(reorderText) : null
+      if (reorderText.trim() && reorderMilli == null) return void toast.push('error', 'Reorder level must be a number')
       const data = {
         name: name.trim(),
         groupId: item?.groupId ?? null,
@@ -682,10 +687,10 @@ export function ItemFormModal({ item, onClose }: { item: StockItem | null; onClo
         // Hidden GST fields keep what an existing item has stored (a new one gets none).
         gstRate: gstRate.trim() ? Number(gstRate) : null,
         cessRate: cessRate.trim() ? Number(cessRate) : null,
-        openingQtyMilli: parseQtyText(openQty) ?? 0,
+        openingQtyMilli: openQtyMilli,
         openingValue: openValue ?? 0,
         barcode: barcode.trim() || null,
-        reorderLevelMilli: reorderText.trim() ? (parseQtyText(reorderText) ?? 0) : null,
+        reorderLevelMilli: reorderMilli,
         valuationMethod,
         trackSerials,
         ...(features.tcs ? { tcsSectionId: tcsSectionId === '' ? null : tcsSectionId } : {}),

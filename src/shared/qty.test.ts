@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { parseQtyText } from './qty'
 import { computeInvoice, emptyInvoiceState, type InvoiceContext } from './voucherEdit'
+import { buildStockLinesPayload, emptyStockLinesState, blankStockLineRow } from './voucherEdit/stockLines'
 
 describe('parseQtyText — typed quantities, integer thousandths (bug hunt 2026-11)', () => {
   it('reads Indian and western digit grouping ("1,500" was read as 1)', () => {
@@ -27,6 +28,26 @@ describe('parseQtyText — typed quantities, integer thousandths (bug hunt 2026-
     expect(parseQtyText('2 Nos')).toBeNull()
     expect(parseQtyText('.')).toBeNull()
     expect(parseQtyText('99999999999999999')).toBeNull()
+  })
+  it('a comma typed for a decimal point is refused, never read 100x too large (review #192)', () => {
+    expect(parseQtyText('1,50')).toBeNull()
+    expect(parseQtyText('12,34')).toBeNull()
+    expect(parseQtyText('1,500,00')).toBeNull()
+    expect(parseQtyText('1,500,000')).toBe(1_500_000_000)
+    expect(parseQtyText('12,34,567')).toBe(1_234_567_000)
+  })
+})
+
+describe('stock lines refuse an unreadable quantity (review #192)', () => {
+  const state = (qtyText: string, isAbsolute: boolean) => ({
+    ...emptyStockLinesState('2026-08-01'),
+    rows: [{ ...blankStockLineRow('in'), itemId: 1, qtyText, isAbsolute }]
+  })
+  it.each(['abc', '-2', '1,5', '2 Nos', '1e3', ''])('count row "%s" is an error, not a count of 0', (t) => {
+    expect(buildStockLinesPayload(state(t, true), { voucherTypeId: 1 }).ok).toBe(false)
+  })
+  it('a count of 0 typed as 0 is still a count', () => {
+    expect(buildStockLinesPayload(state('0', true), { voucherTypeId: 1 }).ok).toBe(true)
   })
 })
 
