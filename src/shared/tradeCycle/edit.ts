@@ -12,6 +12,7 @@ import type { TradeDocInputParsed } from '../schemas'
 import { computeInvoice, type InvoiceComputed, type InvoiceFormState, type InvoiceRowState } from '../voucherEdit/invoice'
 import { qtyText } from '../voucherEdit/payload'
 import type { TradeDoc, TradeDocDraft, TradeDocTotals } from './types'
+import { parseQtyText } from '../qty'
 
 /** An order / quotation grid row: the invoice row plus the order-only line fields. */
 export interface TradeDocRowState extends InvoiceRowState {
@@ -120,7 +121,7 @@ export function buildTradeDocPayload(state: TradeDocFormState, ctx: TradeDocCont
   if (state.partyId == null) return { ok: false, error: 'Pick the party first' }
   const filled = state.rows.filter((r) => r.itemId != null)
   for (const [i, r] of filled.entries()) {
-    const q = Math.round(parseFloat(r.qtyText || '0') * 1000)
+    const q = (parseQtyText(r.qtyText) ?? 0)
     if (!Number.isFinite(q) || q <= 0) return { ok: false, error: `Line ${i + 1}: enter a quantity` }
     if (r.rate == null) return { ok: false, error: `Line ${i + 1}: enter a rate (0 is allowed)` }
     if (!ctx.items.has(r.itemId!)) return { ok: false, error: `Line ${i + 1}: unknown stock item` }

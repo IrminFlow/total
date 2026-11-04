@@ -15,6 +15,7 @@ import type { FxRate } from '../cashFinance'
 import type { MessageKey, Translate } from '../i18n'
 import { formatPaise } from '../money'
 import { toPlainDate } from '../dates'
+import { parseQtyText } from '../qty'
 
 // ---------- the model pick ----------
 
@@ -292,7 +293,8 @@ function singleItemRow(state: unknown): { itemId: number; qtyMilli?: number } | 
   const goods = rows.filter((r) => typeof r?.itemId === 'number' && r.itemId > 0)
   if (goods.length !== 1) return null
   const r = goods[0]!
-  const q = typeof r.qtyMilli === 'number' && r.qtyMilli > 0 ? r.qtyMilli : /^\d+(\.\d{1,3})?$/.test(String(r.qtyText ?? '').trim()) ? Math.round(Number(String(r.qtyText).trim()) * 1000) : undefined
+  const typed = parseQtyText(String(r.qtyText ?? ''))
+  const q = typeof r.qtyMilli === 'number' && r.qtyMilli > 0 ? r.qtyMilli : typed != null && typed > 0 ? typed : undefined
   return { itemId: r.itemId!, ...(q ? { qtyMilli: q } : {}) }
 }
 

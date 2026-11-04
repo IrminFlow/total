@@ -22,6 +22,13 @@ Things to know about the version numbers:
 
 ### Fixed
 
+- **Quantities with commas are read right in the full app** (#192). Plain words: typing "1,500" as a
+  quantity in an invoice, stock note, stock journal, manufacture, physical stock count, order, the
+  counter, an item's opening stock / reorder level or a recipe now means one thousand five hundred —
+  it used to be read as 1. For accountants: every editor reads quantities through ONE parser
+  (`shared/qty.ts` `parseQtyText`: Indian or western grouping, integer thousandths, no floats — the
+  same rule simple mode's `readQty` now uses); the three-way-match amount tolerance is read with
+  `parseAmountText`. Text that is not a quantity ("1,5", "2 Nos") is no quantity, as a blank row.
 - **GST returns agree with the books** (#187). Plain words: a bill's GST in the returns, on Home,
   in Taxes and in Ask Total is now the GST the bill actually charged, to the paisa.
   For accountants — figures that change:
@@ -47,6 +54,8 @@ Things to know about the version numbers:
     invoice: numbers restart every year and opening bills carry names too, so a name shared by two
     bills is never guessed), judged by the invoice's own place of supply, as GSTN's CDNUR help says.
     A note whose original is not found is judged by its own value, as before.
+||||||| 3e971480
+Nothing yet.
 
 ## [0.12.0] - 2026-10-22
 

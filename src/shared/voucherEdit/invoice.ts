@@ -12,6 +12,7 @@ import {
   confirmRoundTrip, passthroughOf, qtyText,
   type BuildResult, type LinePayload, type Representation
 } from './payload'
+import { parseQtyText } from '../qty'
 
 export interface InvoiceRowState {
   itemId: number | null
@@ -208,7 +209,7 @@ export function computeInvoice(state: InvoiceFormState, ctx: InvoiceContext): In
   const detail: InvoiceLineDetail[] = []
   for (const r of state.rows) {
     const item = r.itemId != null ? ctx.items.get(r.itemId) : undefined
-    const qtyMilli = Math.round(parseFloat(r.qtyText || '0') * 1000)
+    const qtyMilli = (parseQtyText(r.qtyText) ?? 0)
     if (!item || r.itemId == null || !Number.isFinite(qtyMilli) || qtyMilli <= 0 || r.rate == null) continue
     // Rates (and discounts) are typed in the invoice currency; books stay in ₹.
     const baseRate = fxActive ? Math.round(r.rate * fxRate!) : r.rate

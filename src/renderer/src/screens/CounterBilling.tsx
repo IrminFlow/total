@@ -21,6 +21,7 @@ import { useUnsavedGuard } from '../lib/useUnsavedGuard'
 import { isBankLedger, isCashOrBankLedger, isPartyLedger, nextLineKey } from './voucher/hooks'
 import { PriceHint, useLinePricing, type RowPricing } from './voucher/useLinePricing'
 import { PricingOptions } from './voucher/PricingOptions'
+import { parseQtyText } from '@shared/qty'
 
 // ---------- Counter billing (WP 2.6) ----------
 // A POS-style sales screen. The search / barcode box keeps the focus: typing filters items,
@@ -45,8 +46,8 @@ const FIELDS: Field3[] = ['qty', 'rate', 'disc']
 const FIELD_LABEL: Record<Field3, string> = { qty: 'Qty', rate: 'Rate', disc: 'Disc.' }
 
 const qtyMilliOf = (t: string): number => {
-  const q = Math.round(parseFloat(t || '0') * 1000)
-  return Number.isFinite(q) && q > 0 ? q : 0
+  const q = parseQtyText(t) ?? 0
+  return q > 0 ? q : 0
 }
 const qtyTextOf = (milli: number): string => String(milli / 1000)
 
