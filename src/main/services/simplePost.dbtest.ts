@@ -17,7 +17,7 @@ import {
   buildAccountingPayload, buildInvoicePayload, derivePartyId, emptyInvoiceState, planVoucherEdit, taxLedgerIdsFrom, taxSideOf, voucherTaxLedgers,
   type AccountingFormState, type EditPlan, type InvoiceFormState
 } from '@shared/voucherEdit'
-import { createLedger, createStockItem, listGroups, listLedgers, listStockItems } from './masters'
+import { createLedger, createStockItem, listGroups, listLedgers, listStockItems, updateStockItem } from './masters'
 import { getVoucher, nextVoucherNumber, saveVoucher, setLockDate } from './vouchers'
 import { partyAllocation } from './analysis'
 import { replaceOpeningBills } from './openingBills'
@@ -25,11 +25,11 @@ import { setCreditHold } from './receivables'
 import { postClose } from './yearEnd'
 import { getFeatures, setFeatures } from './config'
 import { restoreFromBin, saveSummary, undoSave } from './undo'
-import { previewIntent, postIntent, remapSaveError } from './simplePost'
+import { intentForm, previewIntent, postIntent, remapSaveError } from './simplePost'
 import { normaliseIntent, type MappedEntry } from '@shared/simple/intents'
 import { saleView, salesList, sellSetup } from './simpleSell'
 import { createMemory } from '../ai/memory'
-import { extractOutwardDocs, gstr1 } from './gst'
+import { extractOutwardDocs, gstr1, gstr3b } from './gst'
 import { extractEdocInvoices } from './edocs'
 import { emptySellForm, saleIntentFrom, saleStatus, sellFormErrors, sellTotals, type SellContext, type SellForm } from '@shared/simple/sell'
 
@@ -765,6 +765,301 @@ describe('WP 9.2 Make a bill: the form → simple:post = the invoice + receipt a
     expect(trace()).toEqual(locked)
     expect((before as { vouchers: number }).vouchers).toBe((locked as { vouchers: number }).vouchers)
   })
+})
+
+// Bug hunt 2026-11: returning a bill in parts shared the discount pro rata and rounded each note on
+// its own — 3 x 100.50 less ₹1 at 18 % on credit (₹355), three returns of 1 each = notes of ₹118 x 3
+// = ₹354: the customer still owed ₹1 and CGST went 1 paisa negative.
+describe('a bill returned in parts nets to exactly zero', () => {
+  beforeEach(() => { db = company() })
+  const net = (name: string): number =>
+    (db.prepare("SELECT COALESCE(SUM(CASE WHEN dr_cr = 'cr' THEN amount ELSE -amount END), 0) AS t FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id WHERE v.deleted_at IS NULL AND ledger_id = ?").get(L(name)) as { t: number }).t
+  it('the last return takes the remaining discount, tax and round off: nothing owed, no negative tax', () => {
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '3', rate: '100.50', discount: '1' }] })
+    const bill = getVoucher(db, sale.voucherIds[0]!)!
+    const billTotal = bill.lines.find((l) => l.ledgerId === L('Ramesh'))!.amount
+    expect(billTotal).toBe(35_500)
+    const notes = [0, 1, 2].map(() => getVoucher(db, post({ kind: 'return_sale', billId: bill.id, items: [{ lineUid: bill.inventory[0]!.lineUid!, qty: '1' }] }).voucherIds[0]!)!)
+    // Each note's taxable value and tax are never negative; together they give back exactly the bill.
+    for (const n of notes) for (const l of n.lines) expect(l.amount).toBeGreaterThan(0)
+    expect(notes.reduce((s, n) => s + n.lines.find((l) => l.ledgerId === L('Ramesh'))!.amount, 0)).toBe(billTotal)
+    expect(notes.reduce((s, n) => s + n.inventory[0]!.amount, 0)).toBe(bill.inventory[0]!.amount)
+    expect([net('Sales'), net('CGST'), net('SGST'), net('Round Off'), net('Ramesh')]).toEqual([0, 0, 0, 0, 0])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+    const r3 = gstr3b(db, INFO, '2025-08-01', '2025-08-31', '082025')
+    expect(r3.outward).toMatchObject({ taxable: 0, cgst: 0, sgst: 0, igst: 0 })
+    // Each note still opens in its editor and saves back unchanged.
+    for (const n of notes) roundTrips(n.id, 'invoice')
+  })
+  it('a return of the whole bill at once is unchanged (the bill exactly)', () => {
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '3', rate: '100.50', discount: '1' }] })
+    const bill = getVoucher(db, sale.voucherIds[0]!)!
+    const note = getVoucher(db, post({ kind: 'return_sale', billId: bill.id, items: [{ lineUid: bill.inventory[0]!.lineUid!, qty: '3' }] }).voucherIds[0]!)!
+    expect(note.lines.find((l) => l.ledgerId === L('Ramesh'))!.amount).toBe(35_500)
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+  })
+  it('an amount bill returned in parts: the last return takes what is left of the bill', () => {
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '100.50', gstRate: 18 } })
+    const billId = sale.voucherIds[0]!
+    post({ kind: 'return_sale', billId, amount: { amount: '33.50' } })
+    post({ kind: 'return_sale', billId, amount: { amount: '33.50' } })
+    post({ kind: 'return_sale', billId, amount: { amount: '33.50' } })
+    expect([net('Sales'), net('CGST'), net('SGST'), net('Round Off'), net('Ramesh')]).toEqual([0, 0, 0, 0, 0])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+  })
+})
+
+// Review of the fix above: returns in parts still left money owing in three shapes. Each return's
+// value, discount, tax and round off now come from the RUNNING total (everything returned so far,
+// this return included, less what the earlier returns posted), so the notes give back exactly the
+// bill once it is all returned and no head ever goes below zero.
+describe('returns in parts: the running total nets every shape to zero', () => {
+  const net = (name: string, d: DB = db): number =>
+    (d.prepare("SELECT COALESCE(SUM(CASE WHEN dr_cr = 'cr' THEN amount ELSE -amount END), 0) AS t FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id WHERE v.deleted_at IS NULL AND ledger_id = ?").get(L(name, d)) as { t: number }).t
+  const partyTotal = (id: number, party: string): number => getVoucher(db, id)!.lines.filter((l) => l.ledgerId === L(party)).reduce((s, l) => s + l.amount, 0)
+  const lineOf = (bill: Voucher, item: string): string => bill.inventory.find((l) => l.stockItemId === I(item))!.lineUid!
+
+  it('a company that charges no GST: 3 x ₹100.50 less ₹1 = ₹301, three returns of 1 = ₹100 + ₹100 + ₹101', () => {
+    const info: CompanyInfo = { ...INFO, gstin: null, gstRegistrationType: 'unregistered' }
+    db = company(info)
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '3', rate: '100.50', discount: '1' }] }, db, info)
+    const bill = getVoucher(db, sale.voucherIds[0]!)!
+    expect(partyTotal(bill.id, 'Ramesh')).toBe(30_100)
+    // Running: 100.17 -> ₹100; 200.33 -> ₹200 (₹100 more); 300.50 -> ₹301 (₹101 more).
+    const notes = [0, 1, 2].map(() => post({ kind: 'return_sale', billId: bill.id, items: [{ lineUid: lineOf(bill, 'Widget'), qty: '1' }] }, db, info).voucherIds[0]!)
+    expect(notes.map((id) => partyTotal(id, 'Ramesh'))).toEqual([10_000, 10_000, 10_100])
+    expect([net('Sales'), net('Round Off'), net('Ramesh'), net('CGST'), net('SGST')]).toEqual([0, 0, 0, 0, 0])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+    for (const id of notes) roundTrips(id, 'invoice')
+  })
+
+  it('a bill of two lines returned one unit at a time in mixed order (₹460) nets to zero', () => {
+    db = company()
+    // Widget 3 x 100.30 @ 18 % = 300.90 (CGST 27.08 + SGST 27.08); Rice 3 x 33.33 less 0.10 @ 5 % = 99.89
+    // (2.50 + 2.50): 459.95 -> ₹460.
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '3', rate: '100.30' }, { itemId: I('Rice'), qty: '3', rate: '33.33', discount: '0.10' }] })
+    const bill = getVoucher(db, sale.voucherIds[0]!)!
+    expect(partyTotal(bill.id, 'Ramesh')).toBe(46_000)
+    const order = ['Widget', 'Rice', 'Rice', 'Widget', 'Widget', 'Rice']
+    const notes = order.map((item) => post({ kind: 'return_sale', billId: bill.id, items: [{ lineUid: lineOf(bill, item), qty: '1' }] }).voucherIds[0]!)
+    expect(notes.reduce((s, id) => s + partyTotal(id, 'Ramesh'), 0)).toBe(46_000)
+    expect([net('Sales'), net('CGST'), net('SGST'), net('Round Off'), net('Ramesh')]).toEqual([0, 0, 0, 0, 0])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+    for (const id of notes) roundTrips(id, 'invoice')
+  })
+
+  it('a small discount over nine returns is never over-shared: 9 x ₹1.11 less ₹0.05 (₹12) nets to zero', () => {
+    db = company()
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '9', rate: '1.11', discount: '0.05' }] })
+    const bill = getVoucher(db, sale.voucherIds[0]!)!
+    expect(partyTotal(bill.id, 'Ramesh')).toBe(1_200)
+    const notes = Array.from({ length: 9 }, () => post({ kind: 'return_sale', billId: bill.id, items: [{ lineUid: lineOf(bill, 'Widget'), qty: '1' }] }).voucherIds[0]!)
+    // The discounts of the nine notes add up to the bill's ₹0.05, never more.
+    expect(notes.reduce((s, id) => s + getVoucher(db, id)!.inventory[0]!.discountPaise, 0)).toBe(5)
+    expect([net('Sales'), net('CGST'), net('SGST'), net('Round Off'), net('Ramesh')]).toEqual([0, 0, 0, 0, 0])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+    for (const id of notes) roundTrips(id, 'invoice')
+  })
+
+  // Review 4: the returns report the POSTED tax of a running-total note — books = GSTR-1 = GSTR-3B.
+  const gstAgrees = (): void => {
+    const docs = extractOutwardDocs(db, INFO, '2025-08-01', '2025-08-31')
+    const head = (k: 'taxable' | 'cgst' | 'sgst' | 'igst') => docs.reduce((s, d) => s + (d.kind === 'credit_note' ? -1 : 1) * d.items.reduce((x, i) => x + i[k], 0), 0)
+    expect([head('taxable'), head('cgst'), head('sgst'), head('igst')]).toEqual([net('Sales'), net('CGST'), net('SGST'), net('IGST')])
+    for (const d of docs) for (const i of d.items) expect(Math.min(i.cgst, i.sgst, i.igst), `doc ${d.number}`).toBeGreaterThanOrEqual(0)
+    const r3 = gstr3b(db, INFO, '2025-08-01', '2025-08-31', '082025').outward
+    expect([r3.taxable, r3.cgst, r3.sgst, r3.igst]).toEqual([net('Sales'), net('CGST'), net('SGST'), net('IGST')])
+  }
+  it('GSTR-1 / 3B report the posted tax: 9 x ₹1.11 less ₹0.05 returned one at a time and the ₹460 two-line bill', () => {
+    db = company()
+    const small = getVoucher(db, post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '9', rate: '1.11', discount: '0.05' }] }).voucherIds[0]!)!
+    for (let k = 0; k < 9; k++) {
+      post({ kind: 'return_sale', billId: small.id, items: [{ lineUid: lineOf(small, 'Widget'), qty: '1' }] })
+      gstAgrees()
+    }
+    const two = getVoucher(db, post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '3', rate: '100.30' }, { itemId: I('Rice'), qty: '3', rate: '33.33', discount: '0.10' }] }).voucherIds[0]!)!
+    for (const item of ['Widget', 'Rice', 'Rice', 'Widget', 'Widget', 'Rice']) {
+      post({ kind: 'return_sale', billId: two.id, items: [{ lineUid: lineOf(two, item), qty: '1' }] })
+      gstAgrees()
+    }
+    const amount = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '100.50', gstRate: 18 } }).voucherIds[0]!
+    for (let k = 0; k < 3; k++) {
+      post({ kind: 'return_sale', billId: amount, amount: { amount: '33.50' } })
+      gstAgrees()
+    }
+  })
+
+  // Re-review 1: an amount bill — an earlier note found by its reference counts toward the running
+  // total only when it is entirely on the bill's account and its tax is the bill's rate's (within a
+  // paisa per head); otherwise the next return is computed on its own, as main.
+  const accountantNote = (reference: string, lines: { ledger: string; drCr: 'dr' | 'cr'; amount: number }[]): number =>
+    saveVoucher(db, {
+      voucherTypeId: typeId(db, 'credit_note'), date: TODAY, number: `CN-ACC-${++seq}`, narration: 'by hand', reference, partyLedgerId: L('Ramesh'),
+      lines: lines.map((l) => ({ ledgerId: L(l.ledger), drCr: l.drCr, amount: l.amount })), billRefs: []
+    } as never).id
+  const linesOf = (id: number) => getVoucher(db, id)!.lines.map((l) => [listLedgers(db).find((x) => x.id === l.ledgerId)!.name, l.drCr, l.amount]).sort()
+  it('an amount bill after an accountant note with another account on it: the return is computed on its own (₹118)', () => {
+    db = company()
+    ledger(db, 'Other income', 'Indirect Incomes')
+    const bill = getVoucher(db, post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '300', gstRate: 18 } }).voucherIds[0]!)!
+    accountantNote(bill.number, [
+      { ledger: 'Sales', drCr: 'dr', amount: 10_000 }, { ledger: 'Other income', drCr: 'dr', amount: 5_000 },
+      { ledger: 'CGST', drCr: 'dr', amount: 1_350 }, { ledger: 'SGST', drCr: 'dr', amount: 1_350 }, { ledger: 'Ramesh', drCr: 'cr', amount: 17_700 }
+    ])
+    const note = post({ kind: 'return_sale', billId: bill.id, amount: { amount: '100' } }).voucherIds[0]!
+    expect(linesOf(note)).toEqual([['CGST', 'dr', 900], ['Ramesh', 'cr', 11_800], ['SGST', 'dr', 900], ['Sales', 'dr', 10_000]].sort())
+  })
+  it('an amount bill after an accountant note at another rate (12 %): the return is computed on its own (₹118)', () => {
+    db = company()
+    const bill = getVoucher(db, post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '300', gstRate: 18 } }).voucherIds[0]!)!
+    accountantNote(bill.number, [
+      { ledger: 'Sales', drCr: 'dr', amount: 10_000 }, { ledger: 'CGST', drCr: 'dr', amount: 600 }, { ledger: 'SGST', drCr: 'dr', amount: 600 }, { ledger: 'Ramesh', drCr: 'cr', amount: 11_200 }
+    ])
+    const note = post({ kind: 'return_sale', billId: bill.id, amount: { amount: '100' } }).voucherIds[0]!
+    expect(linesOf(note)).toEqual([['CGST', 'dr', 900], ['Ramesh', 'cr', 11_800], ['SGST', 'dr', 900], ['Sales', 'dr', 10_000]].sort())
+  })
+  // Re-review 2: a return handed off to the full editor (simple:intentForm) and saved there has no
+  // simple_posts row — GSTR-1 / 3B must still equal the books. (Recognising running-total notes from
+  // the voucher would move the Perf Traders GSTR-1 fixture, so the hand-off carries no fixedTax:
+  // the editor computes per line, as main.)
+  it('returns handed off to the full editor and saved there: books = GSTR-1 = GSTR-3B (the editor computes per line)', () => {
+    db = company()
+    const small = getVoucher(db, post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '9', rate: '1.11', discount: '0.05' }] }).voucherIds[0]!)!
+    for (let k = 0; k < 9; k++) {
+      const form = intentForm(db, INFO, { clientId: `handoff-${k}-xxxx`, kind: 'return_sale', billId: small.id, items: [{ lineUid: lineOf(small, 'Widget'), qty: '1' }] }, TODAY)
+      const e = form.entries[0]! as { form: 'invoice'; state: InvoiceFormState; voucherTypeId: number }
+      expect(e.state.fixedTax).toBeUndefined()
+      const built = buildInvoicePayload({ ...e.state, number: `HN-${k}` }, { ...invoiceCtx(db), kind: 'credit_note' }, e.voucherTypeId, taxLedgerIdsFrom(listLedgers(db), taxSideOf('credit_note')))
+      if (!built.ok) throw new Error(built.error)
+      saveVoucher(db, built.payload)
+      gstAgrees()
+    }
+    // The goods' value comes back exactly (the rows keep the running discount share).
+    expect(net('Sales')).toBe(0)
+  })
+
+  // Review 2: an accountant's note that returned lines of TWO bills — its tax / round off can't be
+  // told apart per bill, so a later simple return of one of them is computed on its own (as main),
+  // never off the other bill's share.
+  it('an earlier note that returned from two bills: the next return of one bill is computed on its own', () => {
+    db = company()
+    const a = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '3', rate: '100' }] })
+    const b = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '2', rate: '100' }] })
+    const billA = getVoucher(db, a.voucherIds[0]!)!
+    const billB = getVoucher(db, b.voucherIds[0]!)!
+    expect([partyTotal(billA.id, 'Ramesh'), partyTotal(billB.id, 'Ramesh')]).toEqual([35_400, 23_600])
+    // The accountant's credit note: 1 back from A and 1 from B (₹236), on account.
+    const row = (uid: string) => ({ itemId: I('Widget'), qtyText: '1', rate: 10_000, discount: null, godownId: null, batchId: null, source: { lineUid: uid, linkType: 'return' as const } })
+    const state: InvoiceFormState = {
+      ...emptyInvoiceState(TODAY), partyId: L('Ramesh'), accountId: L('Sales'), rows: [row(billA.inventory[0]!.lineUid!), row(billB.inventory[0]!.lineUid!)],
+      billName: 'CN-mixed', billDueDate: TODAY, manualNewBillMode: true
+    }
+    const built = buildInvoicePayload(state, { ...invoiceCtx(db), kind: 'credit_note' }, typeId(db, 'credit_note'), taxLedgerIdsFrom(listLedgers(db), taxSideOf('credit_note')))
+    if (!built.ok) throw new Error(built.error)
+    const mixed = saveVoucher(db, built.payload).id
+    expect(partyTotal(mixed, 'Ramesh')).toBe(23_600)
+    // The simple return of the 2 left on A: ₹200 + 18 % = ₹236 (as main), not ₹118.
+    const note = getVoucher(db, post({ kind: 'return_sale', billId: billA.id, items: [{ lineUid: billA.inventory[0]!.lineUid!, qty: '2' }] }).voucherIds[0]!)!
+    expect(note.lines.map((l) => [l.ledgerId, l.drCr, l.amount]).sort()).toEqual(
+      [[L('Ramesh'), 'cr', 23_600], [L('Sales'), 'dr', 20_000], [L('CGST'), 'dr', 1_800], [L('SGST'), 'dr', 1_800]].sort()
+    )
+    roundTrips(note.id, 'invoice')
+  })
+
+  // Review 3: a saved return note is read back with its posted tax only when that tax is the
+  // computation's within a paisa per line per head (and a round off under ₹1) — an accountant's 18 %
+  // note whose item is now 12 % opens as on main, never in the invoice form at its saved tax.
+  it('an accountant 18 % return note whose item rate changed to 12 % does not open in the invoice form', () => {
+    db = company()
+    const sale = getVoucher(db, post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '1', rate: '100' }] }).voucherIds[0]!)!
+    const state: InvoiceFormState = {
+      ...emptyInvoiceState(TODAY), partyId: L('Ramesh'), accountId: L('Sales'), billName: 'CN-1', billDueDate: TODAY, manualNewBillMode: true,
+      rows: [{ itemId: I('Widget'), qtyText: '1', rate: 10_000, discount: null, godownId: null, batchId: null, source: { lineUid: sale.inventory[0]!.lineUid!, linkType: 'return' } }]
+    }
+    const built = buildInvoicePayload(state, { ...invoiceCtx(db), kind: 'credit_note' }, typeId(db, 'credit_note'), taxLedgerIdsFrom(listLedgers(db), taxSideOf('credit_note')))
+    if (!built.ok) throw new Error(built.error)
+    const note = saveVoucher(db, built.payload).id
+    roundTrips(note, 'invoice')
+    const widget = listStockItems(db).find((i) => i.id === I('Widget'))!
+    updateStockItem(db, widget.id, stockItemInputSchema.parse({ ...widget, gstRate: 12 }))
+    const before = rows(db, note)
+    const { plan } = editorResave(db, note)
+    expect(plan.mode).not.toBe('invoice')
+    expect(rows(db, note)).toEqual(before)
+  })
+
+  // Property: any bill, returned in full in any order and any split, nets to zero in every account;
+  // after every step no tax head has given back more than the bill charged, and no note posts a
+  // negative tax line.
+  it('random bills returned in random parts always net to zero and never go negative', () => {
+    let s = 20261104
+    // mulberry32: a seeded PRNG, so a failing run can be replayed.
+    const rnd = (n: number): number => {
+      s = (s + 0x6d2b79f5) | 0
+      let t = Math.imul(s ^ (s >>> 15), 1 | s)
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+      return Math.floor((((t ^ (t >>> 14)) >>> 0) / 4294967296) * n)
+    }
+    const regular = INFO
+    const unregistered: CompanyInfo = { ...INFO, gstin: null, gstRegistrationType: 'unregistered' }
+    for (let run = 0; run < 30; run++) {
+      const info = rnd(4) === 0 ? unregistered : regular
+      db = company(info)
+      const sale = rnd(3) !== 0
+      const party = sale ? (rnd(2) ? 'Ramesh' : 'Kumar') : 'Bharat Steel'
+      const items = rnd(2) ? ['Widget', 'Rice'] : [rnd(2) ? 'Widget' : 'Rice']
+      const amountBill = rnd(4) === 0
+      let billId: number
+      if (amountBill) {
+        const amount = 1_000 + rnd(50_000)
+        // (A company that can't claim folds a purchase's GST into its cost — so no rate there.)
+        const gst = info === regular ? { gstRate: [5, 12, 18][rnd(3)] } : {}
+        const out = sale
+          ? post({ kind: 'sale', customerId: L(party), amount: { amount, ...gst } }, db, info)
+          : post({ kind: 'purchase', supplierId: L(party), billNo: `R-${run}`, amount: { amount, ...gst } }, db, info)
+        billId = out.voucherIds[0]!
+        let left = amount
+        while (left > 0) {
+          const part = Math.min(left, 1 + rnd(Math.max(1, Math.floor(amount / 2))))
+          post({ kind: sale ? 'return_sale' : 'return_purchase', billId, amount: { amount: part } }, db, info)
+          left -= part
+        }
+      } else {
+        const lines = items.map((item) => ({ itemId: I(item), qty: String(2 + rnd(8)), rate: (1 + rnd(30_000) / 100).toFixed(2), discount: rnd(2) ? (rnd(200) / 100).toFixed(2) : undefined }))
+        const out = sale
+          ? post({ kind: 'sale', customerId: L(party), items: lines }, db, info)
+          : post({ kind: 'purchase', supplierId: L(party), billNo: `R-${run}`, items: lines }, db, info)
+        billId = out.voucherIds[0]!
+        const bill = getVoucher(db, billId)!
+        // Split each line into unit parts (sometimes a half), then shuffle the parts into returns.
+        const parts: { lineUid: string; milli: number }[] = []
+        for (const l of bill.inventory) {
+          let left = l.qtyMilli
+          while (left > 0) {
+            const p = Math.min(left, rnd(3) === 0 ? 500 : 1000 * (1 + rnd(2)))
+            parts.push({ lineUid: l.lineUid!, milli: p })
+            left -= p
+          }
+        }
+        for (let i = parts.length - 1; i > 0; i--) { const j = rnd(i + 1); [parts[i], parts[j]] = [parts[j]!, parts[i]!] }
+        while (parts.length) {
+          const take = parts.splice(0, 1 + rnd(2))
+          const byLine = new Map<string, number>()
+          for (const p of take) byLine.set(p.lineUid, (byLine.get(p.lineUid) ?? 0) + p.milli)
+          const id = post({ kind: sale ? 'return_sale' : 'return_purchase', billId, items: [...byLine].map(([lineUid, m]) => ({ lineUid, qty: String(m / 1000) })) }, db, info).voucherIds[0]!
+          const note = getVoucher(db, id)!
+          const taxIds = ['CGST', 'SGST', 'IGST'].map((n) => L(n))
+          const counter = sale ? 'dr' : 'cr'
+          for (const l of note.lines.filter((x) => taxIds.includes(x.ledgerId))) expect(l.drCr, `run ${run}: a note posted a negative tax line`).toBe(counter)
+          // The bill's side of each head minus the returns so far never crosses zero.
+          for (const head of ['CGST', 'SGST', 'IGST']) expect(sale ? net(head) : -net(head), `run ${run} ${head}`).toBeGreaterThanOrEqual(0)
+          if (!amountBill) roundTrips(id, 'invoice')
+        }
+      }
+      expect([net('Sales'), net('Purchases'), net('CGST'), net('SGST'), net('IGST'), net('Round Off'), net(party)], `run ${run}`).toEqual([0, 0, 0, 0, 0, 0, 0])
+      expect(due(party), `run ${run}`).toMatchObject({ bills: [], unappliedCredit: 0 })
+    }
+  }, 120_000)
 })
 
 // Bug hunt 2026-11: the books rounded tax per rate group, GSTR-1 / 3B and the e-invoice per line.

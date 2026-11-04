@@ -75,6 +75,80 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
 
 ### Fixed
 
+- **Tally import keeps returns, stock journals and bill-wise details** (#191). Plain words: books
+  brought over from Tally now have their sales / purchase returns, their stock and manufacturing
+  journals and which bill each payment settled — so stock and "who owes me" match Tally.
+  For accountants — figures that change after an import:
+  - A custom voucher type made from Credit Note / Debit Note in Tally (its VOUCHERTYPE master's
+    PARENT, followed up the chain) — "Sales Return", "Purchase Return" — imports as a credit / debit
+    note with goods coming back / going back; before, it became a sale / purchase and moved stock the
+    wrong way. Without the masters, the name decides (Sales Return / Return Inward → credit note,
+    Purchase Return / Return Outward → debit note, Manufacturing Journal → stock journal).
+  - Stock and manufacturing journals (no ledger entries) are imported as stock journals, each line
+    in or out as in Tally (INVENTORYENTRIESIN / OUT, or INVENTORYENTRIES with ISDEEMEDPOSITIVE); item
+    lines exported as INVENTORYENTRIES.LIST (voucher mode) are read too. Before, both were dropped,
+    so closing stock differed from Tally's.
+  - Bill-wise allocations (BILLALLOCATIONS.LIST) on the party's entry become bill references: New
+    Ref and Advance open a bill / credit (due date from the credit period), Agst Ref settles one.
+    An On Account part, or allocations that don't add up to the party's amount, leave the voucher
+    without references (as before) with a warning — Outstandings then settles it oldest first.
+  - Opening bill-wise details on a party's ledger master (BILLALLOCATIONS.LIST under LEDGER: bill
+    date, name, credit period from the bill date) become its opening bills (the one writer,
+    `replaceOpeningBills` — they add up to the opening), so a receipt "Agst Ref INV/24-25/88" settles
+    that opening bill instead of sitting as unapplied credit next to an overdue "Opening". Details
+    that can't be held (an advance in the opening, names that repeat, a total that differs) leave the
+    single opening, with a warning.
+  - An Agst Ref naming no open bill of the party as of this import (a bill in a file not imported
+    yet, or one something before settled) is rerouted on its own, the way the voucher reads without
+    references, and the voucher's other refs (a real Advance included) stay: money in / out settles
+    the open bills oldest first (written as Agst refs to them); what they can't take rides on the
+    voucher's last Agst ref, which the engine settles oldest first and then holds on account — never
+    a New ref on a receipt, so GSTR-1 11A shows exactly Tally's advances. With no Agst ref to carry
+    it — or on a refund drawing on an advance that isn't there — the voucher keeps no refs (as
+    before). A bill drawing on a missing advance opens under the entry's number, made unique as
+    simple mode does (FY suffix, then a counter). Each reroute is one warning in the import summary
+    saying what the voucher ended up with. Each party's open bills are kept in memory through the
+    import (the bill engine is now incremental, `billAllocator`; a permanent differential test
+    checks it against origin/main's engine on 50,000 generated cases), so checking refs costs
+    ~1.15× the import without them.
+  - A Physical Stock voucher (or a custom type made from it) imports as a count, as the Physical
+    Stock editor saves it; before, a count of 10 was saved as 10 going out. Tally counts per godown
+    and Total counts the whole item, so the godown counts are joined into one count when they cover
+    every godown holding the item that day (stock without a godown is Tally's Main Location; after
+    an earlier count, the godowns it found); a count that leaves out a godown still holding stock is
+    skipped with a warning naming the item and the godown — it would have lost that stock. A godown
+    counted at 0 is kept (that godown is empty); a count naming an item that isn't in the masters is
+    skipped (never saved without it); a refused count creates none of the godowns it names. Known
+    limitation: a count over several godowns is one count line for the whole item (the valuation
+    pins the item's whole quantity on every count line, so godown lines would undo each other), so
+    godown-wise stock keeps each godown's pre-count figure — the import says so for each such count.
+    Earlier-dated vouchers imported in a LATER file, after a count is in the books, are not
+    re-checked against that count.
+  - Item lines keep their godown (BATCHALLOCATIONS GODOWNNAME); a godown Total doesn't have yet is
+    created. A line split over godowns becomes one line per godown with Tally's own quantities and
+    amounts (batches without amounts share the line's by quantity, to the paisa); a split that
+    doesn't add up to the line keeps one line without a godown, with a warning; a part with no
+    quantity and no amount is left out. Before, every
+    imported line had no godown.
+  - Type names read the same with any separators or case ("Sales-Return", "PURCHASE_RETURN",
+    "Physical-Stock", a "Stock-Journal" without masters). An existing voucher type whose stored
+    kind differs from what Tally says (a VOUCHERTYPE master for it, or a name that means a kind — a
+    "Sales Return" made here as a sale) is corrected when no voucher uses it yet (audited, with a
+    warning) and kept, with a warning, when one does; a name that says nothing ("Cash Sale", "Tax
+    Invoice" without a master) keeps its stored kind silently; a custom type made
+    from Rejections Out / In saves as a rejection (purpose from the type it was made from).
+  - Vouchers are imported in date order (same-day ones in the file's order) — the order Outstandings
+    and the stock pass replay them in — and a party's entries already in the books count from their
+    own dates, so an Agst Ref never relies on a bill dated after it.
+  - An existing party ledger that already has Tally's opening (and no opening bills) takes Tally's
+    bill-wise details too. Bill allocations on a ledger other than the voucher's party, and a bill
+    type Total doesn't know, are reported instead of dropped silently; a single godown allocation
+    that doesn't match its line leaves the line without a godown, with a warning; a voucher listing
+    its goods both as IN / OUT lists and as ALLINVENTORYENTRIES moves them once (blank IN / OUT tags,
+    which TallyPrime / ERP 9 write beside a sale's item lines, don't count as lists).
+  For developers: `TallyImport.voucherTypes`, `TallyInventoryLine.direction` / `godown`,
+  `TallyVoucherLine.bills`, `TallyLedger.bills`; fixtures
+  `src/shared/fixtures/tally/daybook-returns-stock-bills.xml` and `opening-bills-physical-stock.xml`.
 - **Quantities with commas are read right in the full app** (#192). Plain words: typing "1,500" as a
   quantity in an invoice, stock note, stock journal, manufacture, physical stock count, order, the
   counter, an item's opening stock / reorder level or a recipe now means one thousand five hundred —
@@ -118,6 +192,28 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
     limit too.
   - A cash bill with no party ledger is checked against its cash / bank lines, so a ₹1,000 cash
     sale charged 5 % on an 18 % Sales account is reported at 5 % too.
+- **A bill returned in parts now clears to the paisa** (#190). Plain words: return everything on a
+  bill a few items at a time — in any order, one line or several, with or without GST — and the
+  customer (or supplier) no longer ends up owing a rupee or three, and the GST never goes a paisa
+  below zero. For accountants — figures that change: in simple Returns each return is worked out
+  from the RUNNING total: its discount is the share of everything returned of that line so far less
+  what earlier returns took, and its tax per head and rupee round off are those of everything
+  returned so far less what the earlier notes posted; the return that empties the bill takes exactly
+  what the bill still holds. 3 × ₹100.50 less ₹1 at 18 % on credit (₹355), returned one at a time:
+  notes of ₹118, ₹118, **₹119** (were ₹118 × 3 — ₹1 left owing, CGST −₹0.01 in GSTR-3B); with no GST
+  (₹301): ₹100, ₹100, **₹101**; 9 × ₹1.11 less ₹0.05 (₹12) returned one at a time now gives back ₹12
+  (was ₹9, CGST / SGST −₹0.01); a "just an amount" bill (₹119 returned as 33.50 × 3): ₹40, **₹39**,
+  **₹40** (were ₹40 × 3 — ₹1 over-refunded). A return of the whole bill, and the first return of any
+  bill, are unchanged; such a note opens in the full invoice editor showing the tax it posted and
+  saves back unchanged (`fixedTax`, kept only while its lines are unchanged). GSTR-1 and GSTR-3B
+  report the tax a note made by simple Returns POSTED (spread over its lines, never below zero), so
+  for these notes books = GSTR-1 = GSTR-3B; every other document — an accountant's note included — is
+  reported exactly as before (line by line), so a bill entered by hand can still differ from its
+  return by a paisa there. A return after an accountant's note that returned goods of two bills at
+  once — or, on a "just an amount" bill, after an accountant's note with another account on it or at
+  another rate — is computed on its own, as before. A return opened in the full editor before it is
+  saved ("Accountant view") is computed there on its own, per line, as before (only returns saved
+  from the simple screen take the running total).
 
 ## [0.12.0] - 2026-10-22
 

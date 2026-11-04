@@ -1,8 +1,16 @@
 import type { DB } from '../db/connection'
-import { orderLineMoney, parseTallyExport, TALLY_ORDER_TYPE, type TallyImport, type TallyOrder } from '@shared/tally'
+import { orderLineMoney, parseTallyExport, tallyBaseTypeName, TALLY_ORDER_TYPE, type TallyImport, type TallyLedger, type TallyOrder, type TallyVoucher } from '@shared/tally'
 import { GST_STATES } from '@shared/gst/states'
 import { fyOf } from '@shared/dates'
-import { saveVoucher } from './vouchers'
+import { formatPaise } from '@shared/money'
+import { billAllocator, type BillAllocator, type BillEvent } from '@shared/outstanding'
+import { OPENING_BALANCE_NAME } from '@shared/simple/openings'
+import { IN_BOOKS, MOVES_STOCK, saveVoucher } from './vouchers'
+import { uniqueName } from '@shared/simple/intents'
+import { createGodown, listVoucherTypes, updateVoucherType } from './masters'
+import { partyBillEventParts } from './analysis'
+import { openingBillsByParty, partySide, replaceOpeningBills, type OpeningBillRow } from './openingBills'
+import { booksBeginDay } from './cashFinanceCommon'
 import { saveTradeDoc } from './tradeDocs'
 import { listTradeDocTypes } from './tradeDocTypes'
 import { writeAudit } from './audit'
@@ -44,10 +52,17 @@ export function tallyBooksFromYear(data: TallyImport): number | null {
  *  'journal'. Tally's "Rejections In" is goods back from a customer (a receipt note), "Rejections
  *  Out" goods back to a supplier (a delivery note). Orders never get here (isOrderTypeName). */
 export function kindForName(name: string): VoucherKind {
-  const n = name.toLowerCase()
+  // Any run of separators reads as one space: "Sales-Return", "SALES_RETURN", "Sales.Return".
+  const n = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
   if (n.includes('delivery note') || n.includes('delivery challan')) return 'delivery_note'
   if (n.includes('receipt note') || n.includes('goods receipt')) return 'receipt_note'
   if (n.includes('rejection')) return /\bout\b/.test(n) ? 'delivery_note' : 'receipt_note'
+  // Returns before "sales" / "purchase" (a custom "Sales Return" type is a credit note, "Purchase
+  // Return" a debit note — Tally's Return Inward / Outward wording too).
+  if (/\bsales? ?returns?\b|\breturns? ?inwards?\b/.test(n)) return 'credit_note'
+  if (/\bpurchases? ?returns?\b|\breturns? ?outwards?\b/.test(n)) return 'debit_note'
+  // Physical Stock before "stock": its lines are counts, not movements.
+  if (/\bphysical ?stock\b/.test(n)) return 'physical_stock'
   if (n.includes('contra')) return 'contra'
   if (n.includes('payment')) return 'payment'
   if (n.includes('receipt')) return 'receipt'
@@ -55,14 +70,272 @@ export function kindForName(name: string): VoucherKind {
   if (n.includes('debit note')) return 'debit_note'
   if (n.includes('sales')) return 'sales'
   if (n.includes('purchase')) return 'purchase'
-  if (n.includes('stock')) return 'stock_journal'
+  if (n.includes('stock') || n.includes('manufactur')) return 'stock_journal'
   return 'journal'
+}
+
+/** The kind of a Tally voucher type: from the predefined type its VOUCHERTYPE master descends from
+ *  (PARENT — a custom "Sales Return" made from "Credit Note" is a credit note), else its own name. */
+export function kindForTallyType(name: string, data: Pick<TallyImport, 'voucherTypes'>): VoucherKind {
+  const base = tallyBaseTypeName(name, data.voucherTypes ?? [])
+  // A custom name says more than a generic parent only when the parent says nothing (Journal).
+  const fromBase = kindForName(base)
+  return fromBase === 'journal' && base.toLowerCase() !== name.toLowerCase() ? kindForName(name) : fromBase
+}
+
+/** Bill references from a voucher's bill-wise allocations (BILLALLOCATIONS.LIST) on the party's
+ *  ledger entries: New Ref and Advance open a bill / named credit ('new'), Agst Ref settles one
+ *  ('against'). They must add up to what the voucher posts to the party; an On Account part (or
+ *  allocations that don't add up) can't be held as references, so none are taken and it says so. */
+type ImportBillRef = { kind: 'new' | 'against'; name: string; amount: number; dueDate: string | null }
+
+function tallyBillRefs(v: TallyVoucher, party: string | null, warnings: string[]): ImportBillRef[] {
+  if (!party) return []
+  const partyLines = v.lines.filter((l) => l.ledger.toLowerCase() === party.toLowerCase())
+  const allocs = partyLines.flatMap((l) => l.bills ?? [])
+  if (allocs.length === 0) return []
+  const posted = partyLines.reduce((s, l) => s + l.amount, 0)
+  const refs = allocs.filter((b) => b.type !== 'on_account').map((b) => ({
+    kind: b.type === 'against' ? ('against' as const) : ('new' as const), name: b.name, amount: b.amount, dueDate: b.type === 'against' ? null : b.dueDate
+  }))
+  const sum = refs.reduce((s, r) => s + r.amount, 0)
+  if (refs.length === 0 || sum !== posted || new Set(partyLines.map((l) => l.drCr)).size > 1) {
+    warnings.push(`Voucher ${v.number || v.date}: its bill-wise details (${allocs.map((b) => `${b.type.replace('_', ' ')} ${b.name}`.trim()).join(', ')}) were not imported — ${allocs.some((b) => b.type === 'on_account') ? 'an On Account part' : 'they don\'t add up to the party\'s amount'}; Outstandings settles it oldest first`)
+    return []
+  }
+  return refs
+}
+
+/** A party's bill allocation kept up to date through the import (seeded once from its opening
+ *  and the books, then one event per voucher saved), so checking an Agst Ref never re-reads the
+ *  party's history. */
+interface PartyBills {
+  allocator: BillAllocator
+  sign: 1 | -1
+  /** The party's entries already in the books (date, id order), applied as the import reaches
+   *  their date — Outstandings replays by date, so a bill dated after a voucher is not open for it. */
+  pending: BillEvent[]
+  next: number
+}
+
+function advanceTo(p: PartyBills, date: string): void {
+  while (p.next < p.pending.length && p.pending[p.next]!.date <= date) p.allocator.apply(p.pending[p.next++]!)
+}
+
+/**
+ * An Agst Ref must name a bill the party has open at that point of the import (its opening bills,
+ * the books, the vouchers imported before it). One that doesn't — the bill isn't in Total (a master
+ * without its bill-wise details, a bill in a file not imported yet) or something before settled it
+ * — would sit as unapplied credit with a broken reference. Only that part is rerouted, the way the
+ * voucher reads without references; the voucher's other refs (a real Advance included) stay:
+ * - money in from a customer / out to a supplier (a settling entry): the part settles the open bills
+ *   oldest first, as Agst refs to them. What they can't take rides on the voucher's last Agst ref
+ *   (moved last): the engine settles a ref's excess oldest first and holds the rest on account —
+ *   exactly the reading without references. It is NEVER a New ref, which GSTR-1 11A would read as
+ *   an advance on a receipt. With no Agst ref to carry it, the voucher keeps no refs (as before).
+ * - a bill drawing on an advance that isn't there: the part is a bill under the entry's number
+ *   (made unique as simple mode does — FY suffix, then a counter); on a receipt / payment (a
+ *   refund) the voucher keeps no refs instead.
+ * Warnings say what the voucher ends up with, naming the bill "as of this import".
+ */
+function settleOnOpenBills(party: PartyBills, partyName: string, v: TallyVoucher, kind: VoucherKind, refs: ImportBillRef[], warnings: string[]): ImportBillRef[] {
+  if (!refs.some((r) => r.kind === 'against')) return refs
+  // tallyBillRefs took refs only when every party line is on one side.
+  const partyLine = v.lines.find((l) => l.ledger.toLowerCase() === partyName.toLowerCase())
+  const settles = party.sign * (partyLine?.drCr === 'dr' ? 1 : -1) < 0
+  const open = party.allocator.open().map((b) => ({ name: b.number, left: b.pending }))
+  const credits = party.allocator.openCredits().map((c) => ({ name: c.name, left: c.amount }))
+  const out: ImportBillRef[] = []
+  const add = (r: ImportBillRef): void => {
+    const same = out.find((o) => o.kind === r.kind && o.name === r.name)
+    if (same) same.amount += r.amount
+    else out.push({ ...r })
+  }
+  const settleFifo = (amount: number): ImportBillRef[] => {
+    let left = amount
+    const taken: ImportBillRef[] = []
+    for (const b of open) {
+      if (left === 0) break
+      const take = Math.min(b.left, left)
+      if (take === 0) continue
+      b.left -= take
+      left -= take
+      taken.push({ kind: 'against', name: b.name, amount: take, dueDate: null })
+    }
+    if (left > 0) taken.push({ kind: 'against', name: '', amount: left, dueDate: null })
+    return taken
+  }
+  const label = `Voucher ${v.number || v.date}`
+  const notFound = (names: string[], what: string): string =>
+    `${label}: its Agst Ref ${names.join(', ')} ${names.length > 1 ? 'name' : 'names'} no open ${what} of ${partyName} as of this import (it may be in a file not imported yet)`
+  const keepNone = (names: string[], what: string, why: string): ImportBillRef[] => {
+    // A real Tally New Ref / Advance on the same voucher goes with them — say so by name, so a later
+    // "Agst Ref" to it is understood (final review of #191: the advance left GSTR-1 11A silently).
+    const lost = refs.filter((r) => r.kind === 'new').map((r) => `${r.name} (${formatPaise(r.amount, { symbol: true })})`)
+    const lostNote = lost.length ? `; its ${lost.length > 1 ? 'advances / new bills' : 'advance / new bill'} ${lost.join(', ')} ${lost.length > 1 ? 'are' : 'is'} not kept either (not in GSTR-1 advances) — record ${lost.length > 1 ? 'them' : 'it'} by hand if needed` : ''
+    warnings.push(`${notFound(names, what)}, and ${why} — its bill-wise details were not imported; Outstandings settles it oldest first${lostNote}`)
+    return []
+  }
+  const notes: string[] = []
+  const unknown: ImportBillRef[] = []
+  for (const r of refs) {
+    if (r.kind !== 'against') {
+      add(r)
+      continue
+    }
+    if (!settles) {
+      const credit = credits.find((c) => c.name === r.name && c.left > 0)
+      if (credit) {
+        credit.left -= Math.min(credit.left, r.amount)
+        add(r)
+        continue
+      }
+      if (kind === 'receipt' || kind === 'payment') return keepNone([r.name], 'advance', 'a refund can\'t open a bill of its own')
+      if (!v.number) return keepNone([r.name], 'advance', 'the entry has no number to name a bill by')
+      const name = uniqueName(v.number, new Set([...open.map((b) => b.name), ...credits.map((c) => c.name)]), v.date)
+      add({ kind: 'new', name, amount: r.amount, dueDate: null })
+      notes.push(`${notFound([r.name], 'advance')} — that part is a bill of its own, ${name}`)
+      continue
+    }
+    const named = open.find((b) => b.name === r.name && b.left > 0)
+    if (!named) {
+      unknown.push(r)
+      continue
+    }
+    const take = Math.min(named.left, r.amount)
+    named.left -= take
+    // The engine settles an Agst Ref's excess oldest first: so does the tracking here.
+    settleFifo(r.amount - take)
+    add(r)
+  }
+  if (unknown.length) {
+    const taken = settleFifo(unknown.reduce((s, r) => s + r.amount, 0))
+    const onAccount = taken.find((t) => !t.name)?.amount ?? 0
+    taken.filter((t) => t.name).forEach(add)
+    const names = unknown.map((r) => r.name)
+    if (onAccount > 0) {
+      // The last Agst ref carries what nothing open can take — moved last, so its excess is held on
+      // account only after every other ref of the voucher has been applied.
+      const carrier = [...out].reverse().find((o) => o.kind === 'against')
+      if (!carrier) return keepNone(names, 'bill', 'nothing open can take it')
+      carrier.amount += onAccount
+      out.splice(out.indexOf(carrier), 1)
+      out.push(carrier)
+    }
+    const where = taken.filter((t) => t.name).map((t) => t.name)
+    notes.push(`${notFound(names, 'bill')} — ${[...(where.length ? [`settled oldest first against ${[...new Set(where)].join(', ')}`] : []), ...(onAccount > 0 ? [`${formatPaise(onAccount, { symbol: true })} on account`] : [])].join(', ')}`)
+  }
+  warnings.push(...notes)
+  return out
+}
+
+/** Godown-wise stock of an item as on `date` (vouchers are imported in date order): opening
+ *  stock and lines without a godown are Tally's Main Location (`mainGodown`); a count resets it —
+ *  to the godown counts a joined count found (`breakdowns`), else to its own godown. */
+function godownHoldings(
+  db: DB, itemId: number, date: string, mainGodown: number | null, breakdowns: ReadonlyMap<number, ReadonlyMap<number, ReadonlyMap<number, number>>>
+): Map<number | string, number> {
+  const key = (godownId: number | null): number => godownId ?? mainGodown ?? NO_GODOWN
+  const opening = (db.prepare('SELECT opening_qty_milli AS q FROM stock_items WHERE id = ?').get(itemId) as { q: number }).q
+  let held = new Map<number | string, number>([[key(null), opening]])
+  const rows = db.prepare(
+    `SELECT il.voucher_id AS voucherId, il.godown_id AS godownId, il.qty_milli AS qty, il.direction, il.is_absolute AS absolute
+     FROM inventory_lines il JOIN vouchers v ON v.id = il.voucher_id
+     WHERE il.stock_item_id = ? AND v.date <= ? AND ${IN_BOOKS} AND ${MOVES_STOCK}
+     ORDER BY v.date, v.id, il.line_order, il.id`
+  ).all(itemId, date) as { voucherId: number; godownId: number | null; qty: number; direction: 'in' | 'out'; absolute: number }[]
+  for (const r of rows) {
+    if (r.absolute) {
+      const known = breakdowns.get(r.voucherId)?.get(itemId)
+      held = known ? new Map<number | string, number>(known) : new Map<number | string, number>([[key(r.godownId), r.qty]])
+    } else {
+      held.set(key(r.godownId), (held.get(key(r.godownId)) ?? 0) + (r.direction === 'in' ? r.qty : -r.qty))
+    }
+  }
+  return held
+}
+
+const NO_GODOWN = -1
+const godownLabel = (db: DB, id: number | string): string =>
+  typeof id === 'string' ? id.replace(/^new:/, '') : id === NO_GODOWN ? 'no godown' : ((db.prepare('SELECT name FROM godowns WHERE id = ?').get(id) as { name: string } | undefined)?.name ?? `#${id}`)
+
+/**
+ * A Physical Stock voucher's counts as ONE count per item (Total counts the whole item, Tally
+ * counts per godown). The godown counts are joined when they cover every godown holding the item
+ * as on the voucher's date (opening stock and lines without a godown are Tally's Main Location;
+ * after an earlier count, the godowns it found) — then the total is the stock the business holds.
+ * A count that leaves out a godown still holding stock (or a godown it can't place) would wipe that
+ * stock, so the voucher is skipped instead and it says which. `breakdowns` remembers each joined
+ * count's godowns for the counts after it.
+ */
+function joinGodownCounts(
+  db: DB,
+  v: TallyVoucher,
+  lines: { itemId: number; item: string; godown: string | null; qtyMilli: number }[],
+  breakdowns: ReadonlyMap<number, ReadonlyMap<number, ReadonlyMap<number, number>>>
+): { lines: { itemId: number; item: string; counts: Map<string | null, number> }[] } | { refused: string } {
+  // Godowns are only looked up here, never created: a refused count leaves none behind. A godown
+  // Total doesn't have yet holds nothing (its own key); no godown = Main Location, as it is now.
+  const main = mainGodownId(db)
+  const existing = (name: string): number | null => (db.prepare('SELECT id FROM godowns WHERE name = ? COLLATE NOCASE').get(name) as { id: number } | undefined)?.id ?? null
+  const keyOf = (name: string | null): number | string => (name ? (existing(name) ?? `new:${name.toLowerCase()}`) : (main ?? NO_GODOWN))
+  const byItem = new Map<number, { item: string; counts: Map<string | null, number>; keys: Set<number | string> }>()
+  for (const l of lines) {
+    const entry = byItem.get(l.itemId) ?? { item: l.item, counts: new Map<string | null, number>(), keys: new Set<number | string>() }
+    const name = l.godown?.trim() || null
+    entry.counts.set(name, (entry.counts.get(name) ?? 0) + l.qtyMilli)
+    entry.keys.add(keyOf(name))
+    byItem.set(l.itemId, entry)
+  }
+  const out: { itemId: number; item: string; counts: Map<string | null, number> }[] = []
+  for (const [itemId, { item, counts, keys }] of byItem) {
+    const held = godownHoldings(db, itemId, v.date, main, breakdowns)
+    const left = [...held].filter(([g, q]) => q !== 0 && !keys.has(g))
+    if (left.length) {
+      return { refused: `Voucher ${v.number || v.date} skipped: the Physical Stock counts ${item} only in ${[...counts.keys()].map((n) => n ?? godownLabel(db, main ?? NO_GODOWN)).join(', ')}, but it also holds stock in ${left.map(([g]) => godownLabel(db, g)).join(', ')} — Total counts an item as a whole, so this count would lose that stock; count it in the full app` }
+    }
+    out.push({ itemId, item, counts })
+  }
+  return { lines: out }
+}
+
+/** Tally's default godown, as it is right now (an earlier voucher of the file may have made it). */
+const mainGodownId = (db: DB): number | null =>
+  (db.prepare("SELECT id FROM godowns WHERE name = 'Main Location' COLLATE NOCASE").get() as { id: number } | undefined)?.id ?? null
+
+/** A party master's opening bill-wise details → its opening bills (services/openingBills.ts, the
+ *  one writer). They must be on the party's own side (an opening bill can't hold an advance), carry
+ *  distinct names and add up to the opening the ledger now has; otherwise the opening stays one
+ *  bill (settled oldest first) and it says so. */
+function importOpeningBills(db: DB, ledgerId: number, l: TallyLedger, warnings: string[]): void {
+  if (!l.bills?.length) return
+  const row = db.prepare('SELECT group_id, opening_balance FROM ledgers WHERE id = ?').get(ledgerId) as { group_id: number; opening_balance: number }
+  const skip = (why: string): void => {
+    warnings.push(`Ledger "${l.name}": its opening bill-wise details (${l.bills!.map((b) => b.name).join(', ')}) were not imported — ${why}; its opening is one bill, settled oldest first`)
+  }
+  const side = partySide(db, row.group_id)
+  if (side == null) return skip('it is not under Sundry Debtors or Sundry Creditors')
+  if (row.opening_balance !== l.opening) return skip('it already had a different opening')
+  const begin = booksBeginDay(db)
+  const bills: OpeningBillRow[] = l.bills.map((b) => ({ name: b.name, date: b.date ?? begin, dueDate: b.dueDate, amount: side * b.amount }))
+  const advances = bills.filter((b) => b.amount < 0)
+  if (advances.length) return skip(`${advances.map((b) => b.name).join(', ')} ${advances.length > 1 ? 'are advances' : 'is an advance'}, which an opening bill can't hold`)
+  const names = bills.map((b) => b.name.toLowerCase())
+  if (new Set(names).size !== names.length) return skip('two bills share a name')
+  if (names.includes(OPENING_BALANCE_NAME.toLowerCase())) return skip(`"${OPENING_BALANCE_NAME}" is a name Total keeps for itself`)
+  if (bills.reduce((s, b) => s + b.amount, 0) !== side * row.opening_balance) return skip("they don't add up to its opening")
+  try {
+    replaceOpeningBills(db, ledgerId, bills)
+  } catch (err) {
+    skip((err as Error).message)
+  }
 }
 
 /** A rejection note returns goods (to the supplier / from the customer); other notes are a
  *  supply out or a purchase in. */
-function stockNotePurpose(kind: VoucherKind, typeName: string): TradePurpose {
-  const rejection = /rejection/i.test(typeName)
+function stockNotePurpose(kind: VoucherKind, typeName: string, baseName: string): TradePurpose {
+  // The custom name, or the predefined type it was made from ("Goods Back" from Rejections Out).
+  const rejection = /rejection/i.test(typeName) || /rejection/i.test(baseName)
   if (kind === 'delivery_note') return rejection ? 'non_supply' : 'supply'
   return rejection ? 'return' : 'purchase'
 }
@@ -199,9 +472,15 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
           db.prepare('UPDATE ledgers SET opening_balance = ? WHERE id = ?').run(l.opening, exists.id)
           writeAudit(db, 'ledger', exists.id, 'update', { openingBalance: 0 }, { openingBalance: l.opening, source: 'tally_import' })
           warnings.push(`Ledger "${exists.name}" already existed — its opening balance was taken from Tally`)
+          if (exists.grp.toLowerCase() === l.parent.toLowerCase()) importOpeningBills(db, exists.id, l, warnings)
         } else {
           warnings.push(`Ledger "${exists.name}" already existed with a different opening balance — kept the existing one; check it against Tally`)
         }
+      }
+      else if (l.bills?.length && exists.grp.toLowerCase() === l.parent.toLowerCase() && !openingBillsByParty(db, [exists.id]).get(exists.id)) {
+        // Same opening, no bills of its own yet (a ledger made before, an import without them):
+        // Tally's bill-wise details split it.
+        importOpeningBills(db, exists.id, l, warnings)
       }
       if (exists.grp.toLowerCase() !== l.parent.toLowerCase()) {
         warnings.push(`Ledger "${exists.name}" already existed under "${exists.grp}" — Tally has it under "${l.parent}"; left under "${exists.grp}"`)
@@ -210,10 +489,11 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
     }
     const gid = groupId(l.parent) ?? suspense
     if (!groupId(l.parent)) warnings.push(`Ledger "${l.name}": group "${l.parent}" not found, placed under Suspense A/c`)
-    db.prepare(
+    const created = db.prepare(
       'INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code, is_system) VALUES (?, ?, ?, ?, ?, 0)'
     ).run(l.name, gid, l.opening, l.gstin, stateCodeFromName(l.stateName))
     counts.ledgers++
+    importOpeningBills(db, Number(created.lastInsertRowid), l, warnings)
   }
 
   // Stock items
@@ -241,18 +521,78 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
     const row = db.prepare('SELECT id FROM stock_items WHERE name = ? COLLATE NOCASE').get(name) as { id: number } | undefined
     return row?.id ?? null
   }
+  // Godowns named on item lines (BATCHALLOCATIONS GODOWNNAME): the one of that name, else created.
+  const godownIds = new Map<string, number>()
+  const godownId = (name: string | null | undefined): number | null => {
+    const key = name?.trim().toLowerCase()
+    if (!key) return null
+    const known = godownIds.get(key)
+    if (known) return known
+    const row = db.prepare('SELECT id FROM godowns WHERE name = ? COLLATE NOCASE').get(name!.trim()) as { id: number } | undefined
+    const id = row?.id ?? createGodown(db, { name: name!.trim() }).id
+    godownIds.set(key, id)
+    return id
+  }
+  // An existing type keeps its kind — unless no voucher uses it yet and Tally's type says another
+  // (a "Sales Return" made here as a sale before return types were read): then it is corrected
+  // (audited). A type in use keeps its kind: its vouchers' lines were written for it. Said once.
+  const checkedTypes = new Map<string, { id: number; kind: VoucherKind }>()
+  const kindLabel = (k: VoucherKind): string => k.replace(/_/g, ' ')
   const typeIdFor = (vchType: string): { id: number; kind: VoucherKind } => {
-    const existing = db.prepare('SELECT id, kind FROM voucher_types WHERE name = ? COLLATE NOCASE').get(vchType) as
-      | { id: number; kind: VoucherKind }
+    const seen = checkedTypes.get(vchType.toLowerCase())
+    if (seen) return seen
+    const existing = db.prepare('SELECT id, kind, is_system FROM voucher_types WHERE name = ? COLLATE NOCASE').get(vchType) as
+      | { id: number; kind: VoucherKind; is_system: number }
       | undefined
-    if (existing) return existing
-    const kind = kindForName(vchType)
+    if (existing) {
+      const derived = kindForTallyType(vchType, data)
+      // Tally says something only through a VOUCHERTYPE master for the name, or a name that means a
+      // kind; a name that falls to "journal" ("Cash Sale", "Tax Invoice") says nothing — the stored
+      // kind stays, silently (a sale must never drop out of GSTR-1 / the sales register).
+      const tallySays = (data.voucherTypes ?? []).some((t) => t.name.toLowerCase() === vchType.toLowerCase()) || derived !== 'journal'
+      let kind = existing.kind
+      if (tallySays && derived !== existing.kind) {
+        const used = !!db.prepare('SELECT 1 FROM vouchers WHERE voucher_type_id = ? LIMIT 1').get(existing.id)
+        if (!used && !existing.is_system) {
+          const vt = listVoucherTypes(db).find((t) => t.id === existing.id)!
+          updateVoucherType(db, existing.id, { name: vt.name, kind: derived, numbering: vt.numbering, prefix: vt.prefix, suffix: vt.suffix, padWidth: vt.padWidth, restartFy: vt.restartFy })
+          kind = derived
+          warnings.push(`Voucher type "${vchType}" was set up here as ${kindLabel(existing.kind)}; Tally makes it a ${kindLabel(derived)} — no voucher used it yet, so it is now a ${kindLabel(derived)}`)
+        } else {
+          warnings.push(`Voucher type "${vchType}" is already used here as ${kindLabel(existing.kind)}; Tally makes it a ${kindLabel(derived)} — kept as ${kindLabel(existing.kind)}, so this file's "${vchType}" vouchers import as ${kindLabel(existing.kind)}; check them`)
+        }
+      }
+      const out = { id: existing.id, kind }
+      checkedTypes.set(vchType.toLowerCase(), out)
+      return out
+    }
+    const kind = kindForTallyType(vchType, data)
     const res = db.prepare("INSERT INTO voucher_types (name, kind, numbering, prefix, is_system) VALUES (?, ?, 'manual', '', 0)")
       .run(vchType, kind)
     return { id: Number(res.lastInsertRowid), kind }
   }
 
-  for (const v of data.vouchers) {
+  // Bill tracking per party (seeded at its first Agst Ref, then fed every voucher saved — and the
+  // party's book entries as the import reaches their dates).
+  const partyBills = new Map<number, PartyBills>()
+  const billsOf = (partyId: number, date: string): PartyBills => {
+    let p = partyBills.get(partyId)
+    if (!p) {
+      const ev = partyBillEventParts(db, partyId, '9999-12-31')!
+      const allocator = billAllocator(ev.creditDays)
+      for (const e of ev.opening) allocator.apply(e)
+      p = { allocator, sign: ev.sign, pending: ev.movements, next: 0 }
+      partyBills.set(partyId, p)
+    }
+    advanceTo(p, date)
+    return p
+  }
+  const countBreakdowns = new Map<number, Map<number, Map<number, number>>>()
+
+  // In date order (stable: same-day vouchers keep the file's order) — the order Outstandings and
+  // the stock pass replay them in, so every check sees what was there on the voucher's date.
+  const byDate = [...data.vouchers].sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
+  for (const v of byDate) {
     const missing = v.lines.filter((l) => !ledgerId(l.ledger))
     if (missing.length) {
       warnings.push(`Voucher ${v.number || v.date} skipped: unknown ledger "${missing[0]!.ledger}" (import masters first)`)
@@ -266,19 +606,76 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
     }
     const vt = typeIdFor(v.vchType || 'Journal')
     const goodsIn = vt.kind === 'purchase' || vt.kind === 'credit_note' || vt.kind === 'receipt_note'
+    // A stock / manufacturing journal (or any voucher whose goods go both ways) keeps each line's
+    // own direction from the file; trading vouchers move goods the way their kind does.
+    const ownDirection = vt.kind === 'stock_journal' || vt.kind === 'journal'
     // A delivery / receipt note moves goods only: Tally may still list the party's ledger entry
     // on it, but it posts nothing — keep the goods and the party, drop the ledger lines.
     const stockNote = vt.kind === 'delivery_note' || vt.kind === 'receipt_note'
     if (stockNote && v.lines.length > 0) {
       warnings.push(`Voucher ${v.number || v.date} (${v.vchType}): ledger entries on a ${vt.kind === 'delivery_note' ? 'delivery' : 'receipt'} note were not imported — it moves stock only`)
     }
+    // Bill-wise details ride on the party's entry: the voucher's party, else the one ledger whose
+    // entries carry them.
+    const billParty = v.party ?? (() => {
+      const withBills = [...new Set(v.lines.filter((l) => l.bills?.length).map((l) => l.ledger.toLowerCase()))]
+      return withBills.length === 1 ? v.lines.find((l) => l.ledger.toLowerCase() === withBills[0])!.ledger : null
+    })()
+    const elsewhere = v.party ? [...new Set(v.lines.filter((l) => l.bills?.length && l.ledger.toLowerCase() !== v.party!.toLowerCase()).map((l) => l.ledger))] : []
+    if (elsewhere.length && !stockNote) {
+      warnings.push(`Voucher ${v.number || v.date}: its bill-wise details sit on ${elsewhere.join(', ')}, not on its party ${v.party} — not imported; Outstandings settles it oldest first`)
+    }
+    const partyRefs = stockNote ? [] : tallyBillRefs(v, billParty, warnings)
+    const billRefs = partyRefs.length && billParty ? settleOnOpenBills(billsOf(ledgerId(billParty)!, v.date), billParty, v, vt.kind, partyRefs, warnings) : partyRefs
+    // A Physical Stock voucher counts: each line is the quantity on hand that day (the Physical
+    // Stock editor's count lines — buildPhysicalPayload), never a movement — one per item, its
+    // godown counts joined (joinGodownCounts), or the voucher is skipped.
+    const count = vt.kind === 'physical_stock'
+    const inventoryLines = v.inventory.filter((inv) => itemId(inv.item))
+    let countLines: { stockItemId: number; godownId: number | null; qtyMilli: number }[] | null = null
+    let countBreakdown: Map<number, Map<number, number>> | null = null
+    if (count) {
+      // A count of an item not in the masters can't be saved without it — the item's stock would
+      // stay as it was while Tally's count changed it.
+      const unknown = [...new Set(v.inventory.filter((inv) => !itemId(inv.item)).map((inv) => inv.item))]
+      if (unknown.length) {
+        warnings.push(`Voucher ${v.number || v.date} skipped: the Physical Stock counts ${unknown.join(', ')}, which ${unknown.length > 1 ? 'are' : 'is'} not in the stock items (import masters first)`)
+        counts.skipped++
+        continue
+      }
+      const joined = joinGodownCounts(db, v, inventoryLines.map((inv) => ({ itemId: itemId(inv.item)!, item: inv.item, godown: inv.godown ?? null, qtyMilli: inv.qtyMilli })), countBreakdowns)
+      if ('refused' in joined) {
+        warnings.push(joined.refused)
+        counts.skipped++
+        continue
+      }
+      // Accepted: its godowns exist from now on. One count line per item — the valuation pins the
+      // item's whole quantity on a count line, so godown-wise lines would undo each other.
+      countLines = []
+      countBreakdown = new Map()
+      for (const j of joined.lines) {
+        const main = mainGodownId(db)
+        const ids = new Map<number, number>()
+        for (const [name, qty] of j.counts) {
+          const id = name ? godownId(name)! : (main ?? NO_GODOWN)
+          ids.set(id, (ids.get(id) ?? 0) + qty)
+        }
+        const only = [...ids.keys()]
+        const total = [...ids.values()].reduce((s, q) => s + q, 0)
+        countLines.push({ stockItemId: j.itemId, godownId: only.length === 1 && only[0] !== NO_GODOWN ? only[0]! : null, qtyMilli: total })
+        countBreakdown.set(j.itemId, ids)
+        if (only.length > 1) {
+          warnings.push(`Voucher ${v.number || v.date}: the Physical Stock counts ${j.item} in ${[...j.counts.keys()].map((n) => n ?? 'Main Location').join(', ')} — Total counts an item as a whole (${total / 1000} in all), so godown-wise stock keeps each godown's figure from before this count`)
+        }
+      }
+    }
     try {
-      saveVoucher(db, {
+      const saved = saveVoucher(db, {
         voucherTypeId: vt.id,
         date: v.date,
         number: v.number || undefined,
-        partyLedgerId: v.party ? ledgerId(v.party) : null,
-        ...(stockNote ? { trade: { purpose: stockNotePurpose(vt.kind, v.vchType || '') } } : {}),
+        partyLedgerId: v.party ? ledgerId(v.party) : billRefs.length && billParty ? ledgerId(billParty) : null,
+        ...(stockNote ? { trade: { purpose: stockNotePurpose(vt.kind, v.vchType || '', tallyBaseTypeName(v.vchType || '', data.voucherTypes ?? [])) } } : {}),
         narration: v.narration,
         isOptional: v.isOptional || undefined,
         reference: null,
@@ -290,20 +687,31 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
         currencyCode: null,
         exchangeRate: null,
         lines: stockNote ? [] : v.lines.map((l) => ({ ledgerId: ledgerId(l.ledger)!, drCr: l.drCr, amount: l.amount, costAllocations: [] })),
-        inventory: v.inventory
-          .filter((inv) => itemId(inv.item))
-          .map((inv) => ({
-            stockItemId: itemId(inv.item)!,
-            godownId: null,
-            qtyMilli: inv.qtyMilli,
-            ratePaise: inv.qtyMilli > 0 ? Math.round((inv.amount * 1000) / inv.qtyMilli) : 0,
-            amount: inv.amount,
-            direction: goodsIn ? ('in' as const) : ('out' as const)
-          })),
-        billRefs: [],
+        inventory: countLines
+          ? countLines.map((c) => ({ ...c, ratePaise: 0, amount: 0, direction: 'in' as const, isAbsolute: true }))
+          : inventoryLines.map((inv) => ({
+                stockItemId: itemId(inv.item)!,
+                godownId: godownId(inv.godown),
+                qtyMilli: inv.qtyMilli,
+                ratePaise: inv.qtyMilli > 0 ? Math.round((inv.amount * 1000) / inv.qtyMilli) : 0,
+                amount: inv.amount,
+                direction: ownDirection && inv.direction ? inv.direction : goodsIn ? ('in' as const) : ('out' as const)
+              })),
+        billRefs,
         tds: null
       }, undefined, { historicImport: true })
       counts.vouchers++
+      if (countBreakdown) countBreakdowns.set(saved.id, countBreakdown)
+      // Feed the voucher to every party being tracked, as the allocation reads it (in-books only).
+      if (!saved.isOptional && !saved.postDated) {
+        for (const [partyId, p] of partyBills) {
+          const own = saved.lines.filter((l) => l.ledgerId === partyId)
+          if (!own.length) continue
+          advanceTo(p, saved.date)
+          const net = own.reduce((s, l) => s + (l.drCr === 'dr' ? l.amount : -l.amount), 0)
+          p.allocator.apply({ voucherId: saved.id, date: saved.date, number: saved.number, amount: p.sign * net, refs: saved.partyLedgerId === partyId ? saved.billRefs.map((r) => ({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.dueDate })) : [] })
+        }
+      }
     } catch (err) {
       warnings.push(`Voucher ${v.number || v.date} skipped: ${(err as Error).message}`)
       counts.skipped++
