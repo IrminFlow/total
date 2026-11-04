@@ -77,7 +77,7 @@ Total 0.12.0 has a very wide feature list, and its most valuable parts are still
 
 ### Phase 5: Polish both modes, speed (weeks 10–12)
 - Keep two modes and make them feel like one product: a shared design-token pass, the same component kit, the same keyboard rules (⌘K, Enter saves, Esc backs out). Fix the hand-off and carry-back bugs that remain, and close the deferred gaps (a payment made now is not carried into the editor).
-- Make the AI queue, GST gateway and multi-currency first-class in **both** modes.
+- Make the AI queue and GST gateway first-class in **both** modes. Multi-currency and forex stay cut (4 Nov decision); existing foreign-currency data keeps reporting as before.
 - **Speed:** cold launch under 2 s, and every screen within the `docs/perf-budgets.md` budgets on 100k entries. Add skeletons and stop layout shift.
 - **Done when** the e2e beginner journey (60) and an accountant journey pass in both themes, and the perf budgets pass in CI.
 - **Owner supplies:** a 30-minute self-test of both modes. Real testers if any can be found (optional).
