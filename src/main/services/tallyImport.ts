@@ -1,8 +1,13 @@
 import type { DB } from '../db/connection'
-import { orderLineMoney, parseTallyExport, tallyBaseTypeName, TALLY_ORDER_TYPE, type TallyImport, type TallyOrder, type TallyVoucher } from '@shared/tally'
+import { orderLineMoney, parseTallyExport, tallyBaseTypeName, TALLY_ORDER_TYPE, type TallyImport, type TallyLedger, type TallyOrder, type TallyVoucher } from '@shared/tally'
 import { GST_STATES } from '@shared/gst/states'
 import { fyOf } from '@shared/dates'
+import { OPENING_BALANCE_NAME } from '@shared/simple/openings'
 import { saveVoucher } from './vouchers'
+import { createGodown } from './masters'
+import { partyAllocationWithCredits } from './analysis'
+import { partySide, replaceOpeningBills, type OpeningBillRow } from './openingBills'
+import { booksBeginDay } from './cashFinanceCommon'
 import { saveTradeDoc } from './tradeDocs'
 import { listTradeDocTypes } from './tradeDocTypes'
 import { writeAudit } from './audit'
@@ -44,14 +49,17 @@ export function tallyBooksFromYear(data: TallyImport): number | null {
  *  'journal'. Tally's "Rejections In" is goods back from a customer (a receipt note), "Rejections
  *  Out" goods back to a supplier (a delivery note). Orders never get here (isOrderTypeName). */
 export function kindForName(name: string): VoucherKind {
-  const n = name.toLowerCase()
+  // Any run of separators reads as one space: "Sales-Return", "SALES_RETURN", "Sales.Return".
+  const n = name.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
   if (n.includes('delivery note') || n.includes('delivery challan')) return 'delivery_note'
   if (n.includes('receipt note') || n.includes('goods receipt')) return 'receipt_note'
   if (n.includes('rejection')) return /\bout\b/.test(n) ? 'delivery_note' : 'receipt_note'
   // Returns before "sales" / "purchase" (a custom "Sales Return" type is a credit note, "Purchase
   // Return" a debit note — Tally's Return Inward / Outward wording too).
-  if (/\bsales? returns?\b|\breturns? inwards?\b/.test(n)) return 'credit_note'
-  if (/\bpurchases? returns?\b|\breturns? outwards?\b/.test(n)) return 'debit_note'
+  if (/\bsales? ?returns?\b|\breturns? ?inwards?\b/.test(n)) return 'credit_note'
+  if (/\bpurchases? ?returns?\b|\breturns? ?outwards?\b/.test(n)) return 'debit_note'
+  // Physical Stock before "stock": its lines are counts, not movements.
+  if (/\bphysical ?stock\b/.test(n)) return 'physical_stock'
   if (n.includes('contra')) return 'contra'
   if (n.includes('payment')) return 'payment'
   if (n.includes('receipt')) return 'receipt'
@@ -76,7 +84,9 @@ export function kindForTallyType(name: string, data: Pick<TallyImport, 'voucherT
  *  ledger entries: New Ref and Advance open a bill / named credit ('new'), Agst Ref settles one
  *  ('against'). They must add up to what the voucher posts to the party; an On Account part (or
  *  allocations that don't add up) can't be held as references, so none are taken and it says so. */
-function tallyBillRefs(v: TallyVoucher, party: string | null, warnings: string[]): { kind: 'new' | 'against'; name: string; amount: number; dueDate: string | null }[] {
+type ImportBillRef = { kind: 'new' | 'against'; name: string; amount: number; dueDate: string | null }
+
+function tallyBillRefs(v: TallyVoucher, party: string | null, warnings: string[]): ImportBillRef[] {
   if (!party) return []
   const partyLines = v.lines.filter((l) => l.ledger.toLowerCase() === party.toLowerCase())
   const allocs = partyLines.flatMap((l) => l.bills ?? [])
@@ -91,6 +101,101 @@ function tallyBillRefs(v: TallyVoucher, party: string | null, warnings: string[]
     return []
   }
   return refs
+}
+
+/**
+ * An Agst Ref must name a bill the party has open when the voucher is imported (the allocation as
+ * on the voucher's date: opening bills, bills of vouchers already imported, named credits for a
+ * bill drawing on an advance). One that doesn't — the bill isn't in Total (a master without its
+ * bill-wise details, a bill from before the file) or is already settled — would be held as
+ * unapplied credit, so it settles the party's open bills oldest first instead, as the voucher
+ * would without references (spelt out as Agst refs to those bills, so the voucher's other refs
+ * stay). When the open bills can't take it all — or a bill draws on an advance that isn't there —
+ * the voucher keeps no references at all (oldest first, as before) and it says so.
+ */
+function settleOnOpenBills(db: DB, partyId: number, partyName: string, v: TallyVoucher, refs: ImportBillRef[], warnings: string[]): ImportBillRef[] {
+  if (!refs.some((r) => r.kind === 'against')) return refs
+  const groupId = (db.prepare('SELECT group_id FROM ledgers WHERE id = ?').get(partyId) as { group_id: number }).group_id
+  // The allocation's sign: a debtor's debit (a creditor's credit) is a bill, the other side settles.
+  const side = partySide(db, groupId) ?? -1
+  // tallyBillRefs took refs only when every party line is on one side.
+  const partyLine = v.lines.find((l) => l.ledger.toLowerCase() === partyName.toLowerCase())
+  const settles = side * (partyLine?.drCr === 'dr' ? 1 : -1) < 0
+  const alloc = partyAllocationWithCredits(db, partyId, v.date)
+  const open = alloc.bills.map((b) => ({ name: b.number, left: b.pending }))
+  const credits = new Set(alloc.credits.filter((c) => c.amount > 0).map((c) => c.name))
+  const out: ImportBillRef[] = []
+  const add = (r: ImportBillRef): void => {
+    const same = out.find((o) => o.kind === r.kind && o.name === r.name)
+    if (same) same.amount += r.amount
+    else out.push({ ...r })
+  }
+  const label = `Voucher ${v.number || v.date}`
+  for (const r of refs) {
+    if (r.kind !== 'against') {
+      add(r)
+      continue
+    }
+    if (!settles) {
+      if (credits.has(r.name)) {
+        add(r)
+        continue
+      }
+      warnings.push(`${label}: its Agst Ref ${r.name} names no open advance of ${partyName} — its bill-wise details were not imported; Outstandings settles it oldest first`)
+      return []
+    }
+    const named = open.find((b) => b.name === r.name && b.left > 0)
+    if (named) {
+      named.left -= Math.min(named.left, r.amount)
+      add(r)
+      continue
+    }
+    let left = r.amount
+    const taken: ImportBillRef[] = []
+    for (const b of open) {
+      if (left === 0) break
+      const take = Math.min(b.left, left)
+      if (take === 0) continue
+      b.left -= take
+      left -= take
+      taken.push({ kind: 'against', name: b.name, amount: take, dueDate: null })
+    }
+    if (left > 0) {
+      warnings.push(`${label}: its Agst Ref ${r.name} names no open bill of ${partyName}, and its open bills don't cover it — its bill-wise details were not imported; Outstandings settles it oldest first`)
+      return []
+    }
+    taken.forEach(add)
+    warnings.push(`${label}: its Agst Ref ${r.name} names no open bill of ${partyName} — settled against ${taken.map((t) => t.name).join(', ')} (oldest first)`)
+  }
+  return out
+}
+
+/** A party master's opening bill-wise details → its opening bills (services/openingBills.ts, the
+ *  one writer). They must be on the party's own side (an opening bill can't hold an advance), carry
+ *  distinct names and add up to the opening the ledger now has; otherwise the opening stays one
+ *  bill (settled oldest first) and it says so. */
+function importOpeningBills(db: DB, ledgerId: number, l: TallyLedger, warnings: string[]): void {
+  if (!l.bills?.length) return
+  const row = db.prepare('SELECT group_id, opening_balance FROM ledgers WHERE id = ?').get(ledgerId) as { group_id: number; opening_balance: number }
+  const skip = (why: string): void => {
+    warnings.push(`Ledger "${l.name}": its opening bill-wise details (${l.bills!.map((b) => b.name).join(', ')}) were not imported — ${why}; its opening is one bill, settled oldest first`)
+  }
+  const side = partySide(db, row.group_id)
+  if (side == null) return skip('it is not under Sundry Debtors or Sundry Creditors')
+  if (row.opening_balance !== l.opening) return skip('it already had a different opening')
+  const begin = booksBeginDay(db)
+  const bills: OpeningBillRow[] = l.bills.map((b) => ({ name: b.name, date: b.date ?? begin, dueDate: b.dueDate, amount: side * b.amount }))
+  const advances = bills.filter((b) => b.amount < 0)
+  if (advances.length) return skip(`${advances.map((b) => b.name).join(', ')} ${advances.length > 1 ? 'are advances' : 'is an advance'}, which an opening bill can't hold`)
+  const names = bills.map((b) => b.name.toLowerCase())
+  if (new Set(names).size !== names.length) return skip('two bills share a name')
+  if (names.includes(OPENING_BALANCE_NAME.toLowerCase())) return skip(`"${OPENING_BALANCE_NAME}" is a name Total keeps for itself`)
+  if (bills.reduce((s, b) => s + b.amount, 0) !== side * row.opening_balance) return skip("they don't add up to its opening")
+  try {
+    replaceOpeningBills(db, ledgerId, bills)
+  } catch (err) {
+    skip((err as Error).message)
+  }
 }
 
 /** A rejection note returns goods (to the supplier / from the customer); other notes are a
@@ -233,6 +338,7 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
           db.prepare('UPDATE ledgers SET opening_balance = ? WHERE id = ?').run(l.opening, exists.id)
           writeAudit(db, 'ledger', exists.id, 'update', { openingBalance: 0 }, { openingBalance: l.opening, source: 'tally_import' })
           warnings.push(`Ledger "${exists.name}" already existed — its opening balance was taken from Tally`)
+          if (exists.grp.toLowerCase() === l.parent.toLowerCase()) importOpeningBills(db, exists.id, l, warnings)
         } else {
           warnings.push(`Ledger "${exists.name}" already existed with a different opening balance — kept the existing one; check it against Tally`)
         }
@@ -244,10 +350,11 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
     }
     const gid = groupId(l.parent) ?? suspense
     if (!groupId(l.parent)) warnings.push(`Ledger "${l.name}": group "${l.parent}" not found, placed under Suspense A/c`)
-    db.prepare(
+    const created = db.prepare(
       'INSERT INTO ledgers (name, group_id, opening_balance, gstin, state_code, is_system) VALUES (?, ?, ?, ?, ?, 0)'
     ).run(l.name, gid, l.opening, l.gstin, stateCodeFromName(l.stateName))
     counts.ledgers++
+    importOpeningBills(db, Number(created.lastInsertRowid), l, warnings)
   }
 
   // Stock items
@@ -274,6 +381,18 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
   const itemId = (name: string): number | null => {
     const row = db.prepare('SELECT id FROM stock_items WHERE name = ? COLLATE NOCASE').get(name) as { id: number } | undefined
     return row?.id ?? null
+  }
+  // Godowns named on item lines (BATCHALLOCATIONS GODOWNNAME): the one of that name, else created.
+  const godownIds = new Map<string, number>()
+  const godownId = (name: string | null | undefined): number | null => {
+    const key = name?.trim().toLowerCase()
+    if (!key) return null
+    const known = godownIds.get(key)
+    if (known) return known
+    const row = db.prepare('SELECT id FROM godowns WHERE name = ? COLLATE NOCASE').get(name!.trim()) as { id: number } | undefined
+    const id = row?.id ?? createGodown(db, { name: name!.trim() }).id
+    godownIds.set(key, id)
+    return id
   }
   const typeIdFor = (vchType: string): { id: number; kind: VoucherKind } => {
     const existing = db.prepare('SELECT id, kind FROM voucher_types WHERE name = ? COLLATE NOCASE').get(vchType) as
@@ -315,7 +434,11 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
       const withBills = [...new Set(v.lines.filter((l) => l.bills?.length).map((l) => l.ledger.toLowerCase()))]
       return withBills.length === 1 ? v.lines.find((l) => l.ledger.toLowerCase() === withBills[0])!.ledger : null
     })()
-    const billRefs = stockNote ? [] : tallyBillRefs(v, billParty, warnings)
+    const partyRefs = stockNote ? [] : tallyBillRefs(v, billParty, warnings)
+    const billRefs = partyRefs.length && billParty ? settleOnOpenBills(db, ledgerId(billParty)!, billParty, v, partyRefs, warnings) : partyRefs
+    // A Physical Stock voucher counts: each line is the quantity on hand that day (the Physical
+    // Stock editor's count lines — buildPhysicalPayload), never a movement.
+    const count = vt.kind === 'physical_stock'
     try {
       saveVoucher(db, {
         voucherTypeId: vt.id,
@@ -336,14 +459,16 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
         lines: stockNote ? [] : v.lines.map((l) => ({ ledgerId: ledgerId(l.ledger)!, drCr: l.drCr, amount: l.amount, costAllocations: [] })),
         inventory: v.inventory
           .filter((inv) => itemId(inv.item))
-          .map((inv) => ({
-            stockItemId: itemId(inv.item)!,
-            godownId: null,
-            qtyMilli: inv.qtyMilli,
-            ratePaise: inv.qtyMilli > 0 ? Math.round((inv.amount * 1000) / inv.qtyMilli) : 0,
-            amount: inv.amount,
-            direction: ownDirection && inv.direction ? inv.direction : goodsIn ? ('in' as const) : ('out' as const)
-          })),
+          .map((inv) => count
+            ? { stockItemId: itemId(inv.item)!, godownId: godownId(inv.godown), qtyMilli: inv.qtyMilli, ratePaise: 0, amount: 0, direction: 'in' as const, isAbsolute: true }
+            : {
+                stockItemId: itemId(inv.item)!,
+                godownId: godownId(inv.godown),
+                qtyMilli: inv.qtyMilli,
+                ratePaise: inv.qtyMilli > 0 ? Math.round((inv.amount * 1000) / inv.qtyMilli) : 0,
+                amount: inv.amount,
+                direction: ownDirection && inv.direction ? inv.direction : goodsIn ? ('in' as const) : ('out' as const)
+              }),
         billRefs,
         tds: null
       }, undefined, { historicImport: true })

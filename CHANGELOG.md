@@ -39,8 +39,25 @@ Things to know about the version numbers:
     Ref and Advance open a bill / credit (due date from the credit period), Agst Ref settles one.
     An On Account part, or allocations that don't add up to the party's amount, leave the voucher
     without references (as before) with a warning — Outstandings then settles it oldest first.
+  - Opening bill-wise details on a party's ledger master (BILLALLOCATIONS.LIST under LEDGER: bill
+    date, name, credit period from the bill date) become its opening bills (the one writer,
+    `replaceOpeningBills` — they add up to the opening), so a receipt "Agst Ref INV/24-25/88" settles
+    that opening bill instead of sitting as unapplied credit next to an overdue "Opening". Details
+    that can't be held (an advance in the opening, names that repeat, a total that differs) leave the
+    single opening, with a warning.
+  - An Agst Ref naming a bill the party has no open bill of when the voucher is imported settles
+    the open bills oldest first (written as Agst refs to them, so the voucher's other refs stay),
+    with a warning; when the open bills can't take it all, the voucher keeps no references.
+  - A Physical Stock voucher (or a custom type made from it) imports as a count — each line the
+    quantity on hand that day, as the Physical Stock editor saves it; before, a count of 10 was saved
+    as 10 going out.
+  - Item lines keep their godown (BATCHALLOCATIONS GODOWNNAME); a godown Total doesn't have yet is
+    created. Before, every imported line had none.
+  - Type names read the same with any separators or case ("Sales-Return", "PURCHASE_RETURN",
+    "Physical-Stock").
   For developers: `TallyImport.voucherTypes`, `TallyInventoryLine.direction` / `godown`,
-  `TallyVoucherLine.bills`; fixture `src/shared/fixtures/tally/daybook-returns-stock-bills.xml`.
+  `TallyVoucherLine.bills`, `TallyLedger.bills`; fixtures
+  `src/shared/fixtures/tally/daybook-returns-stock-bills.xml` and `opening-bills-physical-stock.xml`.
 
 ## [0.12.0] - 2026-10-22
 

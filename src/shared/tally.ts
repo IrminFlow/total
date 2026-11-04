@@ -141,7 +141,13 @@ export interface TallyLedger {
   opening: number
   gstin: string | null
   stateName: string | null
+  /** The opening's bill-wise details (BILLALLOCATIONS.LIST on the LEDGER master), when it has any. */
+  bills?: TallyOpeningBill[]
 }
+/** One opening bill of a party master: BILLDATE, NAME, BILLCREDITPERIOD (days from the bill date,
+ *  or a date) as the due date, OPENINGBALANCE as signed paise, positive = Dr (an advance in the
+ *  opening is on the other side from the party's bills). */
+export interface TallyOpeningBill { name: string; date: string | null; dueDate: string | null; amount: number }
 export interface TallyUnit { name: string; decimals: number }
 export interface TallyItem {
   name: string
@@ -267,6 +273,10 @@ export const TALLY_STOCK_NOTE_TYPE = /delivery note|delivery challan|receipt not
  *  not one (its lines are counts, not movements). */
 export const TALLY_STOCK_JOURNAL_TYPE = /stock journal|manufactur/i
 
+/** Tally's Physical Stock voucher: each item line is the counted quantity on that date (no ledger
+ *  entries, no amounts) — imported as count lines, never as movements. */
+export const TALLY_PHYSICAL_STOCK_TYPE = /physical[^a-z0-9]*stock/i
+
 /** The predefined Tally type a voucher type comes from: its VOUCHERTYPE master's PARENT, followed
  *  up the chain (a custom type may be made from another custom type) until a type that is its own
  *  parent or has no master in the file. The name itself when the file has no master for it. */
@@ -298,16 +308,32 @@ function billAllocations(entry: XNode, date: string): TallyBillAllocation[] {
     const amount = Math.abs(parseTallyAmount(childText(b, 'AMOUNT')))
     const name = childText(b, 'NAME').trim()
     if (!type || amount === 0 || (!name && type !== 'on_account')) continue
-    const period = b.children.find((c) => c.tag === 'BILLCREDITPERIOD')
-    const text = (period?.text || period?.attrs.P || '').trim()
-    let dueDate: string | null = null
-    const days = text.match(/^(\d+)\s*days?$/i)
-    if (days) {
-      dueDate = addDaysISO(date, Number(days[1]))
-    } else if (text) {
-      dueDate = parseTallyLooseDate(text)
-    }
-    out.push({ name, type, amount, dueDate })
+    out.push({ name, type, amount, dueDate: creditPeriodDue(b, date) })
+  }
+  return out
+}
+
+/** BILLCREDITPERIOD of a bill allocation: "30 Days" (text or its P attribute) counts from `from`;
+ *  a date is the due date itself. */
+function creditPeriodDue(b: XNode, from: string | null): string | null {
+  const period = b.children.find((c) => c.tag === 'BILLCREDITPERIOD')
+  const text = (period?.text || period?.attrs.P || '').trim()
+  if (!text) return null
+  const days = text.match(/^(\d+)\s*days?$/i)
+  if (days) return from ? addDaysISO(from, Number(days[1])) : null
+  return parseTallyLooseDate(text)
+}
+
+/** A LEDGER master's opening bill-wise details (BILLALLOCATIONS.LIST directly under LEDGER). */
+function openingBills(ledger: XNode): TallyOpeningBill[] {
+  const out: TallyOpeningBill[] = []
+  for (const b of ledger.children.filter((c) => c.tag === 'BILLALLOCATIONS.LIST')) {
+    const name = childText(b, 'NAME').trim()
+    // Tally: negative = debit. Ours: positive = debit.
+    const amount = -parseTallyAmount(childText(b, 'OPENINGBALANCE'))
+    if (!name || amount === 0) continue
+    const date = parseTallyDate(childText(b, 'BILLDATE'))
+    out.push({ name, date, dueDate: creditPeriodDue(b, date), amount })
   }
   return out
 }
@@ -337,13 +363,15 @@ export function parseTallyExport(xml: string): TallyImport {
     const name = nameOf(l)
     if (!name) continue
     const openingTally = parseTallyAmount(childText(l, 'OPENINGBALANCE'))
+    const bills = openingBills(l)
     result.ledgers.push({
       name,
       parent: childText(l, 'PARENT'),
       // Tally: negative = debit. Ours: positive = debit.
       opening: -openingTally,
       gstin: childText(l, 'PARTYGSTIN') || childText(l, 'GSTREGISTRATIONNUMBER') || null,
-      stateName: childText(l, 'LEDSTATENAME') || null
+      stateName: childText(l, 'LEDSTATENAME') || null,
+      ...(bills.length ? { bills } : {})
     })
   }
 
@@ -461,7 +489,7 @@ export function parseTallyExport(xml: string): TallyImport {
     // A delivery / receipt note moves goods only — it legitimately has no ledger entries (WP 2.5);
     // so does a stock / manufacturing journal (goods in and out, no ledger entries).
     const baseType = tallyBaseTypeName(vchType, result.voucherTypes)
-    const goodsOnly = TALLY_STOCK_NOTE_TYPE.test(baseType) || TALLY_STOCK_JOURNAL_TYPE.test(baseType) || hasJournalLists(v)
+    const goodsOnly = TALLY_STOCK_NOTE_TYPE.test(baseType) || TALLY_STOCK_JOURNAL_TYPE.test(baseType) || TALLY_PHYSICAL_STOCK_TYPE.test(baseType) || hasJournalLists(v)
     if (lines.length === 0 && !(inventory.length > 0 && goodsOnly)) {
       warnings.push(`Voucher ${childText(v, 'VOUCHERNUMBER') || date} skipped: no ledger entries`)
       continue
