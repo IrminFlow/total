@@ -44,11 +44,16 @@ sight until a business actually uses them. Nothing already in your books changes
   tabs or Settings → Features. They appear by themselves once their first data arrives (an import,
   a post-dated cheque …).
 
-**For accountants.** No figure in any remaining report changes. Loan instalment and disbursement
-vouchers posted from the old Loans screen are ordinary vouchers now (they can be edited like any
-other); the cash-flow forecast still counts the unposted instalments of loan schedules already in
-the books that fall due from today on (an instalment already past due can no longer be marked paid,
-so it is left out rather than counted as due now for ever). Ratios and comparative P&L / balance sheet stay (without the budget column). The
+**For accountants.** One figure changes, on purpose: **the cash-flow forecast no longer counts loan
+EMIs.** It read the instalments of the old Loans screen's schedules; with that screen gone a paid
+instalment can no longer be marked posted (nor a loan closed), so the forecast would pay it twice or
+for ever. The forecast is now the remaining sources (open bills, orders, challans / GRNs, statutory
+dues, post-dated cheques, known items — add an EMI there as a monthly known item); its opening is
+still the trial balance's cash and bank. Every other remaining report is unchanged. Loan instalment
+and disbursement vouchers posted from the old Loans screen are ordinary vouchers now (they can be
+edited like any other). Deleting a ledger or group that an old budget line or loan record points at
+now removes those leftover rows (each audited with its whole before-image); a loan whose entries
+are still in the books refuses the delete, naming the loan. Ratios and comparative P&L / balance sheet stay (without the budget column). The
 year-end close preview no longer warns about over-budget lines or unposted EMIs, and the Gateway no
 longer shows the over-budget chip or loan EMI reminders. Settings → Agent access keeps the read-only
 CSV / JSON mirror ("Refresh after each save" is the old inbox switch); any drafts the MCP server or

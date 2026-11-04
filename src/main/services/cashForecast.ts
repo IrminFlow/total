@@ -1,6 +1,6 @@
 // Cash-flow forecast inputs (WP 4.4). Gathers every dated flow the pure engine
 // (src/shared/cashForecast.ts) weighs — open bills, open orders, the user's known items, statutory
-// dues and loan EMIs — plus today's cash and bank, all from the books at query time. The renderer
+// dues — plus today's cash and bank, all from the books at query time. The renderer
 // runs buildForecast on this base for whatever scenario the sliders say.
 //
 // Sources used (one definition each, never re-derived):
@@ -11,9 +11,10 @@
 //   open orders              tradeReports.pendingOrders (taxable pending value per line)
 //   statutory dues           GST: tax-type ledgers' net credit; TDS / TCS: tagged payable ledgers;
 //                            PF / ESI / PT: payrollStatutory.statutoryDues (outstanding per run)
-//   loan EMIs                unposted instalments of active loans in loan_schedules (the loan
-//                            schedules screen was removed; schedules already in the books still
-//                            count from the as-on date on — past-due rows can no longer be posted)
+//   loan EMIs                none since the 1.0 cleanup: loan_schedules left in the books are
+//                            NOT read — with the Loans screen gone a paid instalment can't be
+//                            marked posted, so a schedule would count it again (add an EMI as a
+//                            known item instead)
 //   known items              forecast_items
 //   MSME s.15 / s.16         shared/payables/msme.ts s15Deadline / s16Interest on each open payable
 //                            bill of a covered supplier (payables.listBankRates; read by the
@@ -368,27 +369,5 @@ export function forecastBase(db: DB, company: CompanyInfo, asOn: string, to: str
   attempt('Statutory dues', () => flows.push(...statutoryFlows(db, company, asOn)))
   // Read always, counted only when the screen turns them on (buildForecast's includePdc).
   attempt('Post-dated cheques', () => flows.push(...pdcFlows(db)))
-  attempt('Loan EMIs', () => {
-    for (const e of unpostedInstalments(db, asOn, to)) {
-      flows.push({ source: 'emi', direction: 'out', date: e.dueDate, amount: e.payment, probabilityBp: 10_000, label: `${e.loanName} · EMI`, loanId: e.loanId })
-    }
-  })
   return { asOn, openingCash: opening.total, cashLedgers: opening.ledgers, flows, receivableProfile: profile, warnings }
-}
-
-/** Unposted instalments (payment > 0) of active loans due from `asOn` to `to`, from the loan
- *  schedules a company recorded before the loans screen was removed (the old `dueInstalments`
- *  query). Only from `asOn` on: nothing can mark an instalment posted any more (its payment is an
- *  ordinary voucher now), so past-due rows would pile up as "expected now" outflows the bank
- *  balance already paid. A company without loans reads nothing. */
-function unpostedInstalments(db: DB, asOn: string, to: string): { loanId: number; loanName: string; dueDate: string; payment: number }[] {
-  return db
-    .prepare(
-      `SELECT l.id AS loanId, l.name AS loanName, s.due_date AS dueDate, s.payment
-       FROM loan_schedules s JOIN loans l ON l.id = s.loan_id
-       LEFT JOIN vouchers v ON v.id = s.voucher_id AND v.deleted_at IS NULL
-       WHERE l.status = 'active' AND v.id IS NULL AND s.payment > 0 AND s.due_date BETWEEN ? AND ?
-       ORDER BY s.due_date, l.name`
-    )
-    .all(asOn, to) as { loanId: number; loanName: string; dueDate: string; payment: number }[]
 }

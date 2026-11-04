@@ -1,5 +1,5 @@
 // WP 4.4 — cash and finance against a real (in-memory) company: the forecast's opening equals the
-// trial balance's cash and bank, a loan schedule already in the books still forecasts its EMIs,
+// trial balance's cash and bank, a loan schedule already in the books is no longer forecast (1.0 cleanup review),
 // forex revaluation posts and reverses and settlement books the realised difference.
 import { describe, expect, it } from 'vitest'
 import { seededDb, TEST_INFO } from '../db/testdb'
@@ -67,7 +67,7 @@ describe('cash-flow forecast base', () => {
     expect(base.cashLedgers.map((l) => l.name).sort()).toEqual(['Cash', 'HDFC Current', 'SBI OD'])
   })
 
-  it('collects receivables, payables, known items and EMIs as dated flows', () => {
+  it('collects receivables, payables and known items as dated flows; a leftover loan schedule adds none', () => {
     const { db, bank, sales } = company()
     const cust = ledger(db, 'Acme Buyer', 'Sundry Debtors', { creditDays: 30 })
     const supp = ledger(db, 'Steel Supplier', 'Sundry Creditors')
@@ -84,14 +84,13 @@ describe('cash-flow forecast base', () => {
     expect(rec).toMatchObject({ direction: 'in', amount: 1_00_000_00, date: '2026-06-09' })
     expect(base.flows.find((f) => f.source === 'payable')).toMatchObject({ direction: 'out', amount: 40_000_00 })
     expect(base.flows.filter((f) => f.source === 'item').map((f) => f.date)).toEqual(['2026-06-05', '2026-07-05', '2026-08-05'])
-    const emis = base.flows.filter((f) => f.source === 'emi')
-    expect(emis[0]).toMatchObject({ date: '2026-06-05', amount: 8_884_88 })
+    expect(base.flows.filter((f) => f.source === 'emi')).toEqual([])
     expect(base.warnings).toEqual([])
 
     const f = buildForecast({ asOn: base.asOn, unit: 'week', count: 13, openingCash: base.openingCash, flows: base.flows, scenario: SCENARIO_PRESETS.expected })
     expect(f.periods).toHaveLength(13)
     expect(f.periods[0]!.opening).toBe(base.openingCash)
-    expect(f.periods[0]!.bySource.emi).toBe(8_884_88)
+    expect(f.periods[0]!.bySource.emi ?? 0).toBe(0)
     expect(f.periods.at(-1)!.closing).toBe(f.totals.closing)
   })
 })
@@ -200,23 +199,19 @@ describe('cash-flow forecast — MSME s.15 deadlines (msmeDue)', () => {
 })
 
 describe('loan schedules already in the books (the loans screen was removed)', () => {
-  it('an unposted instalment stays in the forecast; once its voucher exists it does not', () => {
+  it('are not read by the forecast: paid instalments can no longer be marked posted, so they would be paid twice', () => {
     const { db, bank } = company()
     const loanLedger = ledger(db, 'HDFC Term Loan', 'Secured Loans')
-    const loanId = legacyLoan(db, loanLedger, bank)
-    const emis = (): string[] => forecastBase(db, TEST_INFO, '2026-06-01', '2026-08-31').flows.filter((f) => f.source === 'emi').map((f) => f.date)
-    expect(emis()).toEqual(['2026-06-05', '2026-07-05'])
-    // Past-due rows no longer count (nothing can mark them posted any more): from the as-on date on.
-    expect(forecastBase(db, TEST_INFO, '2026-06-10', '2026-08-31').flows.filter((f) => f.source === 'emi').map((f) => f.date)).toEqual(['2026-07-05'])
-    // An instalment voucher Post EMI made is an ordinary voucher now: editable, and it marks the row.
+    legacyLoan(db, loanLedger, bank)
+    const withLoan = forecastBase(db, TEST_INFO, '2026-06-01', '2026-08-31')
+    expect(withLoan.flows.filter((f) => f.source === 'emi')).toEqual([])
+    // The forecast is the remaining sources, and its opening is still the trial balance's cash and bank.
+    const tb = trialBalance(db, '2026-06-01')
+    expect(withLoan.openingCash).toBe(tb.rows.filter((r) => r.ledgerId === bank || r.ledgerName === 'Cash').reduce((s, r) => s + r.debit - r.credit, 0))
+    // An instalment voucher Post EMI made is an ordinary voucher now: editable.
     const v = post(db, 'payment', '2026-06-05', [dr(loanLedger, 7_884_88), dr(ledger(db, 'Interest on Loans', 'Indirect Expenses'), 1_000_00), cr(bank, 8_884_88)])
-    db.prepare('INSERT INTO loan_vouchers (voucher_id, loan_id, seq, kind) VALUES (?, ?, 1, ?)').run(v, loanId, 'emi')
-    db.prepare('UPDATE loan_schedules SET voucher_id = ? WHERE loan_id = ? AND seq = 1').run(v, loanId)
-    expect(emis()).toEqual(['2026-07-05'])
     const before = getVoucher(db, v)!
     expect(() => saveVoucher(db, { ...before, narration: 'EMI 1' } as never, v)).not.toThrow()
-    deleteVoucher(db, v)
-    expect(emis()).toEqual(['2026-06-05', '2026-07-05'])
   })
 })
 
