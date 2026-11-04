@@ -1,0 +1,122 @@
+// 1.0 cleanup review: budgets and loan schedules are gone from the app, but books from before keep
+// their `budget_lines` / `loans` rows, which point at ledgers and groups. No screen can remove
+// them any more, so deleting the ledger / group removes them (each audited with its whole
+// before-image); a loan whose entries are still in the books refuses the delete with a mapped
+// message naming the loan. Vouchers are never touched.
+import { describe, expect, it } from 'vitest'
+import { seededDb } from '../db/testdb'
+import type { DB } from '../db/connection'
+import { AppError } from '@shared/errors'
+import { createGroup, createLedger, deleteGroup, deleteLedger } from './masters'
+import { deleteVoucher, saveVoucher } from './vouchers'
+
+const gid = (db: DB, name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
+const ledger = (db: DB, name: string, group: string, openingBalance = 0): number => createLedger(db, { name, groupId: gid(db, group), openingBalance }).id
+const count = (db: DB, sql: string, ...args: unknown[]): number => (db.prepare(sql).get(...args) as { n: number }).n
+const audit = (db: DB, entity: string, entityId: number) =>
+  db.prepare('SELECT action, before_json AS b, after_json AS a FROM audit_log WHERE entity = ? AND entity_id = ? ORDER BY id DESC LIMIT 1').get(entity, entityId) as
+    | { action: string; b: string | null; a: string | null }
+    | undefined
+
+/** A budget as the removed Budgets screen stored it, with one ledger line and one group line. */
+function legacyBudget(db: DB, ledgerId: number, groupId: number): number {
+  const id = Number(db.prepare("INSERT INTO budgets (name, fy_start_year) VALUES ('Opex', 2026)").run().lastInsertRowid)
+  db.prepare('INSERT INTO budget_lines (budget_id, ledger_id, group_id, month, amount) VALUES (?, ?, NULL, NULL, 1200000)').run(id, ledgerId)
+  db.prepare('INSERT INTO budget_lines (budget_id, ledger_id, group_id, month, amount) VALUES (?, NULL, ?, NULL, 500000)').run(id, groupId)
+  return id
+}
+
+/** A loan as the removed Loans screen stored it: schedule, a prepayment, an interest ledger. */
+function legacyLoan(db: DB, loanLedger: number, bank: number, interest: number): number {
+  const id = Number(db.prepare(
+    `INSERT INTO loans (name, loan_ledger_id, bank_ledger_id, interest_ledger_id, principal, annual_rate_milli, tenure_months, disbursed_on, first_due_date)
+     VALUES ('Term loan', ?, ?, ?, 10000000, 12000, 12, '2026-05-01', '2026-06-05')`
+  ).run(loanLedger, bank, interest).lastInsertRowid)
+  db.prepare("INSERT INTO loan_schedules (loan_id, seq, due_date, kind, opening, payment, interest, principal, closing) VALUES (?, 1, '2026-06-05', 'emi', 10000000, 888488, 100000, 788488, 9211512)").run(id)
+  db.prepare("INSERT INTO loan_prepayments (loan_id, date, amount, effect) VALUES (?, '2026-08-01', 1000000, 'reduce_emi')").run(id)
+  return id
+}
+
+/** The loan's disbursement as Loans → "Record the disbursement" posted it (Dr bank / Cr loan). */
+function disbursement(db: DB, loanId: number, bank: number, loanLedger: number): number {
+  const vt = (db.prepare("SELECT id FROM voucher_types WHERE kind = 'receipt' ORDER BY id LIMIT 1").get() as { id: number }).id
+  const v = saveVoucher(db, {
+    voucherTypeId: vt, date: '2026-05-01', partyLedgerId: null, narration: 'Loan disbursed', reference: null, inventory: [], billRefs: [], tds: null,
+    lines: [{ ledgerId: bank, drCr: 'dr', amount: 1_00_000_00, costAllocations: [] }, { ledgerId: loanLedger, drCr: 'cr', amount: 1_00_000_00, costAllocations: [] }]
+  })
+  db.prepare("INSERT INTO loan_vouchers (voucher_id, loan_id, seq, kind) VALUES (?, ?, 0, 'disbursement')").run(v.id, loanId)
+  return v.id
+}
+
+describe('deleting a ledger or group that leftover budgets / loans point at', () => {
+  it('a ledger with a budget line: the line goes (budget audited with its whole before-image), the ledger is deleted', () => {
+    const db = seededDb()
+    const rent = ledger(db, 'Office Rent', 'Indirect Expenses')
+    const budget = legacyBudget(db, rent, gid(db, 'Indirect Expenses'))
+    deleteLedger(db, rent)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM ledgers WHERE id = ?', rent)).toBe(0)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM budget_lines WHERE budget_id = ?', budget)).toBe(1)
+    const row = audit(db, 'budget', budget)!
+    expect(row.action).toBe('update')
+    expect(JSON.parse(row.b!).lines).toHaveLength(2)
+    expect(JSON.parse(row.a!).lines).toHaveLength(1)
+    expect(JSON.parse(audit(db, 'ledger', rent)!.b!).cascaded).toMatchObject({ budget_lines: 1 })
+  })
+
+  it('a group with a budget line: the line goes, the group is deleted', () => {
+    const db = seededDb()
+    const g = createGroup(db, { name: 'Shop expenses', parentId: gid(db, 'Indirect Expenses') }).id
+    const budget = legacyBudget(db, ledger(db, 'Electricity', 'Indirect Expenses'), g)
+    deleteGroup(db, g)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM groups WHERE id = ?', g)).toBe(0)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM budget_lines WHERE group_id = ?', g)).toBe(0)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM budget_lines WHERE budget_id = ?', budget)).toBe(1)
+    expect(JSON.parse(audit(db, 'budget', budget)!.b!).lines).toHaveLength(2)
+  })
+
+  it('a pre-books loan ledger with only an opening: the loan record (schedule, prepayment) goes, audited whole', () => {
+    const db = seededDb()
+    const loanLedger = ledger(db, 'Term Loan', 'Secured Loans', -1_00_000_00)
+    const bank = ledger(db, 'HDFC', 'Bank Accounts')
+    const interest = ledger(db, 'Interest on loan', 'Indirect Expenses')
+    const loan = legacyLoan(db, loanLedger, bank, interest)
+    deleteLedger(db, loanLedger)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM loans WHERE id = ?', loan)).toBe(0)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM loan_schedules WHERE loan_id = ?', loan)).toBe(0)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM loan_prepayments WHERE loan_id = ?', loan)).toBe(0)
+    const row = audit(db, 'loan', loan)!
+    expect(row.action).toBe('delete')
+    expect(JSON.parse(row.b!)).toMatchObject({ name: 'Term loan', schedule: [expect.objectContaining({ seq: 1 })], prepayments: [expect.objectContaining({ amount: 1000000 })] })
+    expect(row.a).toBeNull()
+    // the bank and the interest ledger stay
+    expect(count(db, 'SELECT COUNT(*) AS n FROM ledgers WHERE id IN (?, ?)', bank, interest)).toBe(2)
+  })
+
+  it('a loan whose entries are still in the books refuses, naming the loan; nothing is removed', () => {
+    const db = seededDb()
+    const loanLedger = ledger(db, 'Term Loan', 'Secured Loans')
+    const bank = ledger(db, 'HDFC', 'Bank Accounts')
+    const interest = ledger(db, 'Interest on loan', 'Indirect Expenses')
+    const loan = legacyLoan(db, loanLedger, bank, interest)
+    const v = disbursement(db, loan, bank, loanLedger)
+    const auditRows = count(db, 'SELECT COUNT(*) AS n FROM audit_log')
+    let err: unknown
+    try { deleteLedger(db, interest) } catch (e) { err = e }
+    expect(err).toBeInstanceOf(AppError)
+    expect(err).toMatchObject({ code: 'ledger_loan_in_use', params: { loan: 'Term loan' } })
+    expect((err as Error).message).toContain('Term loan')
+    expect(count(db, 'SELECT COUNT(*) AS n FROM loans WHERE id = ?', loan)).toBe(1)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM ledgers WHERE id = ?', interest)).toBe(1)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM audit_log')).toBe(auditRows)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM vouchers WHERE id = ? AND deleted_at IS NULL', v)).toBe(1)
+
+    // Once its entries are binned the loan record (and the binned voucher's link) can go; the
+    // binned voucher itself stays in the bin, untouched.
+    deleteVoucher(db, v)
+    deleteLedger(db, interest)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM loans WHERE id = ?', loan)).toBe(0)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM loan_vouchers WHERE loan_id = ?', loan)).toBe(0)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM vouchers WHERE id = ? AND deleted_at IS NOT NULL', v)).toBe(1)
+    expect(JSON.parse(audit(db, 'loan', loan)!.b!).voucherLinks).toEqual([expect.objectContaining({ voucherId: v, kind: 'disbursement' })])
+  })
+})

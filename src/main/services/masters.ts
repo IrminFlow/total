@@ -7,6 +7,7 @@ import type { GroupTreeNode, LedgerBalanceRow } from '@shared/reports'
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { rebuildItemSerials } from './serials'
 import { writeAudit } from './audit'
+import { removeLeftoverPlanning } from './leftoverPlanning'
 import { guardOpeningChange } from './openingBills'
 import { CATEGORIES, expectedClass, type CategoryKey } from '@shared/simple/categories'
 
@@ -127,8 +128,12 @@ export function deleteGroup(db: DB, id: number): void {
   const childCount = db.prepare('SELECT COUNT(*) AS n FROM groups WHERE parent_id = ?').get(id) as { n: number }
   const ledgerCount = db.prepare('SELECT COUNT(*) AS n FROM ledgers WHERE group_id = ?').get(id) as { n: number }
   if (childCount.n > 0 || ledgerCount.n > 0) throw new AppError('group_in_use', 'Group is in use')
-  db.prepare('DELETE FROM groups WHERE id = ?').run(id)
-  writeAudit(db, 'group', id, 'delete', mapGroup(existing), null)
+  db.transaction(() => {
+    // 1.0 cleanup: leftover budget lines on this group go with it (audited).
+    const cascaded = removeLeftoverPlanning(db, { groupId: id })
+    db.prepare('DELETE FROM groups WHERE id = ?').run(id)
+    writeAudit(db, 'group', id, 'delete', Object.keys(cascaded).length ? { ...mapGroup(existing), cascaded } : mapGroup(existing), null)
+  })()
 }
 
 /** All ids in the subtrees rooted at the given group ids (inclusive). */
@@ -348,8 +353,13 @@ export function deleteLedger(db: DB, id: number): void {
       if (n > 0) cascaded[t] = n
     }
   }
-  db.prepare('DELETE FROM ledgers WHERE id = ?').run(id)
-  writeAudit(db, 'ledger', id, 'delete', Object.keys(cascaded).length ? { ...existing, cascaded } : existing, null)
+  db.transaction(() => {
+    // 1.0 cleanup: leftover budget lines and loan records on this ledger go with it (each audited);
+    // a loan whose entries are still in the books refuses the delete first.
+    Object.assign(cascaded, removeLeftoverPlanning(db, { ledgerId: id }))
+    db.prepare('DELETE FROM ledgers WHERE id = ?').run(id)
+    writeAudit(db, 'ledger', id, 'delete', Object.keys(cascaded).length ? { ...existing, cascaded } : existing, null)
+  })()
 }
 
 /** Closing balances (opening + movements up to `asOn` inclusive), only non-zero unless includeZero. */

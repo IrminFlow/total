@@ -116,6 +116,7 @@ export const ERROR_MAP = {
   ledger_not_found: e('errors.accountMissing'),
   ledger_system: e('errors.builtInAccount'),
   ledger_in_use: e('errors.accountInUse'),
+  ledger_loan_in_use: e('errors.accountLoanEntries', undefined, ['loan'], 'errors.accountInUse'),
   item_not_found: e('errors.productMissing'),
   item_in_use: e('errors.productInUse'),
   godown_needs_party: e('errors.chooseParty', 'party'),
