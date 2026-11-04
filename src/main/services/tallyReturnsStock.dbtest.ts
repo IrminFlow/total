@@ -80,8 +80,9 @@ describe('Tally import: returns, stock journals, bill-wise details', () => {
 
   it('an On Account part keeps the voucher without bill references (and says so)', () => {
     const db = seededDb()
-    importTallyXml(db, XML.replace('<BILLTYPE>Advance</BILLTYPE>', '<BILLTYPE>On Account</BILLTYPE>'))
+    const summary = importTallyXml(db, XML.replace('<BILLTYPE>Advance</BILLTYPE>', '<BILLTYPE>On Account</BILLTYPE>'))
     const r = db.prepare("SELECT id FROM vouchers WHERE number = 'R-1'").get() as { id: number }
     expect(getVoucher(db, r.id)!.billRefs).toEqual([])
+    expect(summary.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/R-1.*On Account part/)]))
   })
 })

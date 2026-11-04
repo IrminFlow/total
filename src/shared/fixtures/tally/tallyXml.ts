@@ -69,3 +69,7 @@ export const tallyBaseMasters = [
   tallyLedger('Capital Account', 'Capital Account', -100_000),
   tallyUnit
 ]
+
+/** A VOUCHERTYPE master: a custom type made from Tally's predefined `parent`. */
+export const tallyVoucherType = (name: string, parent: string): string =>
+  `     <VOUCHERTYPE NAME="${name}" RESERVEDNAME="" ACTION="Create">\n      <PARENT>${parent}</PARENT>\n      <NUMBERINGMETHOD>Automatic</NUMBERINGMETHOD>\n      <ISACTIVE>Yes</ISACTIVE>\n     </VOUCHERTYPE>`

@@ -63,11 +63,12 @@ Things to know about the version numbers:
     and Total counts the whole item, so the godown counts are joined into one count when they cover
     every godown holding the item that day (stock without a godown is Tally's Main Location; after
     an earlier count, the godowns it found); a count that leaves out a godown still holding stock is
-    skipped with a warning naming the item and the godown — it would have lost that stock. After
-    the last voucher, every joined count is checked again: a voucher dated on or before it that came
-    later in the file and put stock into a godown it doesn't count sends the count to the bin, with
-    a warning (a later import of earlier-dated vouchers can't be checked against it). A godown
-    counted at 0 is kept (that godown is empty).
+    skipped with a warning naming the item and the godown — it would have lost that stock. A godown
+    counted at 0 is kept (that godown is empty); a count naming an item that isn't in the masters is
+    skipped (never saved without it); a refused count creates none of the godowns it names. Known
+    limitation: a count over several godowns is one count line for the whole item (the valuation
+    pins the item's whole quantity on every count line, so godown lines would undo each other), so
+    godown-wise stock keeps each godown's pre-count figure — the import says so for each such count.
   - Item lines keep their godown (BATCHALLOCATIONS GODOWNNAME); a godown Total doesn't have yet is
     created. A line split over godowns becomes one line per godown with Tally's own quantities and
     amounts (batches without amounts share the line's by quantity, to the paisa); a split that
@@ -75,7 +76,18 @@ Things to know about the version numbers:
     quantity and no amount is left out. Before, every
     imported line had no godown.
   - Type names read the same with any separators or case ("Sales-Return", "PURCHASE_RETURN",
-    "Physical-Stock").
+    "Physical-Stock", a "Stock-Journal" without masters). An existing voucher type whose stored
+    kind differs from Tally's (a "Sales Return" made here as a sale) is corrected when no voucher
+    uses it yet (audited, with a warning) and kept, with a warning, when one does; a custom type made
+    from Rejections Out / In saves as a rejection (purpose from the type it was made from).
+  - Vouchers are imported in date order (same-day ones in the file's order) — the order Outstandings
+    and the stock pass replay them in — and a party's entries already in the books count from their
+    own dates, so an Agst Ref never relies on a bill dated after it.
+  - An existing party ledger that already has Tally's opening (and no opening bills) takes Tally's
+    bill-wise details too. Bill allocations on a ledger other than the voucher's party, and a bill
+    type Total doesn't know, are reported instead of dropped silently; a single godown allocation
+    that doesn't match its line leaves the line without a godown, with a warning; a voucher listing
+    its goods both as IN / OUT lists and as ALLINVENTORYENTRIES moves them once.
   For developers: `TallyImport.voucherTypes`, `TallyInventoryLine.direction` / `godown`,
   `TallyVoucherLine.bills`, `TallyLedger.bills`; fixtures
   `src/shared/fixtures/tally/daybook-returns-stock-bills.xml` and `opening-bills-physical-stock.xml`.

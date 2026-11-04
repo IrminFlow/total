@@ -301,12 +301,18 @@ const BILL_TYPES: Record<string, TallyBillAllocation['type']> = { 'new ref': 'ne
 
 /** BILLALLOCATIONS.LIST of a ledger entry. BILLCREDITPERIOD is "30 Days" (text or its P attribute)
  *  — the due date is the voucher date + those days — or a date. */
-function billAllocations(entry: XNode, date: string): TallyBillAllocation[] {
+function billAllocations(entry: XNode, date: string, label: string, warnings: string[]): TallyBillAllocation[] {
   const out: TallyBillAllocation[] = []
   for (const b of entry.children.filter((c) => c.tag === 'BILLALLOCATIONS.LIST')) {
-    const type = BILL_TYPES[childText(b, 'BILLTYPE').trim().toLowerCase()]
+    const billType = childText(b, 'BILLTYPE').trim()
+    const type = BILL_TYPES[billType.toLowerCase()]
     const amount = Math.abs(parseTallyAmount(childText(b, 'AMOUNT')))
     const name = childText(b, 'NAME').trim()
+    if (!type && amount !== 0) {
+      // Never dropped silently: without it the voucher's refs no longer add up (or are gone).
+      warnings.push(`Voucher ${label}: its bill-wise allocation ${name || '(no name)'} has a bill type Total doesn't know ("${billType}") — left out; Outstandings settles that part oldest first`)
+      continue
+    }
     if (!type || amount === 0 || (!name && type !== 'on_account')) continue
     out.push({ name, type, amount, dueDate: creditPeriodDue(b, date) })
   }
@@ -362,8 +368,22 @@ function godownSplit(inv: XNode, line: TallyInventoryLine, label: string, warnin
   }
   // A part with no quantity and no amount moves nothing — except on a Physical Stock voucher, where
   // a godown counted at 0 says that godown is empty.
-  const parts = [...groups.values()].filter((p) => isCount || p.qtyMilli !== 0 || p.amount !== 0)
-  if (parts.length <= 1) return [parts[0]?.godown ? { ...line, godown: parts[0].godown } : line]
+  // A batch naming only its godown (no quantity, no amount) still places a line of one godown.
+  const all = [...groups.values()]
+  const moving = all.filter((p) => p.qtyMilli !== 0 || p.amount !== 0)
+  const parts = isCount || moving.length === 0 ? all : moving
+  if (parts.length <= 1) {
+    const only = parts[0]
+    if (!only?.godown) return [line]
+    // One godown: its batches must agree with the line where they say a quantity / an amount.
+    const qtyGiven = batches.some((b) => (childText(b, 'ACTUALQTY') || childText(b, 'BILLEDQTY')).trim())
+    const off = (qtyGiven && only.qtyMilli !== line.qtyMilli) || (only.amounts > 0 && only.amount !== line.amount)
+    if (off) {
+      warnings.push(`Voucher ${label}: ${line.item}'s godown allocation (${only.godown}) doesn't add up to the line — imported without a godown`)
+      return [line]
+    }
+    return [{ ...line, godown: only.godown }]
+  }
   const withAmount = parts.reduce((s, p) => s + p.amounts, 0)
   const qtyAdds = parts.reduce((s, p) => s + p.qtyMilli, 0) === line.qtyMilli
   let amounts: number[] | null = null
@@ -469,16 +489,18 @@ export function parseTallyExport(xml: string): TallyImport {
       const deemedPositive = childText(e, 'ISDEEMEDPOSITIVE').toLowerCase() === 'yes'
       // Tally: ISDEEMEDPOSITIVE=Yes (amount negative) means debit.
       const drCr: 'dr' | 'cr' = deemedPositive || amount < 0 ? 'dr' : 'cr'
-      const bills = billAllocations(e, date)
+      const bills = billAllocations(e, date, childText(v, 'VOUCHERNUMBER') || date, warnings)
       lines.push({ ledger, drCr, amount: Math.abs(amount), ...(bills.length ? { bills } : {}) })
     }
     // Item lines: invoices list them as ALLINVENTORYENTRIES.LIST, vouchers in voucher (non-invoice)
     // mode and older exports as INVENTORYENTRIES.LIST, stock / manufacturing journals as
     // INVENTORYENTRIESIN.LIST (destination, goods in) and INVENTORYENTRIESOUT.LIST (source, out).
     // ALL… wins when a voucher carries both (the same lines twice).
+    // A voucher with the IN / OUT lists takes only them: an ALL… / INVENTORYENTRIES copy beside them
+    // would move the same goods twice.
     const all = v.children.filter((c) => c.tag === 'ALLINVENTORYENTRIES.LIST')
     const invNodes: { node: XNode; fixed: 'in' | 'out' | null }[] = [
-      ...(all.length ? all : v.children.filter((c) => c.tag === 'INVENTORYENTRIES.LIST')).map((node) => ({ node, fixed: null })),
+      ...(hasJournalLists(v) ? [] : all.length ? all : v.children.filter((c) => c.tag === 'INVENTORYENTRIES.LIST')).map((node) => ({ node, fixed: null })),
       ...v.children.filter((c) => c.tag === 'INVENTORYENTRIESIN.LIST').map((node) => ({ node, fixed: 'in' as const })),
       ...v.children.filter((c) => c.tag === 'INVENTORYENTRIESOUT.LIST').map((node) => ({ node, fixed: 'out' as const }))
     ]
@@ -532,7 +554,9 @@ export function parseTallyExport(xml: string): TallyImport {
     // A delivery / receipt note moves goods only — it legitimately has no ledger entries (WP 2.5);
     // so does a stock / manufacturing journal (goods in and out, no ledger entries).
     const baseType = tallyBaseTypeName(vchType, result.voucherTypes)
-    const goodsOnly = TALLY_STOCK_NOTE_TYPE.test(baseType) || TALLY_STOCK_JOURNAL_TYPE.test(baseType) || TALLY_PHYSICAL_STOCK_TYPE.test(baseType) || hasJournalLists(v)
+    // Separators read as one space ("Stock-Journal"), as kindForName reads them.
+    const typeWords = baseType.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim()
+    const goodsOnly = TALLY_STOCK_NOTE_TYPE.test(typeWords) || TALLY_STOCK_JOURNAL_TYPE.test(typeWords) || TALLY_PHYSICAL_STOCK_TYPE.test(typeWords) || hasJournalLists(v)
     if (lines.length === 0 && !(inventory.length > 0 && goodsOnly)) {
       warnings.push(`Voucher ${childText(v, 'VOUCHERNUMBER') || date} skipped: no ledger entries`)
       continue

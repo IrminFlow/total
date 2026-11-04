@@ -72,15 +72,16 @@ describe('Tally import: Physical Stock per godown', () => {
     expect(closing('Widget')).toBe(5_000)
   })
 
-  it('a back-dated movement imported after a joined count, into a godown it did not count, bins the count', () => {
-    const { db, summary, id, closing } = run([tallyItem('Widget'),
+  it('a back-dated movement listed after a count, into a godown it does not count: the count is skipped (vouchers import in date order)', () => {
+    const { summary, id, closing } = run([tallyItem('Widget'),
       tallyPurchase('P-1', '20260401', 'Widget', 10, 1000, [{ godown: 'Godown A', qty: 10 }]),
       count('PS-1', [{ godown: 'Godown A', qty: 10 }]),
       tallyPurchase('P-2', '20260405', 'Widget', 5, 500, [{ godown: 'Godown B', qty: 5 }])])
     expect(closing('Widget')).toBe(15_000)
-    expect(db.prepare("SELECT deleted_at IS NOT NULL AS binned FROM vouchers WHERE number = 'PS-1'").get()).toEqual({ binned: 1 })
+    expect(id('PS-1')).toBeUndefined()
     expect(id('P-2')).toBeDefined()
-    expect(summary.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/PS-1.*bin.*Widget.*Godown B.*later import/)]))
+    expect(summary.skipped).toBe(1)
+    expect(summary.warnings).toEqual(expect.arrayContaining([expect.stringMatching(/PS-1 skipped.*Widget.*Godown B/)]))
   })
 
   it('a back-dated movement into a counted godown keeps the count (Tally\'s count stands)', () => {
