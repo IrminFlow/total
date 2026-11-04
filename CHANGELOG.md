@@ -29,18 +29,24 @@ Things to know about the version numbers:
     carries a GST rate that does not explain the tax the voucher posts (a ₹1,000 bill charged at 5 %
     on an 18 % Sales account) is reported in GSTR-1 / GSTR-3B / GSTR-9 / HSN, the e-invoice / e-way
     bill, prints and the Home / Taxes / Ask Total GST figures at the slab the posted tax implies
-    (5 %, CGST 25 + SGST 25), no longer at the account's rate (18 %, 90 + 90). Only when one slab
-    explains the whole posted tax; otherwise the account's rate stays (the value check flags it).
+    (5 %, CGST 25 + SGST 25), no longer at the account's rate (18 %, 90 + 90). Only when the bill's
+    value ties (the party is charged the sales line + the posted tax, so no discount or other line
+    sits outside it), it has ONE sales line that is not a declared 0 %, and one slab explains the
+    whole posted tax; otherwise the account's rate stays (the value check flags it).
     Every other document is reported exactly as before (the posted-rate parity fixture is unchanged).
   - The invoice editor (and everything built on it: Make a bill, Record a purchase, returns, the
     counter, AI / capture drafts) rounds GST per LINE, as GSTR-1 / 3B and the e-invoice do: 3 × ₹100.50
     at 18 % now posts CGST / SGST ₹27.15 each (was ₹27.14 + round off ₹0.22). Only new saves and
     edited bills change; an old bill re-opened and saved without changing a line keeps its saved
-    (per rate group) tax.
+    (per rate group) tax. Quotations and sales / purchase orders store no totals — they are computed when shown, through
+    the same editor — so an existing quotation or order with several lines at one rate can show a
+    total a few paise different from before (and equal to the invoice it turns into).
   - GSTR-1 Table 9B (CDNUR): a credit / debit note to an unregistered buyer goes there when its
-    ORIGINAL invoice was B2C Large (by its return link, its reference = the invoice number, or the
-    bill it is set against), as GSTN's CDNUR help says — no longer by the note's own value. A note
-    whose original is not known is judged by its own value as before.
+    ORIGINAL invoice was B2C Large (by its return link, the bill it is set against, or — only when
+    exactly one invoice of that number is in the note's year or the one before, since numbers
+    restart every year — its reference = the invoice number), judged by the invoice's own place of
+    supply, as GSTN's CDNUR help says — no longer by the note's own value. A note whose original is
+    not found is judged by its own value as before.
 
 ## [0.12.0] - 2026-10-22
 

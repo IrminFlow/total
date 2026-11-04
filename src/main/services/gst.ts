@@ -4,7 +4,7 @@ import type { DB } from '../db/connection'
 import { applyCapitalGoodsExtraTax } from './fixedAssets'
 import type { CompanyInfo, TradePurpose } from '@shared/domain'
 import type { Gstr3bView } from '@shared/gst/views'
-import { resolvePostedRates, type PostedRateLine, type PostedRates } from '@shared/gst/postedRate'
+import { POSTED_TAX_ROUNDING_PAISE, resolvePostedRates, type PostedRateLine, type PostedRates } from '@shared/gst/postedRate'
 export type { Gstr3bView }
 import {
   buildGstr1, buildGstr3b, circular170Inputs, classifyDoc, isZeroRatedTyp,
@@ -15,7 +15,7 @@ import {
 import { backOutAdvance, computeGst, supplyTypeFor } from '@shared/gst/calc'
 import { toUqc } from '@shared/gst/uqc'
 import { validateGstr1, type GstIssue } from '@shared/gst/validate'
-import { fyOf } from '@shared/dates'
+import { fyFromStartYear, fyOf } from '@shared/dates'
 import { plainRupees } from '@shared/money'
 import { parseGstr2b, reconcile2b, type PurchaseDoc, type Recon2bOptions, type Recon2bResult } from '@shared/gst/recon2b'
 import { descendantIdsByName } from './masters'
@@ -100,6 +100,7 @@ export function outwardSupplyClass(
 
 // One prepared statement per connection (postedLineRates runs once per ledger-line document).
 const postedTaxStmts = new WeakMap<DB, { get(salesSide: string, voucherId: number): unknown }>()
+const postedValueStmts = new WeakMap<DB, { get(...params: unknown[]): unknown }>()
 
 /**
  * Rates of a ledger-line document's sales-side lines. The ledger's rate is the fallback; when the
@@ -120,52 +121,95 @@ export function postedLineRates(
     postedTaxStmts.set(db, stmt)
   }
   const posted = (stmt.get(salesSide, voucherId) as { t: number }).t
-  return resolvePostedRates(lines, posted, supply, date)
+  // Review of #187: a rated line is re-rated only when the document's value ties — the party is
+  // charged the sales lines + the posted tax + cess (+ TCS), within the rounding.
+  let facts = postedValueStmts.get(db)
+  if (!facts) {
+    facts = db.prepare(
+      `SELECT
+         (SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = ? THEN vl.amount ELSE -vl.amount END), 0) FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+          WHERE vl.voucher_id = ? AND vl.ledger_id = v.party_ledger_id) AS party,
+         (SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = ? THEN vl.amount ELSE -vl.amount END), 0) FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+          WHERE vl.voucher_id = ? AND l.tax_type = 'cess') AS cess,
+         (SELECT COALESCE(SUM(te.tds_amount), 0) FROM tds_entries te JOIN tds_sections ts ON ts.id = te.section_id
+          WHERE te.voucher_id = ? AND ts.kind = 'tcs') AS tcs`
+    )
+    postedValueStmts.set(db, facts)
+  }
+  const partySide = salesSide === 'cr' ? 'dr' : 'cr'
+  const f = facts.get(partySide, voucherId, salesSide, voucherId, voucherId) as { party: number; cess: number; tcs: number }
+  const taxable = lines.reduce((s, l) => s + l.taxable, 0)
+  const valueTies = f.party > 0 && Math.abs(f.party - f.tcs - (taxable + posted + f.cess)) <= lines.length + POSTED_TAX_ROUNDING_PAISE
+  return resolvePostedRates(lines, posted, supply, date, { valueTies })
 }
 
 /**
  * The ORIGINAL invoice of each credit / outward debit note (GSTR-1 9B CDNUR vs B2CS is decided by
- * it — returns.ts buildGstr1): its `return` line link, else the party's sales invoice numbered as
- * the note's reference (dated on / before the note), else the sales invoice whose bill the note is
- * set `against`. Value = the invoice's debit side (as `invoiceValue`), place of supply = its own
- * override, else the note's. In chunks of 500 notes.
+ * it — returns.ts buildGstr1), never guessed: its `return` line link, else the sales invoice whose
+ * bill the note is set `against` (dated on / before the note), else — review of #187: numbers
+ * restart every FY — the party's sales invoice numbered as the note's reference only when exactly
+ * ONE such invoice is dated on / before the note in the note's FY or the one before; otherwise not
+ * found (the note is judged by its own value). Value = the invoice's debit side (as
+ * `invoiceValue`); place of supply = the INVOICE's own (its override, else its party snapshot —
+ * outwardSupplyClass on its row). In chunks of 500 notes.
  */
-function originalInvoices(db: DB, notes: { id: number; pos: string }[]): Map<number, { invoiceValue: number; pos: string }> {
+function originalInvoices(db: DB, company: CompanyInfo, notes: { id: number; date: string }[]): Map<number, { invoiceValue: number; pos: string }> {
   const out = new Map<number, { invoiceValue: number; pos: string }>()
   const o = IN_BOOKS.replace(/\bv\./g, 'o.')
   for (let i = 0; i < notes.length; i += 500) {
     const chunk = notes.slice(i, i + 500)
-    const rows = db
+    const marks = chunk.map(() => '?').join(',')
+    const linked = db
       .prepare(
         `SELECT n.id AS noteId, COALESCE(
            (SELECT ll.from_voucher_id FROM line_links ll JOIN vouchers o ON o.id = ll.from_voucher_id JOIN voucher_types ot ON ot.id = o.voucher_type_id
             WHERE ll.to_voucher_id = n.id AND ll.link_type = 'return' AND ot.kind = 'sales' AND ${o} ORDER BY ll.id LIMIT 1),
-           (SELECT o.id FROM vouchers o JOIN voucher_types ot ON ot.id = o.voucher_type_id
-            WHERE ot.kind = 'sales' AND o.party_ledger_id = n.party_ledger_id AND o.number = TRIM(n.reference) AND o.date <= n.date AND ${o}
-            ORDER BY o.date DESC, o.id DESC LIMIT 1),
            (SELECT o.id FROM bill_refs br JOIN bill_refs ob ON ob.name = br.name AND ob.kind = 'new' AND ob.party_ledger_id = br.party_ledger_id
               JOIN vouchers o ON o.id = ob.voucher_id JOIN voucher_types ot ON ot.id = o.voucher_type_id
-            WHERE br.voucher_id = n.id AND br.kind = 'against' AND ot.kind = 'sales' AND o.party_ledger_id = n.party_ledger_id AND ${o}
+            WHERE br.voucher_id = n.id AND br.kind = 'against' AND ot.kind = 'sales' AND o.party_ledger_id = n.party_ledger_id AND o.date <= n.date AND ${o}
             ORDER BY br.id, o.date DESC, o.id DESC LIMIT 1)
          ) AS origId
-         FROM vouchers n WHERE n.id IN (${chunk.map(() => '?').join(',')})`
+         FROM vouchers n WHERE n.id IN (${marks})`
       )
       .all(...chunk.map((n) => n.id)) as { noteId: number; origId: number | null }[]
-    const found = rows.filter((r) => r.origId != null) as { noteId: number; origId: number }[]
-    if (found.length === 0) continue
-    const ids = [...new Set(found.map((r) => r.origId))]
+    const found = new Map<number, number>()
+    for (const r of linked) if (r.origId != null) found.set(r.noteId, r.origId)
+    // By reference: exactly one candidate in the note's FY or the one before.
+    const rest = chunk.filter((n) => !found.has(n.id))
+    if (rest.length) {
+      const byRef = db
+        .prepare(
+          `SELECT n.id AS noteId, o.id, o.date FROM vouchers n
+           JOIN vouchers o ON o.party_ledger_id = n.party_ledger_id AND o.number = TRIM(n.reference) AND o.date <= n.date
+           JOIN voucher_types ot ON ot.id = o.voucher_type_id
+           WHERE n.id IN (${rest.map(() => '?').join(',')}) AND TRIM(COALESCE(n.reference, '')) <> '' AND ot.kind = 'sales' AND ${o}`
+        )
+        .all(...rest.map((n) => n.id)) as { noteId: number; id: number; date: string }[]
+      const dateOf = new Map(rest.map((n) => [n.id, n.date]))
+      const candidates = new Map<number, number[]>()
+      for (const r of byRef) {
+        const from = fyFromStartYear(fyOf(dateOf.get(r.noteId)!).startYear - 1).from
+        if (r.date < from) continue
+        candidates.set(r.noteId, [...(candidates.get(r.noteId) ?? []), r.id])
+      }
+      for (const [noteId, ids] of candidates) if (ids.length === 1) found.set(noteId, ids[0]!)
+    }
+    if (found.size === 0) continue
+    const ids = [...new Set(found.values())]
+    const snaps = partySnapshots(db, ids)
     const facts = new Map(
       (db
         .prepare(
-          `SELECT o.id, o.pos_override AS posOverride, (SELECT COALESCE(SUM(amount), 0) FROM voucher_lines WHERE voucher_id = o.id AND dr_cr = 'dr') AS total
-           FROM vouchers o WHERE o.id IN (${ids.map(() => '?').join(',')})`
+          `SELECT o.id, o.pos_override AS posOverride, p.state_code AS partyState, p.export_type AS partyExportType, p.gstin AS partyGstin,
+                  (SELECT COALESCE(SUM(amount), 0) FROM voucher_lines WHERE voucher_id = o.id AND dr_cr = 'dr') AS total
+           FROM vouchers o LEFT JOIN ledgers p ON p.id = o.party_ledger_id WHERE o.id IN (${ids.map(() => '?').join(',')})`
         )
-        .all(...ids) as { id: number; posOverride: string | null; total: number }[]).map((r) => [r.id, r])
+        .all(...ids) as { id: number; posOverride: string | null; partyState: string | null; partyExportType: DocVoucherRow['partyExportType']; partyGstin: string | null; total: number }[])
+        .map((r) => [r.id, withPartySnap(r, snaps.get(r.id))])
     )
-    const posOf = new Map(chunk.map((n) => [n.id, n.pos]))
-    for (const r of found) {
-      const f = facts.get(r.origId)
-      if (f) out.set(r.noteId, { invoiceValue: f.total, pos: f.posOverride ?? posOf.get(r.noteId)! })
+    for (const [noteId, origId] of found) {
+      const f = facts.get(origId)
+      if (f) out.set(noteId, { invoiceValue: f.total, pos: outwardSupplyClass(company, f).pos })
     }
   }
   return out
@@ -268,11 +312,8 @@ function extractOutwardDocsRaw(db: DB, company: CompanyInfo, from: string, to: s
   const outward = vouchers.filter((v) => v.kind !== 'debit_note' || outwardDbn.has(v.id))
   const originals = originalInvoices(
     db,
-    outward.flatMap((v) => {
-      if (v.kind === 'sales' || v.partyGstin) return []
-      const c = outwardSupplyClass(company, v)
-      return c.isExport ? [] : [{ id: v.id, pos: c.pos }]
-    })
+    company,
+    outward.flatMap((v) => (v.kind === 'sales' || v.partyGstin || outwardSupplyClass(company, v).isExport ? [] : [{ id: v.id, date: v.date }]))
   )
 
   return outward

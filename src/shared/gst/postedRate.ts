@@ -56,11 +56,16 @@ function impliedRate(rest: number, taxable: number): number {
  * tax cannot be attributed per line) — flagged when it fits no slab.
  *
  * A RATED line whose master rate does not explain the posted tax (a "just an amount" bill charged
- * at 5 % on an 18 % Sales account — bug hunt 2026-11) is re-rated too, but only when ONE slab
- * explains the whole posted tax over every line that is not a declared 0 %; a posting no slab
- * explains keeps the master rates exactly as before (the value check flags it).
+ * at 5 % on an 18 % Sales account — bug hunt 2026-11) is re-rated too, but only when (review of
+ * #187) the document's value ties (`opts.valueTies`: what the party is charged, less TCS, equals
+ * the sales lines + the posted tax and cess, within the rounding — so no discount or other line
+ * sits outside the taxable value), it is the ONE line that can take the rate (one non-0 % line:
+ * tax on only one of two lines can't be told from a lower rate on both), and one slab explains the
+ * whole posted tax. Anything else keeps the master rates exactly as before (the value check flags it).
  */
-export function resolvePostedRates(lines: PostedRateLine[], postedGst: number, supply: SupplyType, date: string): PostedRates {
+export function resolvePostedRates(
+  lines: PostedRateLine[], postedGst: number, supply: SupplyType, date: string, opts: { valueTies?: boolean } = {}
+): PostedRates {
   const same: PostedRates = { rates: lines.map((l) => l.rate ?? 0), derived: false, offSlab: false }
   if (postedGst <= 0) return same
   const bare = lines.flatMap((l, i) => (l.rate == null && l.taxable > 0 ? [i] : []))
@@ -92,10 +97,11 @@ export function resolvePostedRates(lines: PostedRateLine[], postedGst: number, s
   }
   // The rated lines' master rates do not explain the posting: one slab over every taxable line that
   // is not a declared 0 % (round-off-sized lines beside bigger ones left out), else unchanged.
-  if (explained > 0 && Math.abs(rest) > tolerance) {
+  if (opts.valueTies && explained > 0 && Math.abs(rest) > tolerance) {
     const open = lines.flatMap((l, i) => (l.rate !== 0 && l.taxable > 0 ? [i] : []))
     const big = open.filter((i) => lines[i]!.taxable >= ROUND_OFF_SIZE_PAISE)
     const target = new Set(big.length > 0 ? big : open)
+    if (target.size !== 1 || lines[[...target][0]!]!.rate == null) return same
     const slab = slabFor(target, postedGst)
     if (slab != null) return { rates: lines.map((l, i) => (target.has(i) ? slab : (l.rate ?? 0))), derived: true, offSlab: false }
   }

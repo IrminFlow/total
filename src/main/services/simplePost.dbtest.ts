@@ -807,3 +807,51 @@ describe('GSTR-1 CDNUR follows the original invoice', () => {
     expect(b2cs.map((x) => [x.pos, x.txval])).toEqual([['29', 40000]])
   })
 })
+
+// Review of #187: the original invoice of a note is never guessed across financial years.
+describe('GSTR-1 CDNUR: the original invoice across years and places', () => {
+  beforeEach(() => { db = company() })
+  const INFO26: CompanyInfo = INFO
+  const at = (intent: Record<string, unknown>, today: string) => postIntent(db, INFO26, { clientId: `client-${++seq}-fy`, ...intent }, today)
+  it('a note on last FY\'s small bill "1" is not judged by this FY\'s large bill "1" (numbers restart each FY)', () => {
+    ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })
+    const small = at({ kind: 'sale', customerId: L('Asha'), date: '2026-03-10', amount: { amount: '10,000', gstRate: 18 } }, '2026-03-20')
+    const big = at({ kind: 'sale', customerId: L('Asha'), date: '2026-04-10', amount: { amount: '1,50,000', gstRate: 18 } }, '2026-04-20')
+    expect([getVoucher(db, small.voucherIds[0]!)!.number, getVoucher(db, big.voucherIds[0]!)!.number]).toEqual(['1', '1'])
+    at({ kind: 'return_sale', billId: small.voucherIds[0]!, date: '2026-05-10', amount: { amount: '1,000' } }, '2026-05-20')
+    const docs = extractOutwardDocs(db, INFO26, '2026-05-01', '2026-05-31')
+    // Its original is the March ₹11,800 bill (by the bill it is set against).
+    expect(docs.map((d) => d.original)).toEqual([{ invoiceValue: 1_180_000, pos: '29' }])
+    const r = gstr1(db, INFO26, '2026-05-01', '2026-05-31', '052026')
+    expect(r.json.cdnur ?? []).toEqual([])
+  })
+  it('a reference-only note finds its invoice only when ONE invoice of that number is in the note\'s FY or the one before', () => {
+    ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })
+    const sale = (date: string, amount: string) => at({ kind: 'sale', customerId: L('Asha'), date, amount: { amount, gstRate: 18 } }, date).voucherIds[0]!
+    const a = sale('2026-03-10', '10,000')
+    sale('2026-04-10', '1,50,000')
+    // An accountant's note with only a reference "1" (no bill ref, no link): two invoices "1" fit.
+    const note = (number: string) => saveVoucher(db, {
+      voucherTypeId: typeId(db, 'credit_note'), date: '2026-05-10', number, partyLedgerId: L('Asha'), reference: '1',
+      lines: [{ ledgerId: L('Sales'), drCr: 'dr', amount: 10_000, costAllocations: [] }, { ledgerId: L('IGST'), drCr: 'dr', amount: 1_800, costAllocations: [] }, { ledgerId: L('Asha'), drCr: 'cr', amount: 11_800, costAllocations: [] }],
+      inventory: [], billRefs: [], tds: null
+    })
+    const n1 = note('CN-A').id
+    expect(extractOutwardDocs(db, INFO, '2026-05-01', '2026-05-31').find((d) => d.voucherId === n1)!.original).toBeUndefined()
+    // Binned, the March bill leaves one candidate: the April one.
+    db.prepare("UPDATE vouchers SET deleted_at = '2026-05-11' WHERE id = ?").run(a)
+    expect(extractOutwardDocs(db, INFO, '2026-05-01', '2026-05-31').find((d) => d.voucherId === n1)!.original).toEqual({ invoiceValue: 17_700_000, pos: '29' })
+  })
+  it('the original is placed by ITS own place of supply (its party snapshot), not the note\'s', () => {
+    ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })
+    // ₹1,50,000 + IGST to Karnataka: B2C Large. Asha then moves to Maharashtra; the note is intra-state.
+    const big = at({ kind: 'sale', customerId: L('Asha'), date: '2025-08-05', amount: { amount: '1,50,000', gstRate: 18 } }, '2025-08-06')
+    db.prepare("UPDATE ledgers SET state_code = '27' WHERE id = ?").run(L('Asha'))
+    at({ kind: 'return_sale', billId: big.voucherIds[0]!, date: '2025-08-12', amount: { amount: '10,000' } }, '2025-08-13')
+    const doc = extractOutwardDocs(db, INFO, '2025-08-01', '2025-08-31').find((d) => d.kind === 'credit_note')!
+    expect(doc.pos).toBe('27')
+    expect(doc.original).toEqual({ invoiceValue: 17_700_000, pos: '29' })
+    // A note in respect of a B2C Large (inter-state) invoice: CDNUR.
+    expect(((gstr1(db, INFO, '2025-08-01', '2025-08-31', '082025').json.cdnur ?? []) as unknown[]).length).toBe(1)
+  })
+})
