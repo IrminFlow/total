@@ -1,5 +1,9 @@
 import { z } from 'zod'
 
+/** Features hidden until used (the feature cleanup — see below). */
+export const HIDEABLE_FEATURES = ['forex', 'costCentres', 'cheques', 'interest', 'fixedAssets', 'tradeCycle', 'payrollStatutory'] as const
+export type HideableFeature = (typeof HIDEABLE_FEATURES)[number]
+
 /**
  * Company-wide feature toggles (Tally's F11 "features") — gate renderer affordances only.
  * Data already entered stays valid and every report keeps reading it regardless of these flags;
@@ -28,6 +32,9 @@ export interface CompanyFeatures {
    *  WP 8.3, and DEFAULT_FEATURES, which does not carry it); the setup wizard writes it explicitly
    *  (on only for a manufacturer that keeps stock). Read it through `effectiveFeatures`. */
   manufacturing?: boolean
+  /** Hidden-until-used features the owner turned on through Settings → Features → More features
+   *  (shown although the company has no data for them yet). ABSENT = none. */
+  turnedOn?: HideableFeature[]
 }
 
 export const DEFAULT_FEATURES: CompanyFeatures = {
@@ -56,7 +63,8 @@ export const featuresSchema = z.object({
   batches: z.boolean(),
   enforceCreditLimit: z.boolean(),
   orders: z.boolean(),
-  manufacturing: z.boolean().optional()
+  manufacturing: z.boolean().optional(),
+  turnedOn: z.array(z.enum(HIDEABLE_FEATURES)).optional()
 })
 
 /**
@@ -84,20 +92,55 @@ export function effectiveFeatures(f: CompanyFeatures): CompanyFeatures & { manuf
 // config:features:get). Hidden = no sidebar / palette / simple entry, no Settings → Features card
 // and none of the in-form affordances the matching flag gates; every report keeps reading the
 // data exactly as before, and a company with data keeps everything. The stored flags are never
-// changed by this.
-export const HIDEABLE_FEATURES = ['forex', 'costCentres', 'cheques', 'interest', 'fixedAssets', 'tradeCycle', 'payrollStatutory'] as const
-export type HideableFeature = (typeof HIDEABLE_FEATURES)[number]
+// changed by this. The door back (review of #194): Settings → Features → "More features" lists
+// the hidden ones; turning one on stores it in `turnedOn`, and a feature is shown when it has data
+// OR is turned on.
 
 /** config:features:get — the stored flags plus the hideable features this company has no data for. */
 export type FeaturesView = CompanyFeatures & { unused?: HideableFeature[] }
 
 /** The stored flags whose feature can be hidden — their Settings → Features card goes with it. */
 export const FLAG_FEATURE: Partial<Record<keyof CompanyFeatures, HideableFeature>> = { costCentres: 'costCentres', multiCurrency: 'forex', orders: 'tradeCycle' }
+const FLAG_OF: Partial<Record<HideableFeature, keyof CompanyFeatures>> = Object.fromEntries(Object.entries(FLAG_FEATURE).map(([k, h]) => [h, k]))
 
-/** Split a features view into the stored flags (what config:features:set takes) and the hidden set. */
-export function splitFeaturesView(v: FeaturesView): { stored: CompanyFeatures; unused: ReadonlySet<HideableFeature> } {
+/** Split a features view into the stored flags (what config:features:set takes), the hidden set
+ *  (`unused` — no data and not turned on) and the features with no data at all (`noData`). */
+export function splitFeaturesView(v: FeaturesView): { stored: CompanyFeatures; unused: ReadonlySet<HideableFeature>; noData: ReadonlySet<HideableFeature> } {
   const { unused, ...stored } = v
-  return { stored, unused: new Set(unused ?? []) }
+  const noData = new Set(unused ?? [])
+  const on = new Set(stored.turnedOn ?? [])
+  return { stored, unused: new Set([...noData].filter((h) => !on.has(h))), noData }
+}
+
+/** A hidden feature's stored flag and what it needs, turned on with it. */
+const TURN_ON: Partial<Record<HideableFeature, Partial<CompanyFeatures>>> = {
+  costCentres: { costCentres: true },
+  tradeCycle: { orders: true, inventory: true },
+  payrollStatutory: { payroll: true }
+}
+
+/** The "More features" list: the hideable features with no data, except forex (being removed) and
+ *  a flag feature already turned on (its own card is back in the main list). */
+export interface MoreFeature { feature: HideableFeature; on: boolean }
+export function moreFeatures(noData: ReadonlySet<HideableFeature>, stored: CompanyFeatures): MoreFeature[] {
+  const on = new Set(stored.turnedOn ?? [])
+  return HIDEABLE_FEATURES.filter((h) => h !== 'forex' && noData.has(h) && !(on.has(h) && FLAG_OF[h])).map((h) => ({ feature: h, on: on.has(h) }))
+}
+
+export function turnOnFeature(stored: CompanyFeatures, h: HideableFeature): CompanyFeatures {
+  const list = stored.turnedOn ?? []
+  return { ...stored, ...TURN_ON[h], turnedOn: list.includes(h) ? list : [...list, h] }
+}
+
+export function turnOffFeature(stored: CompanyFeatures, h: HideableFeature): CompanyFeatures {
+  return { ...stored, turnedOn: (stored.turnedOn ?? []).filter((x) => x !== h) }
+}
+
+/** A main-list flag turned off: a flag feature turned on through More goes back to hidden too. */
+export function flagTurnedOff(stored: CompanyFeatures, key: keyof CompanyFeatures): CompanyFeatures {
+  const next = { ...stored, [key]: false }
+  const h = FLAG_FEATURE[key]
+  return h && (stored.turnedOn ?? []).includes(h) ? turnOffFeature(next, h) : next
 }
 
 /** Whether a stored flag's Settings → Features card is shown (hidden with its feature). */

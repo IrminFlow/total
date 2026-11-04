@@ -6,7 +6,8 @@ import { useCanSetMode } from '../lib/mode'
 import { useToasts } from '../state/stores'
 import { Button, Page } from '../components/ui'
 import type { MessageKey } from '@shared/i18n'
-import { DEFAULT_FEATURES, effectiveFeatures, flagCardShown, splitFeaturesView, type CompanyFeatures } from '@shared/features'
+import { DEFAULT_FEATURES, effectiveFeatures, flagCardShown, flagTurnedOff, splitFeaturesView, type CompanyFeatures } from '@shared/features'
+import { MoreFeatures } from './MoreFeatures'
 
 /**
  * WP 8.3 (plan §4.3): Settings → Features in the simple shell — one "Turn on" card per module with
@@ -42,12 +43,13 @@ export function SimpleFeatures(): React.JSX.Element {
   const canEdit = useCanSetMode()
   const { data } = useQuery({ queryKey: ['features'], queryFn: api.config.features.get }) // i18n-technical
   // Feature cleanup: a hidden feature's card is left out (the stored flag itself is kept as is).
-  const { stored, unused } = splitFeaturesView(data ?? DEFAULT_FEATURES)
+  const { stored, unused, noData } = splitFeaturesView(data ?? DEFAULT_FEATURES)
   const value = effectiveFeatures(stored)
   const [busy, setBusy] = useState<Key | null>(null)
 
   const flip = async (c: Card): Promise<void> => {
-    const next: CompanyFeatures = { ...stored, [c.key]: !value[c.key] }
+    // Off: a feature turned on through More features goes back to hidden while it has no data.
+    const next: CompanyFeatures = value[c.key] ? flagTurnedOff(stored, c.key) : { ...stored, [c.key]: true }
     if (next[c.key] && c.needsStock) next.inventory = true
     setBusy(c.key)
     try {
@@ -89,6 +91,7 @@ export function SimpleFeatures(): React.JSX.Element {
             )
           })}
         </div>
+        <MoreFeatures stored={stored} noData={noData} canEdit={canEdit} />
         {!canEdit && <p className="mt-3 text-small text-muted">{t('simple.settings.mode.ownerOnly')}</p>}
       </div>
     </Page>

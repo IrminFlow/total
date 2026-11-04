@@ -6,7 +6,8 @@ import { useMode } from '../../lib/mode'
 import type { MessageKey } from '@shared/i18n'
 import { useSession, useToasts } from '../../state/stores'
 import { Button, Panel, SectionTitle } from '../../components/ui'
-import { DEFAULT_FEATURES, effectiveFeatures, flagCardShown, splitFeaturesView, type CompanyFeatures } from '@shared/features'
+import { DEFAULT_FEATURES, effectiveFeatures, flagCardShown, flagTurnedOff, splitFeaturesView, type CompanyFeatures } from '@shared/features'
+import { MoreFeatures } from '../../simple/MoreFeatures'
 
 /** WP 8.3 (plan §4.3): every module is a "Turn on" card with one line on who needs it. New simple
  *  companies start with TDS, TCS, payroll, cost centres, multi-currency, orders and manufacturing
@@ -34,14 +35,15 @@ export function FeaturesSection(): React.JSX.Element {
   const { data: existing } = useQuery({ queryKey: ['features'], queryFn: api.config.features.get })
   const [busy, setBusy] = useState<Key | null>(null)
   // Feature cleanup: a hidden feature's card is left out (the stored flag itself is kept as is).
-  const { stored, unused } = splitFeaturesView(existing ?? DEFAULT_FEATURES)
+  const { stored, unused, noData } = splitFeaturesView(existing ?? DEFAULT_FEATURES)
   const value = effectiveFeatures(stored)
   // Like the server's owner gate: in a company without users everyone is the owner.
   const canEdit = !user || user.role === 'owner'
 
   const flip = async (key: Key): Promise<void> => {
     if (!canEdit) return
-    const next: CompanyFeatures = { ...stored, [key]: !value[key] }
+    // Off: a feature turned on through More features goes back to hidden while it has no data.
+    const next: CompanyFeatures = value[key] ? flagTurnedOff(stored, key) : { ...stored, [key]: true }
     // Manufacturing and orders need stock: turning one on turns stock on too.
     if (next[key] && CARDS.find((c) => c.key === key)?.needsInventory) next.inventory = true
     setBusy(key)
@@ -91,6 +93,7 @@ export function FeaturesSection(): React.JSX.Element {
         })}
       </Panel>
       </div>
+      <MoreFeatures stored={stored} noData={noData} canEdit={canEdit} />
       {!canEdit && <p className="mt-4 text-right text-hint text-muted">Only owners can change features</p>}
     </div>
   )

@@ -3,15 +3,17 @@
 // hidden for a company that has none of their data (`unused` on config:features:get) — no sidebar
 // entry, no Features card, no tab — and shown exactly as before for one that has.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useNav, useSession } from '../state/stores'
 import { Shell } from '../components/Shell'
 import { FeaturesSection } from '../screens/settings/FeaturesSection'
-import { DEFAULT_FEATURES, HIDEABLE_FEATURES, type HideableFeature } from '@shared/features'
+import { SimpleFeatures } from '../simple/SimpleFeatures'
+import { DEFAULT_FEATURES, HIDEABLE_FEATURES, type CompanyFeatures, type HideableFeature } from '@shared/features'
 
 const invoke = vi.fn()
 let unused: HideableFeature[] = []
+let stored: CompanyFeatures = { ...DEFAULT_FEATURES, orders: true }
 
 function renderUi(ui: React.ReactElement): void {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -21,9 +23,14 @@ function renderUi(ui: React.ReactElement): void {
 beforeEach(() => {
   localStorage.clear()
   unused = []
+  stored = { ...DEFAULT_FEATURES, orders: true }
   invoke.mockReset()
-  invoke.mockImplementation(async (channel: string) => {
-    if (channel === 'config:features:get') return { ok: true, data: { ...DEFAULT_FEATURES, orders: true, unused } }
+  invoke.mockImplementation(async (channel: string, payload: unknown) => {
+    if (channel === 'config:features:get') return { ok: true, data: { ...stored, unused } }
+    if (channel === 'config:features:set') {
+      stored = payload as CompanyFeatures
+      return { ok: true, data: stored }
+    }
     return { ok: false, error: `unmocked channel ${channel}` }
   })
   window.total = { platform: 'test', invoke } as unknown as typeof window.total
@@ -76,5 +83,46 @@ describe('hidden until used', () => {
     expect(screen.queryByTestId('feature-card-multiCurrency')).toBeNull()
     expect(screen.queryByTestId('feature-card-orders')).toBeNull()
     for (const k of ['tds', 'tcs', 'payroll', 'billWise']) expect(screen.getByTestId(`feature-card-${k}`)).toBeTruthy()
+  })
+
+  it('More features: the door back — collapsed, lists the hidden ones; Turn on shows its sidebar entry with no data', async () => {
+    unused = [...HIDEABLE_FEATURES]
+    renderUi(<FeaturesSection />)
+    const toggle = await screen.findByTestId('btn-features-more')
+    expect(toggle.getAttribute('aria-expanded')).toBe('false')
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute('aria-expanded')).toBe('true')
+    for (const h of ['costCentres', 'cheques', 'interest', 'fixedAssets', 'tradeCycle', 'payrollStatutory']) expect(screen.getByTestId(`feature-more-card-${h}`).dataset.on, h).toBe('false')
+    expect(screen.queryByTestId('feature-more-card-forex')).toBeNull()
+    fireEvent.click(screen.getByTestId('btn-feature-more-fixedAssets'))
+    await waitFor(() => expect(stored.turnedOn).toEqual(['fixedAssets']))
+    await waitFor(() => expect(screen.getByTestId('feature-more-card-fixedAssets').dataset.on).toBe('true'))
+    cleanup()
+    await shell()
+    expect(document.querySelector('[data-testid="nav-fixed-assets"]')).not.toBeNull()
+    expect(document.querySelector('[data-testid="nav-cost-centres"]')).toBeNull()
+  })
+
+  it('a flag feature turned on joins the main list; turning it off there hides it again', async () => {
+    unused = [...HIDEABLE_FEATURES]
+    stored = { ...DEFAULT_FEATURES, costCentres: false }
+    renderUi(<FeaturesSection />)
+    fireEvent.click(await screen.findByTestId('btn-features-more'))
+    fireEvent.click(screen.getByTestId('btn-feature-more-costCentres'))
+    await waitFor(() => expect(stored).toMatchObject({ costCentres: true, turnedOn: ['costCentres'] }))
+    await waitFor(() => expect(screen.getByTestId('feature-card-costCentres').dataset.on).toBe('true'))
+    expect(screen.queryByTestId('feature-more-card-costCentres')).toBeNull()
+    fireEvent.click(screen.getByTestId('btn-feature-costCentres'))
+    await waitFor(() => expect(stored).toMatchObject({ costCentres: false, turnedOn: [] }))
+    await waitFor(() => expect(screen.queryByTestId('feature-card-costCentres')).toBeNull())
+  })
+
+  it('simple mode has the same collapsed list', async () => {
+    unused = ['cheques', 'interest']
+    renderUi(<SimpleFeatures />)
+    fireEvent.click(await screen.findByTestId('btn-features-more'))
+    expect(screen.getByTestId('feature-more-card-cheques')).toBeTruthy()
+    expect(screen.getByTestId('feature-more-card-interest')).toBeTruthy()
+    expect(screen.queryByTestId('feature-more-card-fixedAssets')).toBeNull()
   })
 })

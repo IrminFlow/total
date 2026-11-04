@@ -153,34 +153,22 @@ export class Harness {
     return r.data
   }
 
-  /**
-   * Feature cleanup: forex / multi-currency, cost centres, cheque books (+ PDC, bulk payment
-   * files), interest, the fixed-asset register and the trade cycle are hidden for a company with
-   * none of their data (services/featureUsage.ts). A scenario that drives one of them starts from
-   * a company that already uses it: one harmless row through the app's own IPC (the write's
-   * masters-changed event makes the renderer re-read the features), then the features answer
-   * no longer lists it as unused.
-   */
+  /** Turn on features hidden until used (the feature cleanup) the way an owner does: Settings →
+   *  Features → More features → Turn on, in the full app. A flag feature (cost centres, orders)
+   *  moves to the main list once on. Asserts each reads as turned on afterwards. */
   async useFeature(...names) {
-    const seed = {
-      forex: () => this.invoke('currency:create', { code: 'EUR', symbol: '€', name: 'Euro (existing)' }),
-      costCentres: () => this.invoke('cc:save', { data: { name: 'Head office (existing)', parentId: null, active: true } }),
-      cheques: () =>
-        this.invoke('bulkPay:saveTemplate', {
-          data: {
-            name: 'Existing bank format', delimiter: ',', extension: 'csv', includeHeader: true, headerLine: null,
-            columns: [{ header: 'Amount', field: 'amount' }], dateFormat: 'DD/MM/YYYY', amountFormat: 'rupees', quoteAll: false, rtgsThreshold: 0, corporateId: ''
-          }
-        }),
-      fixedAssets: () => this.invoke('fa:groupSave', { data: { name: 'Existing asset group', lifeMonths: 60 } }),
-      tradeCycle: () => this.invoke('tradeDocTypes:save', { data: { name: 'Existing order type', kind: 'purchase_order', prefix: 'XPO-' } })
-    }
+    const FLAG = { costCentres: 'costCentres', tradeCycle: 'orders' }
+    await this.goto('settings')
+    await this.click('tab-settings-features')
+    await this.page.waitForSelector('[data-testid="btn-features-more"]', { timeout: 10000 })
+    if ((await this.page.getAttribute('[data-testid="btn-features-more"]', 'aria-expanded')) !== 'true') await this.click('btn-features-more')
     for (const n of names) {
-      if (!seed[n]) throw new Error(`useFeature: no seed for ${n}`)
-      await seed[n]()
+      await this.click(`btn-feature-more-${n}`)
+      const done = FLAG[n] ? `[data-testid="feature-card-${FLAG[n]}"][data-on="true"]` : `[data-testid="feature-more-card-${n}"][data-on="true"]`
+      await this.page.waitForSelector(done, { state: 'attached', timeout: 10000 })
     }
-    const unused = (await this.invoke('config:features:get')).unused ?? []
-    for (const n of names) if (unused.includes(n)) throw new Error(`useFeature: ${n} still reads as unused`)
+    const features = await this.invoke('config:features:get')
+    for (const n of names) if (!(features.turnedOn ?? []).includes(n)) throw new Error(`useFeature: ${n} is not turned on`)
   }
 
   /** Wait until the current screen marker reports data-loading="false". */

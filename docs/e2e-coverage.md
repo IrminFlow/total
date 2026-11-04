@@ -74,7 +74,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 5.2 | Chat panel, Explain this | 39 | |
 | 5.3 | Voucher drafting + review | 41 | |
 | 5.4 | Document capture, statement categorising | 45 | |
-| 5.5 | Assistants: close checklist, 2B mismatches, anomalies, report from a question | 44 | |
+| 5.5 | Assistants: close checklist, 2B mismatches, anomalies ("report from a question" removed with the report builder) | 44 | |
 | 5.6 | Memory | 43 | |
 | 5.7 | ~~MCP server~~ — removed (feature cleanup) | — | |
 | 5.8 | ~~Evaluation suite~~ — removed (feature cleanup) | — | |
@@ -137,7 +137,8 @@ scheduled packs (6.1), the MCP server and agent inbox (5.7), budgets, loan sched
 (5.8) and the year-end repair tool. Hidden until a company has their data: forex / multi-currency,
 cost centres, cheque books + PDC + bulk payment files, interest, the fixed-asset register, the trade
 cycle and payroll statutory — the scenarios that drive one (11, 22, 24, 26, 28, 31, 69) start with
-`h.useFeature(name)`; 32, 34 and 72 make theirs used by their own first entries. The hiding itself
+`h.useFeature(name)`, which turns it on as an owner does (Settings → Features → More features →
+Turn on); 32, 34 and 72 make theirs used by their own first entries. The hiding itself
 is covered by `__tests__/hiddenFeatures.test.tsx` and `featureUsage.dbtest.ts`.
 
 ## Remaining gaps (deferred)

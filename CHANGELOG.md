@@ -42,7 +42,9 @@ sight until a business actually uses them. Nothing already in your books changes
   PF / ESI / PT in payroll. A business that has any of their data sees them exactly as before; one
   that has none no longer sees them in the sidebar, the search palette, the simple screens, their
   tabs or Settings → Features. They appear by themselves once their first data arrives (an import,
-  a post-dated cheque …).
+  a post-dated cheque …), and an owner can start one any time from Settings → Features → **More
+  features** (collapsed, in the simple Features screen too): Turn on shows its screens; Turn off
+  hides it again while it has no data.
 
 **For accountants.** One figure changes, on purpose: **the cash-flow forecast no longer counts loan
 EMIs.** It read the instalments of the old Loans screen's schedules; with that screen gone a paid
