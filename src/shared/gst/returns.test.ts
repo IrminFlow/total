@@ -781,6 +781,14 @@ describe('B2CL limit by date', () => {
     const aug = buildGstr1([inv('2024-08-10', 21_240_000)], COMPANY_GSTIN, COMPANY_STATE, '082024')
     expect((aug.json.b2cl as unknown[] | undefined)?.length).toBe(1)
   })
+  it('at the limit itself an invoice stays B2CS ("exceeds"), on both sides of 1 Aug 2024', () => {
+    const b2cl = (date: string, value: number, period: string) =>
+      ((buildGstr1([inv(date, value)], COMPANY_GSTIN, COMPANY_STATE, period).json.b2cl ?? []) as unknown[]).length
+    expect(b2cl('2024-07-31', 25_000_000, '072024')).toBe(0)
+    expect(b2cl('2024-07-31', 25_000_100, '072024')).toBe(1)
+    expect(b2cl('2024-08-01', 10_000_000, '082024')).toBe(0)
+    expect(b2cl('2024-08-01', 10_000_100, '082024')).toBe(1)
+  })
   it('a note is judged by the limit on its ORIGINAL\'s date', () => {
     const n: GstDoc = {
       ...inv('2024-09-10', 1_180_000), voucherId: 82, kind: 'credit_note', number: 'CN-82',

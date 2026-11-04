@@ -113,7 +113,10 @@ export const B2CL_THRESHOLD_PAISE = 100_000 * 100
 /** The B2CL limit before 1 Aug 2024: ₹2,50,000 (the limit Notification No. 12/2024–Central Tax
  *  lowered to ₹1,00,000 with effect from 01-08-2024 — see B2CL_THRESHOLD_PAISE). */
 export const B2CL_THRESHOLD_BEFORE_AUG_2024_PAISE = 250_000 * 100
-/** The day Notification No. 12/2024–Central Tax's ₹1,00,000 B2CL limit took effect. */
+/** The day Notification No. 12/2024–Central Tax's ₹1,00,000 B2CL limit took effect.
+ *  UNVERIFIED: the limit is chosen by the INVOICE date (a note by its original's date). Whether the
+ *  portal applies it by invoice date or by tax period (QRMP filers' Jul–Sep 2024 quarter) was not
+ *  read in the notification text or a GSTN advisory — to-do asks a CA. */
 export const B2CL_LIMIT_CHANGED_ON = '2024-08-01'
 
 /** The B2CL limit in force on an invoice's date (third review of #187: a July 2024 invoice of

@@ -1,5 +1,5 @@
 import { GST_STATES } from './states'
-import { b2clLimitOn, isZeroRatedTyp, type GstDoc } from './returns'
+import { B2CL_THRESHOLD_PAISE, b2clLimitOn, isZeroRatedTyp, type GstDoc } from './returns'
 import { isUqc } from './uqc'
 import { einvoiceDocNoWarning } from './einvoiceSchema'
 
@@ -250,7 +250,7 @@ export function validateGstr1(docs: GstDoc[], company: Gstr1ValidationCompany): 
     issues.push({
       code: 'b2cl_edge',
       severity: 'warning',
-      message: `${edge.length} inter-state unregistered invoice${edge.length === 1 ? '' : 's'} within ₹1,000 of the ₹1,00,000 B2CL threshold — reported in B2CS; double-check the value.`,
+      message: `${edge.length} inter-state unregistered invoice${edge.length === 1 ? '' : 's'} within ₹1,000 of the B2CL threshold (${[...new Set(edge.map((d) => b2clLimitOn(d.date) === B2CL_THRESHOLD_PAISE ? '₹1,00,000' : '₹2,50,000 before Aug 2024'))].join(' / ')}) — reported in B2CS; double-check the value.`,
       voucherIds: edge.map((d) => d.voucherId)
     })
   }
