@@ -43,7 +43,7 @@ done on main were dropped. One line each; the pointer says where to look.
 
 ## 3. Things only the owner can supply
 
-- OpenAI API key for a live AI run (only mock runs so far; default model ids `gpt-6.1-sol` / `gpt-6-luna` unverified) — `npm run ai:evals -- --live`, workflow `ai-evals.yml` secret `OPENAI_API_KEY`
+- OpenAI API key for a live AI run (only mock runs so far; default model ids `gpt-6.1-sol` / `gpt-6-luna` unverified)
 - NIC e-invoice / e-way sandbox credentials (the client has never talked to the real portal) — `src/main/services/nic.ts`
 - Apple Developer ID certificate (`CSC_LINK` / `CSC_KEY_PASSWORD`) for signed, silently updating macOS builds — `release.yml`, `src/main/updater.ts`
 - A Windows code-signing certificate (SmartScreen warning until then) — PR #109
@@ -227,7 +227,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - ~~e2e harness can lose a failed scenario's result line on macOS (process.exit while writing to a pipe; exit code still fails)~~ DONE — PR #128 (also closing over an unsaved form crashed / hung the harness) — PR #110
 - ~~e2e 63 uses `page.focus()` twice~~ DONE — PR #128. ~~e2e 12 "mid-fade" flake diagnosis unproven~~ DONE — PR #134: `node scripts/run-e2e.mjs 12 --repeat 5` on 16–17 Oct 2026, 5 / 5 passed (124 / 171 / 190 / 255 / 233 s, no flaky run), and again on the PR's build; no code change — PR #103
 - ~~Plain AI drawer a11y and the escalated drawer checked in renderer tests only~~ DONE — e2e 35 sweeps the plain drawer in both themes — PR #170
-- No live-model run of AI evals, capture or Ask Total escalation — PR #98 / #101
+- No live-model run of capture or Ask Total escalation — PR #98 / #101
 - No live NIC sandbox scenario — WP 3.5, `docs/e2e-coverage.md`
 - 500k-voucher run and the packaged DMG / EXE perf not verified by the reviewer — PR #104
 - ~~Interrupted multi-migration upgrade not tested~~ DONE — `db/interruptedUpgrade.dbtest.ts`, no runner bug — PR #118

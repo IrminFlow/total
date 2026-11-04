@@ -149,8 +149,6 @@ suggestions from the books, Ask Total, and the MCP server (the MCP client brings
   picks from that list.
 - What OpenAI does with the data on its side (retention, training) is governed by your agreement with
   OpenAI and is not something this app can verify. Read their terms for your account type.
-- The evaluation suite (`docs/ai-evals.md`) checks Total's own behaviour (masking, refusals) with a
-  scripted model in CI. Live-model runs are a manual workflow and are reported, not enforced.
 
 ## 4. Live e-invoice and e-way bill filing (optional)
 

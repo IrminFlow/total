@@ -95,7 +95,7 @@ describe('newer-file guard', () => {
     // A restore of such a file (and the restore check) refuses it too.
     expect(() => assertValidCompanyDb(companyDbPath(slug))).toThrow(expect.objectContaining({ code: 'db_newer_version' }))
     expect(verifyBackupFile(companyDbPath(slug), { asOn: AS_ON }).ok).toBe(false)
-    // migrate() itself refuses (CLI, evals, every other caller).
+    // migrate() itself refuses (CLI, every other caller).
     const db = testFileDb(companyDbPath(slug))
     try {
       expect(() => migrate(db)).toThrow(expect.objectContaining({ code: 'db_newer_version' }))

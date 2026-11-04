@@ -77,7 +77,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 5.5 | Assistants: close checklist, 2B mismatches, anomalies, report from a question | 44 | |
 | 5.6 | Memory | 43 | |
 | 5.7 | MCP server (real stdio client) | 42 | |
-| 5.8 | Evaluation suite | — | DB: `aiEvals.dbtest.ts` (mocked, 100 %), `npm run ai:evals` |
+| 5.8 | ~~Evaluation suite~~ — removed (feature cleanup) | — | |
 
 ## Phase 6 — Reports, analytics, data
 
