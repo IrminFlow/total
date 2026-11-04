@@ -65,6 +65,13 @@ sight until a business actually uses them. Nothing already in your books changes
   stored `turnedOn: ['forex']` is dropped on read). The old write code lives on only as
   `services/forexLegacy.testutil.ts` for dbtests of books an older version wrote. No migration, no
   table dropped; the stored `multiCurrency` flag is kept but read by nothing.
+- **Forex follow-ups** (#196). Plain words: when you change an account's opening so it changes side
+  (or becomes zero), a foreign-currency opening entered on the old Forex screen is cleared instead
+  of being left on the wrong side — the ledger form says so before you save; on the same side the
+  foreign amount stays and its implied rate follows. A saved foreign-currency invoice's currency
+  picker offers only that currency and ₹, and the price-list slab table shows its Currency column
+  only when a slab is in another currency. For accountants: the clear is audited
+  (`fx_ledger_currency` update, whole before / after); no other figure changes.
 
 **For accountants.** One figure changes, on purpose: **the cash-flow forecast no longer counts loan
 EMIs.** It read the instalments of the old Loans screen's schedules; with that screen gone a paid
