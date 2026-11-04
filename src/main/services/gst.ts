@@ -4,7 +4,7 @@ import type { DB } from '../db/connection'
 import { applyCapitalGoodsExtraTax } from './fixedAssets'
 import type { CompanyInfo, TradePurpose } from '@shared/domain'
 import type { Gstr3bView } from '@shared/gst/views'
-import { POSTED_TAX_ROUNDING_PAISE, resolvePostedRates, type PostedRateLine, type PostedRates } from '@shared/gst/postedRate'
+import { POSTED_TAX_ROUNDING_PAISE, ratedLinesUnexplained, resolvePostedRates, type PostedRateLine, type PostedRates } from '@shared/gst/postedRate'
 export type { Gstr3bView }
 import {
   buildGstr1, buildGstr3b, circular170Inputs, classifyDoc, isZeroRatedTyp,
@@ -15,7 +15,7 @@ import {
 import { backOutAdvance, computeGst, supplyTypeFor } from '@shared/gst/calc'
 import { toUqc } from '@shared/gst/uqc'
 import { validateGstr1, type GstIssue } from '@shared/gst/validate'
-import { fyFromStartYear, fyOf } from '@shared/dates'
+import { fyOf } from '@shared/dates'
 import { plainRupees } from '@shared/money'
 import { parseGstr2b, reconcile2b, type PurchaseDoc, type Recon2bOptions, type Recon2bResult } from '@shared/gst/recon2b'
 import { descendantIdsByName } from './masters'
@@ -28,6 +28,7 @@ import { chargesGstOn } from '@shared/gst/registration'
 import { hasTradeSchema } from './tradeLinks'
 import { writeAudit } from './audit'
 import { lineSnapSql, partySnapSql, partySnapshots, withPartySnap } from './taxFacts'
+import { openingBillsByParty, openingEvents } from './openingBills'
 
 interface DocVoucherRow {
   id: number; date: string; number: string; kind: 'sales' | 'credit_note' | 'debit_note'
@@ -122,7 +123,9 @@ export function postedLineRates(
   }
   const posted = (stmt.get(salesSide, voucherId) as { t: number }).t
   // Review of #187: a rated line is re-rated only when the document's value ties — the party is
-  // charged the sales lines + the posted tax + cess (+ TCS), within the rounding.
+  // charged the sales lines + the posted tax + cess (+ TCS), within the rounding. Read only when a
+  // rated line's master rate leaves the posted tax unexplained (otherwise it can't matter).
+  if (!ratedLinesUnexplained(lines, posted, supply)) return resolvePostedRates(lines, posted, supply, date)
   let facts = postedValueStmts.get(db)
   if (!facts) {
     facts = db.prepare(
@@ -145,13 +148,17 @@ export function postedLineRates(
 
 /**
  * The ORIGINAL invoice of each credit / outward debit note (GSTR-1 9B CDNUR vs B2CS is decided by
- * it — returns.ts buildGstr1), never guessed: its `return` line link, else the sales invoice whose
- * bill the note is set `against` (dated on / before the note), else — review of #187: numbers
- * restart every FY — the party's sales invoice numbered as the note's reference only when exactly
- * ONE such invoice is dated on / before the note in the note's FY or the one before; otherwise not
- * found (the note is judged by its own value). Value = the invoice's debit side (as
- * `invoiceValue`); place of supply = the INVOICE's own (its override, else its party snapshot —
- * outwardSupplyClass on its row). In chunks of 500 notes.
+ * it — returns.ts buildGstr1), never guessed: its `return` line link; else (review of #187) the name
+ * it is set `against`, or failing bill refs its reference — accepted only when that name can mean
+ * exactly ONE bill of the party dated on / before the note and that bill is a sales invoice in the
+ * books. A name's candidates are every unbinned voucher of the party opening a bill of that name
+ * (a `new` ref, or a sales invoice of that number without refs — and, for a reference, any sales
+ * invoice of that number) and the party's opening bills of that name (an unnamed opening is the
+ * bill "Opening") — the books settle a name against the OLDEST open one and numbers restart every
+ * year, so two candidates are never told apart here. Several names against must all mean the same
+ * invoice. Not found = the note is judged by its own value, as before. Value = the invoice's debit
+ * side (as `invoiceValue`); place of supply = the INVOICE's own (its override, else its party
+ * snapshot — outwardSupplyClass on its row). In chunks of 500 notes.
  */
 function originalInvoices(db: DB, company: CompanyInfo, notes: { id: number; date: string }[]): Map<number, { invoiceValue: number; pos: string }> {
   const out = new Map<number, { invoiceValue: number; pos: string }>()
@@ -159,40 +166,75 @@ function originalInvoices(db: DB, company: CompanyInfo, notes: { id: number; dat
   for (let i = 0; i < notes.length; i += 500) {
     const chunk = notes.slice(i, i + 500)
     const marks = chunk.map(() => '?').join(',')
-    const linked = db
-      .prepare(
-        `SELECT n.id AS noteId, COALESCE(
-           (SELECT ll.from_voucher_id FROM line_links ll JOIN vouchers o ON o.id = ll.from_voucher_id JOIN voucher_types ot ON ot.id = o.voucher_type_id
-            WHERE ll.to_voucher_id = n.id AND ll.link_type = 'return' AND ot.kind = 'sales' AND ${o} ORDER BY ll.id LIMIT 1),
-           (SELECT o.id FROM bill_refs br JOIN bill_refs ob ON ob.name = br.name AND ob.kind = 'new' AND ob.party_ledger_id = br.party_ledger_id
-              JOIN vouchers o ON o.id = ob.voucher_id JOIN voucher_types ot ON ot.id = o.voucher_type_id
-            WHERE br.voucher_id = n.id AND br.kind = 'against' AND ot.kind = 'sales' AND o.party_ledger_id = n.party_ledger_id AND o.date <= n.date AND ${o}
-            ORDER BY br.id, o.date DESC, o.id DESC LIMIT 1)
-         ) AS origId
-         FROM vouchers n WHERE n.id IN (${marks})`
-      )
-      .all(...chunk.map((n) => n.id)) as { noteId: number; origId: number | null }[]
     const found = new Map<number, number>()
-    for (const r of linked) if (r.origId != null) found.set(r.noteId, r.origId)
-    // By reference: exactly one candidate in the note's FY or the one before.
+    for (const r of db
+      .prepare(
+        `SELECT ll.to_voucher_id AS noteId, MIN(ll.from_voucher_id) AS origId FROM line_links ll
+         JOIN vouchers o ON o.id = ll.from_voucher_id JOIN voucher_types ot ON ot.id = o.voucher_type_id
+         WHERE ll.to_voucher_id IN (${marks}) AND ll.link_type = 'return' AND ot.kind = 'sales' AND ${o}
+         GROUP BY ll.to_voucher_id`
+      )
+      .all(...chunk.map((n) => n.id)) as { noteId: number; origId: number }[]) found.set(r.noteId, r.origId)
+
+    // The names each remaining note could mean: the bills it is set against, else its reference.
     const rest = chunk.filter((n) => !found.has(n.id))
     if (rest.length) {
-      const byRef = db
-        .prepare(
-          `SELECT n.id AS noteId, o.id, o.date FROM vouchers n
-           JOIN vouchers o ON o.party_ledger_id = n.party_ledger_id AND o.number = TRIM(n.reference) AND o.date <= n.date
-           JOIN voucher_types ot ON ot.id = o.voucher_type_id
-           WHERE n.id IN (${rest.map(() => '?').join(',')}) AND TRIM(COALESCE(n.reference, '')) <> '' AND ot.kind = 'sales' AND ${o}`
-        )
-        .all(...rest.map((n) => n.id)) as { noteId: number; id: number; date: string }[]
-      const dateOf = new Map(rest.map((n) => [n.id, n.date]))
-      const candidates = new Map<number, number[]>()
-      for (const r of byRef) {
-        const from = fyFromStartYear(fyOf(dateOf.get(r.noteId)!).startYear - 1).from
-        if (r.date < from) continue
-        candidates.set(r.noteId, [...(candidates.get(r.noteId) ?? []), r.id])
+      const restMarks = rest.map(() => '?').join(',')
+      const head = new Map((db.prepare(`SELECT id, party_ledger_id AS partyId, reference FROM vouchers WHERE id IN (${restMarks})`)
+        .all(...rest.map((n) => n.id)) as { id: number; partyId: number | null; reference: string | null }[]).map((r) => [r.id, r]))
+      const against = new Map<number, Set<string>>()
+      for (const r of db.prepare(`SELECT voucher_id AS id, name FROM bill_refs WHERE voucher_id IN (${restMarks}) AND kind = 'against'`)
+        .all(...rest.map((n) => n.id)) as { id: number; name: string }[]) against.set(r.id, (against.get(r.id) ?? new Set()).add(r.name))
+      const asks: { noteId: number; party: number; date: string; name: string; path: 'bill' | 'ref' }[] = []
+      for (const n of rest) {
+        const h = head.get(n.id)
+        if (!h || h.partyId == null) continue
+        const names = against.get(n.id)
+        if (names?.size) for (const name of names) asks.push({ noteId: n.id, party: h.partyId, date: n.date, name, path: 'bill' })
+        else if (h.reference?.trim()) asks.push({ noteId: n.id, party: h.partyId, date: n.date, name: h.reference.trim(), path: 'ref' })
       }
-      for (const [noteId, ids] of candidates) if (ids.length === 1) found.set(noteId, ids[0]!)
+      // Every voucher each name could mean (one query for the chunk).
+      const cands = new Map<string, { id: number; invoice: boolean }[]>()
+      const key = (a: { noteId: number; name: string }): string => `${a.noteId}\u0000${a.name}`
+      if (asks.length) {
+        const rows = db
+          .prepare(
+            `WITH q(noteId, party, d, name, path) AS (VALUES ${asks.map(() => '(?, ?, ?, ?, ?)').join(', ')})
+             SELECT q.noteId, q.name, v.id, (vt.kind = 'sales' AND ${IN_BOOKS}) AS invoice
+             FROM q JOIN vouchers v ON v.party_ledger_id = q.party AND v.deleted_at IS NULL AND v.date <= q.d AND v.id <> q.noteId
+             JOIN voucher_types vt ON vt.id = v.voucher_type_id
+             WHERE EXISTS (SELECT 1 FROM bill_refs b WHERE b.voucher_id = v.id AND b.kind = 'new' AND b.name = q.name)
+                OR (vt.kind = 'sales' AND v.number = q.name
+                    AND (q.path = 'ref' OR NOT EXISTS (SELECT 1 FROM bill_refs b WHERE b.voucher_id = v.id AND b.kind = 'new')))`
+          )
+          .all(...asks.flatMap((a) => [a.noteId, a.party, a.date, a.name, a.path])) as { noteId: number; name: string; id: number; invoice: number }[]
+        for (const r of rows) {
+          const list = cands.get(key(r)) ?? []
+          if (!list.some((c) => c.id === r.id)) list.push({ id: r.id, invoice: !!r.invoice })
+          cands.set(key(r), list)
+        }
+      }
+      // The parties' opening bills carry names too.
+      const parties = [...new Set(asks.map((a) => a.party))]
+      const openingBills = openingBillsByParty(db, parties)
+      const openingOf = new Map(parties.length
+        ? (db.prepare(`SELECT id, opening_balance AS opening FROM ledgers WHERE id IN (${parties.map(() => '?').join(',')})`).all(...parties) as { id: number; opening: number }[]).map((r) => [r.id, r.opening])
+        : [])
+      const openingNames = (party: number, date: string): Set<string> =>
+        new Set(openingEvents(date, openingOf.get(party) ?? 0, 1, openingBills.get(party)).map((e) => e.number))
+      const byNote = new Map<number, typeof asks>()
+      for (const a of asks) byNote.set(a.noteId, [...(byNote.get(a.noteId) ?? []), a])
+      for (const [noteId, list] of byNote) {
+        let only: number | null = null
+        const ok = list.every((a) => {
+          const c = cands.get(key(a)) ?? []
+          if (openingNames(a.party, a.date).has(a.name) || c.length !== 1 || !c[0]!.invoice) return false
+          if (only != null && only !== c[0]!.id) return false
+          only = c[0]!.id
+          return true
+        })
+        if (ok && only != null) found.set(noteId, only)
+      }
     }
     if (found.size === 0) continue
     const ids = [...new Set(found.values())]

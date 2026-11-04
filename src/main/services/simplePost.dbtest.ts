@@ -20,6 +20,7 @@ import {
 import { createLedger, createStockItem, listGroups, listLedgers, listStockItems } from './masters'
 import { getVoucher, nextVoucherNumber, saveVoucher, setLockDate } from './vouchers'
 import { partyAllocation } from './analysis'
+import { replaceOpeningBills } from './openingBills'
 import { setCreditHold } from './receivables'
 import { postClose } from './yearEnd'
 import { getFeatures, setFeatures } from './config'
@@ -825,7 +826,7 @@ describe('GSTR-1 CDNUR: the original invoice across years and places', () => {
     const r = gstr1(db, INFO26, '2026-05-01', '2026-05-31', '052026')
     expect(r.json.cdnur ?? []).toEqual([])
   })
-  it('a reference-only note finds its invoice only when ONE invoice of that number is in the note\'s FY or the one before', () => {
+  it('a reference-only note finds its invoice only when ONE invoice of that number is dated on / before it', () => {
     ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })
     const sale = (date: string, amount: string) => at({ kind: 'sale', customerId: L('Asha'), date, amount: { amount, gstRate: 18 } }, date).voucherIds[0]!
     const a = sale('2026-03-10', '10,000')
@@ -841,6 +842,57 @@ describe('GSTR-1 CDNUR: the original invoice across years and places', () => {
     // Binned, the March bill leaves one candidate: the April one.
     db.prepare("UPDATE vouchers SET deleted_at = '2026-05-11' WHERE id = ?").run(a)
     expect(extractOutwardDocs(db, INFO, '2026-05-01', '2026-05-31').find((d) => d.voucherId === n1)!.original).toEqual({ invoiceValue: 17_700_000, pos: '29' })
+  })
+  // Re-review of #187: the name a note is set against (or refers to) may mean several bills —
+  // the books settle the OLDEST open one, and opening bills carry names too. Only ONE candidate,
+  // and an invoice, is an original; otherwise the note is judged by its own value (as main).
+  const sale = (date: string, number: string, taxable: number): number => saveVoucher(db, {
+    voucherTypeId: typeId(db, 'sales'), date, number, partyLedgerId: L('Asha'),
+    lines: [{ ledgerId: L('Asha'), drCr: 'dr', amount: taxable * 1.18, costAllocations: [] }, { ledgerId: L('Sales'), drCr: 'cr', amount: taxable, costAllocations: [] }, { ledgerId: L('IGST'), drCr: 'cr', amount: taxable * 0.18, costAllocations: [] }],
+    inventory: [], billRefs: [{ kind: 'new', name: number, amount: taxable * 1.18, dueDate: null }], tds: null
+  }).id
+  const creditNote = (date: string, number: string, taxable: number, refs: { against?: string; reference?: string }): number => saveVoucher(db, {
+    voucherTypeId: typeId(db, 'credit_note'), date, number, partyLedgerId: L('Asha'), reference: refs.reference ?? null,
+    lines: [{ ledgerId: L('Sales'), drCr: 'dr', amount: taxable, costAllocations: [] }, { ledgerId: L('IGST'), drCr: 'dr', amount: taxable * 0.18, costAllocations: [] }, { ledgerId: L('Asha'), drCr: 'cr', amount: taxable * 1.18, costAllocations: [] }],
+    inventory: [], billRefs: refs.against ? [{ kind: 'against', name: refs.against, amount: taxable * 1.18, dueDate: null }] : [], tds: null
+  }).id
+  const cdnurOf = (from: string, to: string, period: string): number[] =>
+    ((gstr1(db, INFO, from, to, period).json.cdnur ?? []) as { val: number }[]).map((n) => n.val)
+  it('P1: a note against "1" with two invoices "1" (accountant numbering restarts each FY) has no original — its own value decides', () => {
+    ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })
+    sale('2026-03-10', '1', 15_000_000)
+    sale('2026-04-10', '1', 1_000_000)
+    const n = creditNote('2026-05-10', 'CN-1', 10_000_000, { against: '1' })
+    // The books settle it against March's (the oldest open "1"); the extractor never guesses April's.
+    expect(partyAllocation(db, L('Asha'), '2026-05-31').bills.map((b) => [b.date, b.pending])).toEqual([['2026-03-10', 5_900_000], ['2026-04-10', 1_180_000]])
+    expect(extractOutwardDocs(db, INFO, '2026-05-01', '2026-05-31').find((d) => d.voucherId === n)!.original).toBeUndefined()
+    // Own value ₹1,18,000, inter-state: CDNUR, as main reports it.
+    expect(cdnurOf('2026-05-01', '2026-05-31', '052026')).toEqual([118_000])
+  })
+  it('P2: a note against "1" with an opening bill "1" and an invoice "1" has no original', () => {
+    ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })
+    db.prepare('UPDATE ledgers SET opening_balance = ? WHERE id = ?').run(30_000_000, L('Asha'))
+    replaceOpeningBills(db, L('Asha'), [{ name: '1', date: '2025-03-01', dueDate: null, amount: 30_000_000 }])
+    sale('2025-06-10', '1', 1_000_000)
+    const n = creditNote('2025-07-10', 'CN-1', 10_000_000, { against: '1' })
+    expect(extractOutwardDocs(db, INFO, '2025-07-01', '2025-07-31').find((d) => d.voucherId === n)!.original).toBeUndefined()
+    expect(cdnurOf('2025-07-01', '2025-07-31', '072025')).toEqual([118_000])
+  })
+  it('P3: a note with only the reference "1", an opening bill "1" and an invoice "1", has no original', () => {
+    ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })
+    db.prepare('UPDATE ledgers SET opening_balance = ? WHERE id = ?').run(30_000_000, L('Asha'))
+    replaceOpeningBills(db, L('Asha'), [{ name: '1', date: '2025-03-01', dueDate: null, amount: 30_000_000 }])
+    sale('2025-06-10', '1', 1_000_000)
+    const n = creditNote('2025-07-10', 'CN-2', 10_000_000, { reference: '1' })
+    expect(extractOutwardDocs(db, INFO, '2025-07-01', '2025-07-31').find((d) => d.voucherId === n)!.original).toBeUndefined()
+    expect(cdnurOf('2025-07-01', '2025-07-31', '072025')).toEqual([118_000])
+  })
+  it('an unnamed opening counts as the bill "Opening": a note against "Opening" beside an invoice numbered "Opening" has no original', () => {
+    ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })
+    db.prepare('UPDATE ledgers SET opening_balance = ? WHERE id = ?').run(30_000_000, L('Asha'))
+    sale('2025-06-10', 'Opening', 1_000_000)
+    const n = creditNote('2025-07-10', 'CN-3', 10_000_000, { against: 'Opening' })
+    expect(extractOutwardDocs(db, INFO, '2025-07-01', '2025-07-31').find((d) => d.voucherId === n)!.original).toBeUndefined()
   })
   it('the original is placed by ITS own place of supply (its party snapshot), not the note\'s', () => {
     ledger(db, 'Asha', 'Sundry Debtors', { stateCode: '29' })

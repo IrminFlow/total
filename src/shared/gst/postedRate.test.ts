@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolvePostedRates } from './postedRate'
+import { ratedLinesUnexplained, resolvePostedRates } from './postedRate'
 
 const D = '2026-07-05'
 // Before the 22 Sep 2025 change 12 % / 28 % are slabs of the date (rateTable.ts).
@@ -96,5 +96,12 @@ describe('resolvePostedRates', () => {
     expect(resolvePostedRates([{ taxable: 5_000_000_000_000, rate: null }], 170_001_700_000, 'inter', D).rates).toEqual([3.4])
     // 1/3 % -> 0.3333
     expect(resolvePostedRates([{ taxable: 300000, rate: null }], 1000, 'inter', D).rates).toEqual([0.3333])
+  })
+  it('ratedLinesUnexplained: the value is read only for a rated line its master rate does not explain', () => {
+    expect(ratedLinesUnexplained([{ taxable: 100000, rate: 18 }], 5000, 'intra')).toBe(true)
+    expect(ratedLinesUnexplained([{ taxable: 100000, rate: 18 }], 18000, 'intra')).toBe(false)
+    expect(ratedLinesUnexplained([{ taxable: 123456, rate: 18 }], 22200, 'intra')).toBe(false)
+    expect(ratedLinesUnexplained([{ taxable: 100000, rate: null }], 18000, 'intra')).toBe(false)
+    expect(ratedLinesUnexplained([{ taxable: 100000, rate: 18 }], 0, 'intra')).toBe(false)
   })
 })

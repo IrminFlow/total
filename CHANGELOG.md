@@ -42,11 +42,11 @@ Things to know about the version numbers:
     the same editor — so an existing quotation or order with several lines at one rate can show a
     total a few paise different from before (and equal to the invoice it turns into).
   - GSTR-1 Table 9B (CDNUR): a credit / debit note to an unregistered buyer goes there when its
-    ORIGINAL invoice was B2C Large (by its return link, the bill it is set against, or — only when
-    exactly one invoice of that number is in the note's year or the one before, since numbers
-    restart every year — its reference = the invoice number), judged by the invoice's own place of
-    supply, as GSTN's CDNUR help says — no longer by the note's own value. A note whose original is
-    not found is judged by its own value as before.
+    ORIGINAL invoice was B2C Large (by its return link, else the bill it is set against or its
+    reference = the invoice number — only when that name can mean exactly one bill of the party, an
+    invoice: numbers restart every year and opening bills carry names too, so a name shared by two
+    bills is never guessed), judged by the invoice's own place of supply, as GSTN's CDNUR help says.
+    A note whose original is not found is judged by its own value, as before.
 
 ## [0.12.0] - 2026-10-22
 

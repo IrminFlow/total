@@ -63,6 +63,15 @@ function impliedRate(rest: number, taxable: number): number {
  * tax on only one of two lines can't be told from a lower rate on both), and one slab explains the
  * whole posted tax. Anything else keeps the master rates exactly as before (the value check flags it).
  */
+/** Could a rated line be re-rated at all? Only when one is rated (> 0 %) and the posted tax is
+ *  off its master rates' tax by more than the rounding — postedLineRates reads the document's
+ *  value (an extra query) only then. */
+export function ratedLinesUnexplained(lines: PostedRateLine[], postedGst: number, supply: SupplyType): boolean {
+  if (postedGst <= 0 || !lines.some((l) => l.rate != null && l.rate > 0)) return false
+  const explained = lines.reduce((s, l) => s + (l.rate != null && l.rate > 0 ? gstOf(computeGst(l.taxable, l.rate, supply)) : 0), 0)
+  return Math.abs(postedGst - explained) > lines.length + POSTED_TAX_ROUNDING_PAISE
+}
+
 export function resolvePostedRates(
   lines: PostedRateLine[], postedGst: number, supply: SupplyType, date: string, opts: { valueTies?: boolean } = {}
 ): PostedRates {
