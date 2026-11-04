@@ -266,7 +266,7 @@ describe('GSTR-2B mismatches', () => {
     expect(() => guardDuplicate(b.db, { kind: 'purchase', date: '2025-05-12', partyLedgerId: b.vendor, reference: 'A-2', narration: 'n', split: { taxable: 1, igst: 0, cgst: 0, sgst: 0, cess: 0 } })).toThrow(/already in the books/)
   })
 
-  it('under default privacy (masked ids) the assistant drafts by the key it saw; MCP too', async () => {
+  it('under default privacy (masked ids) the assistant drafts by the key it saw', async () => {
     const b = books()
     assist.store2bStatement(b.db, { jsonText: TWO_B, period: '2025-05' }, null)
     const masked: AiSettings = { ...defaultAiSettings(), enabled: true, noticeAcceptedAt: '2025-06-01T00:00:00.000Z', noticeAcceptedBy: 'Owner', noticeVersion: 1, privacy: { maskIds: true, pseudonymiseParties: false } }
@@ -293,28 +293,6 @@ describe('GSTR-2B mismatches', () => {
     const draftId = tool.draftId!
     expect(store.getDraft(b.db, draftId)).toMatchObject({ status: 'open', payload: { voucherKind: 'purchase', partyLedgerId: b.vendor } })
     discardDraft(b.db, draftId)
-
-    // MCP: masked by field — the key survives the round trip.
-    const { createMcpServer } = await import('../mcp/server')
-    const { setMcpConfig } = await import('./config')
-    const { Client } = await import('@modelcontextprotocol/sdk/client/index.js')
-    const { InMemoryTransport } = await import('@modelcontextprotocol/sdk/inMemory.js')
-    setMcpConfig(b.db, { enabled: true })
-    const handle = createMcpServer({ db: b.db, slug: 'assist', identity: { role: 'accountant', userName: null, userId: null }, privacy: { maskIds: true, pseudonymiseParties: false }, version: 'test', today: () => TODAY })
-    const [ct, st] = InMemoryTransport.createLinkedPair()
-    await handle.server.connect(st)
-    const client = new Client({ name: 'Assist Test', version: '1' })
-    await client.connect(ct)
-    const text = async (name: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string }> => {
-      const r = (await client.callTool({ name, arguments: args })) as { isError?: boolean; content: { text: string }[] }
-      return { isError: !!r.isError, text: r.content.map((c) => c.text).join('') }
-    }
-    const list = await text('gst_2b_mismatches', { period: '2025-05' })
-    expect(list.text).not.toContain(GSTIN)
-    const key = (JSON.parse(list.text) as { result: { mismatches: { key: string; category: string }[] } }).result.mismatches.find((m) => m.category === 'Missing in books')!.key
-    const drafted = await text('draft_gst_2b_fix', { period: '2025-05', key })
-    expect(drafted.isError).toBe(false)
-    await client.close()
   })
 
   it('a saved debit-note draft (dated today) pairs with its purchase: the amount difference and the note both clear', () => {
@@ -403,17 +381,6 @@ describe('anomalies — review fixes', () => {
   it('refuses a period longer than a year', () => {
     const b = books()
     expect(() => assist.anomalies(b.db, '2024-04-01', '2025-09-30')).toThrow(/at most a year/)
-  })
-})
-
-describe('MCP exposure', () => {
-  it('draft_gst_2b_fix is listed for accountants and owners only; the read assistants for viewers too', async () => {
-    const { exposedTools } = await import('../mcp/server')
-    const names = (role: Role): string[] => exposedTools(createToolRegistry(), { role, userName: null } as never).map((t) => t.name)
-    expect(names('viewer')).toEqual(expect.arrayContaining(['close_checklist', 'gst_2b_mismatches', 'find_anomalies']))
-    expect(names('viewer')).not.toContain('draft_gst_2b_fix')
-    expect(names('accountant')).toContain('draft_gst_2b_fix')
-    expect(names('owner')).toContain('draft_gst_2b_fix')
   })
 })
 

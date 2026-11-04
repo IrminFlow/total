@@ -312,7 +312,6 @@ This is the full app. It is built to match what an accountant expects from Tally
 - **Capture** of bills from photos and PDFs.
 - **Drafting** of entries. The AI only ever writes a *draft*; a person opens it and saves it.
 - Every answer's figures are checked against the data the AI actually saw, and doubtful ones are flagged.
-- An **MCP server**, a way for other AI tools on the same computer to read the books. It is off by default and controlled per business.
 
 ---
 

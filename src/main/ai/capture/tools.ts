@@ -1,4 +1,4 @@
-// WP 5.4 — `categorise_statement`, the chat / MCP face of statement categorisation. A READ tool:
+// WP 5.4 — `categorise_statement`, the chat face of statement categorisation. A READ tool:
 // it runs only the deterministic engine (rules → history → named party) and returns, for each
 // open statement line, the proposal or — for the residual — the candidate ledgers. The model may
 // then draft one with draft_voucher (`statementLineId` links the draft; saving it reconciles the

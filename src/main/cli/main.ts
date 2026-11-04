@@ -6,8 +6,7 @@
  * is set here first, to the app's own default: WP 7.3, the Documents known folder on Windows).
  *
  * Every command prints a single JSON document to stdout; errors go to stderr with exit code 1.
- * All writes are audit-logged with user_name 'agent-cli' — except `mcp`, which speaks the MCP
- * protocol on stdin/stdout (WP 5.7, src/main/mcp/) and attributes its rows to `mcp:<client>`.
+ * All writes are audit-logged with user_name 'agent-cli'.
  *
  * A business locked with a passphrase (WP 7.2) is unlocked from TOTAL_PASSPHRASE — the
  * environment, never a flag (argv is visible to every user in `ps`); see ./unlock.ts. A missing,
@@ -20,10 +19,7 @@ import { setAuditContext } from '../services/audit'
 import { todayISO } from '@shared/dates'
 import { dataRoot } from '../paths'
 import { resolveCliDataRoot } from './dataRoot'
-import { LEGACY_INBOX_WARNING, scanInbox, type MirrorFormat, type MirrorWhat } from '../services/agentBridge'
-import { runAsAuditUser } from '../services/audit'
-import { runMcpStdio } from '../mcp/stdio'
-import { parseRole } from '../mcp/session'
+import type { MirrorFormat, MirrorWhat } from '../services/agentBridge'
 import {
   cmdCompanies, cmdCreateCompany, cmdExport, cmdImportMasters, cmdInitAgentDocs, cmdNextNumber,
   cmdPost, cmdTrialBalance, openCompany
@@ -61,14 +57,6 @@ Commands:
          [--from YYYY-MM-DD] [--to YYYY-MM-DD]
                                            Regenerate CSV/JSON mirrors under <company>/agent/.
   init-agent-docs                          Write AGENTS.md + voucher.schema.json into the data root.
-  mcp --company <slug> [--role viewer|accountant|owner] [--user <name>] [--no-mask] [--pseudonymise]
-                                           MCP server on stdio: the in-app assistant's read + draft
-                                           tools and read-only resources. Default role viewer;
-                                           accountant/owner (draft tools) need --role and, when the
-                                           company has users, --user + TOTAL_MCP_PIN. Masking of
-                                           GSTIN/PAN/bank numbers is on unless --no-mask. Nothing
-                                           it does posts to the books. A business locked with a
-                                           passphrase needs it in TOTAL_PASSPHRASE.
   perf-seed --vouchers <n> --out <dir> [--seed <n>]
                                            WP 7.1: write the deterministic "Perf Traders"
                                            company (n vouchers, 2,000 parties, 500 items, 3 FYs)
@@ -79,10 +67,6 @@ Commands:
                                            on a perf-seed data root, or a fresh seed in a temp
                                            dir (default 100000 vouchers). --check exits 1 when
                                            one is over 150 % of budget × scale.
-  inbox --company <slug> [--legacy-inbox-post]
-                                           Process <company>/inbox/ once: voucher drops become
-                                           drafts for review. --legacy-inbox-post (DEPRECATED)
-                                           posts them / imports masters CSVs as before.
 
 Locked businesses: a business locked with a passphrase opens only with the passphrase in the
 environment variable ${PASSPHRASE_ENV} (never a flag — command lines are visible to every user
@@ -97,7 +81,7 @@ interface Args {
 }
 
 /** Flags that take no value. */
-const SWITCHES = new Set(['legacy-inbox-post', 'no-mask', 'pseudonymise', 'check', 'keep', 'open-steps'])
+const SWITCHES = new Set(['check', 'keep', 'open-steps'])
 
 function parseArgs(argv: string[]): Args {
   const [command, ...rest] = argv
@@ -202,29 +186,6 @@ async function main(): Promise<void> {
           cmdExport(db, slug, { what, format, from: args.flags.get('from'), to: args.flags.get('to') })
         )
       )
-      return
-    }
-    case 'mcp': {
-      // The session's db handle keeps the key it was opened with; the per-request re-checks
-      // (kill switch, user still active, same PIN) read through it as before.
-      await withCompany(args, (db, slug) =>
-        runMcpStdio({
-          db,
-          slug,
-          role: parseRole(args.flags.get('role')),
-          user: args.flags.get('user') ?? null,
-          pin: process.env.TOTAL_MCP_PIN ?? null,
-          maskIds: !args.flags.has('no-mask'),
-          pseudonymiseParties: args.flags.has('pseudonymise'),
-          version: CLI_VERSION
-        })
-      )
-      return
-    }
-    case 'inbox': {
-      const legacyPost = args.flags.has('legacy-inbox-post')
-      if (legacyPost) process.stderr.write(`${LEGACY_INBOX_WARNING}\n`)
-      out(await withCompany(args, (db, slug) => runAsAuditUser('agent-inbox', () => scanInbox(db, slug, { legacyPost }))))
       return
     }
     case 'perf-seed': {

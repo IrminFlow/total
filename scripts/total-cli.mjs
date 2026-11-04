@@ -24,13 +24,8 @@ mkdirSync(dirname(outfile), { recursive: true })
 
 // Rebundle on every invocation — esbuild does this in tens of milliseconds, and it guarantees the
 // CLI always matches the checked-out sources (no stale-bundle debugging). Built to a per-process
-// temp file and renamed into place, so MCP clients starting several `total-cli mcp` servers at
-// once never run a half-written bundle.
-//
-// The MCP server (WP 5.7, `mcp` command) bundles @modelcontextprotocol/sdk from here — a
-// devDependency, like esbuild and electron that this launcher already needs: the CLI only runs
-// from a source checkout, so the packaged app never ships the SDK (or the express / hono HTTP
-// stack its HTTP transports depend on). Only the stdio server subpaths are imported.
+// temp file and renamed into place, so two CLI runs started at once never run a half-written
+// bundle.
 const tmpOutfile = `${outfile}.${process.pid}.tmp`
 esbuild.buildSync({
   entryPoints: [join(root, 'src', 'main', 'cli', 'main.ts')],

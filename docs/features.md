@@ -127,4 +127,4 @@ against the real portal), TDS, TCS.
 ### System
 Settings, the audit trail (an append-only, hash-chained edit log), import from Excel/CSV/Busy/Zoho,
 export books to Excel, import from Tally, company details, users and roles, backups (including
-encrypted export), and the optional AI and agent (MCP) settings. See [migration guides](migration-guides/from-tally.md).
+encrypted export), and the optional AI and agent-mirror settings. See [migration guides](migration-guides/from-tally.md).

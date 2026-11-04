@@ -168,7 +168,6 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'config:audit:set': a('company'),
   'config:audit:required': a('company'),
   'agent:setConfig': a('company'),
-  'agent:mcp:set': a('company'),
   'agent:exportMirror': EXPORT,
   'nic:save': a('nic_credentials'),
   'cheque:config:set': a('cheque_config'),

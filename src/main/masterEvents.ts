@@ -1,6 +1,6 @@
 // to-do §4: screens cache the master lists (react-query ['stockItems'], ['ledgers'] …) and only the
 // screen that made a change invalidated them — an item created over IPC elsewhere (another screen,
-// the MCP inbox, an import, an e2e driver) did not appear in an open Labels tab until it was
+// an import, an e2e driver) did not appear in an open Labels tab until it was
 // reopened. After a successful write whose audit coverage (auditCoverage.ts — the one registry of
 // what a channel writes) includes a master entity, main tells every window which masters changed
 // ('total:masters:changed'); the renderer refetches those lists (renderer lib/masterEvents.ts).

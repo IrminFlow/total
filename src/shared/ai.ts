@@ -198,6 +198,17 @@ export type AiDraftStatus = 'open' | 'consumed' | 'discarded' | 'superseded'
  *  captured bill or a categorised bank statement line. */
 export type AiDraftSource = 'chat' | 'mcp' | 'inbox' | 'assistant' | 'capture'
 
+/** Who proposed a draft, for the voucher editor's banner. 'mcp' / 'inbox' drafts were made by the
+ *  MCP server and the agent inbox (both removed); their rows still read as they always did. */
+export function aiDraftByLabel(d: { source?: AiDraftSource; origin?: string | null }): string {
+  if (d.source === 'assistant') return `Suggested by ${d.origin ?? 'an assistant'} (Analysis → Assistants)`
+  // WP 5.4: a captured bill, or a categorised bank statement line.
+  if (d.source === 'capture') return d.origin?.startsWith('Statement line') ? `From the bank statement (${d.origin.toLowerCase()})` : `Read from the captured file ${d.origin ?? ''}`.trim()
+  if (d.source === 'mcp') return `Proposed over MCP by ${d.origin ?? 'an MCP client'}`
+  if (d.source === 'inbox') return `From ${d.origin ? `the inbox file ${d.origin}` : 'an inbox file'} (not asked for in Total)`
+  return 'Drafted by the assistant'
+}
+
 /** Which editor a draft opens in (WP 5.3). Absent on a WP 5.1 draft = plain accounting lines. */
 export type AiDraftForm = 'accounting' | 'invoice' | 'stockNote' | 'manufacture' | 'tradeDoc'
 

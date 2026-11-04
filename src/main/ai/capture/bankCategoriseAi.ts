@@ -1,8 +1,8 @@
 // WP 5.4 — the ONE model call statement categorisation makes: the residual lines (no rule,
 // memory, history or party name placed them), each with its own candidate list, answered with a
 // structured pick whose ids the schema enumerates (and applyModelPicks re-checks). Main-process
-// only and app-only: the provider is imported here, never by bankCategorise.ts (which the CLI /
-// MCP server reaches) — mcpBoundary.test.ts keeps the CLI bundle free of the OpenAI client.
+// only and app-only: the provider is imported here, never by bankCategorise.ts (which works with
+// AI off).
 // Sent masked / pseudonymised; ai_outbound_log keeps sizes + a SHA-256, ai_usage the cost.
 import { createHash } from 'crypto'
 import type { DB } from '../../db/connection'

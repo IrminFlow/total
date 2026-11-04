@@ -39,7 +39,7 @@ A node-sqlite3 (callback, async) API, not better-sqlite3's synchronous one: ever
 | Crash safety | SQLite's own (WAL, atomic commits) | a crash between "write temp" and "re-encrypt" loses or exposes data; needs its own journal |
 | Open cost (raw 32-byte key, no KDF per open) | see `src/main/db/encryption.perf.dbtest.ts` (100k vouchers, open + migrate check + quick_check + trial balance): measured on this (heavily loaded) laptop — see the PR for the printed figures; the guard is "encrypted ≤ 3× plaintext + 1 s" | decrypt the whole file on every open (O(file size)), re-encrypt on every close / backup |
 | Backups | `VACUUM INTO` copies keep the key → every backup encrypted automatically; the online backup API refuses an encrypted source (uses `VACUUM INTO` instead) | every backup must be re-encrypted separately |
-| MCP CLI (`total-cli`) | opens plaintext businesses as before; a locked one opens with `TOTAL_PASSPHRASE` (PR #132), else it is refused | same refusal |
+| CLI (`total-cli`) | opens plaintext businesses as before; a locked one opens with `TOTAL_PASSPHRASE` (PR #132), else it is refused | same refusal |
 | e2e harness | unchanged; encryption in tests uses the insecure test cipher for the secret store and a cheap (still accepted) scrypt cost | — |
 | CI (mac / win / linux) | native module like better-sqlite3 (`allowScripts` entry updated); `npm run build:mac` packages it | none |
 
@@ -169,8 +169,7 @@ C was rejected because of its asynchronous API.
   false` also redacts the trial balance (income / expense ledgers, the computed P&L row and the
   totals left out), refuses AI tools that show the profit and answers Ask Total's profit
   questions with a note; the year-end
-  close preview, the CA pack and the agent mirror's trial balance (app export
-  and MCP resource) follow the flag too. Deliberately not covered: the raw books (day book, ledger
+  close preview, the CA pack and the agent mirror's trial balance follow the flag too. Deliberately not covered: the raw books (day book, ledger
   statements, registers, the books export, the voucher mirrors) — one side of the P&L at a time is
   allowed by design, so the profit stays derivable by anyone who may read every voucher. The renderer hides
   or disables export / Save / AI-settings buttons only for a flag set to false, so owners and
@@ -226,24 +225,23 @@ Opt-in per business, off by default, never pre-ticked (`services/companyKeys.ts`
   without people the lock asks for the passphrase, but quitting and reopening the app opens it with
   the remembered key, so a real lock needs people with PINs. Use it only on a computer that only
   you use.
-- **Not used by `total-cli` / MCP** — they read `TOTAL_PASSPHRASE` only (and have no safeStorage
+- **Not used by `total-cli`** — it reads `TOTAL_PASSPHRASE` only (and have no safeStorage
   under Electron-as-Node anyway).
 
-## CLI and MCP access (PR #132)
+## CLI access (PR #132)
 
-- **`total-cli` and the MCP server** (`src/main/cli/unlock.ts`). Every command that opens a
-  business (`--company`: `post`, `import-masters`, `trial-balance`, `next-number`, `export`,
-  `inbox`, `mcp`) unlocks a locked one from the environment variable **`TOTAL_PASSPHRASE`**.
+- **`total-cli`** (`src/main/cli/unlock.ts`). Every command that opens a
+  business (`--company`: `post`, `import-masters`, `trial-balance`, `next-number`, `export`)
+  unlocks a locked one from the environment variable **`TOTAL_PASSPHRASE`**.
   - **Never a flag.** A process's command line is readable by every user of the computer (`ps`,
     Activity Monitor, Task Manager) and lands in shell history; its environment is readable only by
     the same user (and an administrator). The CLI reads the variable once, at start — before it
     starts anything (on Windows the data-root lookup runs `reg` / `powershell`) — and deletes it
     from its own environment, so nothing it starts afterwards (worker threads included: they copy
     the environment when they are created) inherits it. What deleting cannot reach: the
-    `scripts/total-cli.mjs` launcher (the process the MCP client starts, which then starts
-    Electron-as-Node) keeps the variable in its environment while the command runs, and on Linux
-    `/proc/<pid>/environ` keeps showing a process's ORIGINAL environment to the same user and root.
-    Neither widens who can read it — the same user can read the client's configuration file anyway.
+    `scripts/total-cli.mjs` launcher (which starts Electron-as-Node) keeps the variable in its
+    environment while the command runs, and on Linux `/proc/<pid>/environ` keeps showing a
+    process's ORIGINAL environment to the same user and root. Neither widens who can read it.
   - **Same unlock as the app.** `companyKeys.unlockCompanyKey` → `unlockKey`: every envelope
     (folder copy, then the secret-store mirror where the CLI can read it — under Electron-as-Node
     there is no safeStorage, so normally only `company.key.json`), a key accepted only once it opens
@@ -260,16 +258,8 @@ Opt-in per business, off by default, never pre-ticked (`services/companyKeys.ts`
     file that same user can delete.
   - **The key is forgotten** when the command ends (`forgetFolderKey`) and again on process exit
     (`forgetAllKeys`); the unwrapped buffer is zeroed after it is remembered, and the remembered
-    copy is zeroed when the command's handle has closed (`forgetCliKey`). For `mcp` the
-    session's database handle holds the key for as long as the server runs, so the per-request
-    re-checks (kill switch, user still active, same PIN) work exactly as on a plaintext file.
-  - **Never stored.** The passphrase is not logged, audited or written to `mcp_log` (sizes and a
-    hash of each request only — the passphrase is never part of a request); `mcp.dbtest.ts` checks
-    the log, the audit log and the files.
-  - **Client configuration.** Settings → Agent access adds a `TOTAL_PASSPHRASE` placeholder to the
-    copied Claude Code / Claude Desktop snippets for a locked business, with a warning: the client's
-    configuration file holds it in plain text, and anyone who can read that file can open the books.
-    Prefer a viewer session, and keep that file private.
+    copy is zeroed when the command's handle has closed (`forgetCliKey`).
+  - **Never stored.** The passphrase is not logged or audited.
 
 ## Electron window hardening (D7, PR #161)
 

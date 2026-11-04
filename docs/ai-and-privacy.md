@@ -137,10 +137,9 @@ owner can change it; every change is also written to `<data folder>/ai-key-audit
 (append-only).
 
 **What needs the key.** The chat panel, "Explain this", drafting from plain language, bill capture,
-the model step of statement categorisation, "Run with AI" on the assistants, and asking for a report
-in words. **Works without a key:** the Assistants screen (close checklist, GSTR-2B mismatches,
-anomalies), the rule-based steps of statement categorisation, the phrase-based report reader, memory
-suggestions from the books, Ask Total, and the MCP server (the MCP client brings its own model).
+the model step of statement categorisation and "Run with AI" on the assistants. **Works without a
+key:** the Assistants screen (close checklist, GSTR-2B mismatches, anomalies), the rule-based steps
+of statement categorisation, memory suggestions from the books and Ask Total.
 
 **Unverified.**
 
@@ -161,25 +160,14 @@ address you typed (`baseUrlEinvoice`) to authenticate and to generate IRNs and e
   a fake sandbox only. **It has never run against the real portal** (no credentials were available).
   Treat it as experimental and try the NIC sandbox first.
 
-## 5. The MCP server (optional, local, off by default)
+## 5. The agent mirror (optional, local)
 
-Code: `src/main/mcp/`, started with `npm run cli -- mcp` from a source checkout of the repository
-(the installed app does not include `total-cli`).
-
-- It speaks **stdio only**: the AI client you configure starts it as a child process on your own
-  computer. It opens no network port and makes no network call itself (`mcpBoundary.test.ts` keeps the
-  SDK out of the app bundle).
-- It is switched on per company by the owner (Settings, "Agent access"; stored as meta `mcp`,
-  default off), read-only by default; drafting needs an accountant or owner role and, in a company
-  with users, a user name and PIN.
-- Identifiers are masked by field by default. Every request is logged by size and a hash, never the
-  content (`mcp_log`).
-- A business locked with a passphrase opens only with the passphrase in the environment variable
-  `TOTAL_PASSPHRASE` (never a command-line flag, which other users of the computer can see). It sits
-  in your MCP client's configuration in plain text; it is never logged or stored by Total
-  (docs/security/encryption-at-rest.md, "CLI and MCP access").
-- **What you connect to it is your choice, and that client may send what it reads to its own
-  provider.** Total cannot see or limit that.
+Code: `src/main/services/agentBridge.ts`. Settings, "Agent access" (or `total-cli export` from a
+source checkout) writes read-only CSV / JSON copies of the books to `<company>/agent/` on this
+computer; nothing is sent anywhere. Whatever program you let read that folder may send what it reads
+to its own provider — Total cannot see or limit that. (The MCP server and the agent inbox that used
+to sit here were removed; nothing in Total reads from or writes to an AI client any more except the
+assistant in section 3.)
 
 ## 6. Links that open outside the app
 

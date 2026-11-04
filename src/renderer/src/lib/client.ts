@@ -24,7 +24,6 @@ import type { MadeGoodsSetup, SavedCountView, StockList, StockProductView, Stock
 import type { BusinessDoing, ReportPeriodKind, SimpleByMonth, SimpleCash, SimpleOwed } from '@shared/simple/reports'
 import type { GstFiledInput, GstFiledPeriod, SimpleTaxes } from '@shared/simple/taxes'
 import type { BudgetVarianceRow } from '@shared/budgets'
-import type { McpConfig, McpLogRow, McpSettingsView } from '@shared/mcp'
 import type { AiDraftDto, AiDraftStatus } from '@shared/ai'
 import type {
   TdsEligibleRow, TdsDeductedRow, TdsLedgerSummaryRow, TdsPaymentCandidate, TdsChallanRow, TdsChallanEntryInterest,
@@ -1527,10 +1526,7 @@ export const api = {
     exportMirror: (input?: AgentExportInput) => call<{ dir: string; files: string[] }>('agent:exportMirror', input ?? {}),
     getConfig: () => call<{ enabled: boolean }>('agent:getConfig'),
     setConfig: (enabled: boolean) => call<{ enabled: boolean }>('agent:setConfig', { enabled }),
-    // WP 5.7 — the MCP server's settings, kill switch and log; drafts made over MCP or the inbox.
-    mcp: () => call<McpSettingsView>('agent:mcp:get'),
-    setMcp: (enabled: boolean) => call<McpConfig>('agent:mcp:set', { enabled }),
-    mcpLog: () => call<McpLogRow[]>('agent:mcp:log'),
+    // Drafts the removed MCP server / agent inbox made (WP 5.7), while any are open.
     drafts: (status?: AiDraftStatus) => call<AiDraftDto[]>('agent:drafts', status ? { status } : {})
   },
   app: {

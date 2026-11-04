@@ -213,7 +213,7 @@ export async function unlockCompanyKey(o: UnlockCompanyOptions): Promise<Buffer>
 // used only once it opens the file (as `unlockKey` accepts a key); one that no longer does (the
 // lock was taken off and put on again: a new data key) is dropped and the passphrase asked. A
 // passphrase CHANGE re-wraps the same key, so a remembered key stays valid through it. The app
-// only: total-cli / MCP never read it (they take TOTAL_PASSPHRASE).
+// only: total-cli never reads it (it takes TOTAL_PASSPHRASE).
 
 export const REMEMBERED_KEY_SECRET = 'rememberedDataKey'
 const REMEMBERED_PREFIX = 'v1:'

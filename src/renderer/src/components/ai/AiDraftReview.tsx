@@ -8,10 +8,9 @@
 // consumes the draft.
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { AiDraftDto, AiDraftSourceRef } from '@shared/ai'
+import { aiDraftByLabel, type AiDraftDto, type AiDraftSourceRef } from '@shared/ai'
 import type { TradeDocKind, VoucherKind } from '@shared/domain'
 import { stateName } from '@shared/gst/states'
-import { aiDraftByLabel } from '@shared/mcp'
 import { aiApi } from '../../lib/aiClient'
 import { confirmDialog } from '../../lib/dialogs'
 import { hasUnsavedChanges } from '../../lib/useUnsavedGuard'

@@ -125,8 +125,6 @@ import { settleAskDraft } from './assist/settle'
 import { aiMockAllowed } from './ai/env'
 import { settleDraftOnSave } from './ai/drafts'
 import * as aiStore from './ai/store'
-import { listMcpLog } from './mcp/log'
-import { mcpConfigSchema, type McpSettingsView } from '@shared/mcp'
 import { appSecretStore } from './services/secretStore'
 import type { AiEvent } from '@shared/ai'
 import { registerReceivablesIpc } from './ipcReceivables'
@@ -420,8 +418,8 @@ export function closeCurrentCompany(opts: { keepKey?: boolean } = {}): void {
   idleClock.setMinutes(null)
   privacyLock = null
   pendingRemember = null
-  // Stop the inbox watcher + any pending mirror refresh before the handle closes under them.
-  agentBridge.syncInboxWatcher(null)
+  // Stop any pending mirror refresh before the handle closes under it.
+  agentBridge.cancelMirrorRefresh()
   // The cached NIC login belongs to this company's identity — never carry it into the next one.
   nic.resetNicSession()
   // In-flight AI answers belong to this company's handle — stop them before it closes.
@@ -1288,8 +1286,6 @@ export function registerIpc(): void {
     }
     mark('prune')
     touchLastOpened(slug)
-    // Agent bridge (feature flag, default OFF): watch <company>/inbox/ for dropped files.
-    if (configSvc.getAgentBridgeEnabled(db)) agentBridge.syncInboxWatcher({ slug, db })
     // WP 5.4: interrupted capture work back to the approved queue; the capture inbox watched.
     try {
       captureOnCompanyOpen({ slug, db, usersExist: current.usersExist })
@@ -3629,7 +3625,7 @@ export function registerIpc(): void {
     await shell.openExternal(safe)
   }, 'viewer')
 
-  // ---------- agent bridge (CSV/JSON mirrors + inbox, lane A) ----------
+  // ---------- agent bridge (read-only CSV/JSON mirrors, lane A) ----------
   handle('agent:exportMirror', (p) => {
     const input = agentExportSchema.parse(p ?? {})
     const c = requireCompany()
@@ -3642,29 +3638,12 @@ export function registerIpc(): void {
     const { enabled } = agentBridgeConfigSchema.parse(p)
     const c = requireCompany()
     configSvc.setAgentBridgeEnabled(c.db, enabled)
-    agentBridge.syncInboxWatcher(enabled ? { slug: c.slug, db: c.db } : null)
+    if (!enabled) agentBridge.cancelMirrorRefresh()
     return { enabled }
   }, 'owner')
 
-  // ---------- MCP server (WP 5.7): settings, kill switch, log, drafts from agents ----------
-  // The server itself runs in the `total-cli mcp` process (src/main/mcp/); the app only reads its
-  // log and the drafts it (or the inbox) made, and owns the per-company kill switch.
-  handle('agent:mcp:get', (): McpSettingsView => {
-    const c = requireCompany()
-    return {
-      config: configSvc.getMcpConfig(c.db),
-      // Where the CLI runs from: the source checkout in development; a packaged app has none.
-      repoDir: app.isPackaged ? null : app.getAppPath(),
-      dataDir: process.env.TOTAL_DATA_DIR ? dataRoot() : null,
-      usersExist: c.usersExist,
-      encrypted: c.encrypted
-    }
-  }, 'viewer')
-  handle('agent:mcp:set', (p) => {
-    const input = mcpConfigSchema.parse(p)
-    return configSvc.setMcpConfig(requireCompany().db, input)
-  }, 'owner')
-  handle('agent:mcp:log', () => listMcpLog(requireCompany().db), 'viewer')
+  // Drafts the removed MCP server / agent inbox made (WP 5.7) stay readable until each is saved or
+  // discarded — Settings → Agent access lists any that are left.
   handle('agent:drafts', (p) => {
     const { status } = z.object({ status: z.enum(['open', 'consumed', 'discarded']).optional() }).default({}).parse(p ?? {})
     return aiStore.listDrafts(requireCompany().db, status, undefined, ['mcp', 'inbox'])

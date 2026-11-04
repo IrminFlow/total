@@ -38,7 +38,7 @@ export function catLedgers(db: DB): CatLedger[] {
 
 
 /** The residual call to the model (capture/bankCategoriseAi.ts) — injected by the app's IPC so
- *  this module (reachable from the CLI / MCP through draft_voucher and categorise_statement)
+ *  this module (reachable through draft_voucher and categorise_statement)
  *  never imports the provider. */
 export type AskResidual = (lines: CatLine[], residual: CategoryProposal[]) => Promise<{ lineId: number; ledgerId: number | null; reason: string }[]>
 

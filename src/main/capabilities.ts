@@ -107,7 +107,7 @@ export const NOT_EXPORTS: Readonly<Record<string, string>> = {
   'importwiz:sample': 'blank import sample'
 }
 
-export const AI_CHANNELS: readonly string[] = ['ai:settings:set', 'ai:notice:accept', 'ai:testConnection', 'agent:mcp:set']
+export const AI_CHANNELS: readonly string[] = ['ai:settings:set', 'ai:notice:accept', 'ai:testConnection']
 
 /** The highest minimum role a granted flag can open. */
 const CEILING: Record<Capability, Role> = { canPost: 'accountant', canSeeProfit: 'accountant', canExport: 'accountant', canManageAi: 'owner' }

@@ -6,7 +6,8 @@ import { createHash } from 'crypto'
  *  left alone (the new text goes to AGENTS.md.new). Add the outgoing hash here whenever
  *  agent-skill/AGENTS.md changes. */
 export const SHIPPED_AGENTS_MD_SHA256: readonly string[] = [
-  '5276c5f2f4b18ffe2bf9762cfff659fbc860321784598a9797c633acbd540b6a' // ≤ 0.8 (inbox posts vouchers)
+  '5276c5f2f4b18ffe2bf9762cfff659fbc860321784598a9797c633acbd540b6a', // ≤ 0.8 (inbox posts vouchers)
+  '3810f5f28f3a8047052e8c10e570de6be1f8fef2f714f48b944912bf40b505cd' // 0.9 – 0.12 (the MCP server, inbox drops become drafts)
 ]
 
 const sha256 = (s: string): string => createHash('sha256').update(s, 'utf8').digest('hex')
