@@ -256,11 +256,17 @@ export function assertValidCompanyDb(path: string, key?: Buffer | null): void {
  */
 function swapInPlace(sourcePath: string, dbPath: string): void {
   const tempPath = `${dbPath}.swap-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`
-  copyFileSync(sourcePath, tempPath)
-  // The copy must be on the disk BEFORE it replaces the books (review of #197: a power loss right
-  // after the rename could otherwise keep the rename but not the bytes); then the rename itself.
-  syncPath(tempPath, false)
-  renameSync(tempPath, dbPath)
+  try {
+    copyFileSync(sourcePath, tempPath)
+    // The copy must be on the disk BEFORE it replaces the books (review of #197: a power loss right
+    // after the rename could otherwise keep the rename but not the bytes); then the rename itself.
+    syncPath(tempPath, false)
+    renameSync(tempPath, dbPath)
+  } catch (err) {
+    // A failed copy / sync / rename leaves no full copy of the books beside company.db (CodeRabbit).
+    rmSync(tempPath, { force: true })
+    throw err
+  }
   syncPath(dirname(dbPath), true)
   rmSync(`${dbPath}-wal`, { force: true })
   rmSync(`${dbPath}-shm`, { force: true })

@@ -146,13 +146,17 @@ function vacuumInto(db: DB, dest: string): void {
  *    page, flushed at each step.
  *  - `scratch`: only for a throwaway COPY that its caller re-verifies (quick_check) and, before it
  *    replaces anything, fsyncs itself — a backup's `.converting` copy, a fresh VACUUM INTO target,
- *    the restore's `.restore-tmp`. The journal is kept in memory (SQLite3MC needs one to roll a
+ *    the restore's `.restore-tmp`. The journal is kept in memory up to SCRATCH_MEMORY_JOURNAL_MAX_BYTES, above that in an unsynced file (SQLite3MC needs one to roll a
  *    failed rekey back; it refuses OFF) and SQLite flushes nothing: an interrupted rekey only spoils
  *    the copy, which the caller removes. The durable rewrite wrote every page twice and flushed
  *    several times per file; on Windows each flush is a FlushFileBuffers to the disk, and a lock
  *    change rekeys every backup (up to 20), so that is where its time went.
  *  Never pass `scratch` for a company file or a backup in place. */
 export type RekeyMode = 'durable' | 'scratch'
+
+/** Above this size a `scratch` rekey keeps its rollback journal in a FILE (unsynced) instead of
+ *  memory — the journal grows to about the database's size. */
+export const SCRATCH_MEMORY_JOURNAL_MAX_BYTES = 64 * 1024 * 1024
 
 /** Change the key of a CLOSED database file in place (null = plaintext). SQLite3MC refuses to
  *  rekey in WAL mode, so the file is switched to DELETE first (and, for a `scratch` copy, on to an
@@ -163,7 +167,10 @@ export function rekeyFile(path: string, from: Buffer | null, to: Buffer | null, 
     if (from) applyKey(db, from)
     if (mode === 'scratch') db.pragma('synchronous = OFF')
     db.pragma('journal_mode = DELETE')
-    if (mode === 'scratch') {
+    // A large scratch copy keeps the journal on disk (still unsynced): an in-memory journal holds
+    // every original page until commit, i.e. about the file's size in the main process (CodeRabbit
+    // on #197). Small copies — every backup of a normal business — journal in memory.
+    if (mode === 'scratch' && statSync(path).size <= SCRATCH_MEMORY_JOURNAL_MAX_BYTES) {
       // Pin it (review of #197): if the cipher build ever ignored MEMORY the copy would silently
       // run with an on-disk journal — refuse instead of guessing.
       const jm = db.pragma('journal_mode = MEMORY', { simple: true })
