@@ -117,7 +117,7 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 | 9.2 | Make a bill | 53 |
 | 9.3 | Record a purchase | 54 |
 | 9.4 | Money in / out / move | 55 |
-| 9.5 | Returns | 56 |
+| 9.5 | Returns (+ returns in parts reopened in the full editor, PR #190) | 56, 74 |
 | 9.6 | Bank, simple | 57 |
 | 9.7 | Stock and Made goods (+ the recipe editor on a product: add a recipe, then make goods with it) | 58 |
 | 9.8 | People | 59 |

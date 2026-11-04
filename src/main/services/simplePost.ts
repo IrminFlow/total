@@ -17,7 +17,7 @@
 import { createHash } from 'crypto'
 import type { DB } from '../db/connection'
 import type Database from 'better-sqlite3-multiple-ciphers'
-import type { CompanyInfo, SaveVoucherWarnings, VoucherKind } from '@shared/domain'
+import type { CompanyInfo, SaveVoucherWarnings, Voucher, VoucherKind } from '@shared/domain'
 import { gstRegistrationOf } from '@shared/gst/registration'
 import { addBreakups, computeGst, supplyTypeFor, type GstBreakup } from '@shared/gst/calc'
 import { addDaysISO, fyOf, toDisplayDate } from '@shared/dates'
@@ -25,7 +25,7 @@ import { AppError, ERROR_MAP, isAppError, isErrorCode, type ErrorIssue } from '@
 import { normalizeInvoiceNumber } from '@shared/gst/recon2b'
 import {
   intentSentences, mapIntent, NeedTaxLedgers, normaliseIntent, simpleIntentSchema, SIMPLE_MAX_DAYS_AHEAD,
-  type IntentContext, type IntentFacts, type IntentLedger, type IntentOriginal, type IntentVoucherType, type MappedEntry,
+  type BillRest, type IntentContext, type IntentFacts, type IntentLedger, type IntentOriginal, type IntentVoucherType, type MappedEntry,
   type NormalIntent, type PreviewEntry, type SimplePostResult, type SimplePreview
 } from '@shared/simple/intents'
 import { pickTaxLedger, taxLedgerIdsFrom, taxSideOf, voucherCarriesGst, voucherTaxLedgers, type TaxLedgerIds, type TaxSide } from '@shared/voucherEdit'
@@ -221,6 +221,73 @@ export function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<t
     `SELECT COALESCE(SUM(ll.qty_milli), 0) AS q FROM line_links ll JOIN vouchers v ON v.id = ll.to_voucher_id
      WHERE ll.from_line_uid = ? AND ll.link_type = 'return' AND ${NOT_DELETED}`
   )
+  // Bug hunt 2026-11: the value before GST earlier returns took off each line (their linked lines).
+  const returnedValue = db.prepare(
+    `SELECT COALESCE(SUM(il.amount), 0) AS t, COALESCE(SUM(il.discount_paise), 0) AS d FROM line_links ll JOIN vouchers v ON v.id = ll.to_voucher_id
+       JOIN inventory_lines il ON il.voucher_id = ll.to_voucher_id AND il.line_uid = ll.to_line_uid
+     WHERE ll.from_line_uid = ? AND ll.link_type = 'return' AND ${NOT_DELETED}`
+  )
+  // What the bill still holds after the earlier returns made against it (the return that empties
+  // it takes exactly this): its value, tax per head and rounded total, less theirs. Item bills:
+  // the notes linked to its lines as returns (as `leftMilli` counts them); amount bills: the notes
+  // carrying it as their reference (as `amountLeft` counts them).
+  const earlier = v.inventory.length
+    ? (db
+        .prepare(
+          `SELECT DISTINCT ll.to_voucher_id AS id FROM line_links ll JOIN vouchers v ON v.id = ll.to_voucher_id
+           WHERE ll.from_voucher_id = ? AND ll.link_type = 'return' AND ${NOT_DELETED}`
+        )
+        .all(v.id) as { id: number }[]).map((r) => r.id)
+    : accountIds.length
+      ? notesByReference(db, kind, { id: v.id, partyId: v.partyLedgerId, date: v.date, ref: noteReference })
+      : []
+  const figures = (doc: Voucher, docKind: VoucherKind): BillRest => {
+    const t = voucherTaxLedgers(doc, ledgers, taxSideOf(docKind))
+    const partyDr = docKind === 'sales' || docKind === 'debit_note'
+    const counterSide = partyDr ? 'cr' : 'dr'
+    const sum = (id: number | null): number => (id == null ? 0 : doc.lines.filter((l) => l.ledgerId === id && l.drCr === counterSide).reduce((x, l) => x + l.amount, 0))
+    const taxable = doc.lines.filter((l) => accountIds.includes(l.ledgerId) && l.drCr === counterSide).reduce((x, l) => x + l.amount, 0)
+    const round = t.roundOff == null ? 0 : doc.lines.filter((l) => l.ledgerId === t.roundOff).reduce((x, l) => x + (l.drCr === counterSide ? l.amount : -l.amount), 0)
+    const f = { taxable, cgst: sum(t.cgst), sgst: sum(t.sgst), igst: sum(t.igst), cess: sum(t.cess), total: 0 }
+    f.total = f.taxable + f.cgst + f.sgst + f.igst + f.cess + round
+    return f
+  }
+  const noteKind: VoucherKind = kind === 'sales' ? 'credit_note' : 'debit_note'
+  const rest = figures(v, kind)
+  const returnedFigures: BillRest = { taxable: 0, cgst: 0, sgst: 0, igst: 0, cess: 0, total: 0 }
+  // A note's tax and round off belong to this bill only when the WHOLE note is this bill's return:
+  // every item line a `return` of one of its lines and its value nothing but those lines. A note
+  // that also returned another bill's goods (or carries a charge of its own) can't be split per
+  // bill exactly — then the running total isn't known and the next return is computed on its own
+  // (rest / returned null, as before the running total).
+  const billUids = new Set(v.inventory.map((l) => l.lineUid).filter((u): u is string => !!u))
+  let attributable = true
+  for (const id of earlier) {
+    const n = getVoucher(db, id)
+    if (!n) continue
+    const f = figures(n, noteKind)
+    if (v.inventory.length) {
+      const own = n.inventory.length > 0 && n.inventory.every((l) => l.source?.linkType === 'return' && billUids.has(l.source.lineUid))
+      if (!own || n.inventory.reduce((x, l) => x + l.amount, 0) !== f.taxable) attributable = false
+    } else {
+      // An amount bill (re-review): a note found by its reference is this bill's return only when
+      // it is nothing but the party, the bill's account(s), the tax and a round off under ₹1, and
+      // its tax is the bill's rate on its value (within a paisa per head — a running-total note's
+      // rounding). An accountant's note with another account on it, or at another rate, isn't.
+      const t = voucherTaxLedgers(n, ledgers, taxSideOf(noteKind))
+      const allowed = new Set([n.partyLedgerId, ...accountIds, t.cgst, t.sgst, t.igst, t.cess, t.roundOff].filter((x): x is number => x != null))
+      const round = f.total - (f.taxable + f.cgst + f.sgst + f.igst + f.cess)
+      const fitsRate = (rates ?? []).some((r) => {
+        const g = computeGst(f.taxable, r, supply)
+        return Math.abs(g.cgst - f.cgst) <= 1 && Math.abs(g.sgst - f.sgst) <= 1 && Math.abs(g.igst - f.igst) <= 1 && (g.cgst > 0) === (f.cgst > 0) && (g.igst > 0) === (f.igst > 0)
+      })
+      if (n.inventory.length > 0 || !n.lines.every((l) => allowed.has(l.ledgerId)) || f.cess !== 0 || Math.abs(round) >= 100 || !fitsRate) attributable = false
+    }
+    for (const k of ['taxable', 'cgst', 'sgst', 'igst', 'cess', 'total'] as const) {
+      rest[k] -= f[k]
+      returnedFigures[k] += f[k]
+    }
+  }
   return {
     voucherId: v.id,
     kind,
@@ -234,11 +301,14 @@ export function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<t
     rates,
     noteReference,
     amountLeft,
+    rest: attributable ? rest : null,
+    returned: attributable ? returnedFigures : null,
     lines: v.inventory
       .filter((l) => !!l.lineUid)
       .map((l) => ({
         lineUid: l.lineUid!, itemId: l.stockItemId, qtyMilli: l.qtyMilli, ratePaise: l.ratePaise, discountPaise: l.discountPaise,
-        godownId: l.godownId, batchId: l.batchId, leftMilli: l.qtyMilli - (returned.get(l.lineUid) as { q: number }).q
+        godownId: l.godownId, batchId: l.batchId, leftMilli: l.qtyMilli - (returned.get(l.lineUid) as { q: number }).q,
+        ...((r) => ({ returnedPaise: r.t, returnedDiscountPaise: r.d }))(returnedValue.get(l.lineUid) as { t: number; d: number })
       }))
   }
 }
@@ -481,10 +551,15 @@ function guardDuplicateBill(db: DB, supplierId: number, billNo: string, date: st
   }
 }
 
-function mapWithLedgers(db: DB, company: CompanyInfo, n: NormalIntent): ReturnType<typeof mapIntent> {
+function mapWithLedgers(db: DB, company: CompanyInfo, n: NormalIntent, opts: { runningTotal?: boolean } = {}): ReturnType<typeof mapIntent> {
   for (let attempt = 0; ; attempt++) {
     try {
-      return mapIntent(n, loadIntentContext(db, company, n))
+      const ctx = loadIntentContext(db, company, n)
+      // PR #190 re-review: the hand-off to the full editor maps a return WITHOUT the running total
+      // (each return's tax per line on its own, as main): a note saved there has no simple_posts
+      // record, so GSTR-1 / 3B report it line by line — its posted tax must be that computation.
+      if (opts.runningTotal === false && ctx.original) ctx.original = { ...ctx.original, rest: null, returned: null }
+      return mapIntent(n, ctx)
     } catch (err) {
       if (!(err instanceof NeedTaxLedgers) || attempt >= 4) throw err
       ensureTaxLedgers(db, err.side, err.keys)
@@ -667,7 +742,7 @@ export function intentForm(db: DB, company: CompanyInfo, raw: unknown, today: st
   const n = normaliseIntent(raw, today)
   const before = new Set((db.prepare('SELECT id FROM ledgers').all() as { id: number }[]).map((r) => r.id))
   const { mapped, created } = rehearse(db, () => {
-    const m = mapWithLedgers(db, company, n)
+    const m = mapWithLedgers(db, company, n, { runningTotal: false })
     const rows = db
       .prepare('SELECT l.id, l.name, l.tax_type AS taxType, g.name AS groupName FROM ledgers l JOIN groups g ON g.id = l.group_id')
       .all() as CreatedLedger[]

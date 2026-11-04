@@ -4,7 +4,7 @@ import { bannedWordsIn } from './bannedWords'
 import { en } from '../i18n'
 import type { VoucherPayload } from '../voucherEdit'
 import {
-  allocateToBills, intentSentences, mapIntent, NeedTaxLedgers, normaliseIntent, readAmount, readQty,
+  allocateToBills, returnRow, intentSentences, mapIntent, NeedTaxLedgers, normaliseIntent, readAmount, readQty,
   type IntentContext, type IntentLedger, type IntentLedgerClass, type IntentOriginal, type MappedIntent
 } from './intents'
 
@@ -472,5 +472,39 @@ describe('WP 9.4 additions: a supplier refund, unticking every bill', () => {
     expect(codeOf(() => map({ kind: 'money_in', customerId: L.ramesh, amount: 50_000, into: { how: 'cash' }, bills: [] }, ctx({ openBills: bills })))).toEqual({ code: 'simple_bills_short', field: 'bills' })
     // Omitted is still oldest first.
     expect(map({ kind: 'money_in', customerId: L.ramesh, amount: 50_000, into: { how: 'cash' } }, ctx({ openBills: bills })).facts.settled).toEqual([{ name: 'S-1', amount: 50_000 }])
+  })
+})
+
+// Bug hunt 2026-11: returning a line in parts — the pro-rata discount rounds each time, so the
+// LAST return of the line takes whatever is left of its value.
+describe('returnRow: the last return of a line takes what is left of it', () => {
+  // 3 x ₹100.50 less ₹1 = ₹300.50 on the bill.
+  const line = { lineUid: 'u1', itemId: 1, qtyMilli: 3000, ratePaise: 10_050, discountPaise: 100, godownId: null, batchId: null, leftMilli: 3000 }
+  it('a part return gets the discount pro rata (₹0.33 of ₹1 for one of three)', () => {
+    expect(returnRow(line, 1000).discount).toBe(33)
+  })
+  it('the last return gets the rest of the discount (₹1 - ₹0.66 = ₹0.34)', () => {
+    expect(returnRow({ ...line, leftMilli: 1000, returnedPaise: 2 * (10_050 - 33) }, 1000).discount).toBe(34)
+  })
+  it('a middle return gets the running share: pro rata of all returned so far less what was taken (₹0.67 - ₹0.33)', () => {
+    expect(returnRow({ ...line, leftMilli: 2000, returnedPaise: 10_050 - 33, returnedDiscountPaise: 33 }, 1000).discount).toBe(34)
+  })
+  it('a small discount is never over-shared: 9 x ₹1.11 less ₹0.05 gives ₹0.01, ₹0.00, ₹0.01, … ₹0.05 in all', () => {
+    const nine = { ...line, qtyMilli: 9000, ratePaise: 111, discountPaise: 5, leftMilli: 9000 }
+    let taken = 0
+    let value = 0
+    const shares: number[] = []
+    for (let k = 0; k < 9; k++) {
+      const d = returnRow({ ...nine, leftMilli: 9000 - k * 1000, returnedPaise: value, returnedDiscountPaise: taken }, 1000).discount ?? 0
+      shares.push(d)
+      taken += d
+      value += 111 - d
+    }
+    expect(shares.every((d) => d >= 0)).toBe(true)
+    expect([taken, value]).toEqual([5, 999 - 5])
+  })
+  it('the whole line at once gets the whole discount; without what was returned, pro rata as before', () => {
+    expect(returnRow({ ...line, returnedPaise: 0 }, 3000).discount).toBe(100)
+    expect(returnRow({ ...line, leftMilli: 1000 }, 1000).discount).toBe(33)
   })
 })

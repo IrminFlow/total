@@ -65,8 +65,28 @@ Things to know about the version numbers:
     limit too.
   - A cash bill with no party ledger is checked against its cash / bank lines, so a ₹1,000 cash
     sale charged 5 % on an 18 % Sales account is reported at 5 % too.
-||||||| 3e971480
-Nothing yet.
+- **A bill returned in parts now clears to the paisa** (#190). Plain words: return everything on a
+  bill a few items at a time — in any order, one line or several, with or without GST — and the
+  customer (or supplier) no longer ends up owing a rupee or three, and the GST never goes a paisa
+  below zero. For accountants — figures that change: in simple Returns each return is worked out
+  from the RUNNING total: its discount is the share of everything returned of that line so far less
+  what earlier returns took, and its tax per head and rupee round off are those of everything
+  returned so far less what the earlier notes posted; the return that empties the bill takes exactly
+  what the bill still holds. 3 × ₹100.50 less ₹1 at 18 % on credit (₹355), returned one at a time:
+  notes of ₹118, ₹118, **₹119** (were ₹118 × 3 — ₹1 left owing, CGST −₹0.01 in GSTR-3B); with no GST
+  (₹301): ₹100, ₹100, **₹101**; 9 × ₹1.11 less ₹0.05 (₹12) returned one at a time now gives back ₹12
+  (was ₹9, CGST / SGST −₹0.01); a "just an amount" bill (₹119 returned as 33.50 × 3): ₹40, **₹39**,
+  **₹40** (were ₹40 × 3 — ₹1 over-refunded). A return of the whole bill, and the first return of any
+  bill, are unchanged; such a note opens in the full invoice editor showing the tax it posted and
+  saves back unchanged (`fixedTax`, kept only while its lines are unchanged). GSTR-1 and GSTR-3B
+  report the tax a note made by simple Returns POSTED (spread over its lines, never below zero), so
+  for these notes books = GSTR-1 = GSTR-3B; every other document — an accountant's note included — is
+  reported exactly as before (line by line), so a bill entered by hand can still differ from its
+  return by a paisa there. A return after an accountant's note that returned goods of two bills at
+  once — or, on a "just an amount" bill, after an accountant's note with another account on it or at
+  another rate — is computed on its own, as before. A return opened in the full editor before it is
+  saved ("Accountant view") is computed there on its own, per line, as before (only returns saved
+  from the simple screen take the running total).
 
 ## [0.12.0] - 2026-10-22
 

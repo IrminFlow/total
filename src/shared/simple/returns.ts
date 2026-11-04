@@ -12,8 +12,8 @@ import type { MessageKey, Translate } from '../i18n'
 import { roundToRupee } from '../money'
 import { addBreakups, computeGst, supplyTypeFor } from '../gst/calc'
 import { chargesGstOn } from '../gst/registration'
-import { computeInvoice, emptyInvoiceState, type InvoiceContext } from '../voucherEdit'
-import { intentSentences, readQty, returnRow, returnTaxedOriginal, type IntentFacts, type IntentOriginalLine, type MoneyHow, type SimpleIntentInput } from './intents'
+import { computeInvoice, emptyInvoiceState, type InvoiceContext, type InvoiceFormState } from '../voucherEdit'
+import { runningAmountRest, runningReturnTax, intentSentences, readQty, returnRow, returnTaxedOriginal, type BillRest, type IntentFacts, type IntentOriginalLine, type MoneyHow, type SimpleIntentInput } from './intents'
 
 /** Which side a return screen is for. */
 export type ReturnSide = 'sale' | 'purchase'
@@ -76,6 +76,12 @@ export interface ReturnBill {
   /** A bill without item lines: its value before GST, and what is still returnable of it. */
   amountTaxable: number
   amountLeft: number | null
+  /** What the bill still holds after the earlier returns (loadOriginal) — the return that empties
+   *  it takes exactly this. Optional (absent = computed on its own). */
+  rest?: BillRest | null
+  /** What the earlier returns posted (loadOriginal) — the running total less this is each return's
+   *  tax and round off. Optional (absent = computed on its own). */
+  returned?: BillRest | null
   /** Earlier returns against it. */
   earlier: { voucherId: number; number: string; date: string; total: number }[]
 }
@@ -154,6 +160,13 @@ export function returnTotals(form: ReturnForm, bill: ReturnBill, ctx: ReturnCont
     // The rate the intent will carry when 9.1 asks, else the bill's own (mapReturn's choice).
     const rate = !charges ? 0 : returnAsks(form, bill, ctx).rate ? (form.gstRate ?? 0) : bill.carriesGst && bill.rates?.length === 1 ? bill.rates[0]! : 0
     const supply = supplyTypeFor(ctx.invoice.companyStateCode, bill.partyStateCode ?? ctx.invoice.companyStateCode)
+    // The running total's tax and round off; the return of all that is left takes what the bill
+    // still holds (mapReturn's rule).
+    const fixed = runningAmountRest(form.amount, rate, supply, bill, charges)
+    if (fixed) {
+      const tax = fixed.cgst + fixed.sgst + fixed.igst
+      return { taxable: form.amount, tax, total: fixed.total, rounding: fixed.total - form.amount - tax, lineAmounts, charges }
+    }
     const gst = addBreakups([computeGst(form.amount, rate, supply)])
     const total = roundToRupee(gst.total)
     return { taxable: gst.taxable, tax: gst.total - gst.taxable, total, rounding: total - gst.total, lineAmounts, charges }
@@ -163,16 +176,20 @@ export function returnTotals(form: ReturnForm, bill: ReturnBill, ctx: ReturnCont
     return q != null && q > 0 ? [{ line: l, q }] : []
   })
   const taxedOriginal = returnTaxedOriginal(ctx.invoice, form.date, bill)
-  const c = computeInvoice(
-    {
-      ...emptyInvoiceState(form.date),
-      partyId: bill.partyId,
-      accountId: bill.accountId,
-      rows: picked.map((p) => returnRow(p.line, p.q)),
-      ...(taxedOriginal ? { taxedOriginal: true } : {})
-    },
-    { ...ctx.invoice, kind: noteKind(bill.side) }
-  )
+  const state: InvoiceFormState = {
+    ...emptyInvoiceState(form.date),
+    partyId: bill.partyId,
+    accountId: bill.accountId,
+    rows: picked.map((p) => returnRow(p.line, p.q)),
+    ...(taxedOriginal ? { taxedOriginal: true } : {})
+  }
+  const ictx = { ...ctx.invoice, kind: noteKind(bill.side) }
+  // The running total's tax and round off; the return that empties the bill takes what it still
+  // holds (mapReturn's rule).
+  const taken = new Map<string, number>()
+  for (const p of picked) taken.set(p.line.lineUid, (taken.get(p.line.lineUid) ?? 0) + p.q)
+  const fixedTax = picked.length ? runningReturnTax(state, ictx, bill.lines, taken, bill) : null
+  const c = computeInvoice(fixedTax ? { ...state, fixedTax } : state, ictx)
   for (const l of bill.lines) lineAmounts[l.lineUid] = null
   picked.forEach((p, i) => (lineAmounts[p.line.lineUid] = c.detail[i]?.amount ?? null))
   return { taxable: c.gst.taxable, tax: c.gst.total - c.gst.taxable, total: picked.length ? c.rounded : 0, rounding: picked.length ? c.roundDiff : 0, lineAmounts, charges }

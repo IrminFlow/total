@@ -603,3 +603,50 @@ describe('roles: a viewer reads the bills but cannot save a return', () => {
     expect((await call('simple:returns:bills', { side: 'refund' })).ok).toBe(false)
   })
 })
+
+// Bug hunt 2026-11: the screen's live total of the return that empties a bill = what it posts.
+describe('a bill returned in parts: the screen and the post agree on the last return', () => {
+  it('items: each return\'s live total is the note it posts; the last takes what is left (₹119 of ₹355)', () => {
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '3', rate: '100.50', discount: '1' }] })
+    const totals: number[] = []
+    for (let i = 0; i < 3; i++) {
+      const bill = returnBill(db, INFO, 'sale', sale.voucherIds[0]!, TODAY)!
+      const form = formFor({ qty: { [bill.lines[0]!.lineUid]: '1' }, settle: 'credit', reason: 'Back' })
+      const t = returnTotals(form, bill, ctxOf())
+      const out = post(returnIntentFrom(form, bill, ctxOf(), sellSetup(db).defaults))
+      expect(out.facts.total).toBe(t.total)
+      totals.push(t.total)
+    }
+    expect(totals).toEqual([11_800, 11_800, 11_900])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+  })
+  it('two lines returned one unit at a time in mixed order: every live total is its note, together the bill', () => {
+    // Review: Widget 3 x 100.30 @ 18 % + Rice 3 x 33.33 less 0.10 @ 5 % = ₹460.
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '3', rate: '100.30' }, { itemId: I('Rice'), qty: '3', rate: '33.33', discount: '0.10' }] })
+    const totals: number[] = []
+    for (const which of [0, 1, 1, 0, 0, 1]) {
+      const bill = returnBill(db, INFO, 'sale', sale.voucherIds[0]!, TODAY)!
+      const form = formFor({ qty: { [bill.lines[which]!.lineUid]: '1' }, settle: 'credit', reason: 'Back' })
+      const t = returnTotals(form, bill, ctxOf())
+      expect(post(returnIntentFrom(form, bill, ctxOf(), sellSetup(db).defaults)).facts.total).toBe(t.total)
+      totals.push(t.total)
+    }
+    expect(totals.reduce((s, t) => s + t, 0)).toBe(46_000)
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+  })
+  it('just an amount: the last return of what is left takes the bill\'s rest', () => {
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '100.50', gstRate: 18 } })
+    const totals: number[] = []
+    for (let i = 0; i < 3; i++) {
+      const bill = returnBill(db, INFO, 'sale', sale.voucherIds[0]!, TODAY)!
+      const form = formFor({ amount: 3_350, settle: 'credit', reason: 'Back' })
+      const t = returnTotals(form, bill, ctxOf())
+      expect(post(returnIntentFrom(form, bill, ctxOf(), sellSetup(db).defaults)).facts.total).toBe(t.total)
+      totals.push(t.total)
+    }
+    // Running totals (review): ₹33.50 + 3.02 + 3.02 = 39.54 -> ₹40; ₹67 + 6.03 + 6.03 = 79.06 -> ₹79,
+    // so ₹39 more; the whole ₹100.50 + 9.05 + 9.05 = 118.60 -> ₹119, so the last ₹40.
+    expect(totals).toEqual([4_000, 3_900, 4_000])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+  })
+})
