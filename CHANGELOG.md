@@ -247,6 +247,13 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   another rate — is computed on its own, as before. A return opened in the full editor before it is
   saved ("Accountant view") is computed there on its own, per line, as before (only returns saved
   from the simple screen take the running total).
+- **Turning the passphrase lock on or off is faster on Windows** (#197). Plain words: locking or
+  unlocking a business re-encrypts every backup; each one is now written once instead of twice and
+  without a stop to flush the disk at every step. For developers: `rekeyFile(…, 'scratch')` (in-memory
+  journal, `synchronous = OFF`) is used only for throwaway copies that are re-checked and fsynced
+  before they replace anything (`convertBackups`' `.converting`, `copyWithKey`'s VACUUM INTO target,
+  the restore's `.restore-tmp`); the default stays durable. The Windows CI passphrase-lock dbtests no
+  longer stall past their 30 s timeout; `security.dbtest` imports `./ipc` at collection.
 
 ## [0.12.0] - 2026-10-22
 
