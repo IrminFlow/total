@@ -1,15 +1,14 @@
 // WP 5.5 — the assistants on a real (in-memory) company: the close checklist computed from the
 // books (and its marks persisted + audited), anomalies (binned vouchers out, dismissals kept),
 // GSTR-2B mismatches from a stored statement with a draft that is ONLY a draft (the books do not
-// change until the user saves it — and then the mismatch is gone), build_report equal to the
-// report builder, the AI tools equal to the services, and "Run with AI" pre-calling a tool.
+// change until the user saves it — and then the mismatch is gone), the AI tools equal to the
+// services, and "Run with AI" pre-calling a tool.
 import { describe, expect, it } from 'vitest'
 import type { CompanyInfo } from '@shared/domain'
 import type { AiEvent, AiSettings } from '@shared/ai'
 import { TEST_INFO } from '../db/testdb'
 import { createLedger } from './masters'
 import { saveVoucher, deleteVoucher, setLockDate } from './vouchers'
-import { runReport } from './reportBuilder'
 import { tradeBooks, item, ledger, trade, typeId, type TradeBooks } from './tradeFixture.testutil'
 import * as assist from './assistants'
 import { createToolRegistry } from '../ai/tools'
@@ -21,8 +20,6 @@ import { consumeDraft, discardDraft } from '../ai/drafts'
 import * as store from '../ai/store'
 import type { ToolContext } from '../ai/tools/registry'
 import type { Role } from './roles'
-import { parseReportQuestion, requestToModel } from '@shared/reportBuilder/nl'
-import { nameLookup } from '../ai/tools/assistantTools'
 
 const GSTIN = '27AAPFU0939F1ZV'
 const INFO: CompanyInfo = { ...TEST_INFO, name: 'Assist Co', gstin: '27AAACR5055K1Z7' }
@@ -413,33 +410,10 @@ describe('MCP exposure', () => {
   it('draft_gst_2b_fix is listed for accountants and owners only; the read assistants for viewers too', async () => {
     const { exposedTools } = await import('../mcp/server')
     const names = (role: Role): string[] => exposedTools(createToolRegistry(), { role, userName: null } as never).map((t) => t.name)
-    expect(names('viewer')).toEqual(expect.arrayContaining(['close_checklist', 'gst_2b_mismatches', 'find_anomalies', 'build_report']))
+    expect(names('viewer')).toEqual(expect.arrayContaining(['close_checklist', 'gst_2b_mismatches', 'find_anomalies']))
     expect(names('viewer')).not.toContain('draft_gst_2b_fix')
     expect(names('accountant')).toContain('draft_gst_2b_fix')
     expect(names('owner')).toContain('draft_gst_2b_fix')
-  })
-})
-
-describe('build_report', () => {
-  it('runs the validated model: totals equal the report builder; bad names come back as problems', async () => {
-    const b = books()
-    trade(b, 'sales', '2025-05-12', [{ item: item(b.db, 'Gadget', { opening: [10, 10_000] }), qty: 2, amount: 40_000 }])
-    trade(b, 'sales', '2025-06-02', [{ item: item(b.db, 'Gizmo', { opening: [10, 10_000] }), qty: 1, amount: 25_000 }])
-    const req = parseReportQuestion('sales by month', PERIOD)!
-    const res = requestToModel(req, nameLookup(b.db))
-    if (!res.ok) throw new Error(res.problems.join())
-    const direct = runReport(b.db, res.model, { working: PERIOD, today: TODAY })
-    const tool = createToolRegistry().get('build_report')!
-    const out = (await tool.handler(req, ctxFor(b))) as { data: { totals: Record<string, string>; rowCount: number }; sources: { kind: string; screen?: string; params?: Record<string, string> }[] }
-    expect(direct.totals[0]).toBe(65_000)
-    expect(out.data.totals['Taxable value']).toBe('₹650.00')
-    expect(out.data.rowCount).toBe(direct.rows.length)
-    const link = out.sources.find((s) => s.screen === 'report-builder')!
-    expect(JSON.parse(link.params!.model!)).toEqual(res.model)
-
-    const bad = await createToolRegistry().run('build_report', JSON.stringify({ title: 'x', source: 'accounts', measures: ['net'], ledgers: ['No Such Ledger'] }), ctxFor(b))
-    expect(bad).toMatchObject({ ok: false })
-    expect((bad as { error: string }).error).toMatch(/No ledger called “No Such Ledger”/)
   })
 })
 
@@ -468,14 +442,9 @@ describe('Run with AI — a pre-called assistant tool', () => {
     expect(answer.figures.every((f) => f.sourced)).toBe(true)
   })
 
-  it('only read tools can be pre-called; the mock maps "report of …" to build_report', async () => {
+  it('only read tools can be pre-called', async () => {
     const b = books()
     const bad = startTurn(deps(b, new MockProvider(demoScript)), { text: 'x', preCall: { tool: 'draft_gst_2b_fix' as never, input: {} } })
     expect(await bad.finished).toMatchObject({ status: 'error' })
-    const provider = new MockProvider(demoScript)
-    const t = startTurn(deps(b, provider), { text: 'Make a report of sales by month' })
-    expect(await t.finished).toEqual({ status: 'done' })
-    const call = store.listMessages(b.db, t.threadId).find((m) => m.toolCalls.length)!.toolCalls[0]!
-    expect(call).toMatchObject({ name: 'build_report', input: { source: 'accounts', measures: ['taxable'], dimensions: [{ key: 'month' }] } })
   })
 })

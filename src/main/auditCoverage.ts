@@ -449,19 +449,6 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'fa:runPost': a('depreciation_run', 'voucher'),
   'fa:dispose': a('fixed_asset', 'voucher', 'ledger'),
 
-  // ---------- report builder, scheduled packs (WP 6.1 / 6.2) ----------
-  'rb:save': a('saved_report'),
-  'rb:rename': a('saved_report'),
-  'rb:pin': a('saved_report'),
-  'rb:duplicate': a('saved_report'),
-  'rb:delete': a('saved_report'),
-  'rb:import': a('saved_report'),
-  'rb:exportJson': EXPORT,
-  'pack:save': a('report_pack'),
-  'pack:delete': a('report_pack'),
-  'pack:runNow': a('report_pack'),
-  'pack:chooseFolder': r('opens a folder picker; the chosen path is saved by pack:save'),
-
   // ---------- AI agent (WP 5.1) — conversations are not books; settings, drafts and deletions are audited ----------
   'ai:settings:set': a('ai_settings'),
   'ai:notice:accept': a('ai_settings'),
@@ -509,7 +496,6 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'assist:gst2b:store': a('gst2b_statement'),
   'assist:gst2b:resolve': a('assistant_mark'),
   'assist:gst2b:draft': a('ai_draft'),
-  'assist:nlReport': r('maps a question to a report-builder model (deterministic); runs nothing and writes nothing'),
   // WP 5.6 — memory. Every change is audited with the whole before/after; `remember` (a tool run
   // by ai:send / ai:regenerate) only proposes and audits the suggested row.
   'ai:memory:list': QUERY,

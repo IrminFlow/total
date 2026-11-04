@@ -67,12 +67,7 @@ export const EXPORT_CHANNELS: readonly string[] = [
   'payroll:esi',
   'payroll:ptCsv',
   'payroll:ptReturnCsv',
-  // PR #155 review: a report pack writes its reports (trial balance, P&L …) to a folder — now
-  // (pack:runNow) or on every open from its schedule (pack:save sets the folder and schedule).
-  'pack:runNow',
-  'pack:save',
   'pricing:exportCsv',
-  'rb:exportJson',
   // PR #140 review: a party's statement PDF is a report of the books written to a file, like
   // report:pdf — a viewer may save it (its minimum role), unless the owner turned canExport off.
   'receivables:statementPdf',

@@ -1,9 +1,13 @@
 /**
- * Period arithmetic for the report builder, comparatives and scheduled packs — pure date maths
- * on ISO 'YYYY-MM-DD' strings (Indian financial year, 1 April – 31 March).
+ * Period arithmetic for the comparative statements, ratio analysis and Ask Total's periods —
+ * pure date maths on ISO 'YYYY-MM-DD' strings (Indian financial year, 1 April – 31 March).
  */
-import { fyFromStartYear, fyOf, toMonthLabel } from '../dates'
-import type { DimensionKey, PeriodRule, RelativePeriod } from './model'
+import { fyFromStartYear, fyOf, toMonthLabel } from './dates'
+
+export const RELATIVE_PERIODS = ['thisMonth', 'lastMonth', 'thisQuarter', 'lastQuarter', 'fyToDate', 'lastFy'] as const
+export type RelativePeriod = (typeof RELATIVE_PERIODS)[number]
+/** A date bucket: a day, a calendar month, an FY quarter or a financial year. */
+export type PeriodDimension = 'day' | 'month' | 'quarter' | 'fy'
 
 export interface DateRange {
   from: string
@@ -89,22 +93,6 @@ export function relativePeriod(rule: RelativePeriod, today: string): DateRange {
   }
 }
 
-export const RELATIVE_LABELS: Record<RelativePeriod, string> = {
-  thisMonth: 'This month',
-  lastMonth: 'Last month',
-  thisQuarter: 'This quarter',
-  lastQuarter: 'Last quarter',
-  fyToDate: 'Financial year to date',
-  lastFy: 'Last financial year'
-}
-
-/** The concrete range a model's period rule means right now. */
-export function resolvePeriod(rule: PeriodRule, working: DateRange, today: string): DateRange {
-  if (rule.kind === 'working') return working
-  if (rule.kind === 'range') return { from: rule.from, to: rule.to }
-  return relativePeriod(rule.rule, today)
-}
-
 /**
  * The period of the same length immediately before [from, to]: whole months shift by that many
  * months (Apr–Jun → Jan–Mar; a calendar month → the month before, whatever its length); any other
@@ -126,17 +114,11 @@ export function previousYear(from: string, to: string): DateRange {
   return { from: addMonths(from, -12), to: shift(to) }
 }
 
-/** How a comparative period maps onto the current one, in months (for re-keying date buckets). */
-export function comparativeShiftMonths(kind: 'previousPeriod' | 'previousYear', from: string, to: string): number | null {
-  if (kind === 'previousYear') return 12
-  return wholeMonths(from, to)
-}
-
 // ---------------------------------------------------------------- date-bucket keys
 
 /** Bucket key of a date for a period dimension: 'YYYY-MM', 'YYYY-Qn' (FY start year), FY start
  *  year as a string, or the date itself. Mirrors the SQL the compiler emits. */
-export function periodKey(iso: string, dim: DimensionKey): string {
+export function periodKey(iso: string, dim: PeriodDimension): string {
   if (dim === 'month') return iso.slice(0, 7)
   if (dim === 'quarter') {
     const q = fyQuarterOf(iso)
@@ -147,7 +129,7 @@ export function periodKey(iso: string, dim: DimensionKey): string {
 }
 
 /** Display label of a bucket key. */
-export function periodLabel(key: string, dim: DimensionKey): string {
+export function periodLabel(key: string, dim: PeriodDimension): string {
   if (dim === 'month') return /^\d{4}-\d{2}$/.test(key) ? toMonthLabel(key, 'long') : key
   if (dim === 'quarter') {
     const m = /^(\d{4})-Q([1-4])$/.exec(key)
@@ -158,7 +140,7 @@ export function periodLabel(key: string, dim: DimensionKey): string {
 }
 
 /** First date of a bucket. */
-function bucketStart(key: string, dim: DimensionKey): string {
+function bucketStart(key: string, dim: PeriodDimension): string {
   if (dim === 'month') return `${key}-01`
   if (dim === 'quarter') {
     const m = /^(\d{4})-Q([1-4])$/.exec(key)!
@@ -169,7 +151,7 @@ function bucketStart(key: string, dim: DimensionKey): string {
 }
 
 /** Every bucket key from `from` to `to`, in order (capped at 2,000 buckets). */
-export function periodKeysBetween(from: string, to: string, dim: DimensionKey): string[] {
+export function periodKeysBetween(from: string, to: string, dim: PeriodDimension): string[] {
   const keys: string[] = []
   let d = from
   while (d <= to && keys.length < 2000) {
@@ -181,24 +163,4 @@ export function periodKeysBetween(from: string, to: string, dim: DimensionKey): 
     else d = `${Number(k) + 1}-04-01`
   }
   return keys
-}
-
-/** Re-key a bucket `months` months later (comparative alignment: last year's May lines up with
- *  this year's May). Day buckets shift by calendar months too. */
-export function shiftPeriodKey(key: string, dim: DimensionKey, months: number): string {
-  if (dim === 'day') return addMonths(key, months)
-  if (dim === 'fy') return months % 12 === 0 ? String(Number(key) + months / 12) : key
-  const shifted = addMonths(bucketStart(key, dim), months)
-  return periodKey(shifted, dim)
-}
-
-/** Financial-year starts strictly inside (from, to] — where income/expense ledgers restart. */
-export function fyStartsWithin(from: string, to: string): string[] {
-  const out: string[] = []
-  for (let y = fyOf(from).startYear + 1; y <= fyOf(to).startYear && out.length < 50; y++) out.push(`${y}-04-01`)
-  return out.filter((d) => d > from && d <= to)
-}
-
-export function rangeLabel(r: DateRange): string {
-  return `${r.from} → ${r.to}`
 }

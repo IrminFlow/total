@@ -1,5 +1,5 @@
-// IPC channels for the assistants (WP 5.5): close checklist, anomalies, GSTR-2B mismatches and
-// the deterministic "report from a question". Registered from ipc.ts with its `handle` (role gate
+// IPC channels for the assistants (WP 5.5): close checklist, anomalies and GSTR-2B mismatches.
+// Registered from ipc.ts with its `handle` (role gate
 // + { ok, data | error } envelope); every payload is Zod-parsed here. They work with AI off — the
 // AI tools in src/main/ai/tools/assistantTools.ts call the same services. Write channels (marks,
 // dismissals, settings, the stored 2B statement, 2B drafts) are mapped in auditCoverage.ts.
@@ -9,12 +9,10 @@ import type { Role } from './services/roles'
 import { fyOf, todayISO } from '@shared/dates'
 import {
   anomalyDismissSchema, anomalyQuerySchema, assistantSettingsSchema, closeMarkSchema, closeQuerySchema, gst2bDraftSchema, gst2bQuerySchema, gst2bResolveSchema,
-  gst2bStoreSchema, nlReportSchema
+  gst2bStoreSchema
 } from '@shared/assistants'
-import { parseReportQuestion, requestToModel } from '@shared/reportBuilder/nl'
 import * as assist from './services/assistants'
 import { insertPlanDraft } from './ai/assistantDrafts'
-import { nameLookup } from './ai/tools/assistantTools'
 
 type Handle = (channel: string, fn: (payload: unknown) => unknown, minRole?: Role) => void
 interface Company {
@@ -68,15 +66,4 @@ export function registerAssistantsIpc(handle: Handle, company: () => Company, us
     if (!action || action.kind !== 'draft') throw new Error('This mismatch has no draft to prepare')
     return insertPlanDraft(db(), company().info, todayISO(), action.plan, { threadId: null, messageId: null, origin: 'GST 2B assistant' })
   })
-
-  // ---------- report from a question (deterministic — no AI) ----------
-  handle('assist:nlReport', (p) => {
-    const { question, from, to } = nlReportSchema.parse(p)
-    const req = parseReportQuestion(question, { from, to })
-    if (!req) {
-      return { ok: false as const, problems: ['I could not map that to a report. Try “sales by month”, “top 10 customers by sales this year”, “expenses by ledger last quarter” or “GST on purchases by month”.'] }
-    }
-    const r = requestToModel(req, nameLookup(db()))
-    return r.ok ? { ok: true as const, title: r.title, model: r.model, request: req } : { ok: false as const, problems: r.problems, request: req }
-  }, 'viewer')
 }

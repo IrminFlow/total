@@ -91,7 +91,6 @@ import {
   TcsScreen,
   CostCentresScreen,
   BudgetsScreen,
-  ReportBuilderScreen,
   AssistantsScreen,
   RatiosScreen,
   YearEndScreen,
@@ -334,9 +333,6 @@ export default function App(): React.JSX.Element {
           {screen.name === 'tcs' && <TcsScreen />}
           {screen.name === 'cost-centres' && <CostCentresScreen />}
           {screen.name === 'budgets' && <BudgetsScreen />}
-          {screen.name === 'report-builder' && (
-            <ReportBuilderScreen key={screen.reportId ?? (screen.model ? `model-${screen.modelSeq ?? 0}` : 'new')} reportId={screen.reportId} initialModel={screen.model} initialName={screen.modelName} />
-          )}
           {screen.name === 'assistants' && <AssistantsScreen key={screen.tab ?? 'close'} tab={screen.tab} period={screen.period} />}
           {screen.name === 'ratios' && <RatiosScreen />}
           {screen.name === 'cash-forecast' && <CashForecastScreen />}

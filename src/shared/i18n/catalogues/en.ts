@@ -2891,7 +2891,6 @@ export const en = {
   'simple.ai.from.monthEnd': 'The month-end list',
   'simple.ai.from.supplierBills': 'Supplier bills on the GST portal',
   'simple.ai.from.unusual': 'Things that look unusual',
-  'simple.ai.from.report': 'A report Total made',
   'simple.ai.from.books': 'Your books',
   'settings.language.hinglish': 'Hinglish',
   'settings.language.companyNote': 'As the owner, your choice is also this business’s language for what Total prints.',

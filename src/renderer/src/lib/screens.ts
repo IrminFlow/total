@@ -588,17 +588,7 @@ export const SCREENS: ScreenDef[] = [
     navSection: 'analysis',
     invalidates: ['fxPreview', 'fxRates', 'fxRevaluations', 'fxLedgerCurrencies', 'fxOpenBills', 'currencies']
   },
-  // WP 6.1: report builder (pinned saved reports join the Analysis section as dynamic entries —
-  // lib/dynamicNav.ts); WP 6.2: ratio analysis.
-  {
-    name: 'report-builder',
-    modes: ['accountant'],
-    title: 'Report builder',
-    keywords: ['custom report', 'pivot', 'analysis', 'dimensions', 'measures', 'saved reports', 'sales by party', 'comparative'],
-    screen: { name: 'report-builder' },
-    navSection: 'analysis',
-    invalidates: ['rbRun', 'savedReports', 'savedReport', 'rbUsers', 'budgets']
-  },
+  // WP 6.2: ratio analysis.
   {
     name: 'ratios',
     modes: ['accountant'],
@@ -617,7 +607,7 @@ export const SCREENS: ScreenDef[] = [
     modes: ['accountant'],
     simpleSection: 'home',
     title: 'Assistants',
-    keywords: ['month end', 'close checklist', 'closing', 'gstr-2b mismatch', '2b', 'itc', 'anomalies', 'duplicates', 'unusual entries', 'fraud', 'report from a question', 'natural language report'],
+    keywords: ['month end', 'close checklist', 'closing', 'gstr-2b mismatch', '2b', 'itc', 'anomalies', 'duplicates', 'unusual entries', 'fraud'],
     screen: { name: 'assistants' },
     navSection: 'analysis',
     invalidates: ['assistClose', 'assistAnomalies', 'assistGst2b', 'assistSettings', 'aiSettings']
@@ -803,8 +793,6 @@ export const SCREENS: ScreenDef[] = [
     invalidates: [
       'backups', 'bin', 'users', 'audit', 'nicCreds', 'nicStatus',
       'features', 'invoiceConfig', 'invoicePreview', 'printTemplates', 'printTemplate', 'printPreview', 'appInfo', 'companyLock', 'agentConfig',
-      // WP 6.2 scheduled packs
-      'reportPacks', 'reportPackRuns', 'savedReports',
       'aiSettings', 'aiUsage', 'aiOutbound'
     ]
   },
@@ -1561,7 +1549,7 @@ export const SCREEN_LINK_PARAMS: { [N in Screen['name']]?: LinkParamValues<N> } 
   'simple-people': { tab: ['people', 'bills'], filter: ['all', 'customers', 'suppliers', 'owesYou', 'youOwe', 'late'] },
   'simple-stock': { filter: ['low'] },
   'simple-reports': { report: ['doing', 'cash', 'owed', 'by-month'], side: ['receivable', 'payable'] },
-  settings: { tab: ['appearance', 'backups', 'bin', 'users', 'security', 'audit', 'nic', 'features', 'invoice', 'receivables', 'agents', 'packs', 'ai', 'about'] },
+  settings: { tab: ['appearance', 'backups', 'bin', 'users', 'security', 'audit', 'nic', 'features', 'invoice', 'receivables', 'agents', 'ai', 'about'] },
   banking: { tab: ['recon', 'import', 'rules', 'cheques', 'pdc', 'bulk', 'brs'] },
   registers: { tab: ['sales', 'purchase', 'items'] },
   receivables: { tab: ['control', 'reminders', 'interest', 'collections'] },

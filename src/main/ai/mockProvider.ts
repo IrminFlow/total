@@ -6,7 +6,6 @@
 // `demoScript` is the built-in script behind TOTAL_AI_MOCK=1 (honoured only with TOTAL_DATA_DIR
 // in an unpackaged build — see agentEnv.ts) that the e2e scenario drives: "what were sales in
 // July?" and "pay … in cash" style questions.
-import { parseReportQuestion } from '@shared/reportBuilder/nl'
 import { draftingDemoStep } from './mockDrafting'
 import { captureMockStep } from './capture/mock'
 import { AiAbortError, ZERO_USAGE, type AiProvider, type ChatHandlers, type ChatItem, type ChatRequest, type ChatResult, type ChatUsage } from './types'
@@ -219,24 +218,13 @@ function assistantAnswer(name: string, r: Row): string {
       ...list.map((a) => `- [${s(a.severity)}] ${s(a.kind)} — ${s(a.voucher) || s(a.item)}: ${s(a.why)}`)
     ].join('\n')
   }
-  if (name === 'build_report') {
-    const totals = Object.entries((r.totals ?? {}) as Row).filter(([, v]) => typeof v === 'string')
-    return [
-      `**${s(r.title)}** (${s(r.from)} to ${s(r.to)}, ${s(r.rowCount)} rows).`,
-      '',
-      ...totals.map(([k, v]) => `- Total ${k}: ${s(v)}`),
-      '',
-      'Open it in the report builder from the link below to see every row, change it or save it.'
-    ].join('\n')
-  }
   return 'The assistant tool returned nothing I can summarise.'
 }
 
 const ASSISTANT_INTENTS: { re: RegExp; tool: string }[] = [
   { re: /\b(close checklist|month[- ]end|close the month|closing checklist|checklist)\b/, tool: 'close_checklist' },
   { re: /\b(2b|gstr-?2b|itc mismatch|mismatches)\b/, tool: 'gst_2b_mismatches' },
-  { re: /\b(anomal\w*|duplicates?|unusual|suspicious)\b/, tool: 'find_anomalies' },
-  { re: /\breport\b/, tool: 'build_report' }
+  { re: /\b(anomal\w*|duplicates?|unusual|suspicious)\b/, tool: 'find_anomalies' }
 ]
 /** WP 5.6: "remember that …" → list_ledgers, then `remember` (a preference when it names a cash /
  *  bank ledger to pay from, else a fact pointing at the ledger it names). */
@@ -294,7 +282,7 @@ export const demoScript: MockScript = (req) => {
   }
 
   // WP 5.5: an assistant result already in the turn (pre-called by "Run with AI" or asked for).
-  const assistantDone = results.find((r) => ['close_checklist', 'gst_2b_mismatches', 'find_anomalies', 'build_report', 'draft_gst_2b_fix'].includes(r.name))
+  const assistantDone = results.find((r) => ['close_checklist', 'gst_2b_mismatches', 'find_anomalies', 'draft_gst_2b_fix'].includes(r.name))
   if (assistantDone) {
     const d = parse(assistantDone.output)
     if (d.error || !d.result) return { text: `The ${assistantDone.name.replace(/_/g, ' ')} tool could not answer: ${d.error ?? 'no result'}` }
@@ -303,12 +291,6 @@ export const demoScript: MockScript = (req) => {
   }
   const intent = ASSISTANT_INTENTS.find((i) => i.re.test(q))
   if (intent && !/\b(this screen|this report)\b/.test(q)) {
-    if (intent.tool === 'build_report') {
-      const m = /Working period: (\d{4}-\d{2}-\d{2}) to (\d{4}-\d{2}-\d{2})/.exec(req.instructions)
-      const request = parseReportQuestion(question, m ? { from: m[1]!, to: m[2]! } : undefined)
-      if (!request) return { text: 'Tell me what the report should show, e.g. “report of sales by month” or “report of expenses by ledger last quarter”.' }
-      return { text: '', toolCalls: [{ name: 'build_report', arguments: request as unknown as Record<string, unknown> }] }
-    }
     return { text: '', toolCalls: [{ name: intent.tool, arguments: {} }] }
   }
 

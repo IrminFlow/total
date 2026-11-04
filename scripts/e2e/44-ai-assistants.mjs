@@ -5,10 +5,9 @@
 // With AI OFF, Analysis → Assistants works on its own: the month-end close checklist (statuses,
 // rows behind a check, Mark done with a note), GST 2B (paste a 2B JSON → mismatches by category →
 // "Draft the purchase" opens the voucher editor in accounting mode on a DRAFT → save → the
-// mismatch is gone), anomalies (a duplicate payment, dismissed with a note) and a report from a
-// question (opens the report builder pre-filled; saved). Then AI ON: "Run with AI" opens the panel
-// with close_checklist already run and an answer quoting it; "make a report of sales by month"
-// calls build_report and its link opens the builder. Every view is shot in both themes; set
+// mismatch is gone) and anomalies (a duplicate payment, dismissed with a note). Then AI ON: "Run
+// with AI" opens the panel with close_checklist already run and an answer quoting it. Every view
+// is shot in both themes; set
 // WP55_SHOTS=/tmp/wp55 to also copy the screenshots there.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -149,18 +148,7 @@ await scenario('44-ai-assistants', async (h) => {
   await h.click('prompt-ok')
   await h.page.waitForSelector('[data-testid="rows-assistants-anomalies"] tr[data-kind="duplicate_party_amount"]', { state: 'detached', timeout: 10000 })
 
-  // ---------- report from a question (no AI) ----------
-  await tab('report')
-  await h.fill('input-assistants-report-question', 'sales by month')
-  await h.click('btn-assistants-report-build')
-  await h.page.waitForFunction(() => document.querySelector('[data-testid="rows-assistants-report"]')?.textContent?.includes('1,20,000.00'), null, { timeout: 15000 })
-  await bothThemes('06-report-from-question')
-  await h.click('btn-assistants-report-open')
-  await h.waitScreen('report-builder')
-  await h.page.waitForTimeout(800)
-  await bothThemes('07-report-builder-prefilled')
-
-  // ---------- AI on: Run with AI, build_report ----------
+  // ---------- AI on: Run with AI ----------
   await h.invoke('ai:notice:accept')
   await h.invoke('ai:settings:set', { enabled: true })
   await h.goto('settings')
@@ -173,14 +161,6 @@ await scenario('44-ai-assistants', async (h) => {
   assert(answer.includes('Close checklist'), `the answer narrates the checklist: ${answer}`)
   assertEq(await h.page.$('[data-testid="ai-msg-answer"] [data-testid="ai-figure"][data-sourced="false"]'), null, 'every figure in the answer is sourced')
   await bothThemes('08-run-with-ai')
-
-  await h.fill('ai-input', 'Make a report of sales by month')
-  await h.click('btn-ai-send')
-  await h.page.waitForSelector('[data-testid="ai-tool-chip"][data-tool="build_report"][data-status="ok"]', { timeout: 20000 })
-  await h.page.waitForFunction(() => document.querySelectorAll('[data-testid="ai-panel"] [data-testid="ai-msg-answer"]').length >= 2, null, { timeout: 20000 })
-  await bothThemes('09-build-report-answer')
-  await h.page.click('[data-testid="ai-source-screen"][data-screen-target="report-builder"]')
-  await h.waitScreen('report-builder')
-  assertEq((await h.invoke('ai:outbound')).length >= 2, true, 'the AI calls are in the outbound log')
+  assertEq((await h.invoke('ai:outbound')).length >= 1, true, 'the AI call is in the outbound log')
   h.assertNoConsoleErrors()
 })

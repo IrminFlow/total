@@ -901,8 +901,7 @@ const SCREEN_DATA: Record<string, Runner> = {
   'company-info': (ctx) => run('get_company_info', {}, ctx),
   // WP 5.5: the Assistants screen — the tab's own assistant.
   assistants: (ctx, p) => {
-    const t = p.tab === 'gst2b' ? gst2bMismatchesTool : p.tab === 'anomalies' ? findAnomaliesTool : p.tab === 'report' ? null : closeChecklistTool
-    if (!t) return null
+    const t = p.tab === 'gst2b' ? gst2bMismatchesTool : p.tab === 'anomalies' ? findAnomaliesTool : closeChecklistTool
     const input = typeof p.period === 'string' && t !== findAnomaliesTool ? { period: p.period } : {}
     return t.handler(t.input.parse(input), ctx)
   }

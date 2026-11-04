@@ -46,7 +46,6 @@ beforeEach(() => {
   invoke.mockReset()
   invoke.mockImplementation(async (channel: string, payload?: unknown) => {
     if (channel === 'config:features:get') return { ok: true, data: DEFAULT_FEATURES }
-    if (channel === 'rb:list') return { ok: true, data: [] }
     if (channel === 'ui:mode:set') return { ok: true, data: { ...useSession.getState().ui, ...(payload as object) } }
     if (channel === 'company:current') return { ok: true, data: currentUi === undefined ? null : { slug: 'mode-co', info: INFO, locked: false, ui: currentUi } }
     return { ok: false, error: `unmocked channel ${channel}` }

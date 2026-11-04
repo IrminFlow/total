@@ -108,7 +108,7 @@ moment you open it.
 
 ### Analysis
 Outstandings with ageing, Credit control, Payables (with MSME tracking), Cost
-centres, Budgets, Cash-flow forecast, Loans and EMIs, Forex, Report builder, Ratio analysis, Assistants
+centres, Budgets, Cash-flow forecast, Loans and EMIs, Forex, Ratio analysis, Assistants
 (month-end checklist, GSTR-2B mismatches, anomalies) and Exceptions.
 
 ### Banking

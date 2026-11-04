@@ -83,8 +83,8 @@ row: `node scripts/run-e2e.mjs --repeat 3`, a CI shard: `--shard 2/3`).
 
 | WP | Feature | Scenario(s) | Notes |
 | --- | --- | --- | --- |
-| 6.1 | Report builder: build, save, pin, export | 37 | |
-| 6.2 | Ratios, comparatives, scheduled packs | 37 | |
+| 6.1 | ~~Report builder, saved reports~~ — removed (feature cleanup) | — | |
+| 6.2 | Ratios, comparatives (scheduled packs removed) | 37 | |
 | 6.3 | Books export → import round trip, Zoho mapping | 36 | |
 | 6.3 | Busy import + undo | 71 (gap filled) | |
 | 6.4 | Bulk edit of vouchers, attachments in backups | 38 | |

@@ -3,10 +3,10 @@
 // A question is lower-cased, its Hinglish / Hindi words are read into the English the rest of the
 // app already understands ("is mahine" → "this month", "munafa" → "profit", "kitna" → "how much"),
 // a few common typos are fixed, and then ONE of a fixed list of intents is picked with its slots
-// (names and words as typed — main resolves them through the search service). Periods and
-// measures go through the WP 5.5 deterministic phrase mapper (reportBuilder/nl.ts
-// parseReportQuestion: relative periods, "in <month>"); amounts only through money.ts
-// parseAmountText; dates only through dates.ts resolveDateText against the working date.
+// (names and words as typed — main resolves them through the search service). Periods go
+// through the deterministic phrase reader (shared/questionPeriod.ts: relative periods, "in
+// <month>"); amounts only through money.ts parseAmountText; dates only through dates.ts
+// resolveDateText against the working date.
 //
 // Anything not recognised is `unknown` — the answer then offers suggestions and a help search,
 // never a guess.
@@ -14,9 +14,8 @@ import type { AssistEntrySlots, AssistHowTo, AssistIntent, AssistMeasure, Assist
 import type { MoneyHow } from '@shared/simple/intents'
 import { parseAmountText } from '@shared/money'
 import { addDaysISO, fyOf, resolveDateText } from '@shared/dates'
-import { parseReportQuestion } from '@shared/reportBuilder/nl'
-import { monthEnd, relativePeriod } from '@shared/reportBuilder/period'
-import type { RelativePeriod } from '@shared/reportBuilder/model'
+import { questionPeriod } from '@shared/questionPeriod'
+import { monthEnd, relativePeriod } from '@shared/reportPeriod'
 
 // ---------------------------------------------------------------- normalising
 
@@ -198,7 +197,7 @@ export function normalise(text: string): Normalised {
 const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december']
 const MONTH_RE = new RegExp(`\\b(${MONTH_NAMES.map((m) => (m.length > 3 ? `${m}|${m.slice(0, 3)}` : m)).join('|')})\\b`)
 
-/** The period a question names, through nl.ts's phrase mapper; null = none said. */
+/** The period a question names, through questionPeriod's phrase reader; null = none said. */
 export function periodOf(q: string, today: string): AssistPeriod | null {
   if (/\bday before yesterday\b/.test(q)) {
     const d = addDaysISO(today, -2)
@@ -209,20 +208,19 @@ export function periodOf(q: string, today: string): AssistPeriod | null {
     return { rule: 'yesterday', from: d, to: d }
   }
   if (/\btoday\b/.test(q)) return { rule: 'today', from: today, to: today }
-  // nl.ts reads "in <month>" — "july mein", "july ki", a bare "july" mean the same.
+  // questionPeriod reads "in <month>" — "july mein", "july ki", a bare "july" mean the same.
   let mq = q.replace(new RegExp(`${MONTH_RE.source}\\s+(?:mein|me|main|ka|ki|ke)\\b`, 'g'), 'in $1')
   if (MONTH_RE.test(mq) && !new RegExp(`\\b(?:in|for|during)\\s+${MONTH_RE.source}`).test(mq)) mq = mq.replace(MONTH_RE, 'in $1')
   mq = mq.replace(/\bthis year\b/g, 'this financial year').replace(/\blast year\b/g, 'last financial year')
   const fy = fyOf(today)
-  const req = parseReportQuestion(`profit ${mq}`, { from: fy.from, to: fy.to })
-  const p = req?.period
+  const p = questionPeriod(`profit ${mq}`, { from: fy.from, to: fy.to })
   if (!p) return null
-  if (p.kind === 'relative' && p.rule) {
-    const r = relativePeriod(p.rule as RelativePeriod, today)
+  if (p.kind === 'relative') {
+    const r = relativePeriod(p.rule, today)
     // "This month / quarter" so far: never past today.
     return { rule: p.rule as AssistPeriodRule, from: r.from, to: r.to > today ? today : r.to }
   }
-  if (p.kind === 'range' && p.from && p.to) {
+  if (p.kind === 'range') {
     // A month later than today in this FY means last year's ("sales in December" asked in October).
     let from = p.from
     if (from > today) from = `${Number(from.slice(0, 4)) - 1}${from.slice(4)}`

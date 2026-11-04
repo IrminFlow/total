@@ -191,3 +191,13 @@ export interface RatioReport {
   /** Inputs of the whole-period point, for "how was this worked out". */
   inputs: RatioSetInput
 }
+
+/** Change against a comparative figure (the comparative statements' change column): the absolute
+ *  difference and its percent of the comparative's magnitude to one decimal; null where there is
+ *  nothing to compare (no figure, or a percent of zero). */
+export function variance(current: number | null, compare: number | null): { abs: number | null; pct: number | null } {
+  if (compare === null || current === null) return { abs: null, pct: null }
+  const abs = current - compare
+  if (compare === 0) return { abs, pct: null }
+  return { abs, pct: Math.round((abs * 1000) / Math.abs(compare)) / 10 }
+}

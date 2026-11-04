@@ -232,7 +232,6 @@ const TOOL_PLACES: Record<string, MessageKey> = {
   close_checklist: 'simple.ai.from.monthEnd',
   gst_2b_mismatches: 'simple.ai.from.supplierBills',
   find_anomalies: 'simple.ai.from.unusual',
-  build_report: 'simple.ai.from.report',
   categorise_statement: 'simple.ai.from.bank'
 }
 

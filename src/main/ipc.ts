@@ -112,7 +112,6 @@ import { registerFixedAssetIpc } from './ipcFixedAssets'
 import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
 import { registerPricingIpc } from './ipcPricing'
 import { registerReportsIpc } from './ipcReports'
-import { runDuePacksInBackground } from './packScheduler'
 import { registerAiIpc, aiRuns, type AppKeyAuditEntry } from './ai/ipc'
 import { registerCaptureIpc, captureOnCompanyOpen, captureOnCompanyClose, resumeCapture } from './ai/capture/ipc'
 import { dropPendingAttachments, flushCaptureAttachments } from './ai/capture/consume'
@@ -377,17 +376,6 @@ export function getCurrentCompany(): OpenCompany | null {
   return current
 }
 
-/** Whether background work on the open company (scheduled report packs) may run: never while the
- *  company is locked — it has users and nobody has signed in. */
-function packsAllowed(): boolean {
-  return !!current && (!current.usersExist || !!sessionUser)
-}
-
-/** The open company when it is unlocked, else null (the pack scheduler's view). */
-export function getUnlockedCompany(): OpenCompany | null {
-  return packsAllowed() ? current : null
-}
-
 /** Move a file into place. Copy+delete rather than fs.renameSync, since the source (os.tmpdir())
  *  and destination (~/Documents/total) may be on different filesystems (EXDEV). */
 function renameFile(src: string, dest: string): void {
@@ -644,8 +632,8 @@ export function registerIpc(): void {
   // ---------- payroll statutory (WP 3.7) — channels live in ipcPayrollStatutory.ts ----------
   registerPayrollStatutoryIpc(handle, () => requireCompany())
   registerPricingIpc(handle, () => requireCompany())
-  // ---------- report builder, comparatives, ratios, scheduled packs (WP 6.1 / 6.2) ----------
-  registerReportsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser(), canSeeProfitNow)
+  // ---------- comparatives, ratios (WP 6.2) ----------
+  registerReportsIpc(handle, () => requireCompany())
   // ---------- AI agent (WP 5.1) — channels live in ai/ipc.ts; events stream on 'total:ai:event' ----------
   registerAiIpc(handle, {
     company: () => requireCompany(),
@@ -1308,11 +1296,7 @@ export function registerIpc(): void {
     } catch (err) {
       log('warn', 'capture-open-failed', { slug, error: err instanceof Error ? err.message : String(err) })
     }
-    // WP 6.2: scheduled report packs that came due while the app was closed run once, deferred
-    // past this reply and only while the company is unlocked (a company with users waits for the
-    // sign-in — auth:login starts the pass then).
     mark('capture')
-    void runDuePacksInBackground({ slug, db, info }, { allowed: packsAllowed, current: getUnlockedCompany, canSeeProfit: canSeeProfitNow })
     return { slug, info, integrity, locked: current.usersExist, ui: configSvc.getUi(db), encrypted: current.encrypted }
   }
 
@@ -3304,8 +3288,6 @@ export function registerIpc(): void {
       pendingRemember = null
       if (result.role === 'owner' && c.encrypted) rememberOpenKey(c, result.name)
     }
-    // WP 6.2: due report packs wait for the first sign-in of a locked company.
-    void runDuePacksInBackground(c, { allowed: packsAllowed, current: getUnlockedCompany, canSeeProfit: canSeeProfitNow })
     resumeCapture()
     return sessionView(result)
   })

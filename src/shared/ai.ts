@@ -87,7 +87,7 @@ export { aiContextSchema, type AiContext }
 
 /** WP 5.5 "Run with AI": read tools an assistant screen may run BEFORE the model is asked, so
  *  the conversation starts with its result as context (stored as an ordinary tool call). */
-export const AI_PRE_CALL_TOOLS = ['close_checklist', 'gst_2b_mismatches', 'find_anomalies', 'build_report'] as const
+export const AI_PRE_CALL_TOOLS = ['close_checklist', 'gst_2b_mismatches', 'find_anomalies'] as const
 
 export const aiPreCallSchema = z.object({
   tool: z.enum(AI_PRE_CALL_TOOLS),

@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { BalanceSheet, ProfitAndLoss, StatementNode } from '@shared/reports'
-import { variance } from '@shared/reportBuilder/shape'
+import { variance } from '@shared/ratios'
 import { toDisplayDate } from '@shared/dates'
 import { reportsApi, type ComparativeColumn } from '../lib/reportsClient'
 import { Money, Panel, SkeletonRows } from './ui'

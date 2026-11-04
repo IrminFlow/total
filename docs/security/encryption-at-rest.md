@@ -167,8 +167,8 @@ C was rejected because of its asynchronous API.
   and the screen says so. The key stays in memory while locked either way.
 - **Capability flags** (PR #112, gaps closed in PR #127): main enforces every flag; `canSeeProfit:
   false` also redacts the trial balance (income / expense ledgers, the computed P&L row and the
-  totals left out), refuses report-builder models and AI tools that show the profit, skips profit
-  reports in report packs and answers Ask Total's profit questions with a note; the year-end
+  totals left out), refuses AI tools that show the profit and answers Ask Total's profit
+  questions with a note; the year-end
   close preview, the CA pack and the agent mirror's trial balance (app export
   and MCP resource) follow the flag too. Deliberately not covered: the raw books (day book, ledger
   statements, registers, the books export, the voucher mirrors) — one side of the P&L at a time is
@@ -177,8 +177,7 @@ C was rejected because of its asynchronous API.
   unflagged users see what they always did. `canExport` covers `EXPORT_CHANNELS` (capabilities.ts:
   files of the books or a report of them, party statements included — `receivables:statementPdf`,
   `receivables:statementsBulk` — and the statutory / bank upload files, `payroll:ecr` / `payroll:esi`
-  / `payroll:ptCsv`, `bulkPay:export`, the bank reconciliation PDF `banking:brsPdf`, report packs `pack:runNow` /
-  `pack:save`); prints are not exports and stay ungated by decision — the
+  / `payroll:ptCsv`, `bulkPay:export`, the bank reconciliation PDF `banking:brsPdf`); prints are not exports and stay ungated by decision — the
   invoice PDF (`invoice:pdf` / `invoice:pdfBatch`), the labels PDF (`stock:labelsPdf`), counter /
   trade-document / payslip / cheque prints and blank import templates (`NOT_EXPORTS`, each with its
   reason) follow their role only. Every channel

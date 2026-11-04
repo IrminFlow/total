@@ -2782,7 +2782,6 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'simple.ai.from.monthEnd': 'महीने के आखिर की सूची',
   'simple.ai.from.supplierBills': 'GST पोर्टल पर सप्लायर के बिल',
   'simple.ai.from.unusual': 'जो चीज़ें अजीब लगती हैं',
-  'simple.ai.from.report': 'Total की बनाई एक रिपोर्ट',
   'simple.ai.from.books': 'आपका हिसाब',
 
   'settings.language.hinglish': 'Hinglish',

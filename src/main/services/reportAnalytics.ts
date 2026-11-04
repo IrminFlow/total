@@ -9,7 +9,7 @@ import type { BalanceSheet, ProfitAndLoss, StatementNode } from '@shared/reports
 import { CASH_BANK_GROUPS } from '@shared/seed'
 import { fyFromStartYear } from '@shared/dates'
 import { computeRatioSet, type RatioPoint, type RatioReport, type RatioSetInput } from '@shared/ratios'
-import { addDays, monthEnd, periodKeysBetween, periodLabel, previousPeriod, previousYear, type DateRange } from '@shared/reportBuilder/period'
+import { addDays, monthEnd, periodKeysBetween, periodLabel, previousPeriod, previousYear, type DateRange } from '@shared/reportPeriod'
 import { balanceSheet, closingBalances, descendantIdSet, profitAndLoss } from './reports'
 import { listGroups } from './masters'
 import { netTradeRows } from './analysis'
