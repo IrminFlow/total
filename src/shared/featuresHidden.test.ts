@@ -58,11 +58,18 @@ describe('More features — the door to a hidden feature (review of #194)', () =
     const cc = turnOnFeature(DEFAULT_FEATURES, 'costCentres')
     expect(flagTurnedOff(cc, 'costCentres')).toMatchObject({ costCentres: false, turnedOn: [] })
     expect(flagTurnedOff(cc, 'tds')).toEqual({ ...cc, tds: false })
+    // what a feature needs going off takes the feature with it: Payroll off → PF / ESI / PT hidden again
+    const pf = turnOnFeature({ ...DEFAULT_FEATURES, payroll: false }, 'payrollStatutory')
+    expect(flagTurnedOff(pf, 'payroll')).toMatchObject({ payroll: false, turnedOn: [] })
+    const tc = turnOnFeature(DEFAULT_FEATURES, 'tradeCycle')
+    expect(flagTurnedOff(tc, 'inventory')).toMatchObject({ inventory: false, turnedOn: [] })
   })
 
   it('the stored list survives the schema and older builds ignore nothing else', () => {
     expect(mergeFeatures({ turnedOn: ['cheques'] })).toEqual({ ...DEFAULT_FEATURES, turnedOn: ['cheques'] })
-    expect(mergeFeatures({ turnedOn: ['nope'] })).toEqual(DEFAULT_FEATURES)
+    // an unknown entry (a feature a later build removed) is dropped, never the whole object
+    expect(mergeFeatures({ inventory: false, payroll: false, turnedOn: ['nope', 'cheques'] })).toEqual({ ...DEFAULT_FEATURES, inventory: false, payroll: false, turnedOn: ['cheques'] })
+    expect(mergeFeatures({ inventory: false, turnedOn: 'x' })).toEqual({ ...DEFAULT_FEATURES, inventory: false })
     expect(mergeFeatures({})).toEqual(DEFAULT_FEATURES)
   })
 })

@@ -1514,12 +1514,12 @@ export function undoImport(db: DB, batchId: number): UndoResult {
   // A created ledger / item that vouchers (binned ones included) still use can't be deleted (the
   // masters' delete refuses it: ledger_in_use / item_in_use): it is kept with its imported
   // opening CLEARED, so the undone books' openings still agree.
-  const refusedInUse = (fn: () => void, code: string): boolean => {
+  const refusedInUse = (fn: () => void, ...codes: string[]): boolean => {
     try {
       fn()
       return false
     } catch (err) {
-      if ((err as { code?: string }).code === code) return true
+      if (codes.includes((err as { code?: string }).code ?? '')) return true
       throw err
     }
   }
@@ -1588,7 +1588,7 @@ export function undoImport(db: DB, batchId: number): UndoResult {
               return
             }
             case 'ledger':
-              if (refusedInUse(() => masters.deleteLedger(db, it.entity_id), 'ledger_in_use')) {
+              if (refusedInUse(() => masters.deleteLedger(db, it.entity_id), 'ledger_in_use', 'ledger_loan_in_use')) {
                 // Its vouchers (live or in the bin) keep it, but the opening the import gave it
                 // must go — or the undone books carry an opening with no contra (an unused
                 // balancing ledger IS deleted). Through updateLedger: audited, and the WP 8.7

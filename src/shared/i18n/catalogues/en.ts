@@ -2225,7 +2225,7 @@ export const en = {
   'errors.accountMissing': 'This account no longer exists. It may have been deleted.',
   'errors.builtInAccount': 'Built-in accounts can’t be deleted.',
   'errors.accountInUse': 'This account has entries. Delete or move those first.',
-  'errors.accountLoanEntries': 'This account belongs to the loan “{loan}”, which still has entries. Move those entries to the bin first.',
+  'errors.accountLoanEntries': 'This account is the loan “{loan}”, which still has entries. Move those entries to the bin first.',
   'errors.productMissing': 'This product no longer exists. It may have been deleted.',
   'errors.productInUse': 'This product has entries. Delete those first.',
   'errors.placeMissing': 'This stock place no longer exists.',

@@ -73,7 +73,14 @@ export const featuresSchema = z.object({
  * shape still doesn't validate (a value of the wrong type, say).
  */
 export function mergeFeatures(partial: unknown): CompanyFeatures {
-  const obj = partial && typeof partial === 'object' ? (partial as Record<string, unknown>) : {}
+  const obj = partial && typeof partial === 'object' ? { ...(partial as Record<string, unknown>) } : {}
+  // `turnedOn` is read leniently: an entry a later build no longer knows (a removed feature) is
+  // dropped — never the whole object, which would reset every other flag to the defaults.
+  if ('turnedOn' in obj) {
+    const known = Array.isArray(obj.turnedOn) ? obj.turnedOn.filter((h): h is HideableFeature => (HIDEABLE_FEATURES as readonly unknown[]).includes(h)) : null
+    if (known) obj.turnedOn = known
+    else delete obj.turnedOn
+  }
   const merged = { ...DEFAULT_FEATURES, ...obj }
   const parsed = featuresSchema.safeParse(merged)
   return parsed.success ? parsed.data : { ...DEFAULT_FEATURES }
@@ -136,11 +143,13 @@ export function turnOffFeature(stored: CompanyFeatures, h: HideableFeature): Com
   return { ...stored, turnedOn: (stored.turnedOn ?? []).filter((x) => x !== h) }
 }
 
-/** A main-list flag turned off: a flag feature turned on through More goes back to hidden too. */
+/** A main-list flag turned off: a feature turned on through More that needs that flag (its own
+ *  flag, or stock / payroll it needs) goes back to hidden too. */
 export function flagTurnedOff(stored: CompanyFeatures, key: keyof CompanyFeatures): CompanyFeatures {
   const next = { ...stored, [key]: false }
-  const h = FLAG_FEATURE[key]
-  return h && (stored.turnedOn ?? []).includes(h) ? turnOffFeature(next, h) : next
+  const list = stored.turnedOn ?? []
+  const keep = list.filter((h) => FLAG_FEATURE[key] !== h && (TURN_ON[h] as Record<string, unknown> | undefined)?.[key] !== true)
+  return keep.length === list.length ? next : { ...next, turnedOn: keep }
 }
 
 /** Whether a stored flag's Settings → Features card is shown (hidden with its feature). */

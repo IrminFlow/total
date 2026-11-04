@@ -207,10 +207,12 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   // ---------- masters ----------
   'master:groups:create': a('group'),
   'master:groups:update': a('group'),
-  'master:groups:delete': a('group'),
+  // + leftover budget lines of the removed Budgets screen (services/leftoverPlanning.ts).
+  'master:groups:delete': a('group', 'budget'),
   'master:ledgers:create': a('ledger'),
   'master:ledgers:update': a('ledger', 'opening_bills'),
-  'master:ledgers:delete': a('ledger'),
+  // + leftover budget lines / loan records of the removed Budgets and Loans screens.
+  'master:ledgers:delete': a('ledger', 'budget', 'loan'),
   'master:voucherTypes:create': a('voucherType'),
   'master:voucherTypes:update': a('voucherType'),
   'master:units:create': a('unit'),
@@ -259,7 +261,7 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'currency:create': a('currency'),
   'currency:delete': a('currency'),
   'cc:save': a('costCentre'),
-  'cc:delete': a('costCentre'),
+  'cc:delete': a('costCentre', 'budget'),
   'bom:set': a('bom'),
   'bom:saveVersion': a('bom'),
   'bom:deleteVersion': a('bom'),

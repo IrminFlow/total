@@ -109,6 +109,8 @@ await scenario('15-drilldown', async (h) => {
 
   // ---- All entries: name → edit; the row opens the voucher; the edit window reaches the statement ----
   await h.gotoAllEntries(20000)
+  // The register's rows arrive after the screen goes idle: wait for a linked row (as ledgerTable does).
+  await h.page.waitForSelector(LINKED_ROW('registers-entries'), { state: 'attached', timeout: 20000 })
   const dbRowId = await h.page.$eval(LINKED_ROW('registers-entries'), (tr) => tr.getAttribute('data-row-id'))
   const dbRow = `[data-testid="rows-registers-entries"] tr.dt-row[data-row-id="${dbRowId}"]`
   const dbLedger = await nameOpensEdit(h, dbRow, 'daybook')

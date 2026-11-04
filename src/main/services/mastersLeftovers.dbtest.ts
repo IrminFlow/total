@@ -1,13 +1,16 @@
 // 1.0 cleanup review: budgets and loan schedules are gone from the app, but books from before keep
 // their `budget_lines` / `loans` rows, which point at ledgers and groups. No screen can remove
 // them any more, so deleting the ledger / group removes them (each audited with its whole
-// before-image); a loan whose entries are still in the books refuses the delete with a mapped
-// message naming the loan. Vouchers are never touched.
+// before-image). A loan's nullable bank / interest ledger is cleared instead (audited loan
+// update — an unused account must not need a voucher binned); deleting the loan record itself is
+// refused while its entries are in the books, with a mapped message naming the loan. Vouchers are
+// never touched.
 import { describe, expect, it } from 'vitest'
 import { seededDb } from '../db/testdb'
 import type { DB } from '../db/connection'
 import { AppError } from '@shared/errors'
 import { createGroup, createLedger, deleteGroup, deleteLedger } from './masters'
+import { deleteCostCentre, saveCostCentre } from './costCentres'
 import { deleteVoucher, saveVoucher } from './vouchers'
 
 const gid = (db: DB, name: string): number => (db.prepare('SELECT id FROM groups WHERE name = ?').get(name) as { id: number }).id
@@ -92,31 +95,62 @@ describe('deleting a ledger or group that leftover budgets / loans point at', ()
     expect(count(db, 'SELECT COUNT(*) AS n FROM ledgers WHERE id IN (?, ?)', bank, interest)).toBe(2)
   })
 
-  it('a loan whose entries are still in the books refuses, naming the loan; nothing is removed', () => {
+  it('an unused interest ledger of a loan with live entries: deleted; the loan keeps, its interest ledger cleared (audited)', () => {
     const db = seededDb()
     const loanLedger = ledger(db, 'Term Loan', 'Secured Loans')
     const bank = ledger(db, 'HDFC', 'Bank Accounts')
     const interest = ledger(db, 'Interest on loan', 'Indirect Expenses')
     const loan = legacyLoan(db, loanLedger, bank, interest)
     const v = disbursement(db, loan, bank, loanLedger)
+    deleteLedger(db, interest)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM ledgers WHERE id = ?', interest)).toBe(0)
+    expect(db.prepare('SELECT interest_ledger_id AS i, bank_ledger_id AS b FROM loans WHERE id = ?').get(loan)).toEqual({ i: null, b: bank })
+    const row = audit(db, 'loan', loan)!
+    expect(row.action).toBe('update')
+    expect(JSON.parse(row.b!)).toMatchObject({ interest_ledger_id: interest })
+    expect(JSON.parse(row.a!)).toMatchObject({ interest_ledger_id: null })
+    expect(count(db, 'SELECT COUNT(*) AS n FROM vouchers WHERE id = ? AND deleted_at IS NULL', v)).toBe(1)
+  })
+
+  it('the loan ledger itself while the loan still has entries in the books: refused, naming the loan; nothing is removed', () => {
+    const db = seededDb()
+    const loanLedger = ledger(db, 'Term Loan', 'Secured Loans', -1_00_000_00)
+    const bank = ledger(db, 'HDFC', 'Bank Accounts')
+    const other = ledger(db, 'Director loan', 'Unsecured Loans')
+    const interest = ledger(db, 'Interest on loan', 'Indirect Expenses')
+    const loan = legacyLoan(db, loanLedger, bank, interest)
+    // Loan vouchers are ordinary since the cleanup: its disbursement was edited onto another ledger.
+    const v = disbursement(db, loan, bank, other)
     const auditRows = count(db, 'SELECT COUNT(*) AS n FROM audit_log')
     let err: unknown
-    try { deleteLedger(db, interest) } catch (e) { err = e }
+    try { deleteLedger(db, loanLedger) } catch (e) { err = e }
     expect(err).toBeInstanceOf(AppError)
     expect(err).toMatchObject({ code: 'ledger_loan_in_use', params: { loan: 'Term loan' } })
     expect((err as Error).message).toContain('Term loan')
     expect(count(db, 'SELECT COUNT(*) AS n FROM loans WHERE id = ?', loan)).toBe(1)
-    expect(count(db, 'SELECT COUNT(*) AS n FROM ledgers WHERE id = ?', interest)).toBe(1)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM ledgers WHERE id = ?', loanLedger)).toBe(1)
     expect(count(db, 'SELECT COUNT(*) AS n FROM audit_log')).toBe(auditRows)
-    expect(count(db, 'SELECT COUNT(*) AS n FROM vouchers WHERE id = ? AND deleted_at IS NULL', v)).toBe(1)
 
     // Once its entries are binned the loan record (and the binned voucher's link) can go; the
     // binned voucher itself stays in the bin, untouched.
     deleteVoucher(db, v)
-    deleteLedger(db, interest)
+    deleteLedger(db, loanLedger)
     expect(count(db, 'SELECT COUNT(*) AS n FROM loans WHERE id = ?', loan)).toBe(0)
     expect(count(db, 'SELECT COUNT(*) AS n FROM loan_vouchers WHERE loan_id = ?', loan)).toBe(0)
     expect(count(db, 'SELECT COUNT(*) AS n FROM vouchers WHERE id = ? AND deleted_at IS NOT NULL', v)).toBe(1)
     expect(JSON.parse(audit(db, 'loan', loan)!.b!).voucherLinks).toEqual([expect.objectContaining({ voucherId: v, kind: 'disbursement' })])
+  })
+
+  it('a cost centre a budget line is split by: the line goes (budget audited), the cost centre is deleted', () => {
+    const db = seededDb()
+    const rent = ledger(db, 'Office Rent', 'Indirect Expenses')
+    const budget = legacyBudget(db, rent, gid(db, 'Indirect Expenses'))
+    const cc = saveCostCentre(db, { name: 'Mumbai', parentId: null, active: true }).id
+    db.prepare('UPDATE budget_lines SET cost_centre_id = ? WHERE budget_id = ? AND ledger_id = ?').run(cc, budget, rent)
+    deleteCostCentre(db, cc)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM cost_centres WHERE id = ?', cc)).toBe(0)
+    expect(count(db, 'SELECT COUNT(*) AS n FROM budget_lines WHERE budget_id = ?', budget)).toBe(1)
+    expect(JSON.parse(audit(db, 'budget', budget)!.b!).lines).toHaveLength(2)
+    expect(JSON.parse(audit(db, 'costCentre', cc)!.b!).cascaded).toMatchObject({ budget_lines: 1 })
   })
 })

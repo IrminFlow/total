@@ -1,6 +1,6 @@
 // Cash-flow forecast (WP 4.4): today's cash and bank rolled forward week by week (or month by
 // month) through probability-weighted receipts and payments — open bills, open orders, the
-// user's known items, statutory dues and loan EMIs. The main process supplies the dated flows
+// user's known items and statutory dues (loan EMIs are no longer read — add one as a known item). The main process supplies the dated flows
 // once (forecast:base); the scenario sliders re-run the pure engine here instantly.
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -59,7 +59,6 @@ const DEFAULT_OPTIONS = {
   minBalance: 0,
   orders: true,
   statutory: true,
-  emis: true,
   items: true,
   /** Pending post-dated cheques (off by default: the figures stay as they always were). */
   pdc: false,
@@ -123,7 +122,6 @@ const PERIOD_COLUMNS = defineColumns<PeriodView>([
   moneyCol('payable', 'Payables', (r) => r.bySource.payable, 'Outflows'),
   moneyCol('purchaseOrders', 'Purchase orders', (r) => r.bySource.purchase_order, 'Outflows'),
   moneyCol('statutory', 'Statutory', (r) => r.bySource.statutory, 'Outflows'),
-  moneyCol('emi', 'Loan EMIs', (r) => r.bySource.emi, 'Outflows'),
   moneyCol('pdcOut', 'Post-dated cheques', (r) => r.pdcOut, 'Outflows'),
   moneyCol('otherOut', 'Other', (r) => r.otherOut, 'Outflows'),
   { id: 'net', header: 'Net', kind: 'money', value: (r) => r.net, aggregate: 'sum', width: 112, cell: (r) => (r.net === 0 ? <span className="num text-muted">–</span> : <span className={`num ${r.net < 0 ? 'text-cr' : 'text-dr'}`}>{formatPaise(r.net)}</span>) },
@@ -231,7 +229,6 @@ export function CashForecastScreen(): React.JSX.Element {
               <DrawerSection title="Include">
                 <OptionToggle label="Open sales and purchase orders" checked={o.orders} onChange={(v) => opts.set('orders', v)} testId="input-forecast-orders-on" />
                 <OptionToggle label="Statutory dues (GST, TDS, TCS, PF, ESI, PT)" checked={o.statutory} onChange={(v) => opts.set('statutory', v)} testId="input-forecast-statutory-on" />
-                <OptionToggle label="Loan EMIs" checked={o.emis} onChange={(v) => opts.set('emis', v)} testId="input-forecast-emis-on" />
                 <OptionToggle label="Known items and adjustments" checked={o.items} onChange={(v) => opts.set('items', v)} testId="input-forecast-items-on" />
                 <OptionToggle label="Pending post-dated cheques (in place of the bills they settle)" checked={o.pdc} onChange={(v) => opts.set('pdc', v)} testId="input-forecast-pdc-on" />
                 <OptionToggle label="MSME suppliers’ bills on their s.15 deadline" checked={o.msmeDue} onChange={(v) => opts.set('msmeDue', v)} testId="input-forecast-msme-on" />
@@ -301,7 +298,6 @@ function ForecastTab({ options: o, set }: { options: Options; set: ReturnType<ty
   const exclude: ForecastSource[] = [
     ...(o.orders ? [] : (['sales_order', 'purchase_order'] as const)),
     ...(o.statutory ? [] : (['statutory'] as const)),
-    ...(o.emis ? [] : (['emi'] as const)),
     ...(o.items ? [] : (['item', 'adjustment'] as const))
   ]
   const result = useMemo(
@@ -609,7 +605,7 @@ function AssumptionsTab({ horizon }: { horizon: Horizon }): React.JSX.Element {
             </dl>
             <p className="mt-1 text-hint text-muted">
               The share of past bills that were still unpaid at that age and were then collected within 90 days. Bills not yet due use the
-              first bucket. Payables, statutory dues and EMIs are assumed paid on their due dates.
+              first bucket. Payables and statutory dues are assumed paid on their due dates.
             </p>
           </section>
         </div>
