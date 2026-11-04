@@ -22,7 +22,7 @@ Things to know about the version numbers:
 
 ### Fixed
 
-- **Quantities with commas are read right in the full app** (PR_QTY). Plain words: typing "1,500" as a
+- **Quantities with commas are read right in the full app** (#192). Plain words: typing "1,500" as a
   quantity in an invoice, stock note, stock journal, manufacture, physical stock count, order, the
   counter, an item's opening stock / reorder level or a recipe now means one thousand five hundred —
   it used to be read as 1. For accountants: every editor reads quantities through ONE parser
