@@ -17,7 +17,7 @@
 import { createHash } from 'crypto'
 import type { DB } from '../db/connection'
 import type Database from 'better-sqlite3-multiple-ciphers'
-import type { CompanyInfo, SaveVoucherWarnings, VoucherKind } from '@shared/domain'
+import type { CompanyInfo, SaveVoucherWarnings, Voucher, VoucherKind } from '@shared/domain'
 import { gstRegistrationOf } from '@shared/gst/registration'
 import { addBreakups, computeGst, supplyTypeFor } from '@shared/gst/calc'
 import { addDaysISO, fyOf, toDisplayDate } from '@shared/dates'
@@ -25,7 +25,7 @@ import { AppError, ERROR_MAP, isAppError, isErrorCode, type ErrorIssue } from '@
 import { normalizeInvoiceNumber } from '@shared/gst/recon2b'
 import {
   intentSentences, mapIntent, NeedTaxLedgers, normaliseIntent, simpleIntentSchema, SIMPLE_MAX_DAYS_AHEAD,
-  type IntentContext, type IntentFacts, type IntentLedger, type IntentOriginal, type IntentVoucherType, type MappedEntry,
+  type BillRest, type IntentContext, type IntentFacts, type IntentLedger, type IntentOriginal, type IntentVoucherType, type MappedEntry,
   type NormalIntent, type PreviewEntry, type SimplePostResult, type SimplePreview
 } from '@shared/simple/intents'
 import { pickTaxLedger, taxLedgerIdsFrom, taxSideOf, voucherCarriesGst, voucherTaxLedgers, type TaxLedgerIds, type TaxSide } from '@shared/voucherEdit'
@@ -217,6 +217,50 @@ export function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<t
     `SELECT COALESCE(SUM(ll.qty_milli), 0) AS q FROM line_links ll JOIN vouchers v ON v.id = ll.to_voucher_id
      WHERE ll.from_line_uid = ? AND ll.link_type = 'return' AND ${NOT_DELETED}`
   )
+  // Bug hunt 2026-11: the value before GST earlier returns took off each line (their linked lines).
+  const returnedValue = db.prepare(
+    `SELECT COALESCE(SUM(il.amount), 0) AS t FROM line_links ll JOIN vouchers v ON v.id = ll.to_voucher_id
+       JOIN inventory_lines il ON il.voucher_id = ll.to_voucher_id AND il.line_uid = ll.to_line_uid
+     WHERE ll.from_line_uid = ? AND ll.link_type = 'return' AND ${NOT_DELETED}`
+  )
+  // What the bill still holds after the earlier returns made against it (the return that empties
+  // it takes exactly this): its value, tax per head and rounded total, less theirs. Item bills:
+  // the notes linked to its lines as returns (as `leftMilli` counts them); amount bills: the notes
+  // carrying it as their reference (as `amountLeft` counts them).
+  const earlier = v.inventory.length
+    ? (db
+        .prepare(
+          `SELECT DISTINCT ll.to_voucher_id AS id FROM line_links ll JOIN vouchers v ON v.id = ll.to_voucher_id
+           WHERE ll.from_voucher_id = ? AND ll.link_type = 'return' AND ${NOT_DELETED}`
+        )
+        .all(v.id) as { id: number }[]).map((r) => r.id)
+    : accountIds.length
+      ? notesByReference(db, kind, { id: v.id, partyId: v.partyLedgerId, date: v.date, ref: noteReference })
+      : []
+  const figures = (doc: Voucher, docKind: VoucherKind): BillRest => {
+    const t = voucherTaxLedgers(doc, ledgers, taxSideOf(docKind))
+    const partyDr = docKind === 'sales' || docKind === 'debit_note'
+    const counterSide = partyDr ? 'cr' : 'dr'
+    const sum = (id: number | null): number => (id == null ? 0 : doc.lines.filter((l) => l.ledgerId === id && l.drCr === counterSide).reduce((x, l) => x + l.amount, 0))
+    const taxable = doc.lines.filter((l) => accountIds.includes(l.ledgerId) && l.drCr === counterSide).reduce((x, l) => x + l.amount, 0)
+    const round = t.roundOff == null ? 0 : doc.lines.filter((l) => l.ledgerId === t.roundOff).reduce((x, l) => x + (l.drCr === counterSide ? l.amount : -l.amount), 0)
+    const f = { taxable, cgst: sum(t.cgst), sgst: sum(t.sgst), igst: sum(t.igst), cess: sum(t.cess), total: 0 }
+    f.total = f.taxable + f.cgst + f.sgst + f.igst + f.cess + round
+    return f
+  }
+  const noteKind: VoucherKind = kind === 'sales' ? 'credit_note' : 'debit_note'
+  const rest = figures(v, kind)
+  for (const id of earlier) {
+    const n = getVoucher(db, id)
+    if (!n) continue
+    const f = figures(n, noteKind)
+    rest.taxable -= f.taxable
+    rest.cgst -= f.cgst
+    rest.sgst -= f.sgst
+    rest.igst -= f.igst
+    rest.cess -= f.cess
+    rest.total -= f.total
+  }
   return {
     voucherId: v.id,
     kind,
@@ -230,11 +274,13 @@ export function loadOriginal(db: DB, company: CompanyInfo, ledgers: ReturnType<t
     rates,
     noteReference,
     amountLeft,
+    rest,
     lines: v.inventory
       .filter((l) => !!l.lineUid)
       .map((l) => ({
         lineUid: l.lineUid!, itemId: l.stockItemId, qtyMilli: l.qtyMilli, ratePaise: l.ratePaise, discountPaise: l.discountPaise,
-        godownId: l.godownId, batchId: l.batchId, leftMilli: l.qtyMilli - (returned.get(l.lineUid) as { q: number }).q
+        godownId: l.godownId, batchId: l.batchId, leftMilli: l.qtyMilli - (returned.get(l.lineUid) as { q: number }).q,
+        returnedPaise: (returnedValue.get(l.lineUid) as { t: number }).t
       }))
   }
 }

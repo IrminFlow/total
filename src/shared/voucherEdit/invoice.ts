@@ -67,7 +67,15 @@ export interface InvoiceFormState {
   /** WP 8.0: a credit / debit note set against a bill raised while the company charged GST
    *  (s.34) — computed at the item rates like that bill. Set by the editor / drafting. */
   taxedOriginal?: boolean
+  /** Bug hunt 2026-11: a return note that empties its bill takes exactly the tax and round off the
+   *  bill still holds (its tax less the earlier returns'), so bill + returns net to zero to the
+   *  paisa. Set by the simple return (intents.ts mapReturn) and read back by invoiceRepresentation
+   *  from a saved return note; it applies only while `key` = fixedTaxKey(state) — any change to a
+   *  line, the date, the party, the account or the place of supply recomputes the tax. */
+  fixedTax?: FixedTax
 }
+
+export interface FixedTax { cgst: number; sgst: number; igst: number; cess: number; roundDiff: number; key: string }
 
 /** A purchase invoice's TDS deduction: the party (vendor) line is reduced by `tdsAmount` and a
  *  credit of `tdsAmount` goes to the section's tagged payable ledger — appended as the invoice's
@@ -232,9 +240,39 @@ export function computeInvoice(state: InvoiceFormState, ctx: InvoiceContext): In
     b.taxable += d.amount
     buckets.set(key, b)
   }
-  const gst = addBreakups([...buckets.values()].map((b) => computeGst(b.taxable, b.rate, supply, b.cessRate)))
-  const rounded = roundToRupee(gst.total)
+  const computed = addBreakups([...buckets.values()].map((b) => computeGst(b.taxable, b.rate, supply, b.cessRate)))
+  const fixed = state.fixedTax != null && state.fixedTax.key === fixedTaxKey(state) ? state.fixedTax : null
+  const gst = fixed
+    ? { taxable: computed.taxable, cgst: fixed.cgst, sgst: fixed.sgst, igst: fixed.igst, cess: fixed.cess, total: computed.taxable + fixed.cgst + fixed.sgst + fixed.igst + fixed.cess }
+    : computed
+  const rounded = fixed ? gst.total + fixed.roundDiff : roundToRupee(gst.total)
   return { supply, chargesGst: charges, fxActive, fxRate: fxActive ? fxRate : null, detail, gst, rounded, roundDiff: rounded - gst.total }
+}
+
+/** What a `fixedTax` was set on (the tax inputs of the form): it applies only while they are unchanged. */
+export function fixedTaxKey(state: InvoiceFormState): string {
+  return JSON.stringify([
+    state.date, state.partyId, state.accountId, state.posOverride, state.currencyCode, state.fxRateText,
+    !!state.legacyTax, !!state.taxedOriginal,
+    state.rows.map((r) => [r.itemId, r.qtyText, r.rate, r.discount, r.source?.lineUid ?? null, r.source?.linkType ?? null])
+  ])
+}
+
+/** A saved return note's tax as it posted it — the form's `fixedTax` when the computed tax doesn't
+ *  give it back. Only a note whose every line is a `return` of a bill line, within a paisa per line
+ *  per head of the computed tax and a round off under ₹1 (the emptying return's share of the bill's
+ *  rounding); anything else is not representable as before. */
+function savedReturnTax(v: Voucher, state: InvoiceFormState, ctx: InvoiceContext, taxLedgers: TaxLedgerIds): FixedTax | null {
+  if (!isNoteKind(ctx.kind) || state.rows.length === 0 || !state.rows.every((r) => r.source?.linkType === 'return')) return null
+  const counter = partyIsDebit(ctx.kind) ? 'cr' : 'dr'
+  const head = (id: number | null): number => (id == null ? 0 : v.lines.filter((l) => l.ledgerId === id && l.drCr === counter).reduce((s, l) => s + l.amount, 0))
+  const ro = taxLedgers.roundOff == null ? [] : v.lines.filter((l) => l.ledgerId === taxLedgers.roundOff)
+  const roundDiff = ro.reduce((s, l) => s + (l.drCr === counter ? l.amount : -l.amount), 0)
+  const fixed: FixedTax = { cgst: head(taxLedgers.cgst), sgst: head(taxLedgers.sgst), igst: head(taxLedgers.igst), cess: head(taxLedgers.cess), roundDiff, key: fixedTaxKey(state) }
+  const c = computeInvoice(state, ctx).gst
+  const near = (a: number, b: number): boolean => Math.abs(a - b) <= state.rows.length && (a > 0) === (b > 0)
+  if (!near(fixed.cgst, c.cgst) || !near(fixed.sgst, c.sgst) || !near(fixed.igst, c.igst) || !near(fixed.cess, c.cess) || Math.abs(roundDiff) >= 100) return null
+  return fixed
 }
 
 /** Which tax / round-off ledgers a computed invoice posts to (the form ensures these exist). */
@@ -505,7 +543,14 @@ export function invoiceRepresentation(
   if (!loaded.ok) return loaded
   // WP 8.0: tax saved before the registration rule stays exactly as saved (legacyTax).
   const state = !chargesGstOn(ctx, v.date) && voucherCarriesGst(v, taxLedgers) ? { ...loaded.state, legacyTax: true } : loaded.state
-  return confirmRoundTrip(v, state, buildInvoicePayload(state, ctx, v.voucherTypeId, taxLedgers))
+  const rep = confirmRoundTrip(v, state, buildInvoicePayload(state, ctx, v.voucherTypeId, taxLedgers))
+  if (rep.ok) return rep
+  // The return that emptied its bill took the bill's remaining tax / round off (fixedTax).
+  const fixedTax = savedReturnTax(v, state, ctx, taxLedgers)
+  if (!fixedTax) return rep
+  const fixed = { ...state, fixedTax }
+  const again = confirmRoundTrip(v, fixed, buildInvoicePayload(fixed, ctx, v.voucherTypeId, taxLedgers))
+  return again.ok ? again : rep
 }
 
 /** Does a saved voucher post to one of the GST component ledgers (CGST / SGST / IGST / cess)? */

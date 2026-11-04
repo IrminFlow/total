@@ -28,6 +28,7 @@ import { previewIntent, postIntent, remapSaveError } from './simplePost'
 import { normaliseIntent, type MappedEntry } from '@shared/simple/intents'
 import { saleView, salesList, sellSetup } from './simpleSell'
 import { createMemory } from '../ai/memory'
+import { gstr3b } from './gst'
 import { emptySellForm, saleIntentFrom, saleStatus, sellFormErrors, sellTotals, type SellContext, type SellForm } from '@shared/simple/sell'
 
 const INFO: CompanyInfo = { ...TEST_INFO, name: 'Simple Post Co', gstin: '27AAPFU0939F1ZV', stateCode: '27', gstRegistrationType: 'regular' }
@@ -761,5 +762,47 @@ describe('WP 9.2 Make a bill: the form → simple:post = the invoice + receipt a
     expect(() => post(saleIntentFrom({ ...f, customerId: L('Kumar') }, ctx, sellSetup(db).defaults))).toThrow(expect.objectContaining({ code: 'books_locked', field: 'date' }))
     expect(trace()).toEqual(locked)
     expect((before as { vouchers: number }).vouchers).toBe((locked as { vouchers: number }).vouchers)
+  })
+})
+
+// Bug hunt 2026-11: returning a bill in parts shared the discount pro rata and rounded each note on
+// its own — 3 x 100.50 less ₹1 at 18 % on credit (₹355), three returns of 1 each = notes of ₹118 x 3
+// = ₹354: the customer still owed ₹1 and CGST went 1 paisa negative.
+describe('a bill returned in parts nets to exactly zero', () => {
+  beforeEach(() => { db = company() })
+  const net = (name: string): number =>
+    (db.prepare("SELECT COALESCE(SUM(CASE WHEN dr_cr = 'cr' THEN amount ELSE -amount END), 0) AS t FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id WHERE v.deleted_at IS NULL AND ledger_id = ?").get(L(name)) as { t: number }).t
+  it('the last return takes the remaining discount, tax and round off: nothing owed, no negative tax', () => {
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '3', rate: '100.50', discount: '1' }] })
+    const bill = getVoucher(db, sale.voucherIds[0]!)!
+    const billTotal = bill.lines.find((l) => l.ledgerId === L('Ramesh'))!.amount
+    expect(billTotal).toBe(35_500)
+    const notes = [0, 1, 2].map(() => getVoucher(db, post({ kind: 'return_sale', billId: bill.id, items: [{ lineUid: bill.inventory[0]!.lineUid!, qty: '1' }] }).voucherIds[0]!)!)
+    // Each note's taxable value and tax are never negative; together they give back exactly the bill.
+    for (const n of notes) for (const l of n.lines) expect(l.amount).toBeGreaterThan(0)
+    expect(notes.reduce((s, n) => s + n.lines.find((l) => l.ledgerId === L('Ramesh'))!.amount, 0)).toBe(billTotal)
+    expect(notes.reduce((s, n) => s + n.inventory[0]!.amount, 0)).toBe(bill.inventory[0]!.amount)
+    expect([net('Sales'), net('CGST'), net('SGST'), net('Round Off'), net('Ramesh')]).toEqual([0, 0, 0, 0, 0])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+    const r3 = gstr3b(db, INFO, '2025-08-01', '2025-08-31', '082025')
+    expect(r3.outward).toMatchObject({ taxable: 0, cgst: 0, sgst: 0, igst: 0 })
+    // Each note still opens in its editor and saves back unchanged.
+    for (const n of notes) roundTrips(n.id, 'invoice')
+  })
+  it('a return of the whole bill at once is unchanged (the bill exactly)', () => {
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '3', rate: '100.50', discount: '1' }] })
+    const bill = getVoucher(db, sale.voucherIds[0]!)!
+    const note = getVoucher(db, post({ kind: 'return_sale', billId: bill.id, items: [{ lineUid: bill.inventory[0]!.lineUid!, qty: '3' }] }).voucherIds[0]!)!
+    expect(note.lines.find((l) => l.ledgerId === L('Ramesh'))!.amount).toBe(35_500)
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+  })
+  it('an amount bill returned in parts: the last return takes what is left of the bill', () => {
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '100.50', gstRate: 18 } })
+    const billId = sale.voucherIds[0]!
+    post({ kind: 'return_sale', billId, amount: { amount: '33.50' } })
+    post({ kind: 'return_sale', billId, amount: { amount: '33.50' } })
+    post({ kind: 'return_sale', billId, amount: { amount: '33.50' } })
+    expect([net('Sales'), net('CGST'), net('SGST'), net('Round Off'), net('Ramesh')]).toEqual([0, 0, 0, 0, 0])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
   })
 })

@@ -202,6 +202,7 @@ export function returnBill(db: DB, company: CompanyInfo, side: ReturnSide, id: n
     }),
     amountTaxable,
     amountLeft: o.amountLeft ?? null,
+    rest: o.rest ?? null,
     earlier: earlier.map(({ offBill: _o, ...r }) => r)
   }
 }

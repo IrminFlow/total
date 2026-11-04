@@ -603,3 +603,35 @@ describe('roles: a viewer reads the bills but cannot save a return', () => {
     expect((await call('simple:returns:bills', { side: 'refund' })).ok).toBe(false)
   })
 })
+
+// Bug hunt 2026-11: the screen's live total of the return that empties a bill = what it posts.
+describe('a bill returned in parts: the screen and the post agree on the last return', () => {
+  it('items: each return\'s live total is the note it posts; the last takes what is left (₹119 of ₹355)', () => {
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), items: [{ itemId: I('Widget'), qty: '3', rate: '100.50', discount: '1' }] })
+    const totals: number[] = []
+    for (let i = 0; i < 3; i++) {
+      const bill = returnBill(db, INFO, 'sale', sale.voucherIds[0]!, TODAY)!
+      const form = formFor({ qty: { [bill.lines[0]!.lineUid]: '1' }, settle: 'keep', reason: 'Back' })
+      const t = returnTotals(form, bill, ctxOf())
+      const out = post(returnIntentFrom(form, bill, ctxOf(), sellSetup(db).defaults))
+      expect(out.facts.total).toBe(t.total)
+      totals.push(t.total)
+    }
+    expect(totals).toEqual([11_800, 11_800, 11_900])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+  })
+  it('just an amount: the last return of what is left takes the bill\'s rest', () => {
+    const sale = post({ kind: 'sale', customerId: L('Ramesh'), amount: { amount: '100.50', gstRate: 18 } })
+    const totals: number[] = []
+    for (let i = 0; i < 3; i++) {
+      const bill = returnBill(db, INFO, 'sale', sale.voucherIds[0]!, TODAY)!
+      const form = formFor({ amount: 3_350, settle: 'keep', reason: 'Back' })
+      const t = returnTotals(form, bill, ctxOf())
+      expect(post(returnIntentFrom(form, bill, ctxOf(), sellSetup(db).defaults)).facts.total).toBe(t.total)
+      totals.push(t.total)
+    }
+    // ₹100.50 + 18 % = ₹118.59 -> ₹119; 33.50 + 6.03 = 39.53 -> ₹40, ₹40, then the ₹39 left.
+    expect(totals).toEqual([4_000, 4_000, 3_900])
+    expect(due('Ramesh')).toMatchObject({ bills: [], unappliedCredit: 0 })
+  })
+})

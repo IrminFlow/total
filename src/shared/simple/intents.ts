@@ -26,7 +26,8 @@ import { AppError } from '../errors/appError'
 import type { ErrorCode } from '../errors/codes'
 import { nonClaimableCosts, rateForCost } from '../capture/nonClaimable'
 import {
-  buildAccountingPayload, buildInvoicePayload, computeInvoice, derivePartyId, emptyInvoiceState, requiredTaxLedgers,
+  buildAccountingPayload, buildInvoicePayload, computeInvoice, derivePartyId, emptyInvoiceState, fixedTaxKey, requiredTaxLedgers,
+  type FixedTax,
   type AccountingFormState, type AccountingRowState, type InvoiceContext, type InvoiceFormState, type InvoiceRowState,
   type TaxLedgerIds, type TaxSide, type VoucherPayload
 } from '../voucherEdit'
@@ -471,15 +472,33 @@ export interface IntentOriginal {
    *  less the returns made against it: in-books notes of this party carrying `noteReference`);
    *  null / omitted = not capped (an item bill caps each line by `leftMilli`). */
   amountLeft?: number | null
+  /** Bug hunt 2026-11: what the bill still holds after the earlier returns made against it (its
+   *  value before GST, tax per head and rounded total, less theirs) — the return that empties the
+   *  bill takes exactly this. Omitted = not known (each return computed on its own, as before). */
+  rest?: BillRest | null
 }
 
-export interface IntentOriginalLine { lineUid: string; itemId: number; qtyMilli: number; ratePaise: number; discountPaise: number; godownId: number | null; batchId: number | null; leftMilli: number }
+export interface BillRest { taxable: number; cgst: number; sgst: number; igst: number; cess: number; total: number }
+
+export interface IntentOriginalLine {
+  lineUid: string; itemId: number; qtyMilli: number; ratePaise: number; discountPaise: number; godownId: number | null; batchId: number | null; leftMilli: number
+  /** Bug hunt 2026-11: the value before GST earlier returns already took off this line (their
+   *  linked lines' amounts). Omitted = not known: the last return gets the pro-rata discount. */
+  returnedPaise?: number
+}
 
 /** WP 9.5: a returned line as the note editor holds it — the rate on the bill, its discount pro
  *  rata (integer half-up), the same godown / batch, linked to the bill's line as a `return`. One
- *  definition for mapReturn and the return screen's live total. */
+ *  definition for mapReturn and the return screen's live total. The LAST return of a line (all
+ *  that is left) takes what is left of the line's value — the rest of the discount and of the
+ *  per-return rounding (bug hunt 2026-11), so the returns add up to the line exactly. */
 export function returnRow(line: IntentOriginalLine, qtyMilli: number): InvoiceRowState {
-  const discount = line.discountPaise > 0 ? Math.floor((line.discountPaise * qtyMilli * 2 + line.qtyMilli) / (2 * line.qtyMilli)) : 0
+  let discount = line.discountPaise > 0 ? Math.floor((line.discountPaise * qtyMilli * 2 + line.qtyMilli) / (2 * line.qtyMilli)) : 0
+  if (qtyMilli === line.leftMilli && line.returnedPaise != null) {
+    const gross = Math.round((qtyMilli * line.ratePaise) / 1000)
+    const lineAmount = Math.round((line.qtyMilli * line.ratePaise) / 1000) - line.discountPaise
+    discount = Math.min(gross, Math.max(0, gross - (lineAmount - line.returnedPaise)))
+  }
   return {
     itemId: line.itemId, qtyText: qtyText(qtyMilli), rate: line.ratePaise, discount: discount || null,
     godownId: line.godownId, batchId: line.batchId, source: { lineUid: line.lineUid, linkType: 'return' as const }
@@ -719,15 +738,19 @@ function ledgerLines(
   accountId: number,
   taxable: number,
   rate: number,
-  printedTotal: number | null = null
+  printedTotal: number | null = null,
+  /** The return that empties its bill: the bill's remaining tax and total (fixedRest). */
+  fixed: BillRest | null = null
 ): { rows: AccountingRowState[]; total: number; gst: GstBreakup } {
   const supply = supplyTypeFor(ctx.invoice.companyStateCode, party.stateCode ?? ctx.invoice.companyStateCode)
-  const gst = addBreakups([computeGst(taxable, rate, supply)])
+  const gst = fixed
+    ? { taxable, cgst: fixed.cgst, sgst: fixed.sgst, igst: fixed.igst, cess: 0, total: taxable + fixed.cgst + fixed.sgst + fixed.igst }
+    : addBreakups([computeGst(taxable, rate, supply)])
   // A printed total (WP 9.4) is the bill as the supplier wrote it; the rest is round off (< ₹1).
   if (printedTotal != null && Math.abs(printedTotal - gst.total) >= 100) {
     fail('simple_bill_total', `The bill total ${formatPaise(printedTotal, { symbol: true })} does not fit its value and GST (${formatPaise(gst.total, { symbol: true })})`, 'amount', { amount: formatPaise(gst.total, { symbol: true }) })
   }
-  const total = printedTotal ?? roundToRupee(gst.total)
+  const total = fixed ? fixed.total : printedTotal ?? roundToRupee(gst.total)
   const roundDiff = total - gst.total
   const partyDr = kind === 'sales' || kind === 'debit_note'
   const partySide = partyDr ? 'dr' : 'cr'
@@ -1112,6 +1135,11 @@ function mapReturn(n: Extract<NormalIntent, { kind: 'return_sale' | 'return_purc
       ...emptyInvoiceState(date), number, partyId: party.id, accountId: account.id, rows, narration: n.narration, billName: '', billDueDate: date, reference,
       ...(taxedOriginal ? { taxedOriginal: true } : {})
     }
+    // The return that empties the bill (nothing left on any line after it) takes exactly the tax
+    // and round off the bill still holds, so bill + returns net to zero.
+    const empties = o.lines.length > 0 && o.lines.every((l) => l.leftMilli - (taken.get(l.lineUid) ?? 0) === 0)
+    const fixedTax = empties && charges ? emptyingTax(state, { ...ctx.invoice, kind }, o.rest ?? null) : null
+    if (fixedTax) state.fixedTax = fixedTax
     const probe = computeInvoice(state, { ...ctx.invoice, kind })
     settled = settle(probe.rounded)
     const only = settled.refs.length === 1 ? settled.refs[0]! : null
@@ -1132,7 +1160,9 @@ function mapReturn(n: Extract<NormalIntent, { kind: 'return_sale' | 'return_purc
       if (o.rates == null || o.rates.length !== 1) return fail('simple_return_rate', 'The bill has more than one GST rate — say the rate of what is returned', 'amount')
       rate = o.rates[0]!
     }
-    const lines = ledgerLines(ctx, kind as 'credit_note' | 'debit_note', party, account.id, a.amount, charges ? (rate ?? 0) : 0)
+    // The return that empties an amount bill takes exactly what the bill still holds.
+    const fixed = emptyingAmountRest(a.amount, o.amountLeft ?? null, o.rest ?? null, charges)
+    const lines = ledgerLines(ctx, kind as 'credit_note' | 'debit_note', party, account.id, a.amount, charges ? (rate ?? 0) : 0, null, fixed)
     total = lines.total
     facts.tax = lines.gst.total - lines.gst.taxable
     settled = settle(total)
@@ -1169,6 +1199,31 @@ function mapReturn(n: Extract<NormalIntent, { kind: 'return_sale' | 'return_purc
     facts.moneyAccount = acct.name
   }
   return { entries, facts }
+}
+
+/** The tax of a return note that empties its bill: the bill's remaining tax per head (never below
+ *  zero) and the round off that makes the note's total exactly what the bill still holds — only
+ *  when the note's value is the bill's remaining value, its tax is within a paisa per line per
+ *  head of the computed tax and the round off stays under ₹1; null = compute as usual. */
+/** The rest of an amount bill its last return takes (the return of all that is left): the bill's
+ *  remaining tax and total, when they fit (round off under ₹1, no negative tax); null = as usual. */
+export function emptyingAmountRest(amount: number, amountLeft: number | null, rest: BillRest | null, charges: boolean): BillRest | null {
+  if (!rest || amountLeft == null || amount !== amountLeft || rest.taxable !== amount || rest.cess !== 0) return null
+  if (rest.cgst < 0 || rest.sgst < 0 || rest.igst < 0 || (!charges && rest.cgst + rest.sgst + rest.igst !== 0)) return null
+  return Math.abs(rest.total - (rest.taxable + rest.cgst + rest.sgst + rest.igst)) < 100 ? rest : null
+}
+
+export function emptyingTax(state: InvoiceFormState, ictx: InvoiceContext, rest: BillRest | null): FixedTax | null {
+  if (!rest) return null
+  const c = computeInvoice(state, ictx)
+  const heads = { cgst: Math.max(0, rest.cgst), sgst: Math.max(0, rest.sgst), igst: Math.max(0, rest.igst), cess: Math.max(0, rest.cess) }
+  const taxes = heads.cgst + heads.sgst + heads.igst + heads.cess
+  const roundDiff = rest.total - (c.gst.taxable + taxes)
+  const near = (a: number, b: number): boolean => Math.abs(a - b) <= state.rows.length && (a > 0) === (b > 0)
+  if (rest.taxable !== c.gst.taxable || Math.abs(roundDiff) >= 100) return null
+  if (!near(heads.cgst, c.gst.cgst) || !near(heads.sgst, c.gst.sgst) || !near(heads.igst, c.gst.igst) || !near(heads.cess, c.gst.cess)) return null
+  if (heads.cgst === c.gst.cgst && heads.sgst === c.gst.sgst && heads.igst === c.gst.igst && heads.cess === c.gst.cess && roundDiff === c.roundDiff) return null
+  return { ...heads, roundDiff, key: fixedTaxKey(state) }
 }
 
 // ---------------------------------------------------------------- entry point

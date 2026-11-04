@@ -20,7 +20,19 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
-Nothing yet.
+### Fixed
+
+- **A bill returned in parts now clears to the paisa** (PR_RET). Plain words: return everything on a
+  bill a few items at a time and the customer (or supplier) no longer ends up owing ₹1, and the GST
+  never goes a paisa below zero. For accountants — figures that change: in simple Returns, the LAST
+  return of a bill line takes what is left of the line's value (the rest of the discount and of the
+  per-return rounding), and the return that empties the bill takes exactly the tax per head and the
+  round off the bill still holds (its tax less the earlier returns'). 3 × ₹100.50 less ₹1 at 18 % on
+  credit (₹355), returned one at a time: notes of ₹118, ₹118, **₹119** (were ₹118 × 3 — ₹1 left owing,
+  CGST −₹0.01 in GSTR-3B). The same for a "just an amount" bill (₹119 returned as 33.50 × 3: ₹40, ₹40,
+  **₹39**, were ₹40 × 3 — ₹1 over-refunded). Earlier returns and every other return are unchanged; such
+  a note opens in the invoice editor and saves back unchanged (`fixedTax`, kept only while its lines are
+  unchanged).
 
 ## [0.12.0] - 2026-10-22
 
