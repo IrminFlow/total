@@ -63,12 +63,12 @@ done on main were dropped. One line each; the pointer says where to look.
 - ~~Money list stops at the working date, so an entry dated up to +30 days ahead isn't listed until then~~ DONE — lists up to the working date + 30 days with a "Dated ahead" chip (PR #121) — PR #88
 - ~~Expense tiles include "Purchases", "Raw material purchases", "Discount given"; paying "Purchases" from Money out books no goods~~ DONE — Money out drops those tiles for "Buying goods? Record a purchase instead" (opens Record a purchase with the supplier / amount / way paid carried); Record a purchase keeps them (PR #139) — PR #88, `shared/simple/categories.ts`
 - ~~A refund from a supplier who owes you nothing is accepted silently (raises what you owe)~~ DONE — refused on the supplier (`simple_refund_no_credit`) with "Record it as other money in"; "They are paying us for something else" posts it on account (PR #139) — PR #88
-- GST-bill expense preview says "Purchase bill …" even for rent or electricity — PR #88
+- ~~GST-bill expense preview says "Purchase bill …" even for rent or electricity~~ DONE — WP 10.8 (`facts.forWhat`: "Bill … for Rent"; verified in the Phase 1 triage) — PR #88
 - ~~Two open bills with the same name (different years) tick together in Money in / out; a later bill can reuse an older settled credit's name — PR #88 / #89~~ DONE — PR #171
 - ~~Refund TO a customer (money out against their credit) outside a return isn't offered~~ DONE — Money out "A customer (refund)" while a customer holds credit (`money_out.customerId`, against their named credits oldest first) (PR #139) — PR #88
 - ~~Bank: "Do you have a GST bill?" not asked for bank expenses; bank charges incl. GST not split for a regular registration~~ DONE — asked on a GST-charging date (Money out's purchase intent, paid from the bank); "GST on the charge" splits the input tax with the bank as the supplier (PR #139) — PR #90
 - ~~Bank: no Undo / "Not this" on a Done line (unmatch in the full app); a skipped line isn't remembered after refresh; after "Pick the bills yourself" the user must go back to Bank themselves~~ DONE — "Not this" (the full app's unmatch), skips remembered on this computer under "Skipped for now", "Back to Bank" (PR #121) — PR #90
-- Bank: the sentence doesn't compare the statement's own closing balance with the books — PR #90
+- ~~Bank: the sentence doesn't compare the statement's own closing balance with the books~~ DONE — WP 10.8 (tone `balance`: the statement's closing balance vs BRS `bankBalance`; verified in the Phase 1 triage) — PR #90
 - Stock: ~~no reorder-level editor~~, ~~no recipe editor~~ DONE — PR #141 (Recipe on the product's page: a new BOM version through the accountant service, labour per one, Accountant view); counts go to the default stock place (needs a per-place count rule in the valuation engine first — a count line pins the item's whole quantity whatever place it names, `stockAnalysis.stockByGodown` KNOWN LIMITATION; asking "Which place?" would set the product's total to one place's count); ~~history rows don't open the entry~~ DONE — PR #124 ("Tell me when it runs low" on the product view; History rows open the bill / return / saved count, else the full app) — PR #91
 - Stock: ~~a count of a never-stocked product is valued ₹0~~ DONE — PR #188 (Count stock asks what one cost; the engine uses it only while nothing is on hand); ~~reopening a saved count shows difference 0; Undo of a count / batch after later sales can leave stock negative~~ DONE — PR #124 (the saved count shows the engine's difference; Undo is refused when it would leave a product below zero; the full Physical Stock editor's "Book qty" on an alteration still includes the entry — PR #122 holds that file) — PR #91
 - ~~People: parties under imported group names (e.g. "Trade Receivables") show no balance (Outstandings counts only Sundry Debtors / Creditors; accountant screen too)~~ DONE — PR #188 (the side comes from the group's role, name + nature, in every bill-wise reader) — PR #92
@@ -123,13 +123,14 @@ done on main were dropped. One line each; the pointer says where to look.
   - GSTR-2B matching (`extractPurchaseDocs` → recon2b / the 2B mismatch assistant / simple Home) reads the LIVE supplier GSTIN, never the snapshot (review of #172 — see section 1); a supplier who re-registers under a new GSTIN will see their OLD bills as `gstin_differs` until the portal side agrees
   - Re-saving an old bill freezes it on TODAY's masters: rates come from the form (visible), the party's GSTIN / state / SEZ type / reverse charge do not — saveVoucher warns (`warnings.taxFactsChanged`, toast in InvoiceEntry / AccountingEntry); a `legacyTax`-style editor banner before the save is not built
   - A snapshot's line facts are NULL-meaningful (a rate-less ledger stays rate-less under the posted-rate rule), so a line written by a path that skips `snapshotTaxFacts` would read as rate-less — today every `INSERT INTO voucher_lines / inventory_lines` is saveVoucher's own (the snapshot runs after them, inside the transaction; bank dates / serials only UPDATE other columns); a future raw line writer must call `snapshotTaxFacts` or clear the marker
-- Invoice calc rounds tax per rate group, return extraction per line (paise can differ); percentages and FX use float intermediates — GPT review, `shared/voucherEdit/invoice.ts`, `shared/money.ts`
+- ~~Invoice calc rounds tax per rate group, return extraction per line (paise can differ)~~ DONE — per line since PR #187 (unedited old invoices keep their group rounding, `legacyGroupTax`); still open: percentages and FX use float intermediates — GPT review, `shared/voucherEdit/invoice.ts`, `shared/money.ts`
 - ~~An IRN doesn't freeze amount / party edits and binning doesn't cancel the IRN; needs a correction workflow (24 h cancel window)~~ DONE — PR #164 (a live IRN refuses date / party / amount / tax / item edits, `irn_frozen`, and the bin, `irn_live`, until a recorded Cancel IRN) — GPT review, `services/vouchers.ts`
 - ~~e-invoice applicability needs a business profile (PAN-wide turnover, ₹5 cr mandate, 30-day rule at ₹10 cr) — GPT review, `shared/compliance.ts`~~ DONE — PR #165 (`shared/gst/einvoiceApplicability.ts`; UNVERIFIED list there)
 - Advance GST treats any new receipt reference from a rate-tagged party as a taxable advance (goods advances are generally exempt under N. 66/2017) — GPT review, `services/gst.ts` extractAdvances
 - MSME deadlines run from the bill date; the law uses acceptance / deemed acceptance — GPT review, `shared/payables/msme.ts`
 - Several rate-less lines at different true rates in one voucher get one blended rate (flagged off-slab); discounts debited to a ledger under Sales Accounts are ignored in the taxable value — PR #93
 - Off-standard implied rate stays a warning (no source on what the portal accepts) — PR #93
+- A note to an unregistered buyer whose original invoice is not found (no return link, no reference = invoice number, no bill set against) is put in CDNUR / B2CS by its own value — PR #187, `services/gst.ts` originalInvoices
 - ~~Unused constant `GSTR3B_QRMP_DUE_DAY = 22` still exported from the close checklist~~ DONE — PR #118
 - "Exporting JSON" is treated as "prepared"; filing / payment evidence is a manual mark only — GPT review, `services/gst.ts`
 
@@ -172,6 +173,7 @@ done on main were dropped. One line each; the pointer says where to look.
 
 - GST slabs 2025 / 2026 and schedule numbering read from secondary copies (N. 9/2025, 19/2025-CT (Rate)) — `src/shared/gst/rateTable.ts` GST_RATE_UNVERIFIED
 - Services' GST rates after 22 Sep 2025; compensation cess nil / ended dates; biris at 18 %; the HSN → slab mapping — `rateTable.ts`
+- GSTR-1 B2CL / CDNUR (#187): the limit is applied by the invoice's date (₹2,50,000 before 1 Aug 2024, ₹1,00,000 from then — N. 12/2024-CT, `shared/gst/returns.ts` `b2clLimitOn`); GSTN's CDNUR help (tutorial.gst.gov.in/contextualhelp/Einv/CDNUR.htm) still quotes ₹2.5 lakh — confirm with a CA that the portal judges a note by its ORIGINAL's date
 - GSTR-1 11th / 13th: amendments to N. 83/2020-CT (12/2021, 17/2021, 09/2024) and one-off extensions not read; IFF not modelled — `src/shared/gst/filing.ts`, `compliance.ts`
 - Quarterly GSTR-3B for state code 97 / missing state listed on the 22nd; state / month extensions not modelled — `filing.ts`
 - PMT-06 amount not worked out — `filing.ts`
@@ -198,13 +200,13 @@ done on main were dropped. One line each; the pointer says where to look.
 
 ## 6. Deferred engineering (per WP)
 
-- WP 6.x / 7.5 site: marketing site work deferred by the owner (WP 10.7); site FAQ says "nothing leaves the machine" (false once AI / capture / NIC are on) — `site/app/docs/faq/page.tsx`
+- WP 6.x / 7.5 site: marketing site work deferred by the owner (WP 10.7); ~~site FAQ says "nothing leaves the machine" (false once AI / capture / NIC are on)~~ DONE — PR #189 (AI, e-invoice / e-way filing and the update check named as the user-enabled exceptions) — `site/app/docs/faq/page.tsx`
 - WP 7.1: server-side DataTable paging not needed yet (Sales / People under budget at 100k) — PR #104
 - WP 7.2: encrypt ~~attachments~~ (DONE — PR #152) / exports / logs — PR #112 (member-passphrase prompt on the consolidation screen DONE in PR #144; CLI / MCP passphrase DONE in PR #132; remember-on-this-computer DONE in PR #142)
-- WP 7.3: ~~no data-folder move setting for OneDrive users~~ DONE — PR #133 (the CLI / MCP still ignore the pointer — follow-up); full e2e on Windows — PR #109
+- WP 7.3: ~~no data-folder move setting for OneDrive users~~ DONE — PR #133 (~~the CLI / MCP still ignore the pointer~~ DONE — PR #138); full e2e on Windows — PR #109
 - ~~WP 7.4: tighten e2e 67–71 to the paths #107 fixed~~ DONE (68–71 in the earlier reviews; 67 now runs in a company without users) — PR #170
 - WP 7.4: deferred coverage in `docs/e2e-coverage.md` (live NIC sandbox, price-list editor, TDS lower-deduction certificates) — PR #110
-- WP 7.6: before tagging the release, finish `CHANGELOG.md`'s Unreleased section — it has no entries for #107, #108, #110, #111, #112 and still calls #104 open (#109's Windows text has no PR link); then confirm main's CI is green on all five jobs (the tag run does not repeat e2e or perf) — owner-docs review
+- ~~WP 7.6: before tagging the release, finish `CHANGELOG.md`'s Unreleased section — it has no entries for #107, #108, #110, #111, #112 and still calls #104 open (#109's Windows text has no PR link); then confirm main's CI is green on all five jobs (the tag run does not repeat e2e or perf)~~ DONE — all are under 0.12.0 with their PR links (checked in the Phase 1 triage) — owner-docs review
 - ~~WP 8.x: no schema-version guard against downgrade~~ DONE — PR #116
 - WP 9.1: TDS / TCS, place-of-supply override and the owner's credit-hold override aren't part of simple intents — PR #85
 - WP 9.4: TDS shown as a hint only, deducting stays in the accountant view — PR #88
@@ -219,7 +221,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Electron 37 → 43 major (PR #3 open): fixes ~50 alerts (fixed in 38.8.6 / 39.8.x / 41.10.x); needs its own WP — rebuild the SQLite cipher driver, full e2e on mac + Windows, DMG / EXE install check
 - vitest 3 → 5 major (PRs #7 and #14 open; removes tinypool): fixes tinypool (critical, dev-only), vitest / @vitest/mocker alerts; needs its own WP (test:db under Electron-as-Node, renderer config)
 - No fix published: sprintf-js (medium), http-cache-semantics (high), extract-zip (high, via electron's installer) — `package-lock.json`, re-check when Electron moves
-- site/ (deferred): next 16.3.1 → 16.3.8 (PR #63, fixes critical / high alerts), sharp 0.35.5 (PR #16), source-map-js 1.2.2 (PR #13) — merge when the site work resumes
+- ~~site/ (deferred): next 16.3.1 → 16.3.8 (PR #63, fixes critical / high alerts), sharp 0.35.5 (PR #16), source-map-js 1.2.2 (PR #13)~~ DONE — PR #189 (one bump, `npm run build` passes; supersedes #16 / #13; then next 16.4.5 (critical advisories GHSA-2464-fhr4-w9xw / GHSA-673q-mjm6-r5xr / GHSA-p3m5-59mp-jv5r affect 16.0–16.4.0; `npm audit --omit=dev` clean); supersedes #184 too)
 - Closed as superseded by f3c9bf59 (#112): #6 xmldom, #10 js-yaml, #11 undici, #15 fast-uri, #17 brace-expansion, #62 source-map-js
 
 ## 8. Test gaps
