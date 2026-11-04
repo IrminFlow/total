@@ -4,7 +4,7 @@ import type { DB } from '../db/connection'
 import { applyCapitalGoodsExtraTax } from './fixedAssets'
 import type { CompanyInfo, TradePurpose } from '@shared/domain'
 import type { Gstr3bView } from '@shared/gst/views'
-import { resolvePostedRates, type PostedRateLine, type PostedRates } from '@shared/gst/postedRate'
+import { POSTED_TAX_ROUNDING_PAISE, ratedLinesUnexplained, resolvePostedRates, type PostedRateLine, type PostedRates } from '@shared/gst/postedRate'
 export type { Gstr3bView }
 import {
   buildGstr1, buildGstr3b, circular170Inputs, classifyDoc, isZeroRatedTyp,
@@ -15,10 +15,10 @@ import {
 import { backOutAdvance, computeGst, supplyTypeFor } from '@shared/gst/calc'
 import { toUqc } from '@shared/gst/uqc'
 import { validateGstr1, type GstIssue } from '@shared/gst/validate'
-import { fyOf } from '@shared/dates'
+import { fyFromStartYear, fyOf } from '@shared/dates'
 import { plainRupees } from '@shared/money'
 import { parseGstr2b, reconcile2b, type PurchaseDoc, type Recon2bOptions, type Recon2bResult } from '@shared/gst/recon2b'
-import { descendantIdsByName } from './masters'
+import { cashBankGroupIds, descendantIdsByName } from './masters'
 import { getGst3bManual, getGstProfile } from './config'
 import { einvoiceApplicability, type EinvoiceApplicability } from '@shared/gst/einvoiceApplicability'
 import { einvoiceTurnOnNotice, type EinvoiceStatus } from '@shared/compliance'
@@ -28,6 +28,7 @@ import { chargesGstOn } from '@shared/gst/registration'
 import { hasTradeSchema } from './tradeLinks'
 import { writeAudit } from './audit'
 import { lineSnapSql, partySnapSql, partySnapshots, withPartySnap } from './taxFacts'
+import { openingBillsByParty, openingEvents } from './openingBills'
 
 interface DocVoucherRow {
   id: number; date: string; number: string; kind: 'sales' | 'credit_note' | 'debit_note'
@@ -56,6 +57,9 @@ export function outwardDebitNoteIds(db: DB, from: string, to: string): Set<numbe
     .all(from, to) as { id: number; partyLedgerId: number | null }[]
   if (!rows.length) return new Set()
   const incomeIds = descendantIdsByName(db, INCOME_GROUPS)
+  // Owner decision (4 Nov, PR #188): GST returns stay exactly as on main — the outward / inward
+  // split keeps the SEEDED Sundry Debtors tree, so no filed month moves for a party under an
+  // imported group name (revisit in Phase 2 behind the upgrade-diff report; to-do §4 GST).
   const debtorIds = descendantIdsByName(db, ['Sundry Debtors'])
   const lineStmt = db.prepare(
     `SELECT l.group_id AS groupId FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
@@ -120,7 +124,168 @@ export function postedLineRates(
     postedTaxStmts.set(db, stmt)
   }
   const posted = (stmt.get(salesSide, voucherId) as { t: number }).t
-  return resolvePostedRates(lines, posted, supply, date)
+  // Review of #187: a rated line is re-rated only when the document's value ties — the party is
+  // charged the sales lines + the posted tax + cess (+ TCS), within the rounding. Read only when a
+  // rated line's master rate leaves the posted tax unexplained (otherwise it can't matter).
+  if (!ratedLinesUnexplained(lines, posted, supply)) return resolvePostedRates(lines, posted, supply, date)
+  // Prepared per call (rare: only an unexplained rated line gets here) — it names the cash / bank
+  // groups as they are now.
+  const facts = db.prepare(
+      `SELECT
+         (SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = ? THEN vl.amount ELSE -vl.amount END), 0) FROM voucher_lines vl JOIN vouchers v ON v.id = vl.voucher_id
+          WHERE vl.voucher_id = ? AND vl.ledger_id = v.party_ledger_id) AS party,
+         (SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = ? THEN vl.amount ELSE -vl.amount END), 0) FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+          WHERE vl.voucher_id = ? AND l.tax_type = 'cess') AS cess,
+         (SELECT COALESCE(SUM(te.tds_amount), 0) FROM tds_entries te JOIN tds_sections ts ON ts.id = te.section_id
+          WHERE te.voucher_id = ? AND ts.kind = 'tcs') AS tcs,
+         (SELECT COALESCE(SUM(CASE WHEN vl.dr_cr = ? THEN vl.amount ELSE -vl.amount END), 0) FROM voucher_lines vl JOIN ledgers l ON l.id = vl.ledger_id
+          WHERE vl.voucher_id = ? AND l.group_id IN (${[...cashBankGroupIds(db)].join(',') || 'NULL'})) AS cash,
+         (SELECT party_ledger_id IS NOT NULL FROM vouchers WHERE id = ?) AS hasParty`
+  )
+  const partySide = salesSide === 'cr' ? 'dr' : 'cr'
+  const f = facts.get(partySide, voucherId, salesSide, voucherId, voucherId, partySide, voucherId, voucherId) as { party: number; cash: number; hasParty: number; cess: number; tcs: number }
+  const taxable = lines.reduce((s, l) => s + l.taxable, 0)
+  // CodeRabbit on #187: a sale with no party ledger (a cash bill) is charged on its cash / bank lines.
+  const charged = f.hasParty ? f.party : f.cash
+  const valueTies = charged > 0 && Math.abs(charged - f.tcs - (taxable + posted + f.cess)) <= lines.length + POSTED_TAX_ROUNDING_PAISE
+  return resolvePostedRates(lines, posted, supply, date, { valueTies })
+}
+
+/** Bill names asked per statement (5 variables each — well under SQLite's 32,766, review of #187). */
+const ORIGINAL_NAMES_PER_QUERY = 400
+
+/**
+ * The ORIGINAL invoice of each credit / outward debit note (GSTR-1 9B CDNUR vs B2CS is decided by
+ * it — returns.ts buildGstr1), never guessed: its `return` line links when they all point at ONE
+ * invoice; else (review of #187) the name(s) it is set `against`, or failing bill refs its
+ * reference — accepted only when that name can mean exactly ONE bill of the party dated on /
+ * before the note and that bill is a sales invoice in the books. A name's candidates are every
+ * unbinned voucher of the party opening a bill of that name (a `new` ref, or a sales invoice of
+ * that number without refs — and, for a reference, any sales invoice of that number dated in the
+ * note's FY or the one before) and the party's opening bills of that name (an unnamed opening is
+ * the bill "Opening") — the books settle a name against the OLDEST open one and numbers restart
+ * every year, so two candidates are never told apart here. Several names against must all mean the
+ * same invoice. Not found = the note is judged by its own value, as before. The original carries
+ * its debit side (as `invoiceValue`), its date (the B2CL limit in force then) and, from
+ * outwardSupplyClass on its own row (its override, else its party snapshot), its place of supply,
+ * whether its buyer was registered and its export type. In chunks of 500 notes.
+ */
+function originalInvoices(db: DB, company: CompanyInfo, notes: { id: number; date: string }[]): Map<number, NonNullable<GstDoc['original']>> {
+  const out = new Map<number, NonNullable<GstDoc['original']>>()
+  const o = IN_BOOKS.replace(/\bv\./g, 'o.')
+  for (let i = 0; i < notes.length; i += 500) {
+    const chunk = notes.slice(i, i + 500)
+    const marks = chunk.map(() => '?').join(',')
+    const found = new Map<number, number>()
+    // Return links: accepted only when the note links to exactly one invoice, in the books.
+    const linkedNotes = new Set<number>()
+    for (const r of db
+      .prepare(
+        `SELECT ll.to_voucher_id AS noteId, COUNT(DISTINCT ll.from_voucher_id) AS n, MIN(ll.from_voucher_id) AS origId,
+                MIN(CASE WHEN ot.kind = 'sales' AND ${o} THEN 1 ELSE 0 END) AS ok
+         FROM line_links ll JOIN vouchers o ON o.id = ll.from_voucher_id JOIN voucher_types ot ON ot.id = o.voucher_type_id
+         WHERE ll.to_voucher_id IN (${marks}) AND ll.link_type = 'return'
+         GROUP BY ll.to_voucher_id`
+      )
+      .all(...chunk.map((n) => n.id)) as { noteId: number; n: number; origId: number; ok: number }[]) {
+      linkedNotes.add(r.noteId)
+      if (r.n === 1 && r.ok) found.set(r.noteId, r.origId)
+    }
+
+    // The names each remaining note could mean: the bills it is set against, else its reference.
+    const rest = chunk.filter((n) => !found.has(n.id))
+    if (rest.length) {
+      const restMarks = rest.map(() => '?').join(',')
+      const head = new Map((db.prepare(`SELECT id, party_ledger_id AS partyId, reference FROM vouchers WHERE id IN (${restMarks})`)
+        .all(...rest.map((n) => n.id)) as { id: number; partyId: number | null; reference: string | null }[]).map((r) => [r.id, r]))
+      const against = new Map<number, Set<string>>()
+      for (const r of db.prepare(`SELECT voucher_id AS id, name FROM bill_refs WHERE voucher_id IN (${restMarks}) AND kind = 'against'`)
+        .all(...rest.map((n) => n.id)) as { id: number; name: string }[]) against.set(r.id, (against.get(r.id) ?? new Set()).add(r.name))
+      // A reference names an invoice of the note's FY or the one before (numbers restart each FY).
+      const asks: { noteId: number; party: number; date: string; from: string; name: string; path: 'bill' | 'ref' }[] = []
+      for (const n of rest) {
+        const h = head.get(n.id)
+        if (!h || h.partyId == null) continue
+        const names = against.get(n.id)
+        if (names?.size) for (const name of names) asks.push({ noteId: n.id, party: h.partyId, date: n.date, from: '0000-00-00', name, path: 'bill' })
+        else if (h.reference?.trim()) {
+          const from = fyFromStartYear(fyOf(n.date).startYear - 1).from
+          asks.push({ noteId: n.id, party: h.partyId, date: n.date, from, name: h.reference.trim(), path: 'ref' })
+        }
+      }
+      // Every voucher each name could mean (bounded number of names per statement).
+      const cands = new Map<string, { id: number; invoice: boolean }[]>()
+      const key = (a: { noteId: number; name: string }): string => `${a.noteId}\u0000${a.name}`
+      for (let k = 0; k < asks.length; k += ORIGINAL_NAMES_PER_QUERY) {
+        const part = asks.slice(k, k + ORIGINAL_NAMES_PER_QUERY)
+        const rows = db
+          .prepare(
+            `WITH q(noteId, party, d, f, name, path) AS (VALUES ${part.map(() => '(?, ?, ?, ?, ?, ?)').join(', ')})
+             SELECT q.noteId, q.name, v.id, (vt.kind = 'sales' AND ${IN_BOOKS}) AS invoice
+             FROM q JOIN vouchers v ON v.party_ledger_id = q.party AND v.deleted_at IS NULL AND v.date <= q.d AND v.date >= q.f AND v.id <> q.noteId
+             JOIN voucher_types vt ON vt.id = v.voucher_type_id
+             WHERE EXISTS (SELECT 1 FROM bill_refs b WHERE b.voucher_id = v.id AND b.kind = 'new' AND b.name = q.name)
+                OR (vt.kind = 'sales' AND v.number = q.name
+                    AND (q.path = 'ref' OR NOT EXISTS (SELECT 1 FROM bill_refs b WHERE b.voucher_id = v.id AND b.kind = 'new')))`
+          )
+          .all(...part.flatMap((a) => [a.noteId, a.party, a.date, a.from, a.name, a.path])) as { noteId: number; name: string; id: number; invoice: number }[]
+        for (const r of rows) {
+          const list = cands.get(key(r)) ?? []
+          if (!list.some((c) => c.id === r.id)) list.push({ id: r.id, invoice: !!r.invoice })
+          cands.set(key(r), list)
+        }
+      }
+      // The parties' opening bills carry names too.
+      const parties = [...new Set(asks.map((a) => a.party))]
+      const openingBills = openingBillsByParty(db, parties)
+      const openingOf = new Map<number, number>()
+      for (let k = 0; k < parties.length; k += 500) {
+        const part = parties.slice(k, k + 500)
+        for (const r of db.prepare(`SELECT id, opening_balance AS opening FROM ledgers WHERE id IN (${part.map(() => '?').join(',')})`).all(...part) as { id: number; opening: number }[]) {
+          openingOf.set(r.id, r.opening)
+        }
+      }
+      const openingNames = (party: number, date: string): Set<string> =>
+        new Set(openingEvents(date, openingOf.get(party) ?? 0, 1, openingBills.get(party)).map((e) => e.number))
+      const byNote = new Map<number, typeof asks>()
+      for (const a of asks) byNote.set(a.noteId, [...(byNote.get(a.noteId) ?? []), a])
+      for (const [noteId, list] of byNote) {
+        let only: number | null = null
+        const ok = list.every((a) => {
+          const c = cands.get(key(a)) ?? []
+          if (openingNames(a.party, a.date).has(a.name) || c.length !== 1 || !c[0]!.invoice) return false
+          if (only != null && only !== c[0]!.id) return false
+          only = c[0]!.id
+          return true
+        })
+        if (ok && only != null) found.set(noteId, only)
+      }
+    }
+    if (found.size === 0) continue
+    const ids = [...new Set(found.values())]
+    const snaps = partySnapshots(db, ids)
+    const facts = new Map(
+      (db
+        .prepare(
+          `SELECT o.id, o.date, o.pos_override AS posOverride, p.state_code AS partyState, p.export_type AS partyExportType, p.gstin AS partyGstin,
+                  (SELECT COALESCE(SUM(amount), 0) FROM voucher_lines WHERE voucher_id = o.id AND dr_cr = 'dr') AS total
+           FROM vouchers o LEFT JOIN ledgers p ON p.id = o.party_ledger_id WHERE o.id IN (${ids.map(() => '?').join(',')})`
+        )
+        .all(...ids) as { id: number; date: string; posOverride: string | null; partyState: string | null; partyExportType: DocVoucherRow['partyExportType']; partyGstin: string | null; total: number }[])
+        .map((r) => [r.id, withPartySnap(r, snaps.get(r.id))])
+    )
+    for (const [noteId, origId] of found) {
+      const f = facts.get(origId)
+      if (!f) continue
+      const c = outwardSupplyClass(company, f)
+      out.set(noteId, {
+        invoiceValue: f.total, pos: c.pos, date: f.date,
+        ...(f.partyGstin?.trim() ? { registered: true } : {}),
+        ...(c.invTyp === 'EXPWP' || c.invTyp === 'EXPWOP' ? { exportTyp: c.invTyp } : {})
+      })
+    }
+  }
+  return out
 }
 
 /**
@@ -216,8 +381,15 @@ function extractOutwardDocsRaw(db: DB, company: CompanyInfo, from: string, to: s
      WHERE vl.voucher_id = ? AND l.tax_type IN ('cgst', 'sgst', 'igst', 'cess') LIMIT 1`
   )
 
-  return vouchers
-    .filter((v) => v.kind !== 'debit_note' || outwardDbn.has(v.id))
+  // Notes to an unregistered, non-export buyer carry their original invoice (CDNUR vs B2CS).
+  const outward = vouchers.filter((v) => v.kind !== 'debit_note' || outwardDbn.has(v.id))
+  const originals = originalInvoices(
+    db,
+    company,
+    outward.flatMap((v) => (v.kind === 'sales' || v.partyGstin || outwardSupplyClass(company, v).isExport ? [] : [{ id: v.id, date: v.date }]))
+  )
+
+  return outward
     .map((v) => {
       const { invTyp, isExport, pos, supply, zeroTax } = outwardSupplyClass(company, v)
       const rated = chargesGstOn(company, v.date) || !!taxLineStmt.get(v.id)
@@ -314,6 +486,7 @@ function extractOutwardDocsRaw(db: DB, company: CompanyInfo, from: string, to: s
         invTyp,
         rchrg: !!v.partyRcm,
         shippingBill: isExport ? { num: v.transDocNo, date: v.transDocDate } : null,
+        ...(originals.has(v.id) ? { original: originals.get(v.id)! } : {}),
         validation: {
           valDiff: invoiceValue - (tcsBy.get(v.id) ?? 0) - computedTotal,
           missingHsnCount,

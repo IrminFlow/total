@@ -170,8 +170,8 @@ describe('home rules (WP 8.6)', () => {
   it('owedSummary: total = sum of party pending; overdue, the oldest bill, the next due date, advances', () => {
     const s = owedSummary(
       [
-        { ledgerId: 1, name: 'A', pending: 300, bills: [{ pending: 200, ageDays: 40, dueDate: '2026-09-30', overdueDays: 13 }, { pending: 100, ageDays: 2, dueDate: '2026-11-10', overdueDays: 0 }] },
-        { ledgerId: 2, name: 'B', pending: 50, bills: [{ pending: 50, ageDays: 5, dueDate: '2026-10-20', overdueDays: 0 }] },
+        { ledgerId: 1, name: 'A', pending: 300, bills: [{ voucherId: 1, date: '2026-08-21', pending: 200, ageDays: 40, dueDate: '2026-09-30', overdueDays: 13 }, { voucherId: 2, date: '2026-10-11', pending: 100, ageDays: 2, dueDate: '2026-11-10', overdueDays: 0 }] },
+        { ledgerId: 2, name: 'B', pending: 50, bills: [{ voucherId: 3, date: '2026-10-08', pending: 50, ageDays: 5, dueDate: '2026-10-20', overdueDays: 0 }] },
         { ledgerId: 3, name: 'C', pending: 0, bills: [] }
       ],
       TODAY,

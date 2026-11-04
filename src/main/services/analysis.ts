@@ -2,7 +2,7 @@ import type { DB } from '../db/connection'
 import type { OutstandingBill, OutstandingParty, RegisterMonthRow } from '@shared/reports'
 import { allocateBills, billAllocator, type AllocateBillsResult, type BillAllocator, type BillEvent, type BillRef } from '@shared/outstanding'
 import { fyOf } from '@shared/dates'
-import { descendantIdsByName } from './masters'
+import { descendantIdsByName, partyGroupIdsBySide } from './masters'
 import { IN_BOOKS } from './vouchers'
 import { openingBillsByParty, openingEvents } from './openingBills'
 
@@ -220,7 +220,7 @@ export function outstandingsWithAdvances(
   let advances = 0
   let advanceParties = 0
   const advanceByParty = new Map<number, number>()
-  const groupIds = descendantIdsByName(db, [side === 'receivable' ? 'Sundry Debtors' : 'Sundry Creditors'])
+  const groupIds = partyGroupIdsBySide(db, side === 'receivable' ? 'debtor' : 'creditor')
   const parties = (
     db.prepare('SELECT id, name, opening_balance, group_id, credit_days FROM ledgers').all() as {
       id: number; name: string; opening_balance: number; group_id: number; credit_days: number | null
@@ -260,9 +260,14 @@ export function outstandingsWithAdvances(
 }
 
 /** Open bills for a single party as of `asOn` — feeds the receipt/payment "settle against" picker. */
-export function openBills(db: DB, partyLedgerId: number, asOn: string): OutstandingBill[] {
-  return partyAllocation(db, partyLedgerId, asOn).bills
+export function openBills(db: DB, partyLedgerId: number, asOn: string, opts: PartySideOpts = {}): OutstandingBill[] {
+  return partyAllocationWithCredits(db, partyLedgerId, asOn, opts).bills
 }
+
+/** `seededSide`: take the party's side from the SEEDED Sundry Debtors tree, as main did before the
+ *  Phase 1 role rule — only for GST return readers (owner, 4 Nov: GST returns untouched by #188;
+ *  rule 37 ITC reversal feeds GSTR-3B). */
+export interface PartySideOpts { seededSide?: boolean }
 
 /** One party's full bill allocation as of `asOn` (open bills + unapplied credit + warnings) —
  *  the same engine run as `outstandings` / `openBills` (WP 4.2 statements read the advance). */
@@ -272,8 +277,8 @@ export function partyAllocation(db: DB, partyLedgerId: number, asOn: string): Al
 }
 
 /** partyAllocation plus the party's named credits still open (WP 9.1: bill names in use). */
-export function partyAllocationWithCredits(db: DB, partyLedgerId: number, asOn: string): AllocateBillsResult & { credits: { name: string; amount: number }[]; creditNames: string[] } {
-  const party = partyBillAllocator(db, partyLedgerId, asOn)
+export function partyAllocationWithCredits(db: DB, partyLedgerId: number, asOn: string, opts: PartySideOpts = {}): AllocateBillsResult & { credits: { name: string; amount: number }[]; creditNames: string[] } {
+  const party = partyBillAllocator(db, partyLedgerId, asOn, opts)
   if (!party) return { bills: [], unappliedCredit: 0, warnings: [], credits: [], creditNames: [] }
   return party.allocator.result(asOn)
 }
@@ -282,8 +287,8 @@ export function partyAllocationWithCredits(db: DB, partyLedgerId: number, asOn: 
  *  in-books vouchers to `asOn`) applied and the result not yet taken: a caller can keep applying
  *  events — `sign` turns a voucher's dr − cr on the party into the event amount. Null for an
  *  unknown ledger. */
-export function partyBillAllocator(db: DB, partyLedgerId: number, asOn: string): { allocator: BillAllocator; sign: 1 | -1 } | null {
-  const ev = partyBillEventParts(db, partyLedgerId, asOn)
+export function partyBillAllocator(db: DB, partyLedgerId: number, asOn: string, opts: PartySideOpts = {}): { allocator: BillAllocator; sign: 1 | -1 } | null {
+  const ev = partyBillEventParts(db, partyLedgerId, asOn, opts)
   if (!ev) return null
   const allocator = billAllocator(ev.creditDays)
   for (const e of [...ev.opening, ...ev.movements]) allocator.apply(e)
@@ -293,12 +298,12 @@ export function partyBillAllocator(db: DB, partyLedgerId: number, asOn: string):
 /** A party's bill events as the allocation reads them: its opening (always first), then its
  *  in-books vouchers to `asOn` in date, id order — kept apart so a caller (the Tally import) can
  *  apply the vouchers as it reaches their dates. */
-export function partyBillEventParts(db: DB, partyLedgerId: number, asOn: string): { opening: BillEvent[]; movements: BillEvent[]; sign: 1 | -1; creditDays: number | null } | null {
+export function partyBillEventParts(db: DB, partyLedgerId: number, asOn: string, opts: PartySideOpts = {}): { opening: BillEvent[]; movements: BillEvent[]; sign: 1 | -1; creditDays: number | null } | null {
   const ledger = db.prepare('SELECT group_id, opening_balance, credit_days FROM ledgers WHERE id = ?').get(partyLedgerId) as
     | { group_id: number; opening_balance: number; credit_days: number | null }
     | undefined
   if (!ledger) return null
-  const debtorIds = descendantIdsByName(db, ['Sundry Debtors'])
+  const debtorIds = opts.seededSide ? descendantIdsByName(db, ['Sundry Debtors']) : partyGroupIdsBySide(db, 'debtor')
   const sign = debtorIds.has(ledger.group_id) ? 1 : -1
   return {
     opening: openingEvents(asOn, ledger.opening_balance, sign, openingBillsByParty(db, [partyLedgerId]).get(partyLedgerId), ledger.credit_days),

@@ -4,7 +4,7 @@ import { formatQtyMilli } from '@shared/money'
 import { toPlainDate } from '@shared/dates'
 import { mapError, type CaughtError } from '@shared/errors'
 import type { SimplePreview } from '@shared/simple/intents'
-import { countDifference, countFormErrors, countIntentFrom, parseCountText, type CountField, type CountForm } from '@shared/simple/stock'
+import { countDifference, countFormErrors, countIntentFrom, needsCost, parseCountText, type CountField, type CountForm } from '@shared/simple/stock'
 import { api } from '../../lib/client'
 import { useT } from '../../lib/i18n'
 import { useSimplePost } from '../../lib/simplePost'
@@ -47,13 +47,15 @@ export function StockCount(): React.JSX.Element {
   // What Total shows as on the count's date (the Stock summary's own pass).
   const { data } = useQuery({ queryKey: ['simpleStock', form.date], queryFn: () => api.simpleStock.list(form.date) }) // i18n-technical
   const rows = data?.rows ?? []
+  // On hand per product (undefined until loaded: no cost is asked before the list is there).
+  const onHand = useMemo(() => (data ? new Map(data.rows.map((r) => [r.itemId, r.qtyMilli])) : undefined), [data])
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase()
     return q ? rows.filter((r) => r.name.toLowerCase().includes(q)) : rows
   }, [rows, search])
 
   const errors = useFormErrors<CountField>({ date: form.date, counts: form.counted }, { simple: true, t })
-  const clientErrors = useMemo(() => countFormErrors(form), [form])
+  const clientErrors = useMemo(() => countFormErrors(form, onHand), [form, onHand])
   const dirty = !saved && !leaving && isDirty(form)
   useUnsavedGuard(dirty)
   useEffect(() => {
@@ -65,10 +67,11 @@ export function StockCount(): React.JSX.Element {
     setForm((f) => ({ ...f, ...patch }))
   }
   const setCount = (itemId: number, text: string): void => update({ counted: { ...form.counted, [itemId]: text } })
+  const setCost = (itemId: number, text: string): void => update({ costs: { ...form.costs, [itemId]: text } })
 
   // ---------- the plain preview (simple:preview, rehearsed — nothing saved) ----------
   const ready = Object.keys(clientErrors).length === 0
-  const intent = useMemo(() => (ready ? countIntentFrom(form) : null), [ready, form])
+  const intent = useMemo(() => (ready ? countIntentFrom(form, onHand) : null), [ready, form, onHand])
   const intentKey = intent ? JSON.stringify(intent) : ''
   const previewRef = useRef(poster.preview)
   previewRef.current = poster.preview
@@ -105,7 +108,7 @@ export function StockCount(): React.JSX.Element {
       return
     }
     try {
-      const r = await poster.post(countIntentFrom(form))
+      const r = await poster.post(countIntentFrom(form, onHand))
       setSaved({ ids: r.voucherIds, sentences: r.sentences })
       for (const k of ['simpleStock', 'simpleStockProduct', 'stockItems', 'stockSummary', 'dashboard']) void queryClient.invalidateQueries({ queryKey: [k] }) // i18n-technical
     } catch (err) {
@@ -229,6 +232,20 @@ export function StockCount(): React.JSX.Element {
                                 ? t('simple.stock.count.short', { qty: qty(d.milli) })
                                 : t('simple.stock.count.extra', { qty: qty(d.milli) })}
                       </span>
+                      {needsCost(form, r.itemId, onHand) && (
+                        <div className="flex flex-wrap items-center gap-2 sm:col-span-4 sm:justify-end" data-testid={`count-cost-row-${r.itemId}`}>
+                          <span className="text-detail text-muted">{t('simple.stock.count.costHint')}</span>
+                          <TextInput
+                            value={form.costs?.[r.itemId] ?? ''}
+                            inputMode="decimal"
+                            aria-label={t('simple.stock.count.costOf', { name: r.name })}
+                            placeholder={t('simple.stock.count.cost')}
+                            className="num w-32 text-right"
+                            onChange={(e) => setCost(r.itemId, e.target.value)}
+                            data-testid={`input-count-cost-${r.itemId}`}
+                          />
+                        </div>
+                      )}
                     </li>
                   )
                 })}

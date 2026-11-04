@@ -285,6 +285,10 @@ export const inventoryLineSchema = z
     direction: z.enum(['in', 'out']),
     /** Physical Stock line: qtyMilli is the counted closing quantity, not a movement. */
     isAbsolute: z.boolean().optional(),
+    /** Physical Stock line only (PR #188 review): its rate / amount are a cost per unit typed for a
+     *  product with nothing on hand, which the valuation engine then uses. Absent = the engine's
+     *  cost as ever (a stored amount on an unmarked count line is never read). */
+    countCost: z.boolean().optional(),
     /** Serial numbers moved by this line (WP 2.3) — one per unit for serial-tracked items
      *  (src/shared/serials.ts); dropped for items that don't track serials. */
     serials: z.array(z.string().trim().min(1).max(60)).max(5000).optional(),

@@ -10,7 +10,7 @@ import {
   type TdsLedgerFacts, type TdsVoucherClass, type WalkEvent, type WalkResult
 } from '@shared/tdsEligibility'
 import { rateRowOn, resolveDeducteeType, type DeducteeType, type TdsRateRow } from '@shared/tds'
-import { cashBankGroupIds, descendantIdsByName } from './masters'
+import { cashBankGroupIds, partyGroupIdsBySide } from './masters'
 import { IN_BOOKS, NOT_YEAR_END_CLOSE } from './vouchers'
 
 export interface LedgerTdsFacts extends TdsLedgerFacts {
@@ -22,7 +22,7 @@ export interface LedgerTdsFacts extends TdsLedgerFacts {
 
 /** Every ledger's TDS-relevant facts, by id. */
 export function ledgerTdsFacts(db: DB): Map<number, LedgerTdsFacts> {
-  const creditors = descendantIdsByName(db, ['Sundry Creditors'])
+  const creditors = partyGroupIdsBySide(db, 'creditor')
   const cashBank = cashBankGroupIds(db)
   const rows = db
     .prepare(

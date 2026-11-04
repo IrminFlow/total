@@ -98,6 +98,44 @@ Things to know about the version numbers:
   (`shared/qty.ts` `parseQtyText`: Indian or western grouping, integer thousandths, no floats — the
   same rule simple mode's `readQty` now uses); the three-way-match amount tolerance is read with
   `parseAmountText`. Text that is not a quantity ("1,5", "2 Nos") is no quantity, as a blank row.
+- **GST returns agree with the books** (#187). Plain words: a bill's GST in the returns, on Home,
+  in Taxes and in Ask Total is now the GST the bill actually charged, to the paisa.
+  For accountants — figures that change:
+  - A "just an amount" (ledger-line) sale, credit note or outward debit note whose sales account
+    carries a GST rate that does not explain the tax the voucher posts (a ₹1,000 bill charged at 5 %
+    on an 18 % Sales account) is reported in GSTR-1 / GSTR-3B / GSTR-9 / HSN, the e-invoice / e-way
+    bill, prints and the Home / Taxes / Ask Total GST figures at the slab the posted tax implies
+    (5 %, CGST 25 + SGST 25), no longer at the account's rate (18 %, 90 + 90). Only when the bill's
+    value ties (the party is charged the sales line + the posted tax, so no discount or other line
+    sits outside it), it has ONE sales line that is not a declared 0 %, and one slab explains the
+    whole posted tax; otherwise the account's rate stays (the value check flags it).
+    Every other document is reported exactly as before (the posted-rate parity fixture is unchanged).
+  - The invoice editor (and everything built on it: Make a bill, Record a purchase, returns, the
+    counter, AI / capture drafts) rounds GST per LINE, as GSTR-1 / 3B and the e-invoice do: 3 × ₹100.50
+    at 18 % now posts CGST / SGST ₹27.15 each (was ₹27.14 + round off ₹0.22). Only new saves and
+    edited bills change; an old bill re-opened and saved without changing a line keeps its saved
+    (per rate group) tax. Quotations and sales / purchase orders store no totals — they are computed when shown, through
+    the same editor — so an existing quotation or order with several lines at one rate can show a
+    total a few paise different from before (and equal to the invoice it turns into).
+  - GSTR-1 Table 9B (CDNUR): a credit / debit note to an unregistered buyer goes there when its
+    ORIGINAL invoice was B2C Large (by its return link, else the bill it is set against or its
+    reference = the invoice number — only when that name can mean exactly one bill of the party, an
+    invoice: numbers restart every year and opening bills carry names too, so a name shared by two
+    bills is never guessed; a reference looks only at the note's year and the one before; a note
+    linked as a return to two invoices has none), judged by the invoice's own place of supply, buyer
+    and date, as GSTN's CDNUR help says. An original made to a registered buyer is never B2C Large;
+    a note on an export invoice is CDNUR with that export type. A note whose original is not found
+    is judged by its own value, as before.
+  - The B2CL limit is the one in force on the invoice's date: ₹2,50,000 for invoices dated before
+    1 Aug 2024, ₹1,00,000 from then (Notification No. 12/2024–Central Tax). GSTR-1 for periods
+    before August 2024 changes: an inter-state invoice to an unregistered buyer of more than
+    ₹1,00,000 and up to ₹2,50,000 moves from B2CL (Table 5) to B2CS (Table 7), and so do notes on
+    such invoices (from CDNUR to the B2CS netting); the "near the B2CL limit" warning uses the dated
+    limit too.
+  - A cash bill with no party ledger is checked against its cash / bank lines, so a ₹1,000 cash
+    sale charged 5 % on an 18 % Sales account is reported at 5 % too.
+||||||| 3e971480
+Nothing yet.
 
 ## [0.12.0] - 2026-10-22
 

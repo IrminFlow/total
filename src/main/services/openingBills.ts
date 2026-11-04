@@ -22,6 +22,7 @@ import { addDaysISO, fyOf } from '@shared/dates'
 import { AppError } from '@shared/errors'
 import { OPENING_BALANCE_NAME } from '@shared/simple/openings'
 import { writeAudit } from './audit'
+import { partySideGroupIds, type PartyGroupLink } from '@shared/chartOfAccounts'
 
 export interface OpeningBillRow { name: string; date: string; dueDate: string | null; amount: number }
 
@@ -70,19 +71,14 @@ export function openingEvents(asOn: string, openingBalance: number, sign: number
   return events
 }
 
-/** +1 debtor, −1 creditor, null = not a party (from the ledger's group, at any depth). */
+/** +1 debtor, −1 creditor, null = not a party (from the ledger's group, at any depth — a debtor /
+ *  creditor root by name AND nature, `partyGroupRole`: Sundry Debtors or an imported "Trade
+ *  Receivables" alike). */
 export function partySide(db: DB, groupId: number): 1 | -1 | null {
-  const names = (
-    db
-      .prepare(
-        `WITH RECURSIVE up(id, name, parent_id) AS (
-           SELECT id, name, parent_id FROM groups WHERE id = ?
-           UNION ALL SELECT g.id, g.name, g.parent_id FROM groups g JOIN up ON g.id = up.parent_id)
-         SELECT name FROM up`
-      )
-      .all(groupId) as { name: string }[]
-  ).map((r) => r.name)
-  return names.includes('Sundry Debtors') ? 1 : names.includes('Sundry Creditors') ? -1 : null
+  const groups = db.prepare('SELECT id, name, parent_id AS parentId, nature FROM groups').all() as PartyGroupLink[]
+  if (partySideGroupIds(groups, 'debtor').has(groupId)) return 1
+  if (partySideGroupIds(groups, 'creditor').has(groupId)) return -1
+  return null
 }
 
 /** Bills (by name) that something rests on: a receipt / payment / note in the books settling it

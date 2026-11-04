@@ -36,9 +36,10 @@
 //   - rate R = round half away of (inclusive unit × 100 / (100 + GST% + cess%)), raised by a paisa
 //     at a time until round(qty × R) ≥ T; the line discount is round(qty × R) − T, i.e. the
 //     displayed discount plus a paisa-level rounding adjustment.
-// A one-line invoice therefore totals the inclusive price to the paisa before round-off. Several
-// lines in one GST-rate bucket share one rounding (computeInvoice taxes the bucket), so a
-// multi-line total can differ from Σ inclusive prices by under a paisa per line before round-off.
+// A one-line invoice therefore totals the inclusive price to the paisa before round-off. Each line
+// is taxed on its own (computeInvoice rounds GST per line, as GSTR-1 / 3B and the e-invoice do), so
+// a multi-line total is the sum of its lines — each within its own `residualPaise` of its inclusive
+// price before round-off.
 
 import { computeGst, type SupplyType } from './gst/calc'
 import { formatPaise, roundPaise } from './money'

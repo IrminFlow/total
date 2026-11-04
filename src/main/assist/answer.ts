@@ -41,6 +41,7 @@ import { companyLanguage } from '../i18n'
 import { classify, questionLanguage } from './classify'
 import { findItem, findLedger } from './names'
 import { entryAnswer } from './entry'
+import { partyRoleOf, type PartyGroupLink } from '@shared/chartOfAccounts'
 
 export interface AskInput {
   text: string
@@ -154,18 +155,14 @@ function owedAnswer(db: DB, intent: Extract<AssistIntent, { kind: 'owed' }>, inp
   return answer(intent, sentences, { figures, links: [{ label: t(side === 'receivable' ? 'assist.link.whoOwes' : 'assist.link.billsToPay'), target: list }] })
 }
 
+/** A party's side by its group's role (Sundry Debtors / Creditors or an imported "Trade
+ *  Receivables" …, shared/chartOfAccounts partyRoleOf), as every bill-wise reader takes it. */
 function partySide(db: DB, ledgerId: number): 'receivable' | 'payable' | null {
   const groupOf = db.prepare('SELECT group_id AS g FROM ledgers WHERE id = ?').get(ledgerId) as { g: number } | undefined
   if (!groupOf) return null
-  const parent = db.prepare('SELECT id, name, parent_id AS p FROM groups WHERE id = ?')
-  for (let id: number | null = groupOf.g, i = 0; id != null && i < 20; i++) {
-    const g = parent.get(id) as { id: number; name: string; p: number | null } | undefined
-    if (!g) return null
-    if (g.name === 'Sundry Debtors') return 'receivable'
-    if (g.name === 'Sundry Creditors') return 'payable'
-    id = g.p
-  }
-  return null
+  const groups = db.prepare('SELECT id, name, parent_id AS parentId, nature FROM groups').all() as PartyGroupLink[]
+  const role = partyRoleOf(groupOf.g, groups)
+  return role === 'debtor' ? 'receivable' : role === 'creditor' ? 'payable' : null
 }
 
 function pickedLedger(db: DB, id: number): { status: 'match'; id: number; name: string } | { status: 'none' } {
