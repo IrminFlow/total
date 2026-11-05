@@ -2,7 +2,7 @@
 // SQLCipher v4 scheme) — plaintext files untouched, keyed open / refusal, migrate an encrypted
 // file, snapshots keep the key, the verified conversion and the migration's place.
 import { afterAll, describe, expect, it } from 'vitest'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import Database from 'better-sqlite3-multiple-ciphers'
@@ -158,6 +158,33 @@ describe('encrypted company files', () => {
     // And back.
     expect(convertBackups(dir, key, null).converted).toBe(2)
     expect(quickCheckOk(join(dir, 'a.db'), null)).toBe(true)
+  })
+
+  it("a scratch rekey (throwaway copies) works from a WAL file both ways, keeps every fact and leaves no journal behind", () => {
+    // WAL can only be left for DELETE (SQLite3MC also refuses OFF): the scratch mode goes WAL →
+    // DELETE → MEMORY. A copy made with cp of a live WAL file is the backups' case.
+    const path = companyFile()
+    const db = openDb(path)
+    const facts = bookFacts(db, '2027-03-31')
+    db.close()
+    const copy = `${path}.converting`
+    writeFileSync(copy, readFileSync(path))
+    expect(readFileSync(copy)[18]).toBe(2) // the header says WAL
+    const key = newDataKey()
+    rekeyFile(copy, null, key, 'scratch')
+    expect(isEncryptedFile(copy)).toBe(true)
+    expect(existsSync(`${copy}-journal`)).toBe(false)
+    expect(quickCheckOk(copy, key)).toBe(true)
+    const keyed = openDb(copy, { key })
+    try {
+      expect(sameFacts(bookFacts(keyed, '2027-03-31'), facts)).toBe(true)
+    } finally {
+      keyed.close()
+    }
+    rekeyFile(copy, key, null, 'scratch')
+    expect(isEncryptedFile(copy)).toBe(false)
+    expect(existsSync(`${copy}-journal`)).toBe(false)
+    expect(quickCheckOk(copy, null)).toBe(true)
   })
 })
 

@@ -247,6 +247,19 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   another rate — is computed on its own, as before. A return opened in the full editor before it is
   saved ("Accountant view") is computed there on its own, per line, as before (only returns saved
   from the simple screen take the running total).
+- **Turning the passphrase lock on or off is faster on Windows** (#197). Plain words: locking or
+  unlocking a business re-encrypts every backup; each one is now written once instead of twice and
+  without a stop to flush the disk at every step. For developers: `rekeyFile(…, 'scratch')` (in-memory
+  journal, `synchronous = OFF`) is used only for throwaway copies that are re-checked and fsynced
+  before they replace anything (`convertBackups`' `.converting`, `copyWithKey`'s VACUUM INTO target,
+  the restore's `.restore-tmp`); the default stays durable. The Windows CI passphrase-lock dbtests no
+  longer stall past their 30 s timeout; `security.dbtest` imports `./ipc` at collection.
+- **A restored backup is on the disk before it replaces the books** (#197). Plain words: if the power
+  goes right after "Restore", the books are now either the old ones or the restored ones, never an
+  empty file. For developers: `swapInPlace` (db/backup.ts) fsyncs the swap copy before the rename and
+  the folder after (it never did — found in #197's review); the scratch rekey checks that
+  `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it; a swap that fails (copy / fsync / rename) removes its copy and
+  reopens the untouched books instead of leaving a closed handle.
 
 ## [0.12.0] - 2026-10-22
 

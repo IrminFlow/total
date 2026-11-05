@@ -7,7 +7,7 @@
 //  - capability flags: defaults = the roles, flags grant / take away, enforced in main, audited;
 //  - the session lock: ⌘L and the idle auto-lock gate every channel until the PIN.
 import { TRUSTED_EVENT } from './ipcSender.testutil'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 import { copyFileSync, existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -54,20 +54,14 @@ const dbFile = (slug: string): string => join(dir(slug), 'company.db')
 const header = (path: string): string => readFileSync(path).subarray(0, 15).toString('latin1')
 const PLAIN = 'SQLite format 3'
 
-let ipc: typeof import('./ipc')
-let enc: typeof import('./db/encryption')
-let migrations: typeof import('./db/migrations')
-let seed: typeof import('./db/seed')
-let migrate: typeof import('./db/migrate')
-
-beforeAll(async () => {
-  ipc = await import('./ipc')
-  enc = await import('./db/encryption')
-  migrations = await import('./db/migrations')
-  seed = await import('./db/seed')
-  migrate = await import('./db/migrate')
-  ipc.registerIpc()
-}, 120_000)
+// WP 7.3: the IPC module is imported at collection, never inside a hook (the import was most of
+// the hook's time and broke the hook timeout on Windows).
+const ipc = await import('./ipc')
+const enc = await import('./db/encryption')
+const migrations = await import('./db/migrations')
+const seed = await import('./db/seed')
+const migrate = await import('./db/migrate')
+ipc.registerIpc()
 
 afterAll(() => {
   ipc.closeCurrentCompany()

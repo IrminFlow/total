@@ -88,6 +88,10 @@ export function prepareConvertedCopy(opts: ConvertOptions): string {
     copyWithKey(db, tmp, to)
     if (to ? !isEncryptedFile(tmp) : isEncryptedFile(tmp)) throw new Error('the copy is not in the expected form')
     copy = openDb(tmp, { key: to })
+    // Still a scratch copy: the audit row below needs no flush of its own — commitConvertedCopy
+    // fsyncs the file before the rename, and a crash before it leaves a copy removeLeftoverCopies
+    // deletes.
+    copy.pragma('synchronous = OFF')
     const quick = copy.pragma('quick_check', { simple: true })
     if (quick !== 'ok') throw new Error(`quick_check: ${String(quick)}`)
     if (!sameFacts(live, bookFacts(copy, opts.asOn))) throw new Error('the copy does not match the books')
@@ -253,7 +257,8 @@ export function convertBackups(dir: string, from: Buffer | null, to: Buffer | nu
     try {
       removeDbFiles(tmp)
       copyFileSync(path, tmp)
-      rekeyFile(tmp, enc ? from : null, to)
+      // The `.converting` copy: quick-checked and fsynced below before it replaces the backup.
+      rekeyFile(tmp, enc ? from : null, to, 'scratch')
       if (!quickCheckOk(tmp, to)) throw new Error('quick_check')
       fsyncFile(tmp)
       renameSync(tmp, path)

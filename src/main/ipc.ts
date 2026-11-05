@@ -1425,12 +1425,33 @@ export function registerIpc(): void {
       tempSource = `${backupPath}.restore-tmp`
       removeDbFiles(tempSource)
       copyFileSync(backupPath, tempSource)
-      rekeyFile(tempSource, null, liveKey)
+      // A scratch copy: restoreCompanyDb quick-checks it (assertValidCompanyDb) before the swap,
+      // and swapInPlace fsyncs what it puts in place. A failed rekey leaves no temp behind.
+      try {
+        rekeyFile(tempSource, null, liveKey, 'scratch')
+      } catch (err) {
+        removeDbFiles(tempSource)
+        throw err
+      }
       source = tempSource
     }
     let preRestoreSnapshotPath: string
     try {
       preRestoreSnapshotPath = restoreCompanyDb(c.db, dbPath, source, companyBackupsDir(slug)).preRestoreSnapshotPath
+    } catch (err) {
+      // restoreCompanyDb closes the live handle before the swap; when the swap itself fails (a
+      // copy / fsync / rename error) the books on disk are untouched — reopen them so the app is
+      // never left holding a closed database (CodeRabbit on #197). The original error still goes up.
+      if (!c.db.open) {
+        try {
+          const db = openCompanyDb(slug, { preUpgradeCopy: false })
+          current = { slug, db, info: readCompanyInfo(db), usersExist: users.usersExist(db), encrypted: keyOfHandle(db) !== null }
+        } catch (reopenErr) {
+          current = null
+          log('error', 'backup-restore-swap-reopen-failed', { slug, error: reopenErr instanceof Error ? reopenErr.message : String(reopenErr) })
+        }
+      }
+      throw err
     } finally {
       if (tempSource) removeDbFiles(tempSource)
     }
