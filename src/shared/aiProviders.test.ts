@@ -57,18 +57,18 @@ describe('presets', () => {
 
 describe('checkBaseUrl', () => {
   it('local presets: localhost / 127.0.0.1 / ::1 only', () => {
-    expect(checkBaseUrl('ollama', 'http://localhost:11434/v1/')).toEqual({ ok: true, url: 'http://localhost:11434/v1' })
-    expect(checkBaseUrl('lmstudio', 'http://127.0.0.1:1234/v1')).toEqual({ ok: true, url: 'http://127.0.0.1:1234/v1' })
+    expect(checkBaseUrl('ollama', 'http://localhost:11434/v1/')).toEqual({ ok: true, url: 'http://localhost:11434/v1', origin: 'http://localhost:11434' })
+    expect(checkBaseUrl('lmstudio', 'http://127.0.0.1:1234/v1')).toMatchObject({ ok: true, url: 'http://127.0.0.1:1234/v1' })
     expect(checkBaseUrl('ollama', 'http://[::1]:11434/v1')).toMatchObject({ ok: true })
-    expect(checkBaseUrl('ollama', 'http://192.168.1.20:11434/v1')).toMatchObject({ ok: false })
+    expect(checkBaseUrl('ollama', 'http://192.168.1.20:11434/v1')).toMatchObject({ ok: false, code: 'notLocal' })
     expect(checkBaseUrl('ollama', 'https://ollama.example.com/v1')).toMatchObject({ ok: false })
     expect(checkBaseUrl('lmstudio', 'http://localhost.evil.com/v1')).toMatchObject({ ok: false })
   })
 
   it('custom: https anywhere, http only on this computer; no credentials, query or other schemes', () => {
-    expect(checkBaseUrl('custom', 'https://llm.example.com/v1')).toEqual({ ok: true, url: 'https://llm.example.com/v1' })
+    expect(checkBaseUrl('custom', 'https://llm.example.com/v1')).toMatchObject({ ok: true, url: 'https://llm.example.com/v1', origin: 'https://llm.example.com' })
     expect(checkBaseUrl('custom', 'http://localhost:8080/v1')).toMatchObject({ ok: true })
-    expect(checkBaseUrl('custom', 'http://llm.example.com/v1')).toMatchObject({ ok: false, error: expect.stringMatching(/https/) })
+    expect(checkBaseUrl('custom', 'http://llm.example.com/v1')).toMatchObject({ ok: false, code: 'notHttps', error: expect.stringMatching(/https/) })
     expect(checkBaseUrl('custom', 'https://user:pw@llm.example.com/v1')).toMatchObject({ ok: false })
     expect(checkBaseUrl('custom', 'https://llm.example.com/v1?key=1')).toMatchObject({ ok: false })
     expect(checkBaseUrl('custom', 'file:///etc/passwd')).toMatchObject({ ok: false })
@@ -96,6 +96,10 @@ describe('capabilityRefusal', () => {
     expect(capabilityRefusal("response_format json_schema is not supported by this model")).toBe('structured')
     expect(capabilityRefusal('file inputs are not supported')).toBe('files')
     expect(capabilityRefusal('Incorrect API key provided')).toBeNull()
+    // A bare "invalid" is another failure, said as it is (review of #210).
+    expect(capabilityRefusal("Invalid schema for response_format 'bill': missing required")).toBeNull()
+    expect(capabilityRefusal('Invalid image: could not process the file')).toBeNull()
+    expect(capabilityRefusal("Invalid 'tools[3].function.name': string too long")).toBeNull()
     expect(capabilityRefusal('The model `x` does not exist')).toBeNull()
   })
 })
@@ -111,6 +115,16 @@ describe('pickModels on any endpoint', () => {
     expect(pickModels(groq, { defaultModel: '', fastModel: '' })).toMatchObject({ defaultModel: 'llama-3.3-70b-versatile', fastModel: 'llama-3.1-8b-instant', found: true })
     const ollama = ['nomic-embed-text:latest', 'qwen2.5:14b']
     expect(pickModels(ollama, { defaultModel: '', fastModel: '' })).toMatchObject({ defaultModel: 'qwen2.5:14b', fastModel: 'qwen2.5:14b', found: true })
+  })
+
+  it('Gemini: "gemini" is not a mini; previews, aqa, imagen and embeddings never win; gemma is another family', () => {
+    const ids = ['models/gemini-2.5-pro', 'models/gemini-2.5-flash', 'models/gemini-2.5-flash-lite', 'models/gemini-1.5-pro', 'models/gemini-2.0-flash', 'models/aqa', 'models/text-embedding-004', 'models/gemini-3-pro-preview', 'models/gemma-3-27b-it', 'models/imagen-3.0-generate-002']
+    expect(pickModels(ids, { defaultModel: '', fastModel: '' })).toMatchObject({ defaultModel: 'models/gemini-2.5-pro', fastModel: 'models/gemini-2.5-flash', found: true })
+  })
+
+  it('Groq: a compound system or alphabetical first never wins', () => {
+    const ids = ['compound-beta', 'llama-3.1-8b-instant', 'llama-3.3-70b-versatile', 'whisper-large-v3']
+    expect(pickModels(ids, { defaultModel: '', fastModel: '' })).toMatchObject({ defaultModel: 'llama-3.3-70b-versatile', fastModel: 'llama-3.1-8b-instant' })
   })
 
   it('keeps a model the list offers; an empty list keeps whatever is set (the user types one)', () => {

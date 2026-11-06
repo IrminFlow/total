@@ -20,7 +20,7 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
-**Plain words** (#TBD — AI service choice, upgrade plan Phase 3a). The AI helper can now use any
+**Plain words** (#210 — AI service choice, upgrade plan Phase 3a). The AI helper can now use any
 service that works like OpenAI, with your own key — OpenRouter, Groq, Google Gemini, or a custom
 address — or a model running on this computer with **Ollama** or **LM Studio** (no key, nothing
 sent over the internet). Pick it in Settings → AI (or Settings → AI helper in simple mode). Total

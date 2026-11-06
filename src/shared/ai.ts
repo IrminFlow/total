@@ -48,6 +48,10 @@ export interface AiSettings {
   maxSteps: number
   /** WP 5.6: send the active memories with each question (a DATA block in the system prompt). */
   useMemory: boolean
+  /** Phase 3a: the AI service (preset id) the model ids were picked / saved for. The service is
+   *  app-wide but models are per company: a company whose models belong to another service must
+   *  pick again. Absent = 'openai' (every company saved before presets). */
+  modelsFor?: string
 }
 
 export const AI_DATA_NOTICE_VERSION = 1
@@ -78,7 +82,11 @@ export const aiSettingsPatchSchema = z
   .strict()
 export type AiSettingsPatch = z.infer<typeof aiSettingsPatchSchema>
 
-export const aiKeySetSchema = z.object({ key: z.string().trim().min(8).max(400) })
+export const aiKeySetSchema = z.object({
+  key: z.string().trim().min(8).max(400),
+  /** Phase 3a: the service the screen shows; refused when it is not the saved one. */
+  preset: z.string().max(40).optional()
+})
 
 // The screen context (WP 5.2: screen, title, period, parameters, the figure to explain) lives in
 // aiExplain.ts with the pure builders that share it between the panel and the prompt.
@@ -143,6 +151,9 @@ export interface AiToolCallDto {
   name: string
   /** As the model sent it (after pseudonyms are mapped back). */
   input: unknown
+  /** Phase 3a: the provider's own metadata for this call (Gemini's `extra_content` thought
+   *  signature), passed back verbatim on the next step — opaque, never shown. */
+  extra?: Record<string, unknown>
 }
 
 export type AiMessageRole = 'user' | 'assistant' | 'tool'
@@ -329,6 +340,8 @@ export interface AiSettingsView {
   settings: AiSettings
   /** Phase 3a: the app-wide AI service (preset, address, what it can do). */
   provider: AiProviderView
+  /** Phase 3a: no model yet, or the models were picked for another service — pick again. */
+  needsModel?: boolean
   keyPresent: boolean
   /** e.g. '…a1b2' — never the key. */
   keyHint: string | null

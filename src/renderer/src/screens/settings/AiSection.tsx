@@ -89,6 +89,8 @@ export function AiSection(): React.JSX.Element {
   const isOwner = canManageAi(user)
   const { data: view } = useQuery({ queryKey: ['aiSettings'], queryFn: aiApi.settings })
   const [busy, setBusy] = useState(false)
+  /** Phase 3a: the service panel holds a choice not saved yet — the key waits for it. */
+  const [serviceDirty, setServiceDirty] = useState(false)
 
   const run = async (fn: () => Promise<AiSettingsView | unknown>, ok?: string): Promise<void> => {
     setBusy(true)
@@ -172,13 +174,13 @@ export function AiSection(): React.JSX.Element {
         </div>
       </Panel>
 
-      <AiProviderPanel key={`${view.provider.preset}|${view.provider.baseUrl}|${view.provider.headerNames.join(',')}`} view={view} isOwner={isOwner} />
+      <AiProviderPanel key={`${view.provider.preset}|${view.provider.baseUrl}|${view.provider.headerNames.join(',')}`} view={view} isOwner={isOwner} onDirty={setServiceDirty} />
       {!view.provider.caps.tools && (
         <Banner tone="info" testId="ai-no-tools">
           This service can’t use Total’s tools: it can answer only from what the conversation shows — it can’t read your books or make drafts.
         </Banner>
       )}
-      <KeyPanel view={view} isOwner={isOwner} />
+      <KeyPanel view={view} isOwner={isOwner} serviceDirty={serviceDirty} />
       <ModelsPanel key={`${s.defaultModel}|${s.fastModel}`} view={view} isOwner={isOwner} />
 
       <Panel className="p-5">
@@ -242,7 +244,7 @@ export function AiSection(): React.JSX.Element {
   )
 }
 
-function KeyPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean }): React.JSX.Element {
+function KeyPanel({ view, isOwner, serviceDirty = false }: { view: AiSettingsView; isOwner: boolean; serviceDirty?: boolean }): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const [key, setKey] = useState('')
@@ -251,7 +253,7 @@ function KeyPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean })
 
   const { user } = useSession()
   const { data: canSet } = useQuery({ queryKey: ['aiKeyCanSet'], queryFn: aiApi.keyCanSet })
-  const blocked = canSet && !canSet.allowed && (canSet.reason === 'other_company_has_users' || (canSet.reason === 'owner_only' && !isOwner))
+  const blocked = (canSet && !canSet.allowed && (canSet.reason === 'other_company_has_users' || (canSet.reason === 'owner_only' && !isOwner))) || serviceDirty
   /** The key is shared by every company: in a company without users, ask first (main refuses
    *  outright when another company on this computer has users). */
   const confirmNoUsers = async (): Promise<boolean | null> => {
@@ -290,7 +292,12 @@ function KeyPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean })
           Secure storage is not available on this computer, so a key cannot be saved.
         </Banner>
       )}
-      {blocked && (
+      {serviceDirty && (
+        <Banner tone="info" className="mb-3" testId="ai-key-save-service-first">
+          Press “Use this service” above first; the key then goes with that service.
+        </Banner>
+      )}
+      {blocked && !serviceDirty && canSet && (
         <Banner tone="info" className="mb-3" testId="ai-key-blocked">
           {canSet.reason === 'owner_only'
             ? 'Only the owner of this company can change the API key. Sign in as the owner to do it.'
@@ -318,7 +325,7 @@ function KeyPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean })
             const confirmed = await confirmNoUsers()
             if (confirmed === null) return
             await act(async () => {
-              await aiApi.setKey(key.trim(), confirmed)
+              await aiApi.setKey(key.trim(), confirmed, view.provider.preset)
               setKey('')
             }, 'API key saved')
           }}

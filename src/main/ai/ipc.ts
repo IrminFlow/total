@@ -25,7 +25,7 @@ import { acceptNotice, clearApiKey, getAiSettings, keyHint, patchAiSettings, set
 import { createToolRegistry } from './tools'
 import { MockProvider, demoScript } from './mockProvider'
 import { createProvider, redactSecrets } from './provider'
-import { aiProviderSource, currentProvider, providerView, readPresetHeaders, writePresetHeaders } from './providerConfig'
+import { aiProviderSource, bindCustomOrigin, boundCustomOrigin, currentProvider, providerView, readPresetHeaders, readPresetKey, writePresetHeaders } from './providerConfig'
 import { AI_PRESETS, aiProviderSetSchema, checkBaseUrl, pickModels, type AiProviderSettings, type ResolvedAiProvider } from '@shared/aiProviders'
 import { discardDraft } from './drafts'
 import { createMemory, deleteMemory, forgetAllMemory, getMemory, memoryList, resolveDerived, setMemoryStatus, updateMemory } from './memory'
@@ -47,7 +47,7 @@ export interface AppKeyAuditEntry {
   keyHint: string | null
   /** Phase 3a: the preset whose key changed, or the provider choice after a 'provider' change. */
   preset?: string
-  provider?: { preset: string; baseUrl: string | null; headerNames: string[] }
+  provider?: { preset: string; baseUrl: string | null; headerNames: string[]; keyCleared?: boolean }
   company: string
   user: string | null
   mode: 'owner' | 'no-users-confirmed'
@@ -95,6 +95,12 @@ export function buildProvider(factory: ProviderFactory, secrets: SecretStore, mo
 }
 
 export const PICK_MODEL_MESSAGE = 'Pick a model — Test connection in Settings → AI lists the ones this service offers'
+export const REPICK_MODEL_MESSAGE = 'The AI service changed — Test connection in Settings → AI to pick a model it offers'
+
+/** The models were picked for another service than the one in use (absent = OpenAI's). */
+export function modelsStale(settings: AiSettings, preset: string): boolean {
+  return !!settings.defaultModel && (settings.modelsFor ?? 'openai') !== preset
+}
 
 export function settingsView(settings: AiSettings, secrets: SecretStore, mock: boolean): AiSettingsView {
   const provider = providerView(secrets)
@@ -102,10 +108,12 @@ export function settingsView(settings: AiSettings, secrets: SecretStore, mock: b
     settingsBlocker(settings) ??
     (mock ? null : provider.urlProblem) ??
     (!provider.keyPresent && !mock && provider.needsKey ? 'Add an API key' : null) ??
-    (!settings.defaultModel ? PICK_MODEL_MESSAGE : null)
+    (!settings.defaultModel ? PICK_MODEL_MESSAGE : null) ??
+    (!mock && modelsStale(settings, provider.preset) ? REPICK_MODEL_MESSAGE : null)
   return {
     settings,
     provider,
+    needsModel: !settings.defaultModel || (!mock && modelsStale(settings, provider.preset)),
     keyPresent: provider.keyPresent,
     keyHint: provider.keyHint,
     secureStorageAvailable: secrets.available(),
@@ -114,6 +122,8 @@ export function settingsView(settings: AiSettings, secrets: SecretStore, mock: b
     blocker
   }
 }
+
+export const SAVE_SERVICE_FIRST = 'Save the AI service first (Use this service), then add its key'
 
 export const KEY_OTHER_COMPANY_HAS_USERS =
   'The API key is shared by every company on this computer. Another company here has users — open it and sign in as its owner to change the key.'
@@ -168,7 +178,7 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
   // ---------- settings ----------
   handle('ai:settings:get', () => view(), 'viewer')
   handle('ai:settings:set', (p) => {
-    patchAiSettings(db(), aiSettingsPatchSchema.parse(p))
+    patchAiSettings(db(), aiSettingsPatchSchema.parse(p), { modelsFor: preset() })
     return view()
   }, 'owner')
   handle('ai:notice:accept', () => {
@@ -181,10 +191,14 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     return keyCanSet({ companyHasUsers: c.usersExist, isOwner: roleAllows(deps.session().role, 'owner'), anyCompanyHasUsers: !c.usersExist && deps.anyCompanyHasUsers() })
   }, 'viewer')
   handle('ai:key:set', (p) => {
-    const { key, confirmNoUsers } = aiKeySetSchema.extend({ confirmNoUsers: z.boolean().default(false) }).parse(p)
-    const mode = guardKey(confirmNoUsers)
+    const { key, confirmNoUsers, preset: shown } = aiKeySetSchema.extend({ confirmNoUsers: z.boolean().default(false) }).parse(p)
     const pr = preset()
+    // The key goes with the service the screen shows; one not saved yet would get another
+    // service's key (and send it to that service's server).
+    if (shown && shown !== pr) throw new Error(SAVE_SERVICE_FIRST)
+    const mode = guardKey(confirmNoUsers)
     setApiKey(db(), deps.secrets(), key, pr)
+    if (pr === 'custom') bindCustomOrigin(deps.secrets(), currentProvider(deps.secrets()).resolved.baseUrl)
     deps.appAudit({ at: new Date().toISOString(), action: 'set', keyHint: keyHint(key), company: scope(), user: deps.session().name, mode, ...(pr === 'openai' ? {} : { preset: pr }) })
     return view()
   }, 'owner')
@@ -205,14 +219,17 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
       const models = await provider().models()
       let picked: AiConnectionResult['picked'] = null
       let now = s
+      const pr = preset()
+      const stale = modelsStale(s, pr)
       const pick = pickModels(models, s)
-      if (pick.found && pick.changed && (!s.defaultModel || !models.includes(s.defaultModel) || !s.fastModel || !models.includes(s.fastModel))) {
-        now = patchAiSettings(db(), { defaultModel: pick.defaultModel, fastModel: pick.fastModel })
+      if (pick.found && (stale || (pick.changed && (!s.defaultModel || !models.includes(s.defaultModel) || !s.fastModel || !models.includes(s.fastModel))))) {
+        now = patchAiSettings(db(), { defaultModel: pick.defaultModel, fastModel: pick.fastModel }, { modelsFor: pr })
         picked = { defaultModel: pick.defaultModel, fastModel: pick.fastModel }
       }
       return { ok: true, models, defaultModelFound: models.includes(now.defaultModel), fastModelFound: models.includes(now.fastModel), error: null, picked }
     } catch (err) {
-      const error = redactSecrets(err instanceof Error ? err.message : String(err), currentProvider(deps.secrets()).apiKey)
+      const c = currentProvider(deps.secrets())
+      const error = redactSecrets(err instanceof Error ? err.message : String(err), c.apiKey, Object.values(c.headers))
       return { ok: false, models: [], defaultModelFound: false, fastModelFound: false, error, picked: null }
     }
   }, 'owner')
@@ -249,14 +266,29 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     }
     const after: AiProviderSettings = { preset: preset.id, baseUrl, caps: preset.id === 'custom' ? (input.caps ?? before.caps ?? null) : null }
     const names = (hs: Record<string, string>): string[] => Object.keys(hs).sort()
+    // A custom service's key and headers belong to the address they were saved for: a new origin
+    // drops them (headers typed in this same change are kept), so they never go to another host.
+    let keyCleared = false
+    if (preset.id === 'custom' && baseUrl) {
+      const bound = boundCustomOrigin(secrets)
+      const origin = new URL(baseUrl).origin
+      if (bound && bound !== origin) {
+        if (readPresetKey(secrets, 'custom')) {
+          clearApiKey(db(), secrets, 'custom')
+          keyCleared = true
+        }
+        headers = Object.fromEntries(Object.entries(headers).filter(([n]) => input.headers?.some((h) => h.name.toLowerCase() === n.toLowerCase() && h.value.trim() !== '')))
+      }
+    }
     const headersChanged = JSON.stringify(headers) !== JSON.stringify(beforeHeaders)
-    if (JSON.stringify(after) === JSON.stringify(before) && !headersChanged) return view()
+    if (JSON.stringify(after) === JSON.stringify(before) && !headersChanged && !keyCleared) return view()
     if (headersChanged) writePresetHeaders(secrets, preset.id, headers)
+    if (preset.id === 'custom' && baseUrl) bindCustomOrigin(secrets, baseUrl)
     source.write(after, deps.session().name)
-    writeAudit(db(), 'ai_settings', 0, 'update', { provider: { ...before, headerNames: names(beforeHeaders) } }, { provider: { ...after, headerNames: names(headers) } })
+    writeAudit(db(), 'ai_settings', 0, 'update', { provider: { ...before, headerNames: names(beforeHeaders) } }, { provider: { ...after, headerNames: names(headers), ...(keyCleared ? { keyCleared: true } : {}) } })
     deps.appAudit({
       at: new Date().toISOString(), action: 'provider', keyHint: null, company: scope(), user: deps.session().name, mode,
-      preset: after.preset, provider: { preset: after.preset, baseUrl: after.baseUrl, headerNames: names(headers) }
+      preset: after.preset, provider: { preset: after.preset, baseUrl: after.baseUrl, headerNames: names(headers), ...(keyCleared ? { keyCleared: true } : {}) }
     })
     return view()
   }, 'owner')

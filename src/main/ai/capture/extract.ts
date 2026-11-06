@@ -112,7 +112,7 @@ export async function extractBill(deps: ExtractDeps, doc: PreparedDoc, fileName:
     throw err
   }
   store.setOutboundStatus(db, outboundId, 'ok')
-  const cost = estimateCostMicroUsd(res.usage, settings.prices[res.model] ?? settings.prices[model])
+  const cost = deps.provider.free ? 0 : estimateCostMicroUsd(res.usage, settings.prices[res.model] ?? settings.prices[model])
   store.recordUsage(db, {
     threadId: null, messageId: null, provider: deps.provider.name, model: res.model, inputTokens: res.usage.inputTokens, cachedTokens: res.usage.cachedTokens,
     outputTokens: res.usage.outputTokens, reasoningTokens: res.usage.reasoningTokens, costMicroUsd: cost, durationMs: now() - t0, ok: true, day: deps.today

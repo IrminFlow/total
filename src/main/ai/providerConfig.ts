@@ -98,3 +98,23 @@ export function providerView(store: SecretStore): AiProviderView {
     urlProblem
   }
 }
+
+const CUSTOM_ORIGIN_SECRET = 'ai_bound_origin:custom'
+
+/** The origin the custom service's key / headers were saved for (null = none recorded). */
+export function boundCustomOrigin(store: SecretStore): string | null {
+  try {
+    return store.get(APP_SCOPE, CUSTOM_ORIGIN_SECRET)
+  } catch {
+    return null
+  }
+}
+
+export function bindCustomOrigin(store: SecretStore, baseUrl: string): void {
+  if (!baseUrl) return
+  try {
+    store.set(APP_SCOPE, CUSTOM_ORIGIN_SECRET, new URL(baseUrl).origin)
+  } catch {
+    /* no secure storage: nothing bound, nothing to protect either */
+  }
+}

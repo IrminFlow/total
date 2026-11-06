@@ -78,7 +78,7 @@ async function askModel(deps: ResidualDeps, lines: CatLine[], residual: Category
   store.setOutboundStatus(db, outboundId, 'ok')
   store.recordUsage(db, {
     threadId: null, messageId: null, provider: provider.name, model: res.model, inputTokens: res.usage.inputTokens, cachedTokens: res.usage.cachedTokens,
-    outputTokens: res.usage.outputTokens, reasoningTokens: res.usage.reasoningTokens, costMicroUsd: estimateCostMicroUsd(res.usage, settings.prices[res.model] ?? settings.prices[model]),
+    outputTokens: res.usage.outputTokens, reasoningTokens: res.usage.reasoningTokens, costMicroUsd: provider.free ? 0 : estimateCostMicroUsd(res.usage, settings.prices[res.model] ?? settings.prices[model]),
     durationMs: Date.now() - t0, ok: true, day: deps.today
   })
   let parsed: unknown

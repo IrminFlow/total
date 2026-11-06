@@ -101,6 +101,9 @@ export interface CaptureEstimate {
   unmaskable: number
   /** Why nothing can be sent now (AI off, notice, key). */
   blocker: string | null
+  /** Phase 3a: queued files the chosen AI service can't read (photos / scanned PDFs / no
+   *  structured answers) — they would fail with that plain message; null = all readable. */
+  cannotRead?: { need: 'images' | 'files' | 'structured'; count: number } | null
 }
 
 export interface CaptureQueueView {

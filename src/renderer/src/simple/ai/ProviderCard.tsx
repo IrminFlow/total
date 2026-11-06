@@ -3,9 +3,9 @@
 // chip; a local one (Ollama, LM Studio) or another service asks its address; another service also
 // says what it can do. Custom headers stay in the full app. What the chosen service can't do is
 // said in plain words.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { AI_CAPABILITY_KEYS, AI_PRESETS, AI_PRESET_IDS, checkBaseUrl, type AiCapabilities, type AiPresetId } from '@shared/aiProviders'
+import { AI_CAPABILITY_KEYS, AI_PRESETS, AI_PRESET_IDS, checkBaseUrl, type AiCapabilities, type AiPresetId, type BaseUrlProblem } from '@shared/aiProviders'
 import type { AiSettingsView } from '@shared/ai'
 import type { MessageKey } from '@shared/i18n'
 import { classifyAiError, type AiPlainError } from '@shared/simple/aiPlain'
@@ -29,6 +29,16 @@ export function presetName(id: AiPresetId, t: ReturnType<typeof useT>): string {
   return key ? t(key) /* i18n-technical: keys in PRESET_WORDS */ : AI_PRESETS[id].label
 }
 
+const URL_PROBLEM: Record<BaseUrlProblem, MessageKey> = {
+  empty: 'simple.ai.provider.url.empty',
+  notUrl: 'simple.ai.provider.url.notUrl',
+  scheme: 'simple.ai.provider.url.scheme',
+  credentials: 'simple.ai.provider.url.credentials',
+  query: 'simple.ai.provider.url.query',
+  notLocal: 'simple.ai.provider.url.notLocal',
+  notHttps: 'simple.ai.provider.url.notHttps'
+}
+
 const CAP_TEXT: Record<keyof AiCapabilities, MessageKey> = {
   tools: 'simple.ai.provider.cap.tools',
   structured: 'simple.ai.provider.cap.structured',
@@ -47,13 +57,16 @@ export function ProviderCard({
   canEdit,
   blocked,
   busy,
-  onError
+  onError,
+  onDirty
 }: {
   view: AiSettingsView
   canEdit: boolean
   blocked: boolean
   busy: boolean
   onError: (e: AiPlainError) => void
+  /** The card holds a choice not saved yet (the key box waits for it). */
+  onDirty?: (dirty: boolean) => void
 }): React.JSX.Element {
   const t = useT()
   const toast = useToasts()
@@ -69,6 +82,9 @@ export function ProviderCard({
   const disabled = !canEdit || blocked || busy || saving
   const changed = preset !== p.preset || (def.editableUrl && url.trim() !== (p.baseUrlOverride ?? p.baseUrl)) || (preset === 'custom' && JSON.stringify(caps) !== JSON.stringify(p.caps))
   const service = presetName(p.preset, t)
+  useEffect(() => {
+    onDirty?.(changed)
+  }, [changed, onDirty])
   const cannot = cannotList(p.caps, t)
 
   const choose = (id: AiPresetId): void => {
@@ -120,7 +136,7 @@ export function ProviderCard({
       </div>
       {def.editableUrl && (
         <div className="mt-3">
-          <Field label={t('simple.ai.provider.address')} hint={def.local ? t('simple.ai.provider.addressLocal') : t('simple.ai.provider.addressHint')} error={check && !check.ok ? check.error : undefined}>
+          <Field label={t('simple.ai.provider.address')} hint={def.local ? t('simple.ai.provider.addressLocal') : t('simple.ai.provider.addressHint')} error={check && !check.ok ? t(URL_PROBLEM[check.code]) /* i18n-technical: keys in URL_PROBLEM */ : undefined}>
             <TextInput className="num" value={url} disabled={disabled} onChange={(e) => setUrl(e.target.value)} data-testid="simple-ai-provider-url" />
           </Field>
         </div>

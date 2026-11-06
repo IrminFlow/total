@@ -138,12 +138,16 @@ describe('AI service choice through ai:* IPC', () => {
     expect(appAudits).toEqual([])
 
     await call('ai:notice:accept')
-    await call('ai:settings:set', { enabled: true, defaultModel: 'qwen2.5:14b', fastModel: 'qwen2.5:14b' })
-    const v = await call('ai:provider:set', { preset: 'ollama', baseUrl: 'http://127.0.0.1:11500/v1', confirmNoUsers: true })
+    await call('ai:settings:set', { enabled: true, defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6.1-sol' })
+    let v = await call('ai:provider:set', { preset: 'ollama', baseUrl: 'http://127.0.0.1:11500/v1', confirmNoUsers: true })
     expect(v.provider).toMatchObject({ preset: 'ollama', local: true, needsKey: false, baseUrl: 'http://127.0.0.1:11500/v1', keyPresent: false })
-    expect(v).toMatchObject({ ready: true, blocker: null })
+    // The models were OpenAI's: pick again for this service (review of #210).
+    expect(v).toMatchObject({ ready: false, needsModel: true, blocker: expect.stringMatching(/^The AI service changed/) })
+    v = await call('ai:settings:set', { defaultModel: 'qwen2.5:14b', fastModel: 'qwen2.5:14b' })
+    expect(v).toMatchObject({ ready: true, blocker: null, needsModel: false })
+    expect(getAiSettings(db).modelsFor).toBe('ollama')
     expect(appAudits).toEqual([expect.objectContaining({ action: 'provider', preset: 'ollama', mode: 'no-users-confirmed', provider: { preset: 'ollama', baseUrl: 'http://127.0.0.1:11500/v1', headerNames: [] } })])
-    expect(audit().at(-1)!.after).toContain('"preset":"ollama"')
+    expect(audit().some((r) => r.after?.includes('"provider":{"preset":"ollama"'))).toBe(true)
     // The same choice again writes nothing.
     await call('ai:provider:set', { preset: 'ollama', baseUrl: 'http://127.0.0.1:11500/v1', confirmNoUsers: true })
     expect(appAudits).toHaveLength(1)
@@ -202,6 +206,70 @@ describe('AI service choice through ai:* IPC', () => {
     expect(store.listOutbound(db).at(-1)!.toolsOffered).toEqual([])
   })
 })
+
+describe('review of #210: the key goes only with the service shown and saved', () => {
+  let db: DB
+  let handlers: Map<string, { fn: H; role: Role }>
+  let provider: MockProvider
+  const secretsFile = join(mkdtempSync(join(tmpdir(), 'total-ai-prov2-')), 'secrets.json')
+  const secrets = createSecretStore({ filePath: () => secretsFile, cipher: insecureTestCipher() })
+  const call = async <T = AiSettingsView>(ch: string, p?: unknown): Promise<T> => (await handlers.get(ch)!.fn(p)) as T
+
+  beforeEach(() => {
+    db = seededDb()
+    handlers = new Map()
+    secrets.deleteScope(APP_SCOPE)
+    useAiProviderSource(memoryProviderSource())
+    provider = new MockProvider([], { models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant'] })
+    registerAiIpc((ch, fn, role = 'accountant') => handlers.set(ch, { fn: fn as H, role }), {
+      company: () => ({ db, info: TEST_INFO, slug: 'prov-test-2', usersExist: false }),
+      session: () => ({ name: 'Owner', role: 'owner' }),
+      roleNow: () => 'owner',
+      anyCompanyHasUsers: () => false,
+      appAudit: () => {},
+      secrets: () => secrets,
+      emit: () => {},
+      mock: () => false,
+      providerFactory: () => provider
+    })
+  })
+
+  it('a key typed for a service not saved yet is refused and nothing is stored', async () => {
+    secrets.set(APP_SCOPE, 'openai_api_key', KEY)
+    await expect(call('ai:key:set', { key: GROQ_KEY, preset: 'groq', confirmNoUsers: true })).rejects.toThrow(/Save the AI service first/)
+    expect(secrets.get(APP_SCOPE, 'openai_api_key')).toBe(KEY)
+    expect(secrets.get(APP_SCOPE, 'ai_api_key:groq')).toBeNull()
+    await call('ai:provider:set', { preset: 'groq', confirmNoUsers: true })
+    await call('ai:key:set', { key: GROQ_KEY, preset: 'groq', confirmNoUsers: true })
+    expect(secrets.get(APP_SCOPE, 'ai_api_key:groq')).toBe(GROQ_KEY)
+  })
+
+  it('a custom service moved to another address drops the key and headers saved for the old one', async () => {
+    await call('ai:provider:set', { preset: 'custom', baseUrl: 'https://gateway.corp.example/v1', headers: [{ name: 'X-Gw', value: 'gw-secret-1' }], confirmNoUsers: true })
+    await call('ai:key:set', { key: 'sk-custom-0123456789', preset: 'custom', confirmNoUsers: true })
+    // Same origin, another path: kept.
+    let v = await call('ai:provider:set', { preset: 'custom', baseUrl: 'https://gateway.corp.example/v2', confirmNoUsers: true })
+    expect(v.provider).toMatchObject({ keyPresent: true, headerNames: ['X-Gw'] })
+    v = await call('ai:provider:set', { preset: 'custom', baseUrl: 'https://other-host.example/v1', confirmNoUsers: true })
+    expect(v.provider).toMatchObject({ keyPresent: false, headerNames: [] })
+    expect(secrets.get(APP_SCOPE, 'ai_api_key:custom')).toBeNull()
+    expect(secrets.get(APP_SCOPE, 'ai_headers:custom')).toBeNull()
+    expect(audit(db).at(-1)).toContain('"keyCleared":true')
+  })
+
+  it('switching service makes another company repick; Test connection picks for the new service', async () => {
+    db.prepare("INSERT INTO meta (key, value) VALUES ('ai', ?)").run(JSON.stringify({ enabled: true, noticeAcceptedAt: 'x', noticeAcceptedBy: null, noticeVersion: 1, defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna', privacy: { maskIds: true, pseudonymiseParties: false }, prices: {}, maxSteps: 8, useMemory: true }))
+    await call('ai:provider:set', { preset: 'groq', confirmNoUsers: true })
+    secrets.set(APP_SCOPE, 'ai_api_key:groq', GROQ_KEY)
+    expect(await call('ai:settings:get')).toMatchObject({ ready: false, needsModel: true })
+    await expect(call('ai:send', { text: 'hi' })).rejects.toThrow(/The AI service changed/)
+    const t = await call<{ picked: unknown }>('ai:testConnection')
+    expect(t.picked).toEqual({ defaultModel: 'llama-3.3-70b-versatile', fastModel: 'llama-3.1-8b-instant' })
+    expect(await call('ai:settings:get')).toMatchObject({ ready: true, needsModel: false })
+  })
+})
+
+const audit = (db: DB): string[] => (db.prepare("SELECT after_json FROM audit_log WHERE entity = 'ai_settings' ORDER BY id").all() as { after_json: string }[]).map((r) => r.after_json)
 
 describe('flattenToolItems', () => {
   it('drops calls and reasoning, keeps every result as a user message with the same text', () => {

@@ -135,24 +135,40 @@ export function isLoopbackHost(host: string): boolean {
  * (a key never travels in clear text over a network). No credentials or query in the URL.
  * Returns the cleaned URL (no trailing slash) or a plain-words problem.
  */
-export function checkBaseUrl(preset: AiPresetId, raw: string): { ok: true; url: string } | { ok: false; error: string } {
+export type BaseUrlProblem = 'empty' | 'notUrl' | 'scheme' | 'credentials' | 'query' | 'notLocal' | 'notHttps'
+
+/** English words for each problem (main, the accountant screen); simple mode maps the code to t(). */
+export function baseUrlProblemText(code: BaseUrlProblem, preset: AiPresetId): string {
+  switch (code) {
+    case 'empty': return 'Type the address of the AI service (it usually ends in /v1).'
+    case 'notUrl': return 'That is not a web address — it starts with http:// or https://.'
+    case 'scheme': return 'The address must start with http:// or https://.'
+    case 'credentials': return 'Put the key in the key box, not in the address.'
+    case 'query': return 'The address cannot carry ? or # parts.'
+    case 'notLocal': return `${AI_PRESETS[preset].label} runs on this computer: the address must be localhost or 127.0.0.1.`
+    case 'notHttps': return 'Use https:// — plain http:// is allowed only for a server on this computer.'
+  }
+}
+
+export function checkBaseUrl(preset: AiPresetId, raw: string): { ok: true; url: string; origin: string } | { ok: false; code: BaseUrlProblem; error: string } {
   const p = AI_PRESETS[preset]
+  const bad = (code: BaseUrlProblem): { ok: false; code: BaseUrlProblem; error: string } => ({ ok: false, code, error: baseUrlProblemText(code, preset) })
   const text = raw.trim()
-  if (!text) return { ok: false, error: 'Type the address of the AI service (it usually ends in /v1).' }
+  if (!text) return bad('empty')
   let u: URL
   try {
     u = new URL(text)
   } catch {
-    return { ok: false, error: 'That is not a web address — it starts with http:// or https://.' }
+    return bad('notUrl')
   }
-  if (u.protocol !== 'http:' && u.protocol !== 'https:') return { ok: false, error: 'The address must start with http:// or https://.' }
-  if (u.username || u.password) return { ok: false, error: 'Put the key in the key box, not in the address.' }
-  if (u.search || u.hash) return { ok: false, error: 'The address cannot carry ? or # parts.' }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return bad('scheme')
+  if (u.username || u.password) return bad('credentials')
+  if (u.search || u.hash) return bad('query')
   const loop = isLoopbackHost(u.hostname)
-  if (p.local && !loop) return { ok: false, error: `${p.label} runs on this computer: the address must be localhost or 127.0.0.1.` }
-  if (!p.local && u.protocol === 'http:' && !loop) return { ok: false, error: 'Use https:// — plain http:// is allowed only for a server on this computer.' }
+  if (p.local && !loop) return bad('notLocal')
+  if (!p.local && u.protocol === 'http:' && !loop) return bad('notHttps')
   const url = `${u.protocol}//${u.host}${u.pathname.replace(/\/+$/, '')}`
-  return { ok: true, url }
+  return { ok: true, url, origin: u.origin }
 }
 
 /** `fixed` = main's endpoints of the hosted presets (ai/providerConfig.ts); without them a fixed
@@ -240,7 +256,9 @@ export class AiCapabilityError extends Error {
  *  not supported"). Null = some other failure. */
 export function capabilityRefusal(message: string): AiCapabilityNeed | null {
   const m = message.toLowerCase()
-  if (!/(not support|unsupported|does not accept|doesn'?t support|not available|not enabled|invalid)/.test(m)) return null
+  // Only words that say the endpoint / model lacks the ability — never a bare "invalid" (an
+  // invalid schema or a broken image is a different failure, said as it is).
+  if (!/(not support|unsupported|does not accept|doesn'?t support|only supported|not available for|not enabled)/.test(m)) return null
   if (/\btools?\b|function[_ ]?call/.test(m)) return 'tools'
   if (/image|vision|image_url/.test(m)) return 'images'
   if (/\bfile|pdf|input_file/.test(m)) return 'files'
@@ -251,16 +269,20 @@ export function capabilityRefusal(message: string): AiCapabilityNeed | null {
 // ---------- the model pick (moved from simple/aiPlain.ts, re-exported there) ----------
 
 /** Model ids that are not chat models (embeddings, speech, images, moderation …). */
-const NOT_CHAT = /(embed|whisper|tts|audio|speech|transcri|dall-?e|image|moderation|realtime|search|computer-use|instruct|babbage|davinci|codex|guard|rerank)/i
+const NOT_CHAT = /(embed|whisper|tts|audio|speech|transcri|dall-?e|image|imagen|veo|moderation|realtime|search|computer-use|instruct|babbage|davinci|codex|guard|rerank|\baqa\b|compound)/i
 /** Small / quick variants — good for the fast model, not the default. */
-const SMALL = /(mini|nano|luna|lite|small|fast|haiku|flash|instant|\b[1-8]b\b|:[1-8]b)/i
+/** Matched on whole segments of the id ("gemini" is not "mini"; "llama-3.1-8b" is small). */
+const SMALL = /(^|[-_:/.])(mini|nano|luna|lite|small|fast|haiku|flash|flash-lite|instant|[1-8](\.\d)?b)($|[-_:/.])/i
+/** Previews / experiments rank below the stable model of the same version. */
+const UNSTABLE = /(preview|exp|experimental|beta|alpha)/i
 /** A dated snapshot (…-2025-08-06 / …-0613) — the undated alias is preferred. */
 const DATED = /-(\d{4}-\d{2}-\d{2}|\d{4})$/
 
-/** gpt-6.1-sol → [6, 1]; o3 → [3]; openai/gpt-5 → [5]; anything else → []. */
+/** The family's version: gpt-6.1-sol → [6, 1]; o3 → [3]; openai/gpt-5 → [5]; models/gemini-2.5-pro
+ *  → [2, 5]; llama-3.3-70b → [3, 3]; qwen2.5:14b → [2, 5]; anything else → []. */
 function versionOf(id: string): number[] {
   const bare = id.slice(id.lastIndexOf('/') + 1)
-  const m = /^(?:gpt-|o)(\d+(?:\.\d+)*)/i.exec(bare)
+  const m = /^(?:gpt-|o|gemini-|gemma-?|llama-?|qwen|mistral-|mixtral-|deepseek-[a-z]*-?|claude-[a-z]*-?|phi-?)(\d+(?:\.\d+)*)/i.exec(bare)
   return m ? m[1]!.split('.').map(Number) : []
 }
 
@@ -272,13 +294,32 @@ function compareVersions(a: number[], b: number[]): number {
   return 0
 }
 
-/** Best first: chat models, undated, newest version, then by name (stable). */
+/** gemini-2.5-pro → 'gemini', openai/gpt-5 → 'gpt', qwen2.5:14b → 'qwen', o3 → 'o'. */
+function familyOf(id: string): string {
+  const bare = id.slice(id.lastIndexOf('/') + 1).toLowerCase()
+  return /^[a-z]+/.exec(bare)?.[0] ?? bare
+}
+
+/** Best first: chat models, undated, stable, the family the list offers most (versions are only
+ *  compared within a family — gemma 3 is not "newer" than gemini 2.5), newest version, then by
+ *  name (stable). */
 export function rankModels(models: readonly string[], small: boolean): string[] {
-  return models
-    .filter((m) => !NOT_CHAT.test(m) && SMALL.test(m) === small)
+  const chat = models.filter((m) => !NOT_CHAT.test(m))
+  const freq = new Map<string, number>()
+  for (const m of chat) freq.set(familyOf(m), (freq.get(familyOf(m)) ?? 0) + 1)
+  return chat
+    .filter((m) => SMALL.test(m) === small)
     .sort((a, b) => {
       const dated = Number(DATED.test(a)) - Number(DATED.test(b))
       if (dated !== 0) return dated
+      const unstable = Number(UNSTABLE.test(a)) - Number(UNSTABLE.test(b))
+      if (unstable !== 0) return unstable
+      const fa = familyOf(a)
+      const fb = familyOf(b)
+      if (fa !== fb) {
+        const f = (freq.get(fb) ?? 0) - (freq.get(fa) ?? 0)
+        return f !== 0 ? f : fa.localeCompare(fb)
+      }
       const v = compareVersions(versionOf(b), versionOf(a))
       return v !== 0 ? v : a.localeCompare(b)
     })

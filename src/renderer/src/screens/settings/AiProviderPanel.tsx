@@ -2,7 +2,7 @@
 // company on this computer (like the key), so the same shared-key rule applies: main refuses a
 // change it may not make, and a company without users asks first. Header values never come back
 // from main — a stored header shows its name, and an empty value keeps it.
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { AI_CAPABILITY_KEYS, AI_PRESETS, AI_PRESET_IDS, checkBaseUrl, type AiCapabilities, type AiPresetId } from '@shared/aiProviders'
 import type { AiSettingsView } from '@shared/ai'
@@ -24,7 +24,7 @@ interface HeaderRow {
   stored: boolean
 }
 
-export function AiProviderPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean }): React.JSX.Element {
+export function AiProviderPanel({ view, isOwner, onDirty }: { view: AiSettingsView; isOwner: boolean; onDirty?: (dirty: boolean) => void }): React.JSX.Element {
   const p = view.provider
   const toast = useToasts()
   const queryClient = useQueryClient()
@@ -55,6 +55,10 @@ export function AiProviderPanel({ view, isOwner }: { view: AiSettingsView; isOwn
     setCaps(id === p.preset ? p.caps : next.caps)
     setHeaders(id === p.preset ? p.headerNames.map((name) => ({ name, value: '', stored: true })) : [])
   }
+
+  useEffect(() => {
+    onDirty?.(changed)
+  }, [changed, onDirty])
 
   const save = async (): Promise<void> => {
     let confirmed = false

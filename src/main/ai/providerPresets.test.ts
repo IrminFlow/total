@@ -194,6 +194,50 @@ describe('capability fallbacks', () => {
   })
 })
 
+describe('Chat Completions stream details (review of #210)', () => {
+  const chunk = (delta: Record<string, unknown>, finish: string | null = null): Record<string, unknown> => ({ id: 'x', object: 'chat.completion.chunk', choices: [{ index: 0, delta, finish_reason: finish }] })
+
+  it('Gemini: extra_content (thought signature) is kept on the call and sent back next step', async () => {
+    const sig = { google: { thought_signature: 'c2lnLTEyMw==' } }
+    const m = mockFetch(() => sse([chunk({ tool_calls: [{ index: 0, id: 'g1', type: 'function', function: { name: 'trial_balance', arguments: '{}' }, extra_content: sig }] }, 'tool_calls')]))
+    const p = createProvider(resolved('gemini'), KEY, {}, { fetch: m.fetch })
+    const r = await p.chat(REQ)
+    expect(r.toolCalls).toEqual([{ callId: 'g1', name: 'trial_balance', arguments: '{}', extra: sig }])
+    const next = toChatMessages('s', [{ type: 'message', role: 'user', content: 'q' }, { type: 'tool_call', callId: 'g1', name: 'trial_balance', arguments: '{}', extra: sig }, { type: 'tool_result', callId: 'g1', output: '{}' }])
+    expect(next[2]).toEqual({ role: 'assistant', content: null, tool_calls: [{ id: 'g1', type: 'function', function: { name: 'trial_balance', arguments: '{}' }, extra_content: sig }] })
+  })
+
+  it('a name repeated in every chunk is not doubled; a continuation chunk without index joins the call in progress', async () => {
+    const m = mockFetch(() =>
+      sse([
+        chunk({ tool_calls: [{ index: 0, id: 'a', function: { name: 'trial_balance', arguments: '{"asOn":' } }] }),
+        chunk({ tool_calls: [{ index: 0, function: { name: 'trial_balance', arguments: '"2025-07-31"' } }] }),
+        chunk({ tool_calls: [{ function: { arguments: '}' } }] }, 'tool_calls')
+      ])
+    )
+    const r = await createProvider(resolved('lmstudio'), null, {}, { fetch: m.fetch }).chat(REQ)
+    expect(r.toolCalls).toEqual([{ callId: 'a', name: 'trial_balance', arguments: '{"asOn":"2025-07-31"}' }])
+  })
+
+  it('calls without ids get ids unique across steps; a content filter stop is incomplete', async () => {
+    const m = mockFetch(() => sse([chunk({ tool_calls: [{ index: 0, function: { name: 'x', arguments: '{}' } }] }, 'content_filter')]))
+    const p = createProvider(resolved('ollama'), null, {}, { fetch: m.fetch })
+    const a = await p.chat(REQ)
+    const b = await p.chat(REQ)
+    expect(a.finish).toBe('incomplete')
+    expect(a.toolCalls[0]!.callId).not.toBe(b.toolCalls[0]!.callId)
+  })
+
+  it('custom header values are redacted from errors; local models are free', async () => {
+    const m = mockFetch(() => new Response(JSON.stringify({ error: { message: 'bad request, got X-Api-Key=gateway-secret-9' } }), { status: 400, headers: { 'content-type': 'application/json' } }))
+    const p = createProvider(resolved('custom', 'https://llm.example.com/v1'), null, { 'X-Api-Key': 'gateway-secret-9' }, { fetch: m.fetch, sleep: async () => {} })
+    const err = await p.chat({ ...REQ, tools: [] }).catch((e: Error) => e)
+    expect((err as Error).message).not.toContain('gateway-secret-9')
+    expect(p.free).toBe(false)
+    expect(createProvider(resolved('ollama'), null).free).toBe(true)
+  })
+})
+
 describe('Chat Completions request shape', () => {
   it('system first; an assistant message carries the tool calls that follow it; reasoning dropped', () => {
     expect(toChatMessages('sys', REQ.input)).toEqual([

@@ -194,7 +194,7 @@ export function historyItems(
       if (m.content.trim() && m.status !== 'error') items.push({ type: 'message', role: 'assistant', content: out(m.content) })
       for (const c of m.toolCalls) {
         if (answered.has(c.callId)) {
-          items.push({ type: 'tool_call', callId: c.callId, name: c.name, arguments: JSON.stringify(mapStrings(c.input ?? {}, out)) })
+          items.push({ type: 'tool_call', callId: c.callId, name: c.name, arguments: JSON.stringify(mapStrings(c.input ?? {}, out)), ...(c.extra ? { extra: c.extra } : {}) })
         }
       }
     } else if (m.toolCallId) {
@@ -450,7 +450,7 @@ async function runLoop(
       return failed(error, streamed)
     }
     store.setOutboundStatus(db, outboundId, 'ok')
-    const cost = estimateCostMicroUsd(res.usage, settings.prices[res.model] ?? settings.prices[model])
+    const cost = provider.free ? 0 : estimateCostMicroUsd(res.usage, settings.prices[res.model] ?? settings.prices[model])
     const usageThreadId = usageThread()
     const usageId = store.recordUsage(db, {
       threadId: usageThreadId, messageId: null, provider: provider.name, model: res.model, inputTokens: res.usage.inputTokens, cachedTokens: res.usage.cachedTokens,
@@ -483,12 +483,12 @@ async function runLoop(
       return { status: 'done' }
     }
 
-    const calls = res.toolCalls.map((c) => ({ callId: c.callId, name: c.name, ...inboundArguments(c.arguments, privacy) }))
+    const calls = res.toolCalls.map((c) => ({ callId: c.callId, name: c.name, extra: c.extra, ...inboundArguments(c.arguments, privacy) }))
     const assistant = store.addMessage(db, {
       threadId,
       role: 'assistant',
       content: text,
-      toolCalls: calls.map(({ callId, name, input: i }) => ({ callId, name, input: i })),
+      toolCalls: calls.map(({ callId, name, input: i, extra }) => ({ callId, name, input: i, ...(extra ? { extra } : {}) })),
       reasoning: res.reasoning,
       ...usageFields
     })

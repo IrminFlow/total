@@ -20,6 +20,8 @@ import type { SecretStore } from '../../services/secrets'
 import { writeAudit } from '../../services/audit'
 import { companyDir } from '../../paths'
 import { getAiSettings } from '../settings'
+import { currentProvider } from '../providerConfig'
+import { unreadableItems } from './estimate'
 import { buildProvider, defaultProviderFactory, settingsView, type ProviderFactory } from '../ipc'
 import type { AiProvider } from '../types'
 import { captureFilesDir, captureInboxDir, deleteCaptureFile } from './files'
@@ -135,8 +137,14 @@ export function registerCaptureIpc(handle: Handle, deps: CaptureIpcDeps): void {
     const { ids } = captureIdsSchema.parse(p ?? {})
     const s = getAiSettings(db())
     const items = listItems(db()).filter((i) => i.status === 'queued' && (!ids?.length || ids.includes(i.id)))
+    const current = currentProvider(deps.secrets())
     const e = estimateCapture(items, s.prices[s.defaultModel])
-    return { items: items.length, ids: items.map((i) => i.id), ...e, model: s.defaultModel, blocker: env().blocker(), maskIds: s.privacy.maskIds, pseudonymise: s.privacy.pseudonymiseParties }
+    // A model on this computer costs nothing.
+    if (current.resolved.local && !deps.mock()) e.costMicroUsd = 0
+    return {
+      items: items.length, ids: items.map((i) => i.id), ...e, model: s.defaultModel, blocker: env().blocker(), maskIds: s.privacy.maskIds, pseudonymise: s.privacy.pseudonymiseParties,
+      cannotRead: deps.mock() ? null : unreadableItems(items, current.resolved.caps)
+    }
   }, 'viewer')
   handle('capture:process', (p) => {
     const { ids } = captureProcessSchema.parse(p)

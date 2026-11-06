@@ -49,6 +49,8 @@ export interface OpenAiProviderOptions {
   capabilities?: AiCapabilities
   /** Extra headers (a custom endpoint's own); never Authorization. */
   defaultHeaders?: Record<string, string>
+  /** Phase 3a: a model on this computer (calls cost nothing). */
+  free?: boolean
   /** Injected by tests (mocked HTTP for the real SDK client); never set by the app. */
   fetch?: (url: string, init?: Record<string, unknown>) => Promise<unknown>
   /** Per attempt. */
@@ -67,10 +69,12 @@ export interface OpenAiProviderOptions {
   random?: () => number
 }
 
-/** Remove the key, and anything shaped like an OpenAI key, from text bound for logs or the UI. */
-export function redactSecrets(text: string, key?: string | null): string {
+/** Remove the key (and any other secret given — custom header values), and anything shaped like
+ *  an OpenAI key, from text bound for logs or the UI. */
+export function redactSecrets(text: string, key?: string | null, others: readonly string[] = []): string {
   let out = text
   if (key && key.length >= 8) out = out.split(key).join('[redacted key]')
+  for (const o of others) if (o && o.length >= 4) out = out.split(o).join('[redacted]')
   return out.replace(/\b(sk|rk|sess)-[A-Za-z0-9_-]{8,}/g, '$1-…[redacted]').replace(/(Bearer\s+)[A-Za-z0-9._-]{8,}/gi, '$1[redacted]')
 }
 
@@ -148,7 +152,7 @@ export function toChatMessages(instructions: string, items: readonly ChatItem[])
         open = { role: 'assistant', content: null }
         out.push(open)
       }
-      ;(open.tool_calls ??= []).push({ id: it.callId, type: 'function', function: { name: it.name, arguments: it.arguments } })
+      ;(open.tool_calls ??= []).push({ id: it.callId, type: 'function', function: { name: it.name, arguments: it.arguments }, ...(it.extra ? { extra_content: it.extra } : {}) })
       continue
     }
     open = null
@@ -275,6 +279,8 @@ export class OpenAiProvider implements AiProvider {
   readonly name: string
   readonly api: AiApiStyle
   readonly capabilities: AiCapabilities
+  readonly free: boolean
+  private readonly headerValues: string[]
   private streamUsage = true
   private readonly client: OpenAiLike
   private readonly key: string
@@ -290,6 +296,8 @@ export class OpenAiProvider implements AiProvider {
     this.name = opts.name ?? 'openai'
     this.api = opts.api ?? 'responses'
     this.capabilities = opts.capabilities ?? { tools: true, structured: true, images: true, files: true }
+    this.free = !!opts.free
+    this.headerValues = Object.values(opts.defaultHeaders ?? {})
     this.key = opts.apiKey
     this.timeoutMs = opts.timeoutMs ?? 90_000
     this.idleTimeoutMs = opts.idleTimeoutMs ?? 60_000
@@ -308,14 +316,15 @@ export class OpenAiProvider implements AiProvider {
         timeout: this.timeoutMs,
         maxRetries: 0,
         ...(opts.defaultHeaders && Object.keys(opts.defaultHeaders).length ? { defaultHeaders: opts.defaultHeaders } : {}),
-        ...(opts.fetch ? { fetch: opts.fetch as never } : {})
+        // Never follow a redirect: custom headers (and, same-origin, the key) would go with it.
+        fetch: (opts.fetch ?? ((url: string, init?: Record<string, unknown>) => globalThis.fetch(url, { ...(init ?? {}), redirect: 'error' } as RequestInit))) as never
       }) as unknown as OpenAiLike)
   }
 
   private fail(err: unknown): never {
     if (err instanceof AiCapabilityError) throw err
-    if (err instanceof AiProviderError) throw new AiProviderError(redactSecrets(err.message, this.key), { retryable: err.retryable, status: err.status })
-    throw new AiProviderError(redactSecrets(plainMessage(err), this.key), { retryable: isRetryable(err), status: statusOf(err) })
+    if (err instanceof AiProviderError) throw new AiProviderError(redactSecrets(err.message, this.key, this.headerValues), { retryable: err.retryable, status: err.status })
+    throw new AiProviderError(redactSecrets(plainMessage(err), this.key, this.headerValues), { retryable: isRetryable(err), status: statusOf(err) })
   }
 
   private async withRetry<T>(signal: AbortSignal | undefined, attempt: (state: { streamed: boolean }) => Promise<T>): Promise<T> {
@@ -433,7 +442,9 @@ export class OpenAiProvider implements AiProvider {
     if (!create) throw new AiProviderError('This client cannot use Chat Completions')
     return this.streamWith(req, (signal) => create.call(this.client.chat!.completions, body, { signal, timeout: this.timeoutMs }), async (next, state) => {
       let text = ''
-      const calls = new Map<number, { callId: string; name: string; arguments: string }>()
+      const calls = new Map<number, { callId: string; name: string; arguments: string; extra?: Record<string, unknown> }>()
+      let last = 0
+      const runId = Math.random().toString(36).slice(2, 10)
       let usage: ChatUsage = { ...ZERO_USAGE }
       let model = req.model
       let finish: ChatResult['finish'] = 'stop'
@@ -444,7 +455,10 @@ export class OpenAiProvider implements AiProvider {
           model?: string
           usage?: ChatUsageLike | null
           error?: { message?: string }
-          choices?: { delta?: { content?: string | null; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] }; finish_reason?: string | null }[]
+          choices?: {
+            delta?: { content?: string | null; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string }; extra_content?: Record<string, unknown> }[] }
+            finish_reason?: string | null
+          }[]
         }
         if (ev.error) throw new AiProviderError(redactSecrets(String(ev.error.message ?? 'Provider stream error'), this.key))
         if (ev.model) model = ev.model
@@ -458,20 +472,25 @@ export class OpenAiProvider implements AiProvider {
           }
           for (const tc of ch.delta?.tool_calls ?? []) {
             state.streamed = true
-            const i = tc.index ?? calls.size
+            // A server that leaves `index` off a continuation chunk means the call in progress.
+            const i = tc.index ?? (tc.id || calls.size === 0 ? calls.size : last)
+            last = i
             const c = calls.get(i) ?? { callId: '', name: '', arguments: '' }
             if (tc.id) c.callId = tc.id
-            if (tc.function?.name) c.name += tc.function.name
+            const nm = tc.function?.name
+            // Some servers repeat the whole name in every chunk; others stream it in pieces.
+            if (nm) c.name = nm.startsWith(c.name) ? nm : c.name + nm
             if (tc.function?.arguments) c.arguments += tc.function.arguments
+            if (tc.extra_content && typeof tc.extra_content === 'object') c.extra = { ...(c.extra ?? {}), ...tc.extra_content }
             calls.set(i, c)
           }
-          if (ch.finish_reason === 'length') finish = 'incomplete'
+          if (ch.finish_reason === 'length' || ch.finish_reason === 'content_filter') finish = 'incomplete'
         }
       }
       const toolCalls: ChatToolCall[] = [...calls.entries()]
         .sort((a, b) => a[0] - b[0])
         .filter(([, c]) => c.name)
-        .map(([i, c]) => ({ callId: c.callId || `call_${i}`, name: c.name, arguments: c.arguments || '{}' }))
+        .map(([i, c]) => ({ callId: c.callId || `call_${runId}_${i}`, name: c.name, arguments: c.arguments || '{}', ...(c.extra ? { extra: c.extra } : {}) }))
       if (toolCalls.length > 0 && finish !== 'incomplete') finish = 'tool_calls'
       return { text, toolCalls, usage, model, finish, reasoning: [] }
     })
@@ -548,8 +567,8 @@ export function createProvider(p: ResolvedAiProvider, apiKey: string | null, hea
     name: p.preset,
     capabilities: p.caps,
     defaultHeaders: headers,
-    // Local models can take a while to load the first time.
-    ...(p.local ? { timeoutMs: 300_000, idleTimeoutMs: 180_000 } : {}),
+    // Local models can take a while to load the first time, and cost nothing.
+    ...(p.local ? { timeoutMs: 300_000, idleTimeoutMs: 180_000, free: true } : {}),
     ...extra
   })
 }

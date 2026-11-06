@@ -75,6 +75,8 @@ export function AiHelper(): React.JSX.Element {
   const [error, setError] = useState<AiPlainError | null>(null)
   /** Phase 3a: a typed model id (a service that lists none). */
   const [typedModel, setTypedModel] = useState('')
+  /** Phase 3a: the service card holds a choice not saved yet — the key waits for it. */
+  const [serviceDirty, setServiceDirty] = useState(false)
 
   const refresh = async (): Promise<void> => {
     await queryClient.invalidateQueries({ queryKey: SETTINGS_KEY })
@@ -133,7 +135,7 @@ export function AiHelper(): React.JSX.Element {
       if (typed) {
         const confirmed = await confirmShared()
         if (confirmed === null) return
-        await aiApi.setKey(typed, confirmed)
+        await aiApi.setKey(typed, confirmed, view.provider.preset)
         setKey('')
         await refresh()
       }
@@ -289,6 +291,7 @@ export function AiHelper(): React.JSX.Element {
             setCheck(null)
             setError(e)
           }}
+          onDirty={setServiceDirty}
         />
 
         <Card title={t('simple.ai.key.title')} testId="simple-ai-key">
@@ -311,7 +314,7 @@ export function AiHelper(): React.JSX.Element {
                   className="num"
                   value={key}
                   invalid={!!keyError}
-                  disabled={!canEdit || !!keyBlock || busy !== null}
+                  disabled={!canEdit || !!keyBlock || busy !== null || serviceDirty}
                   onChange={(e) => {
                     setKey(e.target.value)
                     setKeyError(null)
@@ -320,9 +323,10 @@ export function AiHelper(): React.JSX.Element {
                 />
               </Field>
               {keyError && <PlainError error={keyError} testId="simple-ai-key-error" />}
+              {serviceDirty && <p className="mt-1 text-small text-warning" data-testid="simple-ai-save-service-first">{t('simple.ai.provider.saveFirst')}</p>}
             </div>
             <div className="mt-[22px] flex shrink-0 gap-2">
-              <Button variant="primary" disabled={!canEdit || busy !== null || !canTest} loading={busy === 'check'} onClick={() => void checkIt()} data-testid="simple-ai-check">
+              <Button variant="primary" disabled={!canEdit || busy !== null || !canTest || serviceDirty} loading={busy === 'check'} onClick={() => void checkIt()} data-testid="simple-ai-check">
                 {busy === 'check' ? t('simple.ai.key.checking') : key.trim() || !view.keyPresent ? t('simple.ai.key.check') : t('simple.ai.key.recheck')}
               </Button>
             </div>
@@ -375,11 +379,13 @@ export function AiHelper(): React.JSX.Element {
             </div>
           ) : (
             <div className="flex items-center justify-between gap-3">
-              <p className="text-small text-muted">{keyReady ? t('simple.ai.panel.off') : t('simple.ai.turnOn.needKey')}</p>
+              <p className="text-small text-muted" data-testid="simple-ai-off-why">
+                {!keyReady ? t('simple.ai.turnOn.needKey') : view.needsModel ? t('simple.ai.model.first') : t('simple.ai.panel.off')}
+              </p>
               {canEdit && (
                 <Button
                   variant="primary"
-                  disabled={busy !== null || !keyReady}
+                  disabled={busy !== null || !keyReady || !!view.needsModel}
                   loading={busy === 'on'}
                   onClick={() => void turnOn()}
                   data-testid="simple-ai-on"
