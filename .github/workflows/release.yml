@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   release-mac:
-    runs-on: blacksmith-6vcpu-macos-latest
+    runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -67,7 +67,7 @@ jobs:
     # Runs after the mac job so both publish into the SAME release —
     # parallel jobs each create their own release for the tag (learned the hard way).
     needs: release-mac
-    runs-on: blacksmith-2vcpu-windows-2025
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 

@@ -10,11 +10,22 @@ on:
   pull_request:
     branches: [main]
 
+# Runners. Linux jobs run on Blacksmith (free tier: 3,000 x64 2-vCPU minutes a month per org;
+# docs.blacksmith.sh/blacksmith-runners/overview). macOS and Windows stay on GitHub-hosted runners by
+# default: they are free and unmetered for a public repo, while Blacksmith bills a macOS 6-vCPU minute
+# as 20 free minutes and a Windows 2-vCPU minute as 2. Each can be switched without a code change via
+# a repository variable (Settings → Secrets and variables → Actions → Variables):
+#   CI_LINUX_RUNNER    default blacksmith-2vcpu-ubuntu-2404   (ubuntu-latest = back on GitHub,
+#                      e.g. when the month's Blacksmith minutes run out)
+#   CI_MAC_RUNNER      default macos-14                       (e.g. blacksmith-6vcpu-macos-15)
+#   CI_WINDOWS_RUNNER  default windows-latest                 (e.g. blacksmith-2vcpu-windows-2025)
+# The perf job's TOTAL_PERF_SCALE follows the Linux runner (it is this machine vs the budgets' laptop).
+
 jobs:
   test:
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -42,10 +53,10 @@ jobs:
   # fails when one is over 150 % of its budget × TOTAL_PERF_SCALE (this runner vs the laptop the
   # budgets were measured on). The 500k run is manual: npm run perf -- --vouchers 500000.
   perf:
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ${{ vars.CI_LINUX_RUNNER || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 45
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
@@ -71,10 +82,11 @@ jobs:
         env:
           TOTAL_PERF: '1'
           TOTAL_PERF_DATA: ${{ runner.temp }}/perf100k
-          TOTAL_PERF_SCALE: '1.6'
+          # GitHub's ubuntu-latest measured 1.6 (#104); Blacksmith 2-vCPU: provisional, re-measured on #214.
+          TOTAL_PERF_SCALE: ${{ startsWith(vars.CI_LINUX_RUNNER || 'blacksmith', 'blacksmith') && '1.6' || '1.6' }}
 
   smoke-mac:
-    runs-on: blacksmith-6vcpu-macos-latest
+    runs-on: ${{ vars.CI_MAC_RUNNER || 'macos-14' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -110,7 +122,7 @@ jobs:
   # only — it's the slowest job, and PRs already get the smoke-mac coverage above.
   e2e-mac:
     if: github.event_name == 'push'
-    runs-on: blacksmith-6vcpu-macos-26
+    runs-on: ${{ vars.CI_MAC_RUNNER || 'macos-14' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -149,7 +161,7 @@ jobs:
   # build whose latest.yml must name the installer exactly, and the smoke again against the
   # PACKAGED exe (asar, extraResources fonts, DPAPI secret store). docs/windows.md has the matrix.
   build-win:
-    runs-on: blacksmith-2vcpu-windows-2025
+    runs-on: ${{ vars.CI_WINDOWS_RUNNER || 'windows-latest' }}
     timeout-minutes: 75
     steps:
       # Hosted runners scan every new file (node_modules, scratch company DBs, the -wal/-shm SQLite
