@@ -20,7 +20,7 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
-- **GST golden fixtures and official schema checks** (#PRNUM, Phase 2a of the upgrade plan). Plain
+- **GST golden fixtures and official schema checks** (#207, Phase 2a of the upgrade plan). Plain
   words: nothing changes on screen. 63 bills worked out by hand (intra / inter-state, B2B, B2C small /
   large by date, SEZ and exports with / without tax, reverse charge, imports, blocked credit,
   composition and unregistered businesses, credit / debit notes incl. CDNUR by the original bill,
