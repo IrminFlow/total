@@ -260,7 +260,7 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   the folder after (it never did — found in #197's review); the scratch rekey checks that
   `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it; a swap that fails (copy / fsync / rename) removes its copy and
   reopens the untouched books instead of leaving a closed handle.
-- **A bill for someone with no days to pay is no longer late the next day** (#TBD). Plain words: in
+- **A bill for someone with no days to pay is no longer late the next day** (#202). Plain words: in
   the simple screens, a bill on credit to a customer (or from a supplier) with no "days to pay" said
   "no due date set" but was saved as due on the bill's own date, so the next day it counted as late.
   New bills like that are now saved without a due date, so they are never late until you give the
