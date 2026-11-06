@@ -219,7 +219,9 @@ done on main were dropped. One line each; the pointer says where to look.
 
 ## 7. Dependabot / dependency leftovers
 
-- Electron 37 → 43 major (PR #3 open): fixes ~50 alerts (fixed in 38.8.6 / 39.8.x / 41.10.x); needs its own WP — rebuild the SQLite cipher driver, full e2e on mac + Windows, DMG / EXE install check
+- ~~Electron 37 → 43 major (PR #3 open): fixes ~50 alerts (fixed in 38.8.6 / 39.8.x / 41.10.x); needs its own WP — rebuild the SQLite cipher driver, full e2e on mac + Windows, DMG / EXE install check~~ DONE — PR #208 (Electron 45.2.3, driver 13.0.3 Node-API; supersedes #180 / #3; needs macOS 13+)
+- Electron 46 removes the sync `safeStorage` calls (`isEncryptionAvailable` / `encryptString` / `decryptString`, deprecated in 45): `services/secretStore.ts` + `secrets.ts` must move to the async API (`isAsyncEncryptionAvailable` / `encryptStringAsync` / `decryptStringAsync` — the same key stores, old data decrypts) before the next Electron major — PR #208
+- Cheque and barcode-label PDFs ask for no margin (`margins: 'none'`) but have always printed with Electron's 1 cm default (printToPDF never read `marginType`; found in PR #208, prints kept as they were). Fixing it (`margins: { top: 0, … }`) moves every printed cheque by 1 cm — owner decision, check against a real cheque leaf first
 - vitest 3 → 5 major (PRs #7 and #14 open; removes tinypool): fixes tinypool (critical, dev-only), vitest / @vitest/mocker alerts; needs its own WP (test:db under Electron-as-Node, renderer config)
 - No fix published: sprintf-js (medium), http-cache-semantics (high), extract-zip (high, via electron's installer) — `package-lock.json`, re-check when Electron moves
 - ~~site/ (deferred): next 16.3.1 → 16.3.8 (PR #63, fixes critical / high alerts), sharp 0.35.5 (PR #16), source-map-js 1.2.2 (PR #13)~~ DONE — PR #189 (one bump, `npm run build` passes; supersedes #16 / #13; then next 16.4.5 (critical advisories GHSA-2464-fhr4-w9xw / GHSA-673q-mjm6-r5xr / GHSA-p3m5-59mp-jv5r affect 16.0–16.4.0; `npm audit --omit=dev` clean); supersedes #184 too)

@@ -20,6 +20,13 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
+**Plain words** (#208). Total now runs on Electron 45 (from 37), with the newer security fixes of
+its Chromium and Node. **It needs macOS 13 Ventura or later** (Electron dropped macOS 11 and 12).
+Books, backups and passphrase-locked books open exactly as before — nothing in them changes.
+For developers: the SQLite driver is better-sqlite3-multiple-ciphers 13 (Node-API, prebuilt per
+platform — no `@electron/rebuild` step; SQLite 3.53.4); electron-builder 26.18; the packaged app
+carries only its own platform's driver binary.
+
 **Plain words** (#194). Total is smaller. Seven rarely used tools are gone, and seven more stay out of
 sight until a business actually uses them. Nothing already in your books changes.
 
