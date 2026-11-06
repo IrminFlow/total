@@ -20,7 +20,7 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
-**GST gateway on screen, test mode** (#PR2NUM; upgrade plan Phase 4, part 2). Plain words: the
+**GST gateway on screen, test mode** (#211; upgrade plan Phase 4, part 2). Plain words: the
 e-Invoice & e-way bill screen has a **Portal (test)** button per document, and the GSTR-1 / GSTR-3B
 screens a **Send to the portal (test mode)** panel. It signs in with a code, sends the return,
 checks it, sets off the liability (GSTR-3B) and files it with the EVC code. The GSTR-2B screen can

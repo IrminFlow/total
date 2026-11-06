@@ -134,7 +134,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Off-standard implied rate stays a warning (no source on what the portal accepts) — PR #93
 - A note to an unregistered buyer whose original invoice is not found (no return link, no reference = invoice number, no bill set against) is put in CDNUR / B2CS by its own value — PR #187, `services/gst.ts` originalInvoices
 - ~~Unused constant `GSTR3B_QRMP_DUE_DAY = 22` still exported from the close checklist~~ DONE — PR #118
-- "Exporting JSON" is treated as "prepared"; filing / payment evidence is a manual mark only — GPT review, `services/gst.ts` (filing evidence: the gateway now writes the ARN / date into `gstFiled` when a return is filed through it — a real adapter only; a Test GSP filing is labelled and never counts — PR #209; payment evidence still manual)
+- "Exporting JSON" is treated as "prepared"; filing / payment evidence is a manual mark only — GPT review, `services/gst.ts` (filing evidence: the gateway now writes the ARN / date into `gstFiled` when a return is filed through it — a real adapter only; a Test GSP filing is labelled and never counts — PR #209, on screen in PR #211; payment evidence still manual)
 
 ### Windows (needs a real machine — CI can't check)
 - NSIS install / uninstall, SmartScreen dialog, in-place update (first one works only from the release after 0.11.0) — PR #109
@@ -187,6 +187,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - GSTR-9 row labels, the ₹2 crore exemption (N. 15/2025), GSTR-9 / ITC-04 / IMS JSON are the app's own layouts; IMS record key; s.50 interest 18 %; 3B 4(B) / 4(D) wording — `src/shared/gst/sources.ts`
 - Table 13 doc codes and supply-challan category 12; NIC e-way sub-supply codes for challans; inter-State job-work proviso; approval read as a supply — WP 2.5b, `shared/gst/edocs.ts`, `shared/voucherEdit/stockNote.ts`
 - e-invoice patterns the IRP enforces, OthChrg for TCS, IST of NIC timestamps, DUPIRN shape, URL prefixes / headers — `shared/gst/einvoiceSchema.ts`, `services/nic.ts`
+- Phase 4 gateway leftovers (PR #211): a quarterly (QRMP) filer can't file through the gateway yet (`gateway_quarterly`); no Settings card for the gateway (only the Test GSP in 1.0); the AI queue doesn't call the gateway yet (Phase 3)
 - Every GSTN returns API shape the gateway uses (OTP sign-in, RETSAVE / RETSTATUS / offset / RETFILE with EVC, GET2B; status codes, ARN layout, session length): the developer.gst.gov.in pages are behind sign-in, so they were read only in GSP write-ups — `src/main/gstGateway/sources.ts` `GATEWAY_UNVERIFIED` — PR #209
 - State-code list not re-read — `src/shared/gst/states.ts`
 - TDS (WP 3.1 / 3.2): rounding (nearest rupee vs s.288B / s.516 ₹10), 194Q GST base and ₹10 cr condition, 194N not seeded, senior-citizen age under the 2025 Act, pre-FY26 figures; s.201(1A) / s.398(3)(a) interest wording, 26Q reason codes, Form 16A layout, TRACES month counting — migration 020, `services/tdsWorkbench.ts`
