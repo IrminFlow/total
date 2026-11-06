@@ -57,8 +57,11 @@ export const AUDIT_ENTITIES = [
   'group',
   'gst_ims',
   'gst2b_statement',
-  // Phase 4: the GST gateway — its settings, simulated (Test GSP) e-documents and return states.
+  // Phase 4: the GST gateway — its settings (id 0), a return's state on the portal (id =
+  // gst_gateway_returns.id) and a voucher's SIMULATED e-documents (id = the voucher id).
   'gst_gateway',
+  'gst_gateway_return',
+  'gst_gateway_edoc',
   'gst_self_invoice',
   'held_bill',
   'import_batch',

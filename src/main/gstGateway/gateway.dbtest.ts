@@ -15,7 +15,10 @@ import { createLedger } from '../services/masters'
 import { saveVoucher } from '../services/vouchers'
 import { listSalesInvoices, setTransport } from '../services/edocs'
 import { createSecretStore, insecureTestCipher, companyScope, type SecretStore } from '../services/secrets'
-import { getStatement, gst2bMismatches, store2bStatement } from '../services/assistants'
+import { getStatement, gst2bMismatches, statementSource, store2bStatement } from '../services/assistants'
+import { recon2b } from '../services/gst'
+import { getRecon2bTolerances } from '../services/gstIms'
+import { recon2bOptionsFrom } from '@shared/gst/recon2b'
 import { readGstFiled, readGstFiledAll } from '../services/dashboard'
 import { setGstFiled } from '../services/simpleTaxes'
 import { gatewayStatus, openGateway, readGatewaySettings, resetGatewaySessions, setGatewaySettings, type GatewayDeps } from './index'
@@ -157,7 +160,7 @@ describe('e-invoice / e-way bill in test mode', () => {
     expect(qr.iss).toMatch(/TEST-GSP/)
     expect(qr.data).toMatchObject({ Irn: irn, TotInvVal: 106200 })
     // Audited under the gateway, never as a voucher change.
-    expect(auditRows(b.db, 'gst_gateway').map((x) => JSON.parse(x.a!) as { irn: string; test: boolean })[0]).toMatchObject({ irn, test: true })
+    expect(auditRows(b.db, 'gst_gateway_edoc').map((x) => JSON.parse(x.a!) as { irn: string; test: boolean })[0]).toMatchObject({ irn, test: true })
     expect(voucherAudits()).toBe(auditsBefore)
     // Generating again is refused locally.
     await expect(generateIrnFlow(b.db, COMPANY, id, gw(b.db))).rejects.toThrow(/already has an IRN/)
@@ -209,7 +212,7 @@ describe('GSTR-1 / GSTR-3B through the gateway', () => {
     expect(readGstFiledAll(b.db)['2026-08']!.gstr1).toMatchObject({ arn: filed.arn, date: TODAY, by: 'owner', via: { provider: 'test-gsp', test: true } })
     expect(readGstFiled(b.db)).toEqual({})
     // The trail: create (saved) → processing → processed → filed, and the company gstFiled update.
-    expect(auditRows(b.db, 'gst_gateway').map((r) => (JSON.parse(r.a!) as { state: string }).state)).toEqual(['saved', 'processing', 'processed', 'filed'])
+    expect(auditRows(b.db, 'gst_gateway_return').map((r) => (JSON.parse(r.a!) as { state: string }).state)).toEqual(['saved', 'processing', 'processed', 'filed'])
     // A real "I've filed" afterwards replaces the simulated mark.
     setGstFiled(b.db, COMPANY, { period: '2026-08', form: 'gstr1', arn: 'AB2708261234567', date: TODAY }, 'owner', TODAY)
     expect(readGstFiled(b.db)['2026-08']!.gstr1).toMatchObject({ arn: 'AB2708261234567' })
@@ -241,6 +244,31 @@ describe('GSTR-1 / GSTR-3B through the gateway', () => {
     expect(readGstFiled(b.db)).toEqual({})
   })
 
+  it('a filing whose answer never reached the books: the portal\'s "already filed" names the ARN and it is recorded', async () => {
+    const b = books()
+    sale(b)
+    const g = await signedIn(b.db)
+    await returns.saveReturn(b.db, COMPANY, g, 'gstr1', '082026')
+    await returns.refreshReturnStatus(b.db, g, 'gstr1', '082026')
+    await returns.refreshReturnStatus(b.db, g, 'gstr1', '082026')
+    await returns.requestEvcOtp(b.db, COMPANY, g, 'gstr1', '082026', TODAY)
+    // File on the portal directly (as if the app crashed after the portal answered).
+    const direct = await g.adapter.fileReturn(g.who, g.session()!, 'gstr1', '082026', { pan: GSTIN.slice(2, 12), otp: TEST_GSP_OTP })
+    expect(returns.returnRecord(b.db, g, 'gstr1', '082026')!.state).toBe('processed')
+    const rec = await returns.fileReturn(b.db, COMPANY, g, 'gstr1', '082026', TEST_GSP_OTP, 'owner', TODAY)
+    expect(rec).toMatchObject({ state: 'filed', arn: direct.ack_num })
+    expect(readGstFiledAll(b.db)['2026-08']!.gstr1!.arn).toBe(direct.ack_num)
+  })
+
+  it('a quarterly (QRMP) filer is refused before anything is sent', async () => {
+    const b = books()
+    sale(b)
+    b.db.prepare("INSERT INTO meta (key, value) VALUES ('gstProfile', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(JSON.stringify({ filing: 'quarterly' }))
+    const g = await signedIn(b.db)
+    await expect(returns.saveReturn(b.db, COMPANY, g, 'gstr1', '082026')).rejects.toMatchObject({ code: 'gateway_quarterly' })
+    expect(b.db.prepare('SELECT COUNT(*) AS n FROM gst_gateway_returns').get()).toEqual({ n: 0 })
+  })
+
   it('with a REAL adapter the filing evidence counts: the ARN from the portal is the filed mark', async () => {
     const b = books()
     sale(b)
@@ -257,34 +285,42 @@ describe('GSTR-1 / GSTR-3B through the gateway', () => {
   })
 })
 
-describe('GSTR-2B fetch feeds the stored statement and the matcher', () => {
-  it('the simulated 2B carries the month\'s GSTIN purchases; the matcher matches the bill (₹40,000 + ₹7,200)', async () => {
+describe('GSTR-2B fetch: stored for the matcher, a simulated one never counts as the portal\'s', () => {
+  it('the simulated 2B carries the month\'s GSTIN purchases and the matcher matches the bill (₹40,000 + ₹7,200) — but Home / Taxes / the assistant never see it', async () => {
     const b = books()
     purchase(b)
     const g = await signedIn(b.db)
     const r = await returns.fetchGstr2b(b.db, g, '082026', 'owner')
-    expect(r).toEqual({ period: '082026', documents: 1, test: true, keptImported: false })
+    expect(r).toMatchObject({ period: '082026', documents: 1, test: true, keptImported: false, fileName: 'GSTR-2B 082026 (Test GSP — simulated)' })
     expect(b.db.prepare("SELECT source, file_name AS f FROM gst2b_statements WHERE period = '082026'").get()).toEqual({ source: 'gateway-test', f: 'GSTR-2B 082026 (Test GSP — simulated)' })
-    const m = gst2bMismatches(b.db, '2026-08', { today: TODAY })
-    expect(m.matched).toBe(1)
-    expect(m.rows).toEqual([])
+    expect(r.jsonText).toBe(getStatement(b.db, '082026', { includeTest: true })!.jsonText)
+    // The GSTR-2B screen's matcher on the fetched JSON: the bill matches.
+    const recon = recon2b(b.db, r.jsonText, '2026-08-01', '2026-08-31', recon2bOptionsFrom(getRecon2bTolerances(b.db)))
+    expect(recon.result.pairs.filter((p) => p.bucket === 'matched')).toHaveLength(1)
+    // A simulation is built from the books, so it always agrees: no reader may take it as the portal's.
+    expect(getStatement(b.db, '082026')).toBeNull()
+    expect(gst2bMismatches(b.db, '2026-08', { today: TODAY }).statement).toBeNull()
     expect(JSON.parse(auditRows(b.db, 'gst2b_statement')[0]!.a!)).toMatchObject({ period: '082026', documents: 1, source: 'gateway-test' })
   })
 
-  it('a test fetch never replaces a statement imported from a file; a file import replaces a test one', async () => {
+  it('a test fetch never replaces a real statement (a file import, or a real fetch); a file import replaces a test one', async () => {
     const b = books()
     purchase(b)
     const fileJson = JSON.stringify({ data: { gstin: GSTIN, rtnprd: '082026', docdata: { b2b: [] } } })
     store2bStatement(b.db, { jsonText: JSON.stringify({ data: { gstin: GSTIN, rtnprd: '082026', docdata: { b2b: [{ ctin: '24AAACS1234C1Z4', inv: [{ inum: 'G-55', idt: '10-08-2026', val: 47200, items: [{ txval: 40000, iamt: 7200 }] }] }] } } }), fileName: 'GSTR2B.json', period: '2026-08' }, 'owner')
     const g = await signedIn(b.db)
-    expect(await returns.fetchGstr2b(b.db, g, '082026', 'owner')).toMatchObject({ keptImported: true })
+    expect(await returns.fetchGstr2b(b.db, g, '082026', 'owner')).toMatchObject({ keptImported: true, fileName: 'GSTR2B.json' })
     expect(getStatement(b.db, '082026')!.fileName).toBe('GSTR2B.json')
+    // A real fetch's statement is kept too.
+    store2bStatement(b.db, { jsonText: fileJson.replace('082026', '062026'), fileName: 'portal', period: '2026-06', source: 'gateway' }, 'owner')
+    expect(await returns.fetchGstr2b(b.db, g, '062026', 'owner')).toMatchObject({ keptImported: true })
+    expect(statementSource(b.db, '062026')).toBe('gateway')
     // A test fetch of another month, then a file import over it: the file wins and is a file again.
-    purchase(b)
-    b.db.prepare("UPDATE vouchers SET date = '2026-07-10' WHERE id = (SELECT MAX(id) FROM vouchers)").run()
     await returns.fetchGstr2b(b.db, g, '072026', 'owner')
+    expect(statementSource(b.db, '072026')).toBe('gateway-test')
     store2bStatement(b.db, { jsonText: fileJson.replace('082026', '072026'), fileName: 'jul.json', period: '2026-07' }, 'owner')
     expect(b.db.prepare("SELECT source FROM gst2b_statements WHERE period = '072026'").get()).toEqual({ source: null })
+    expect(getStatement(b.db, '072026')!.fileName).toBe('jul.json')
   })
 
   it('a month whose 2B is not generated yet is not_ready; nothing is stored', async () => {

@@ -214,6 +214,7 @@ export const ERROR_MAP = {
   gateway_not_saved: e('errors.gateway.notSaved'),
   gateway_not_processed: e('errors.gateway.notProcessed'),
   gateway_not_ready: e('errors.gateway.notReady'),
+  gateway_quarterly: e('errors.gateway.quarterly'),
 
   // ---------- IPC boundary (src/main/ipc.ts) ----------
   duplicate_name: e('errors.duplicateName', 'name'),

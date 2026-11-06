@@ -18,6 +18,7 @@ import * as gst from '../services/gst'
 import * as gstAnnual from '../services/gstAnnual'
 import { getStatement, statementSource, store2bStatement } from '../services/assistants'
 import { recordGatewayFiling } from '../services/simpleTaxes'
+import { getGstProfile } from '../services/config'
 import { writeAudit } from '../services/audit'
 import { GatewayError, type ReturnsSession } from './types'
 import type { OpenGateway } from './index'
@@ -84,7 +85,7 @@ function writeRow(db: DB, g: OpenGateway, form: GatewayForm, period: string, pat
     const facts = (r: Row | undefined): Record<string, unknown> | null =>
       r ? { provider: r.provider, test: r.test === 1, form: r.form, period: r.period, state: r.state, referenceId: r.reference_id, arn: r.arn, filedOn: r.filed_on, errors: JSON.parse(r.errors_json) as unknown } : null
     const id = (db.prepare('SELECT id FROM gst_gateway_returns WHERE provider = ? AND test = ? AND form = ? AND period = ?').get(g.provider, g.test ? 1 : 0, form, period) as { id: number }).id
-    writeAudit(db, 'gst_gateway', id, before ? 'update' : 'create', facts(before), facts(after))
+    writeAudit(db, 'gst_gateway_return', id, before ? 'update' : 'create', facts(before), facts(after))
   })()
   return recordOf(rowOf(db, g, form, period)!)
 }
@@ -95,8 +96,13 @@ function needSession(g: OpenGateway): ReturnsSession {
   return s
 }
 
-function needRegular(company: CompanyInfo): void {
+function needRegular(db: DB, company: CompanyInfo): void {
   if (company.gstRegistrationType !== 'regular') throw new AppError('gst_filed_not_regular', 'Only a regular GST registration files GSTR-1 and GSTR-3B.')
+  // The gateway files month by month; a quarterly (QRMP) filer's quarter is not modelled yet —
+  // refused, never sent as three monthly returns.
+  if (getGstProfile(db).filing === 'quarterly') {
+    throw new AppError('gateway_quarterly', 'Filing a quarter through the portal from Total is not ready yet — prepare the files and file them on the portal.')
+  }
 }
 
 /** A return is filed after its period: refused locally for a month that has not ended. */
@@ -130,19 +136,21 @@ function returnJson(db: DB, company: CompanyInfo, form: GatewayForm, retPeriod: 
 
 /** RETSAVE: send the return's JSON; keeps the reference id (state saved). */
 export async function saveReturn(db: DB, company: CompanyInfo, g: OpenGateway, form: GatewayForm, retPeriod: string): Promise<GatewayReturnRecord> {
-  needRegular(company)
+  needRegular(db, company)
   const prior = rowOf(db, g, form, retPeriod)
   if (prior?.state === 'filed') throw new AppError('gateway_already_filed', `This ${form === 'gstr1' ? 'GSTR-1' : 'GSTR-3B'} is already filed.`)
   const data = returnJson(db, company, form, retPeriod)
   const s = needSession(g)
   const res = await g.adapter.saveReturn(g.who, s, form, retPeriod, data)
-  if (!g.test) {
-    // A real save is what was sent to the portal: the GSTR-9 "as filed" side, as an export records it.
-    const { from, to } = periodRange(retPeriod)
-    if (form === 'gstr1') gstAnnual.recordGstr1Export(db, retPeriod, data)
-    else gstAnnual.recordGstr3bExport(db, retPeriod, gst.gstr3b(db, company, from, to, retPeriod))
-  }
-  return writeRow(db, g, form, retPeriod, { state: 'saved', reference_id: res.reference_id, errors_json: '[]', saved_at: new Date(g.now()).toISOString() })
+  return db.transaction(() => {
+    if (!g.test) {
+      // A real save is what was sent to the portal: the GSTR-9 "as filed" side, as an export records it.
+      const { from, to } = periodRange(retPeriod)
+      if (form === 'gstr1') gstAnnual.recordGstr1Export(db, retPeriod, data)
+      else gstAnnual.recordGstr3bExport(db, retPeriod, gst.gstr3b(db, company, from, to, retPeriod))
+    }
+    return writeRow(db, g, form, retPeriod, { state: 'saved', reference_id: res.reference_id, errors_json: '[]', saved_at: new Date(g.now()).toISOString() })
+  })()
 }
 
 /** RETSTATUS of the last save: processing / processed / error (with the portal's error report). */
@@ -161,7 +169,7 @@ export async function refreshReturnStatus(db: DB, g: OpenGateway, form: GatewayF
  *  payable on the normal heads; cash = that cash + reverse charge), in paise — the adapter maps them
  *  onto its provider's request (the official offset request layout is UNVERIFIED, sources.ts). */
 export async function offsetLiability(db: DB, company: CompanyInfo, g: OpenGateway, retPeriod: string): Promise<GatewayReturnRecord> {
-  needRegular(company)
+  needRegular(db, company)
   const prior = rowOf(db, g, 'gstr3b', retPeriod)
   if (prior?.state !== 'processed') throw new AppError('gateway_not_processed', 'The saved GSTR-3B must be processed by the portal before the liability is set off.')
   const { from, to } = periodRange(retPeriod)
@@ -177,7 +185,7 @@ export async function offsetLiability(db: DB, company: CompanyInfo, g: OpenGatew
 
 /** EVC: ask the portal for the filing OTP (the return must be ready to file). */
 export async function requestEvcOtp(db: DB, company: CompanyInfo, g: OpenGateway, form: GatewayForm, retPeriod: string, today = todayISO()): Promise<{ sent: true }> {
-  needRegular(company)
+  needRegular(db, company)
   needPeriodOver(retPeriod, today)
   const prior = rowOf(db, g, form, retPeriod)
   const ready = form === 'gstr1' ? prior?.state === 'processed' : prior?.state === 'offset'
@@ -197,13 +205,22 @@ function isoFiled(s: string | undefined, today: string): string {
 export async function fileReturn(
   db: DB, company: CompanyInfo, g: OpenGateway, form: GatewayForm, retPeriod: string, otp: string, user: string | null, today = todayISO()
 ): Promise<GatewayReturnRecord> {
-  needRegular(company)
+  needRegular(db, company)
   needPeriodOver(retPeriod, today)
   const prior = rowOf(db, g, form, retPeriod)
   if (prior?.state === 'filed') return recordOf(prior)
   const ready = form === 'gstr1' ? prior?.state === 'processed' : prior?.state === 'offset'
   if (!ready) throw new AppError('gateway_not_ready', 'This return is not ready to file yet.')
-  const res = await g.adapter.fileReturn(g.who, needSession(g), form, retPeriod, { pan: g.who.gstin.slice(2, 12), otp })
+  let res: { ack_num: string; filed_on?: string }
+  try {
+    res = await g.adapter.fileReturn(g.who, needSession(g), form, retPeriod, { pan: g.who.gstin.slice(2, 12), otp })
+  } catch (e) {
+    // Already filed on the portal (an earlier answer that never reached the books — a crash, a
+    // lost connection): record the ARN the portal names instead of leaving the return stuck.
+    const info = e instanceof GatewayError && e.kind === 'duplicate' ? (e.info as { ack_num?: unknown; filed_on?: unknown } | undefined) : undefined
+    if (!info?.ack_num) throw e
+    res = { ack_num: String(info.ack_num), ...(typeof info.filed_on === 'string' ? { filed_on: info.filed_on } : {}) }
+  }
   const arn = String(res.ack_num ?? '').toUpperCase()
   if (!/^[A-Z0-9]{10,20}$/.test(arn)) throw new GatewayError('The portal returned no valid ARN')
   const filedOn = isoFiled(res.filed_on, today)
@@ -216,15 +233,20 @@ export async function fileReturn(
 
 // ---------- GSTR-2B ----------
 
-/** Fetch a month's GSTR-2B into gst2b_statements (source gateway / gateway-test), where the WP 3.4
- *  matcher, the mismatch assistant, Home and Taxes read it. A test fetch never replaces a
- *  statement imported from a file (`keptImported`). */
+/** Fetch a month's GSTR-2B into gst2b_statements (source gateway / gateway-test). A real fetch is
+ *  read by the mismatch assistant, Home and Taxes like an imported file; a SIMULATED one (Test GSP)
+ *  is kept apart — those readers never see it (getStatement) — and only the GSTR-2B screen's
+ *  matcher shows it, from the JSON returned here. A test fetch never replaces a real statement
+ *  (`keptImported`). */
 export async function fetchGstr2b(db: DB, g: OpenGateway, retPeriod: string, user: string | null): Promise<Gateway2bResult> {
   const s = needSession(g)
-  const imported = getStatement(db, retPeriod) && statementSource(db, retPeriod) === null
-  if (g.test && imported) return { period: retPeriod, documents: getStatement(db, retPeriod)!.documents, test: true, keptImported: true }
+  // A test fetch never replaces a REAL statement (imported from a file, or fetched from the portal).
+  const existing = getStatement(db, retPeriod, { includeTest: true })
+  if (g.test && existing && statementSource(db, retPeriod) !== 'gateway-test') {
+    return { period: retPeriod, documents: existing.documents, test: true, keptImported: true, jsonText: existing.jsonText, fileName: existing.fileName }
+  }
   const { json } = await g.adapter.fetchGstr2b(g.who, s, retPeriod)
   const label = g.test ? `GSTR-2B ${retPeriod} (Test GSP — simulated)` : `GSTR-2B ${retPeriod} (from the GST portal)`
   const info = store2bStatement(db, { jsonText: json, fileName: label, period: periodRange(retPeriod).month, source: g.test ? 'gateway-test' : 'gateway' }, user)
-  return { period: info.period, documents: info.documents, test: g.test, keptImported: false }
+  return { period: info.period, documents: info.documents, test: g.test, keptImported: false, jsonText: json, fileName: label }
 }

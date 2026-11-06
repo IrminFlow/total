@@ -29,17 +29,20 @@ chosen yet, so **live filing stays off and cannot be turned on in this version**
 only choice. Settings → NIC live filing works exactly as before. For accountants: no figure changes.
 A filing made through the gateway puts its ARN and date into the same "I've filed" record the Taxes
 screen keeps; a Test GSP filing is kept there labelled as a test and never counts as filed (Home's GST
-tile, deadlines and the month-end checklist ignore it). A GSTR-2B fetched through the gateway goes
-into the same stored statement the GSTR-2B matcher reads, marked as fetched; a simulated (test) 2B —
-built from your own purchase bills — never replaces a 2B imported from a file, and a file imported
-later replaces it. A simulated IRN or e-way bill is kept apart from the voucher: it never appears on
+tile, deadlines and the month-end checklist ignore it). A GSTR-2B fetched through the gateway is stored
+like an imported one, marked as fetched. A simulated (test) 2B — built from your own purchase bills,
+so it always agrees with them — is shown only on the GSTR-2B screen's matcher: Home, Taxes and the 2B
+assistant never take it for the portal's, it never replaces a real 2B (imported or fetched), and a
+file imported later replaces it. A quarterly (QRMP) filer can't file through the gateway yet. A simulated IRN or e-way bill is kept apart from the voucher: it never appears on
 a print and never locks the bill. For developers: `src/main/gstGateway/` (adapter contract
 `types.ts`, `testGsp.ts`, `nicAdapter.ts` — the NIC client folded behind it, `edocFlow.ts` — the
 IRN / e-way flows moved out of `services/nic.ts` unchanged, `returnsFlow.ts`, `sources.ts` with every
 call's official source and the UNVERIFIED list — the GSTN returns API pages are behind sign-in, so
 all GSTR-1 / 3B / 2B shapes are UNVERIFIED), `gateway:*` IPC (`ipcGateway.ts`, owner-only for portal
-calls, mapped in auditCoverage; audit entity `gst_gateway`), migration "GST gateway" (last:
-`gst_gateway_test_edocs`, `gst_gateway_returns`, `gst_test_gsp_state`, `gst2b_statements.source`),
+calls, mapped in auditCoverage; audit entities `gst_gateway` (settings), `gst_gateway_return`,
+`gst_gateway_edoc`), migration "GST gateway" (last: `gst_gateway_test_edocs`, `gst_gateway_returns`,
+`gst2b_statements.source`; `getStatement` skips `gateway-test` unless asked; the Test GSP keeps its
+simulated portal memory in memory per company, never in the company file),
 meta `gstGateway` (no secret; the password in the secret store under `companyScope(slug)`), `gstFiled`
 entries gain an optional `via` (`readGstFiled` = real filings only, `readGstFiledAll` = all). One
 contract suite (`contract.testutil.ts`) runs against the Test GSP and the NIC client over the fake NIC

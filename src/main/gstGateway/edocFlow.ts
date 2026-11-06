@@ -76,7 +76,7 @@ export const TEST_STORE: EdocStore = {
     db.prepare(`UPDATE gst_gateway_test_edocs SET ${sql}, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE voucher_id = ?`).run(...values, id)
   },
   // A simulated answer is not a change to the voucher: audited under the gateway's own entity.
-  audit: (db, id, before, after) => writeAudit(db, 'gst_gateway', id, 'update', { ...before, test: true, voucherId: id }, { ...after, test: true, voucherId: id })
+  audit: (db, id, before, after) => writeAudit(db, 'gst_gateway_edoc', id, 'update', { ...before, test: true }, { ...after, test: true })
 }
 
 // ---------- helpers ----------
