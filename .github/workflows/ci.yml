@@ -74,7 +74,7 @@ jobs:
           TOTAL_PERF_SCALE: '1.6'
 
   smoke-mac:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -110,7 +110,7 @@ jobs:
   # only — it's the slowest job, and PRs already get the smoke-mac coverage above.
   e2e-mac:
     if: github.event_name == 'push'
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
