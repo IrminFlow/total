@@ -1,7 +1,7 @@
 {
   "name": "total",
   "version": "0.12.0",
-  "description": "Total — fully offline accounting for macOS. Tally-grade books, modern experience.",
+  "description": "Total \u2014 fully offline accounting for macOS. Tally-grade books, modern experience.",
   "main": "out/main/index.js",
   "author": "Irmin Labs",
   "license": "UNLICENSED",
@@ -81,6 +81,7 @@
     "mac": {
       "icon": "resources/total.icns",
       "category": "public.app-category.finance",
+      "minimumSystemVersion": "13.0",
       "target": [
         "dmg",
         "zip"
