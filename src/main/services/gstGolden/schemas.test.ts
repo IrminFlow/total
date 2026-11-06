@@ -43,6 +43,10 @@ describe('vendored GST schemas', () => {
     expect(Object.keys(s.properties)).toEqual(expect.arrayContaining(['Version', 'TranDtls', 'DocDtls', 'SellerDtls', 'BuyerDtls', 'ItemList', 'ValDtls', 'AddlDocDtls']))
     expect(s.properties.ItemList).toMatchObject({ type: 'array' })
     expect(s.required).toEqual(['Version', 'TranDtls', 'DocDtls', 'SellerDtls', 'BuyerDtls', 'ItemList', 'ValDtls'])
+    // RefDtls' stray `required` is moved onto its PrecDocDtls items.
+    const ref = s.properties.RefDtls as unknown as { properties: Record<string, { items?: { required?: string[] } }> }
+    expect(ref.properties.PrecDocDtls!.items!.required).toEqual(['InvNo', 'InvDt'])
+    expect(ref.properties.required).toBeUndefined()
   })
 
   it('reject what they should (the checks are live, not vacuous)', () => {

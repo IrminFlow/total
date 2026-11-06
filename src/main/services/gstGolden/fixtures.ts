@@ -58,7 +58,7 @@ export const FIXTURES: GoldenFixture[] = [
     // The invoice value (GSTR-1 val, e-invoice TotInvVal) is the bill's total, 119.00.
     doc: { kind: 'sales', date: '2025-05-12', number: 'G106', party: 'regMH', rows: [{ item: 'widget', qty: '1', rate: 101 }] },
     expect: { lines: [{ taxable: 101, rate: 18, cgst: 9.09, sgst: 9.09 }], roundOff: -0.18, total: 119, gstr1: 'b2b', einvoice: true },
-    knownBug: { in: ['gstr1', 'einvoice'], reason: 'A rounded-DOWN bill: GSTR-1 val and the e-invoice TotInvVal report the unrounded 119.18 with RndOffAmt 0 — the round off sits on the party side, so the debit total is the unrounded figure' }
+    knownBug: { in: ['gstr1', 'einvoice'], reason: 'A rounded-DOWN bill: GSTR-1 val and the e-invoice TotInvVal report the unrounded 119.18 with RndOffAmt 0 — the round off sits on the party side, so the debit total is the unrounded figure', appGives: { gstr1: { 'b2b.0.inv.0.val': 119.18 }, einvoice: { 'ValDtls.RndOffAmt': 0, 'ValDtls.TotInvVal': 119.18 } } }
   },
   {
     id: 'B2B-07', title: 'Tax per line, not per rate group',
@@ -191,7 +191,7 @@ export const FIXTURES: GoldenFixture[] = [
     },
     // The tax reported is the tax the bill charged: 111.00 + 111.00 (GSTR-1 B2CS, 3B 3.1(a)).
     expect: { lines: [{ taxable: 1234, rate: 18, cgst: 111, sgst: 111 }], roundOff: 0, total: 1456, gstr1: 'b2cs', einvoice: false },
-    knownBug: { in: ['gstr1', 'gstr3b'], reason: 'Tax typed rounded to the rupee (111.00) is reported recomputed at the inferred rate (111.06), not as charged on the bill' }
+    knownBug: { in: ['gstr1', 'gstr3b'], reason: 'Tax typed rounded to the rupee (111.00) is reported recomputed at the inferred rate (111.06), not as charged on the bill — which one the return should carry is a CA question (UNVERIFIED: posted-tax-rupee)', appGives: { gstr1: { 'b2cs.0.camt': 111.06, 'b2cs.0.samt': 111.06, 'hsn.hsn_b2c.0.camt': 111.06, 'hsn.hsn_b2c.0.samt': 111.06 }, gstr3b: { 'sup_details.osup_det.camt': 111.06, 'sup_details.osup_det.samt': 111.06 } } }
   },
 
   // ───────────────────────── B2C ─────────────────────────
@@ -260,7 +260,8 @@ export const FIXTURES: GoldenFixture[] = [
     // Milk 20 L × 55 = 1,100 at 0%. Total 1,100. GSTR-1 Table 8 INTRAB2B 1,100; 3B 3.1(c) 1,100.
     // A bill of supply of nil-rated goods needs no e-invoice (no taxable supply).
     doc: { kind: 'sales', date: '2025-07-16', number: 'G310', party: 'regMH', rows: [{ item: 'milk', qty: '20', rate: 55 }] },
-    expect: { lines: [{ taxable: 1100, rate: 0 }], roundOff: 0, total: 1100, gstr1: 'none', einvoice: false }
+    expect: { lines: [{ taxable: 1100, rate: 0 }], roundOff: 0, total: 1100, gstr1: 'none', einvoice: false },
+    knownBug: { in: ['einvoice'], reason: 'The e-invoice export takes a bill of supply of nil-rated goods (only a buyer GSTIN is checked); e-invoicing covers tax invoices / notes (Notification 13/2020-CT, rule 48(4))', appGives: { einvoiceIncluded: true } }
   },
   {
     id: 'NIL-02', title: 'Nil-rated goods to an unregistered buyer in another state',
@@ -277,7 +278,7 @@ export const FIXTURES: GoldenFixture[] = [
     // POS 27. 3B 3.1(b) 10,000 / 1,800. e-invoice SupTyp SEZWP.
     doc: { kind: 'sales', date: '2025-08-01', number: 'G401', party: 'sezMH', rows: [{ item: 'widget', qty: '10', rate: 1000 }] },
     expect: { lines: [{ taxable: 10000, rate: 18, igst: 1800 }], roundOff: 0, total: 11800, gstr1: 'b2b', einvoice: true },
-    knownBug: { in: ['invoice'], reason: 'The invoice editor charges CGST + SGST to an SEZ unit in our own state (returns and e-invoice report IGST) — supplies to an SEZ are inter-state (s.7(5)(b) IGST Act)' }
+    knownBug: { in: ['invoice'], reason: 'The invoice editor charges CGST + SGST to an SEZ unit in our own state (returns and e-invoice report IGST) — supplies to an SEZ are inter-state (s.7(5)(b) IGST Act)', appGives: { invoice: { lines: [{ taxable: 10000, rate: 18, cgst: 900, sgst: 900 }] } } }
   },
   {
     id: 'SEZ-02', title: 'SEZ with payment, unit in another state',
@@ -291,7 +292,7 @@ export const FIXTURES: GoldenFixture[] = [
     // e-invoice SEZWOP, GstRt 18, IgstAmt 0.
     doc: { kind: 'sales', date: '2025-08-05', number: 'G403', party: 'sezDL', rows: [{ item: 'widget', qty: '10', rate: 1000 }] },
     expect: { lines: [{ taxable: 10000, rate: 18 }], roundOff: 0, total: 10000, gstr1: 'b2b', einvoice: true },
-    knownBug: { in: ['invoice', 'gstr1', 'einvoice'], reason: 'The invoice editor charges IGST on a supply under LUT (without payment): the bill total includes 18% the returns / e-invoice do not report' }
+    knownBug: { in: ['invoice', 'gstr1', 'einvoice'], reason: 'The invoice editor charges IGST on a supply under LUT (without payment): the bill total includes 18% the returns / e-invoice do not report', appGives: { invoice: { lines: [{ taxable: 10000, rate: 18, igst: 1800 }], total: 11800 }, gstr1: { 'b2b.0.inv.0.val': 11800 }, einvoice: { 'ValDtls.RndOffAmt': 1800, 'ValDtls.TotInvVal': 11800 }, schema: { einvoice: ['ValDtls.RndOffAmt: Number must be less than or equal to 99.99', '/ValDtls/RndOffAmt must be <= 99.99 {"comparison":"<=","limit":99.99}'] } } }
   },
   {
     id: 'EXP-01', title: 'Export with payment of IGST',
@@ -305,7 +306,7 @@ export const FIXTURES: GoldenFixture[] = [
     // 20 × 750 = 15,000, no IGST under LUT; total 15,000. 6A WOPAY rt 18 iamt 0; 3B 3.1(b) 15,000 / 0.
     doc: { kind: 'sales', date: '2025-08-07', number: 'G405', party: 'expWOP', rows: [{ item: 'widget', qty: '20', rate: 750 }] },
     expect: { lines: [{ taxable: 15000, rate: 18 }], roundOff: 0, total: 15000, gstr1: 'exp', einvoice: true },
-    knownBug: { in: ['invoice', 'gstr1', 'einvoice'], reason: 'The invoice editor charges IGST on a supply under LUT (without payment): the bill total includes 18% the returns / e-invoice do not report' }
+    knownBug: { in: ['invoice', 'gstr1', 'einvoice'], reason: 'The invoice editor charges IGST on a supply under LUT (without payment): the bill total includes 18% the returns / e-invoice do not report', appGives: { invoice: { lines: [{ taxable: 15000, rate: 18, igst: 2700 }], total: 17700 }, gstr1: { 'exp.0.inv.0.val': 17700 }, einvoice: { 'ValDtls.RndOffAmt': 2700, 'ValDtls.TotInvVal': 17700 }, schema: { einvoice: ['ValDtls.RndOffAmt: Number must be less than or equal to 99.99', '/ValDtls/RndOffAmt must be <= 99.99 {"comparison":"<=","limit":99.99}'] } } }
   },
   {
     id: 'EXP-03', title: 'Export with payment, cess paid too',
@@ -344,9 +345,14 @@ export const FIXTURES: GoldenFixture[] = [
     expect: { lines: [{ taxable: 1000, rate: 18, cgst: 90, sgst: 90 }], roundOff: 0, total: 1180, gstr1: 'cdnr', einvoice: true }
   },
   {
-    id: 'DN-01', title: 'Debit note to a customer for a price increase',
-    before: [{ kind: 'sales', date: '2025-04-15', number: 'G504', party: 'regMH', rows: [{ item: 'widget', qty: '10', rate: 1000 }] }],
-    // Service Income (no rate) 1,000 more; CGST 90; SGST 90; party 1,180. Implied 18%. 9B CDNR ntty D; 3B +1,000 / +90 / +90.
+    id: 'DN-01', title: 'Debit note to a customer: a service fee revised upwards',
+    before: [{
+      kind: 'sales', date: '2025-04-15', number: 'G504', party: 'regMH',
+      lines: [{ ledger: 'party', side: 'dr', amount: 5900 }, { ledger: 'serviceIncome', side: 'cr', amount: 5000 }, { ledger: 'cgstOut', side: 'cr', amount: 450 }, { ledger: 'sgstOut', side: 'cr', amount: 450 }]
+    }],
+    // The April service bill G504 (Service Income 5,000 + 450 + 450) is revised upwards by 1,000:
+    // Service Income (no rate, SAC 998313) 1,000 more; CGST 90; SGST 90; party 1,180. Implied 18%.
+    // 9B CDNR ntty D; 3B +1,000 / +90 / +90; e-invoice DBN, a service line with the bill's SAC.
     doc: {
       kind: 'debit_note', date: '2025-05-09', number: 'DN504', party: 'regMH', reference: 'G504',
       lines: [{ ledger: 'party', side: 'dr', amount: 1180 }, { ledger: 'serviceIncome', side: 'cr', amount: 1000 }, { ledger: 'cgstOut', side: 'cr', amount: 90 }, { ledger: 'sgstOut', side: 'cr', amount: 90 }]
@@ -373,7 +379,7 @@ export const FIXTURES: GoldenFixture[] = [
   {
     id: 'CN-06', title: 'Credit note on an export (CDNUR EXPWP)',
     before: [{ kind: 'sales', date: '2025-04-18', number: 'G507', party: 'expWP', rows: [{ item: 'widget', qty: '20', rate: 750 }] }],
-    // 4 × 750 = 3,000 → IGST 540 → 3,540. 9B CDNUR typ EXPWP, POS 96; 3B 3.1(b) −3,000 / −540; e-invoice CRN EXPWP.
+    // 4 × 750 = 3,000 → IGST 540 → 3,540. 9B CDNUR typ EXPWP (an export note carries no POS); 3B 3.1(b) −3,000 / −540; e-invoice CRN EXPWP.
     doc: { kind: 'credit_note', date: '2025-05-14', number: 'CN507', party: 'expWP', reference: 'G507', rows: [{ item: 'widget', qty: '4', rate: 750 }] },
     expect: { lines: [{ taxable: 3000, rate: 18, igst: 540 }], roundOff: 0, total: 3540, gstr1: 'cdnur', cdnurTyp: 'EXPWP', einvoice: true }
   },
@@ -455,12 +461,13 @@ export const FIXTURES: GoldenFixture[] = [
   },
   {
     id: 'IMP-01', title: 'Import of goods (IGST paid at customs)',
-    // Purchases 10,000 + IGST 18% 1,800 from a foreign supplier (state 96) → 3B 4(A)(1) IMPG IGST 1,800.
+    // Goods 10,000 from a foreign supplier (state 96), owed to the supplier; IGST 18% = 1,800 paid to
+    // customs from the bank on the bill of entry, booked on the same entry → 3B 4(A)(1) IMPG IGST 1,800.
     doc: {
       kind: 'purchase', date: '2025-08-21', number: 'P609', party: 'importer',
-      lines: [{ ledger: 'purchases', side: 'dr', amount: 10000 }, { ledger: 'igstIn', side: 'dr', amount: 1800 }, { ledger: 'party', side: 'cr', amount: 11800 }]
+      lines: [{ ledger: 'purchases', side: 'dr', amount: 10000 }, { ledger: 'igstIn', side: 'dr', amount: 1800 }, { ledger: 'party', side: 'cr', amount: 10000 }, { ledger: 'bank', side: 'cr', amount: 1800 }]
     },
-    expect: { lines: [{ taxable: 10000, rate: 18, igst: 1800 }], roundOff: 0, total: 11800, gstr1: 'none', einvoice: false, gstr3b: { itc_avl: { IMPG: { iamt: 1800 } }, itc_net: { iamt: 1800 } } }
+    expect: { lines: [{ taxable: 10000, rate: 18, igst: 1800 }], roundOff: 0, total: 10000, gstr1: 'none', einvoice: false, gstr3b: { itc_avl: { IMPG: { iamt: 1800 } }, itc_net: { iamt: 1800 } } }
   },
   {
     id: 'BLK-01', title: 'Blocked credit (s.17(5) food) — Circular 170 presentation',
@@ -490,14 +497,16 @@ export const FIXTURES: GoldenFixture[] = [
     company: 'composition',
     // 3 × 1,000 = 3,000; total 3,000.
     doc: { kind: 'sales', date: '2025-09-02', number: 'C702', party: 'regMH', rows: [{ item: 'widget', qty: '3', rate: 1000 }] },
-    expect: { lines: [{ taxable: 3000, rate: 0 }], roundOff: 0, total: 3000, gstr1: 'not-filed', einvoice: false }
+    expect: { lines: [{ taxable: 3000, rate: 0 }], roundOff: 0, total: 3000, gstr1: 'not-filed', einvoice: false },
+    knownBug: { in: ['einvoice'], reason: 'The e-invoice export takes a composition dealer’s bill of supply (only a buyer GSTIN is checked); a composition dealer issues no tax invoice and does not e-invoice', appGives: { einvoiceIncluded: true } }
   },
   {
     id: 'UNR-01', title: 'Unregistered business: no GST',
     company: 'unregistered',
     // 3 × 1,000 = 3,000 to a registered buyer in another state; total 3,000.
     doc: { kind: 'sales', date: '2025-09-03', number: 'U703', party: 'regKA', rows: [{ item: 'widget', qty: '3', rate: 1000 }] },
-    expect: { lines: [{ taxable: 3000, rate: 0 }], roundOff: 0, total: 3000, gstr1: 'not-filed', einvoice: false }
+    expect: { lines: [{ taxable: 3000, rate: 0 }], roundOff: 0, total: 3000, gstr1: 'not-filed', einvoice: false },
+    knownBug: { in: ['einvoice'], reason: 'An unregistered business’s sale goes into the e-invoice export (only the buyer GSTIN is checked) with no seller GSTIN', appGives: { einvoiceIncluded: true, schema: { einvoice: ['SellerDtls.Gstin: String must contain exactly 15 character(s)', 'SellerDtls.Gstin: invalid GSTIN', '/SellerDtls/Gstin must NOT have fewer than 15 characters {"limit":15}', '/SellerDtls/Gstin must match pattern "([0-9]{2}[0-9A-Z]{13})" {"pattern":"([0-9]{2}[0-9A-Z]{13})"}'] } } }
   },
 
   // ───────────────────────── advances (services) ─────────────────────────
@@ -514,7 +523,7 @@ export const FIXTURES: GoldenFixture[] = [
       gstr1Tables: { at: [{ pos: '27', sply_ty: 'INTRA', itms: [{ rt: 18, ad_amt: 10000, iamt: 0, camt: 900, samt: 900, csamt: 0 }] }] },
       gstr3b: { osup_det: { txval: 10000, camt: 900, samt: 900 } }
     },
-    knownBug: { in: ['gstr3b'], reason: 'GSTR-3B leaves the tax on advances (GSTR-1 11A / 11B) out of 3.1(a); GSTN auto-population adds them (UNVERIFIED: ask the CA)' }
+    knownBug: { in: ['gstr3b'], reason: 'GSTR-3B leaves the tax on advances (GSTR-1 11A / 11B) out of 3.1(a); GSTN auto-population adds them (UNVERIFIED: ask the CA)', appGives: { gstr3b: { 'sup_details.osup_det': { txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 } } } }
   },
   {
     id: 'ADV-02', title: 'Invoice adjusting an earlier advance (Table 11B)',
@@ -531,6 +540,6 @@ export const FIXTURES: GoldenFixture[] = [
       gstr1Tables: { txpd: [{ pos: '27', sply_ty: 'INTRA', itms: [{ rt: 18, ad_amt: 10000, iamt: 0, camt: 900, samt: 900, csamt: 0 }] }] },
       gstr3b: { osup_det: {} }
     },
-    knownBug: { in: ['gstr3b'], reason: 'GSTR-3B leaves the tax on advances (GSTR-1 11A / 11B) out of 3.1(a); GSTN auto-population adds them (UNVERIFIED: ask the CA)' }
+    knownBug: { in: ['gstr3b'], reason: 'GSTR-3B leaves the tax on advances (GSTR-1 11A / 11B) out of 3.1(a); GSTN auto-population adds them (UNVERIFIED: ask the CA)', appGives: { gstr3b: { 'sup_details.osup_det': { txval: 10000, iamt: 0, camt: 900, samt: 900, csamt: 0 } } } }
   }
 ]

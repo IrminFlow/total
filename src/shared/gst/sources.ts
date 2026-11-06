@@ -155,6 +155,8 @@ export const GST_UNVERIFIED: { id: string; text: string; sources: GstSourceId[] 
   { id: '3b-labels', text: 'GSTR-3B 4(B)/4(D) row wording per Notification 14/2022-CT from secondary sources; their meaning is from Circular 170/02/2022-GST.', sources: ['circular170'] },
   { id: 'gstr3b-schema-draft', text: 'The GSTR-3B save schema the exports are checked against (v7.1) is marked "Draft" on the GSTN API portal.', sources: ['gstr3bSchema'] },
   { id: 'einvoice-schema-repair', text: 'The published e-invoice 1.1 schema file is malformed; it is repaired in code to validate the e-invoice JSON — whether the IRP reads it the same way is not confirmed.', sources: ['einvoiceSchemaFile'] },
+  { id: 'posted-tax-rupee', text: 'An amount-only bill whose tax was typed rounded to the rupee is reported at its inferred rate on its value (e.g. 111.06), not the tax it charged (111.00) — which one GSTR-1 / 3B should carry is unconfirmed (golden fixture LDG-04).', sources: ['gstr1Schema'] },
+  { id: 'gstr3b-negative', text: 'In a month with only credit notes, GSTR-3B 3.1 / 3.2 and 4(A) come out negative (the save schema allows it; whether the portal accepts it or shows 0 and carries it forward is unconfirmed).', sources: ['gstr3bSchema'] },
   { id: 'gstr3b-advances', text: 'Whether GSTR-3B 3.1(a) must include tax on advances (GSTR-1 11A less 11B) — the app leaves it out; the golden fixtures expect it in (GSTN auto-population). Ask the CA.', sources: ['gstr3bAutoPopulation'] }
 ]
 

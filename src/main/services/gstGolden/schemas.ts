@@ -1,6 +1,6 @@
 // The OFFICIAL published JSON schemas of the GSTR-1 / GSTR-3B save payloads (GSTN developer
 // portal) and the e-invoice (GSTN e-invoice portal, schema 1.1), vendored byte-for-byte in
-// ./schemas/ (sources, dates and SHA-256 in ./schemas/SOURCES.md and GST_SOURCES in
+// ./schemas/ (sources, dates and SHA-256 in ./schemas/sources.json and GST_SOURCES in
 // shared/gst/sources.ts). No network at test time.
 //
 // The published files need a few mechanical repairs before a JSON Schema validator can use them;
@@ -11,11 +11,14 @@
 //    published as a one-element JSON array holding the element schema, not `{ type: 'array', items }`
 //    — wrapped; keys, `type` values and `required` names carry stray spaces / capitals ("AddlDocDtls ",
 //    "String", " number", " InvStDt ") — trimmed and lower-cased; a `required` list written INSIDE
-//    RefDtls' `properties` (meant for PrecDocDtls) is dropped (looser, never stricter); patterns
+//    RefDtls' `properties` (InvNo, InvDt — the PrecDocDtls fields) is moved onto the PrecDocDtls item
+//    whose properties it names (as the NIC spec marks them mandatory); patterns
 //    starting with the inline flag "(?i)" (not JavaScript regex syntax) lose the flag (the same
 //    field's `enum` still holds the exact upper-case values).
 //  - GSTR-1: the published file puts `if` / `then` inside the top-level `properties`, where they
 //    describe two properties literally named "if" and "then" — harmless, left as is.
+//  - e-invoice: the published file sets no `additionalProperties: false`, so a misspelt key passes
+//    the schema (as published — not loosened here; the golden test compares the fields by name).
 //  - all: `multipleOf: 0.01` on decimal amounts is checked with a 1e-6 tolerance (Ajv's
 //    multipleOfPrecision) — 2.05 / 0.01 is 204.99999999999997 in binary floating point, which
 //    would otherwise reject the GSTN's own sample.
@@ -47,10 +50,23 @@ function repair(node: unknown): unknown {
 
 function repairProperties(props: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
+  let stray: string[] | null = null
   for (const [rawKey, v] of Object.entries(props)) {
     const k = rawKey.trim()
-    if (k === 'required' && Array.isArray(v) && v.every((x) => typeof x === 'string')) continue
+    if (k === 'required' && Array.isArray(v) && v.every((x) => typeof x === 'string')) {
+      stray = v.map((x: string) => x.trim())
+      continue
+    }
     out[k] = Array.isArray(v) ? { type: 'array', items: repair(v[0]) } : repair(v)
+  }
+  // A `required` list misplaced among the properties belongs to the list field whose items name it.
+  if (stray) {
+    const names = stray
+    for (const v of Object.values(out) as { type?: string; items?: { properties?: Record<string, unknown>; required?: string[] } }[]) {
+      if (v?.type === 'array' && v.items?.properties && names.every((n) => n in v.items!.properties!)) {
+        v.items.required = [...new Set([...(v.items.required ?? []), ...names])]
+      }
+    }
   }
   return out
 }

@@ -30,11 +30,12 @@ Things to know about the version numbers:
   schemas (vendored, no network). For accountants: two export-format fixes the official GSTR-1
   schema showed — an export invoice no longer sends empty (`null`) shipping-bill / port fields, and a
   credit / debit note on an export (CDNUR EXPWP / EXPWOP) no longer sends a place of supply; no
-  figure changes. Seven disagreements between the app and the hand figures are listed for the owner
+  figure changes. Disagreements between the app and the hand figures are listed for the owner
   (to-do §2) and pinned as known: a rounded-DOWN bill's GSTR-1 / e-invoice value is its unrounded
   total; tax typed rounded to the rupee on an amount-only bill is reported recomputed; the invoice
   editor charges CGST + SGST to a same-state SEZ unit and IGST on LUT exports / SEZ supplies; GSTR-3B
-  leaves advances' tax out (UNVERIFIED rule). The app's GSTR-1 JSON still has Table 13 and 11A / 11B
+  leaves advances' tax out (UNVERIFIED rule); the e-invoice export also takes nil-rated bills of supply,
+  composition dealers' bills and an unregistered business's sales (it checks only the buyer's GSTIN). The app's GSTR-1 JSON still has Table 13 and 11A / 11B
   in the v4.1 shape; GSTN's v5.0 (Feb 2026) reshaped them. For developers:
   `src/main/services/gstGolden/` (fixtures + `gstGolden.dbtest.ts`, schemas + `schemas.test.ts`),
   devDependency `ajv`.
