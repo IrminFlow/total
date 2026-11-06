@@ -127,7 +127,7 @@ export function GstSteps({ x }: { x: Regular }): React.JSX.Element {
 
         <Step n={3} title={t('simple.taxes.gst.step3')} done={done.files} testId="taxes-step-3">
           <PrepareFiles x={x} />
-          <PortalSend x={x} />
+          <PortalSend key={x.period.period} x={x} />
         </Step>
 
         <Step n={4} title={t('simple.taxes.gst.step4')} done={done.filed} testId="taxes-step-4">

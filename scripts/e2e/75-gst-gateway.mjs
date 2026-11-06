@@ -146,6 +146,8 @@ await scenario('75-gst-gateway', async (h) => {
   await h.page.waitForSelector('[data-testid="gw-2b-fetch"]', { timeout: 15000 }) // still signed in from step 2
   await h.click('gw-2b-fetch')
   await h.page.waitForFunction(() => document.body.innerText.includes('G-55'), null, { timeout: 20000 })
+  await h.page.waitForSelector('[data-testid="gstr2b-simulated"]', { timeout: 10000 })
+  assertEq(await h.page.getByRole('tab', { name: /IMS actions/ }).count(), 0, 'no IMS actions tab on a simulated 2B')
   await h.shot('03-gstr2b-fetched')
   // The screen's matcher on the fetched JSON: the bill is matched.
   const recon = await h.invoke('gst:recon2b', { jsonText: (await h.invoke('gateway:2b:fetch', { period: retPeriod })).jsonText, from: `${month}-01`, to: `${month}-28` })
@@ -156,8 +158,7 @@ await scenario('75-gst-gateway', async (h) => {
 
   // ---------- nothing counts as really filed ----------
   const taxes = await h.invoke('simple:taxes', { period: month })
-  if (taxes.kind === 'regular') {
-    assertEq(taxes.filed.gstr1 ?? null, null, 'Taxes: a test filing is not a filed mark')
-    assertEq(taxes.testFiled?.gstr1?.arn, arn, 'Taxes: the test filing is kept, labelled')
-  }
+  assertEq(taxes.kind, 'regular', 'Taxes reads the regular GST answer')
+  assertEq(taxes.filed.gstr1 ?? null, null, 'Taxes: a test filing is not a filed mark')
+  assertEq(taxes.testFiled?.gstr1?.arn, arn, 'Taxes: the test filing is kept, labelled')
 })

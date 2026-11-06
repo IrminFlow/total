@@ -20,7 +20,7 @@ const STATE_LABEL: Record<GatewayReturnRecord['state'], string> = {
 }
 
 /** A 6-digit OTP box with its button. */
-function OtpEntry({ testId, label, hint, onSubmit, busy }: { testId: string; label: string; hint: string | null; onSubmit: (otp: string) => void; busy: boolean }): React.JSX.Element {
+function OtpEntry({ testId, label, hint, onSubmit, onResend, busy }: { testId: string; label: string; hint: string | null; onSubmit: (otp: string) => void; onResend: () => void; busy: boolean }): React.JSX.Element {
   const [otp, setOtp] = useState('')
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -35,6 +35,9 @@ function OtpEntry({ testId, label, hint, onSubmit, busy }: { testId: string; lab
       />
       <Button size="sm" variant="primary" data-testid={`${testId}-submit`} disabled={busy || otp.length !== 6} onClick={() => onSubmit(otp)}>
         {label}
+      </Button>
+      <Button size="sm" variant="ghost" data-testid={`${testId}-resend`} disabled={busy} onClick={() => { setOtp(''); onResend() }}>
+        New OTP
       </Button>
       {hint && <span className="text-hint text-muted">{hint}</span>}
     </div>
@@ -92,7 +95,7 @@ export function GatewayReturnPanel({ form, period, blocked }: { form: GatewayFor
 
         {!signedIn && state !== 'filed' && (
           otpFor === 'signin' ? (
-            <OtpEntry testId={`${tid}-signin`} label="Sign in" hint={otpHint} busy={busy} onSubmit={(otp) => void run(async () => { await api.gateway.signIn(otp); setOtpFor(null) }, 'Signed in to the portal')} />
+            <OtpEntry testId={`${tid}-signin`} label="Sign in" hint={otpHint} busy={busy} onResend={() => void run(() => api.gateway.requestOtp('signin'))} onSubmit={(otp) => void run(async () => { await api.gateway.signIn(otp); setOtpFor(null) }, 'Signed in to the portal')} />
           ) : (
             <div>
               <Button size="sm" data-testid={`${tid}-signin`} disabled={busy} onClick={() => void run(async () => { await api.gateway.requestOtp('signin'); setOtpFor('signin') })}>
@@ -126,7 +129,7 @@ export function GatewayReturnPanel({ form, period, blocked }: { form: GatewayFor
           </div>
         )}
         {signedIn && readyToFile && otpFor === 'evc' && (
-          <OtpEntry testId={`${tid}-file`} label={`File ${name}`} hint={otpHint} busy={busy}
+          <OtpEntry testId={`${tid}-file`} label={`File ${name}`} hint={otpHint} busy={busy} onResend={() => void run(() => api.gateway.requestOtp('evc', form, period))}
             onSubmit={(otp) => void run(async () => { await api.gateway.returnFile(form, period, otp); setOtpFor(null) }, `${name} filed${status?.testMode ? ' (test mode)' : ''}`)} />
         )}
       </div>
@@ -137,7 +140,7 @@ export function GatewayReturnPanel({ form, period, blocked }: { form: GatewayFor
 /** GSTR-2B: fetch the month's statement through the gateway (sign in first). The statement is
  *  stored where the matcher reads it; `onFetched` shows it on the screen. A test fetch never
  *  replaces a statement imported from a file (the kept one is shown instead). */
-export function Gateway2bFetch({ period, onFetched }: { period: string; onFetched: (jsonText: string, fileName: string | null) => void }): React.JSX.Element {
+export function Gateway2bFetch({ period, onFetched }: { period: string; onFetched: (jsonText: string, fileName: string | null, simulated: boolean) => void }): React.JSX.Element {
   const toast = useToasts()
   const queryClient = useQueryClient()
   const { data: status } = useQuery({ queryKey: ['gatewayStatus'], queryFn: api.gateway.status })
@@ -157,7 +160,7 @@ export function Gateway2bFetch({ period, onFetched }: { period: string; onFetche
   const label = `Fetch from the portal${status?.testMode ? ' (test mode)' : ''}`
   if (!status?.signedIn) {
     return otpOpen ? (
-      <OtpEntry testId="gw-2b-signin" label="Sign in" hint={status?.testHints ? `Test OTP: ${status.testHints.otp}` : null} busy={busy}
+      <OtpEntry testId="gw-2b-signin" label="Sign in" hint={status?.testHints ? `Test OTP: ${status.testHints.otp}` : null} busy={busy} onResend={() => void run(async () => { await api.gateway.requestOtp('signin') })}
         onSubmit={(otp) => void run(async () => { await api.gateway.signIn(otp); setOtpOpen(false) })} />
     ) : (
       <Button data-testid="gw-2b-signin" disabled={busy} title={status?.testMode ? TEST_MODE_NOTE : undefined}
@@ -170,7 +173,7 @@ export function Gateway2bFetch({ period, onFetched }: { period: string; onFetche
     <Button data-testid="gw-2b-fetch" disabled={busy} title={status.testMode ? TEST_MODE_NOTE : undefined}
       onClick={() => void run(async () => {
         const r = await api.gateway.fetch2b(period)
-        onFetched(r.jsonText, r.fileName)
+        onFetched(r.jsonText, r.fileName, r.test && !r.keptImported)
         toast.push(r.keptImported ? 'warning' : 'success', r.keptImported
           ? 'You already imported this month’s GSTR-2B from a file — kept it; a test fetch never replaces it'
           : `GSTR-2B fetched${r.test ? ' (test mode — simulated from your own purchase bills)' : ''}: ${r.documents} document${r.documents === 1 ? '' : 's'}`)
