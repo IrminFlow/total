@@ -260,7 +260,7 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   the folder after (it never did — found in #197's review); the scratch rekey checks that
   `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it; a swap that fails (copy / fsync / rename) removes its copy and
   reopens the untouched books instead of leaving a closed handle.
-- **GSTR-1's B2C (Large) row names the old limit for returns before August 2024** (#TBD). Plain words:
+- **GSTR-1's B2C (Large) row names the old limit for returns before August 2024** (#204). Plain words:
   the GSTR-1 summary said "inter-state > ₹1,00,000" even for months before 1 Aug 2024, when the
   limit was ₹2,50,000 (Total already sorted those invoices by the old limit — only the label was
   wrong). A return before Aug 2024 now says "> ₹2,50,000", one that spans the change names both
