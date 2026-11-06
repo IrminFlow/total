@@ -188,6 +188,22 @@ describe('an opening without a due date is late from its date; an ordinary bill 
     expect(usha.bills).toEqual([expect.objectContaining({ name: 'Opening', dueDate: '2025-04-01', overdueDays: 135 })])
     expect(() => personReminded(db, L('Usha'), 'sms', TODAY)).not.toThrow()
   })
+  it('the unnamed opening keeps counting late across 1 April: it is due on the books-begin day, not each FY start', () => {
+    ledger('Usha', 'Sundry Debtors', { openingBalance: 80_000 })
+    const days = (asOn: string): number => personView(db, INFO, L('Usha'), asOn)!.bills[0]!.overdueDays
+    expect(days('2026-03-31')).toBe(364)
+    expect(days('2026-04-01')).toBe(365)
+    expect(days('2026-05-10')).toBe(404)
+    expect(() => personReminded(db, L('Usha'), 'sms', '2026-04-01')).not.toThrow()
+    // The accountant Outstandings ages it the same way (owner decision, 7 Nov 2026).
+    const row = outstandings(db, 'receivable', '2026-05-10').find((p) => p.ledgerId === L('Usha'))!
+    expect(row.bills).toEqual([expect.objectContaining({ number: 'Opening', date: '2025-04-01', ageDays: 404, overdueDays: 404 })])
+  })
+  it('books that begin mid-year date the unnamed opening on that day', () => {
+    writeCompanyInfo(db, { ...INFO, booksBeginDate: '2025-06-15' })
+    ledger('Vimal', 'Sundry Debtors', { openingBalance: 50_000 })
+    expect(personView(db, INFO, L('Vimal'), '2026-04-02')!.bills).toEqual([expect.objectContaining({ date: '2025-06-15', dueDate: '2025-06-15', overdueDays: 291 })])
+  })
   it('an ordinary bill with no days to pay and no due date is never late (no due date set), and is not reminded', () => {
     ledger('Arun', 'Sundry Debtors')
     const sale = post({ kind: 'sale', date: '2025-06-01', customerId: L('Arun'), amount: { amount: '900' }, payment: { how: 'credit' } })
