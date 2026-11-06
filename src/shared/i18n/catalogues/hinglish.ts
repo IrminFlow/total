@@ -2270,6 +2270,7 @@ export const hinglish: Partial<Record<MessageKey, string>> = {
   'errors.gateway.notSaved': 'Pehle return portal par bhejein.',
   'errors.gateway.notProcessed': 'Portal ne abhi return ki jaanch poori nahi ki hai. Thodi der mein uska status phir se dekhein.',
   'errors.gateway.notReady': 'Yeh return abhi bharne ke liye taiyaar nahi hai. Ise bhejein, portal ki jaanch poori hone dein, phir dobara koshish karein.',
+  'errors.gateway.quarterly': 'Quarter ko Total se portal ke zariye bharna abhi taiyaar nahi hai. Files taiyaar karein aur unhe GST portal par bharein.',
   'errors.taxes.prepareFailed': 'File taiyaar nahi ho saki. Kuch bills mein pehle sudhaar chahiye — kaunse, yeh dekhne ke liye return full app mein kholein.',
 
   'assist.suggest.profitHinglish': 'Kitna profit hua is mahine?',

@@ -2376,6 +2376,7 @@ export const en = {
   'errors.gateway.notSaved': 'Send the return to the portal first.',
   'errors.gateway.notProcessed': 'The portal has not finished checking the return yet. Check its status again in a moment.',
   'errors.gateway.notReady': 'This return is not ready to file yet. Send it, wait until the portal has checked it, then try again.',
+  'errors.gateway.quarterly': 'Filing a quarter through the portal from Total is not ready yet. Prepare the files and file them on the GST portal.',
   'errors.taxes.prepareFailed': 'The file could not be prepared. Some bills need a fix first — open the return in the full app to see which.',
 
   // ---------- Ask Total (WP 10.1, src/main/assist/ — deterministic answers, no key needed) ----------

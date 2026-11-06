@@ -87,9 +87,10 @@ export interface Gateway2bResult {
   period: string
   documents: number
   test: boolean
-  /** Refused to replace a statement imported from a file (a test fetch never does). */
+  /** A test fetch found a REAL statement for the month (imported from a file, or fetched from the
+   *  portal) and kept it — a simulation never replaces one. */
   keptImported: boolean
-  /** The statement now stored for the month (the fetched one, or the imported one that was kept). */
+  /** The statement now stored for the month (the fetched one, or the real one that was kept). */
   jsonText: string
   fileName: string | null
 }

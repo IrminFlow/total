@@ -6,9 +6,9 @@
 // Deterministic: every number it issues is derived from the request (the IRN is the SHA-256 of
 // GSTIN + financial year + document type + number, as the IRP defines it — [IRN]); ack numbers,
 // e-way bill numbers, reference ids and ARNs are hashes of what identifies them, and every time
-// comes from the injected clock. Its "server" memory lives in a TestGspState: in memory for the
-// contract tests, the company's `gst_test_gsp_state` table in the app (so a duplicate IRN is still
-// a duplicate after a restart).
+// comes from the injected clock. Its "server" memory lives in a TestGspState — in memory, one per
+// company for this app session (gstGateway/index.ts), never in the company file: the simulator
+// writes nothing to the books (a restart forgets what it issued, like a sandbox reset).
 //
 // Simulated failures (each also documented on the Settings card):
 //   auth          any username / password other than the published test pair → NIC 1008 (e-invoice)
@@ -402,7 +402,7 @@ export function createTestGsp(opts: TestGspOptions = {}): GstGatewayAdapter {
       const gstin = gate(who, false)
       requireSession(gstin, s)
       const r = ret(form, gstin, retPeriod)
-      if (r.arn) throw fail('TEST-FILED', `The ${form.toUpperCase()} for ${retPeriod} is already filed`, 'duplicate')
+      if (r.arn) throw fail('TEST-FILED', `The ${form.toUpperCase()} for ${retPeriod} is already filed`, 'duplicate', { info: { ack_num: r.arn, filed_on: r.filedOn } })
       if (!r.saved || r.statusCalls < 2) throw fail('TEST-NOT-SAVED', 'Save the return and wait until it is processed before filing', 'portal')
       if (r.errors.length) throw fail('TEST-ERRORS', 'The saved return has errors — correct them and save again', 'validation')
       if (form === 'gstr3b' && !r.offset) throw fail('TEST-NOT-OFFSET', 'Set off the liability before filing the GSTR-3B', 'portal')

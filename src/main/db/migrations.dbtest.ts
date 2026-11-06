@@ -158,8 +158,7 @@ const EXPECTED_TABLES = [
   'voucher_fts_config',
   // Phase 4 (last) — the GST gateway
   'gst_gateway_test_edocs',
-  'gst_gateway_returns',
-  'gst_test_gsp_state'
+  'gst_gateway_returns'
 ]
 
 describe('migrate', () => {
@@ -225,9 +224,9 @@ describe('migrate', () => {
   })
 
   // Phase 4: the GST gateway — new tables + one nullable column; nothing existing changes.
-  it('the GST gateway is the last migration: three new tables and gst2b_statements.source (NULL for every earlier statement)', () => {
+  it('the GST gateway is the last migration: two new tables and gst2b_statements.source (NULL for every earlier statement)', () => {
     const last = MIGRATIONS.at(-1)!
-    for (const t of ['gst_gateway_test_edocs', 'gst_gateway_returns', 'gst_test_gsp_state']) expect(last).toContain(`CREATE TABLE ${t}`)
+    for (const t of ['gst_gateway_test_edocs', 'gst_gateway_returns']) expect(last).toContain(`CREATE TABLE ${t}`)
     expect(last.trimStart().startsWith('-- @foreign-keys-off')).toBe(false)
     expect(last.replace(/--[^\n]*/g, '')).not.toMatch(/DROP TABLE|\bUPDATE\b|\bINSERT\b/i)
     const db = freshDb()

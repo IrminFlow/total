@@ -2275,6 +2275,7 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'errors.gateway.notSaved': 'पहले रिटर्न पोर्टल पर भेजें।',
   'errors.gateway.notProcessed': 'पोर्टल ने अभी रिटर्न की जाँच पूरी नहीं की है। थोड़ी देर में उसकी स्थिति फिर से देखें।',
   'errors.gateway.notReady': 'यह रिटर्न अभी भरने के लिए तैयार नहीं है। इसे भेजें, पोर्टल की जाँच पूरी होने दें, फिर दोबारा कोशिश करें।',
+  'errors.gateway.quarterly': 'तिमाही को Total से पोर्टल के ज़रिए भरना अभी तैयार नहीं है। फ़ाइलें तैयार करें और उन्हें GST पोर्टल पर भरें।',
   'errors.taxes.prepareFailed': 'फ़ाइल तैयार नहीं हो सकी। कुछ बिलों में पहले सुधार चाहिए — कौन से, यह देखने के लिए रिटर्न पूरे ऐप में खोलें।',
 
   'assist.suggest.profitHinglish': 'इस महीने कितना मुनाफ़ा हुआ?',

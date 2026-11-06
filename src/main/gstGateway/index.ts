@@ -25,7 +25,7 @@ import { writeAudit } from '../services/audit'
 import { companyScope, type SecretStore } from '../services/secrets'
 import { appSecretStore } from '../services/secretStore'
 import { TEST_STORE, VOUCHER_STORE, type EdocCall, type EdocStore } from './edocFlow'
-import { createTestGsp, TEST_GSP_OTP, TEST_GSP_PASSWORD, TEST_GSP_USERNAME, type SimulatedInwardDoc, type TestGspState } from './testGsp'
+import { createTestGsp, memoryTestGspState, TEST_GSP_OTP, TEST_GSP_PASSWORD, TEST_GSP_USERNAME, type SimulatedInwardDoc } from './testGsp'
 import { GatewayError, type GatewayIdentity, type GstGatewayAdapter, type ReturnsSession } from './types'
 
 export { GatewayError } from './types'
@@ -72,6 +72,7 @@ const sessionKey = (slug: string, provider: string, username: string): string =>
 /** Forget every returns session (company switch / close, settings change). */
 export function resetGatewaySessions(): void {
   sessions.clear()
+  testPortals.clear()
 }
 
 export function gatewayStatus(db: DB, slug: string, store: SecretStore = appSecretStore(), now = Date.now()): GatewayStatus {
@@ -120,19 +121,25 @@ export function setGatewaySettings(
   return gatewayStatus(db, slug, store)
 }
 
-// ---------- the Test GSP's memory in the company file ----------
+// ---------- the Test GSP: one simulator per company for this app session ----------
+//
+// Its "portal" memory (issued IRNs, e-way bills, saved returns, OTPs) and its rate limiter live in
+// memory, never in the company file — the simulator writes nothing to the books. Forgotten when the
+// company closes (resetGatewaySessions), like a sandbox reset.
 
-export function dbTestGspState(db: DB): TestGspState {
-  return {
-    get: <T>(kind: string, key: string): T | null => {
-      const r = db.prepare('SELECT value FROM gst_test_gsp_state WHERE kind = ? AND key = ?').get(kind, key) as { value: string } | undefined
-      return r ? (JSON.parse(r.value) as T) : null
-    },
-    set: (kind, key, value) => {
-      if (value === null || value === undefined) db.prepare('DELETE FROM gst_test_gsp_state WHERE kind = ? AND key = ?').run(kind, key)
-      else db.prepare('INSERT INTO gst_test_gsp_state (kind, key, value) VALUES (?, ?, ?) ON CONFLICT(kind, key) DO UPDATE SET value = excluded.value').run(kind, key, JSON.stringify(value))
-    }
+interface TestPortal { adapter: GstGatewayAdapter; db: { current: DB } }
+const testPortals = new Map<string, TestPortal>()
+
+function testPortalFor(slug: string, db: DB, now: () => number): GstGatewayAdapter {
+  const existing = testPortals.get(slug)
+  if (existing) {
+    existing.db.current = db
+    return existing.adapter
   }
+  const ref = { current: db }
+  const adapter = createTestGsp({ state: memoryTestGspState(), now, inwardFor: (_gstin, period) => simulatedInward(ref.current, period) })
+  testPortals.set(slug, { adapter, db: ref })
+  return adapter
 }
 
 /** What the Test GSP's simulated GSTR-2B shows for a month: the company's own purchase bills from
@@ -183,7 +190,7 @@ export function openGateway(db: DB, slug: string, company: CompanyInfo, deps: Ga
   const settings = readGatewaySettings(db)
   const now = deps.now ?? Date.now
   const store = deps.store ?? appSecretStore()
-  const adapter = deps.adapter ?? createTestGsp({ state: dbTestGspState(db), now, inwardFor: (_gstin, period) => simulatedInward(db, period) })
+  const adapter = deps.adapter ?? testPortalFor(slug, db, now)
   const who: GatewayIdentity = { gstin: company.gstin.toUpperCase(), username: settings.username, password: passwordOf(slug, store) }
   const edocStore: EdocStore = adapter.test ? TEST_STORE : VOUCHER_STORE
   const key = sessionKey(slug, adapter.id, settings.username)
