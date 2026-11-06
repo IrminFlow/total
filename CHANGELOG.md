@@ -186,10 +186,12 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   Tally, "who owes me" could show a bill as still open (and a "bill is not open" warning) when one
   receipt or payment named the same bill twice with another bill between them; and a bill could get
   the name of an advance that had already been used up. For accountants: a voucher's bill
-  references are kept in Tally's order — two references to the same bill are joined only when they
+  references are kept in Tally's order — two Agst references to the same bill are joined only when they
   are next to each other (a reference joined to an earlier one settled, and spilled its excess
   oldest first, before the references between them); a bill the import opens under the entry's
-  number never reuses any named credit's name, used up or not (FY added, as simple mode does). For
+  number never reuses a name the party has had — a paid bill's, or any named credit's, used up or
+  not (FY added, as simple mode does) — and is one bill however many missing advances the entry
+  names (New references of one name are joined wherever they are). For
   developers: `BillAllocator.creditNames()` (a live view of the names `result()` already returned).
 - **Quantities with commas are read right in the full app** (#192). Plain words: typing "1,500" as a
   quantity in an invoice, stock note, stock journal, manufacture, physical stock count, order, the
