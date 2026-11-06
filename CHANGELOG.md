@@ -263,11 +263,13 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
 
 ### Security
 
-- **Dependency patch updates** (#201). Plain words: nothing you see changes; three libraries
-  Total uses got their security fixes. For developers: lockfile only — `vite` 7.3.6 → 7.3.7 (dev
-  server), `fast-uri` 3.1.8 → 3.1.9 (via electron-builder's ajv), `undici` 6.29.0 → 6.29.1 (the
-  `openai` client's HTTP stack) and 8.12.1 → 8.12.4 (jsdom, tests only). Replaces Dependabot #179,
-  #182 and #183.
+- **Dependency patch updates** (#201). Plain words: nothing you see changes; three libraries used
+  to build and test Total got their security fixes. For developers: lockfile only, all dev-time —
+  `vite` 7.3.6 → 7.3.7 (dev server), `fast-uri` 3.1.8 → 3.1.9 (electron-builder → ajv), `undici`
+  6.29.0 → 6.29.1 (node-gyp, used when native modules are rebuilt) and 8.12.1 → 8.12.4 (jsdom,
+  renderer tests). The app's own `fetch` — the `openai` client included — is the undici built into
+  Electron's Node, so it moves with the Electron upgrade, not here. Replaces Dependabot #179, #182
+  and #183.
 
 ## [0.12.0] - 2026-10-22
 
