@@ -19,8 +19,8 @@ import type { Role } from '../../services/roles'
 import type { SecretStore } from '../../services/secrets'
 import { writeAudit } from '../../services/audit'
 import { companyDir } from '../../paths'
-import { getAiSettings, readApiKey } from '../settings'
-import { defaultProviderFactory, settingsView } from '../ipc'
+import { getAiSettings } from '../settings'
+import { buildProvider, defaultProviderFactory, settingsView, type ProviderFactory } from '../ipc'
 import type { AiProvider } from '../types'
 import { captureFilesDir, captureInboxDir, deleteCaptureFile } from './files'
 import { addCaptureFile, fileStillUsed, getItem, listItems, patchItem, recoverQueue, removeItem, toCaptureDto, type CaptureItemRow } from './store'
@@ -44,7 +44,7 @@ export interface CaptureIpcDeps {
   session: () => { name: string | null; role: Role }
   secrets: () => SecretStore
   mock: () => boolean
-  providerFactory?: (opts: { apiKey: string | null; mock: boolean }) => AiProvider
+  providerFactory?: ProviderFactory
   /** Injected by tests; the app converts with Electron's nativeImage. */
   images?: ImageConverter
 }
@@ -71,7 +71,7 @@ export function registerCaptureIpc(handle: Handle, deps: CaptureIpcDeps): void {
     const c = deps.company()
     const e: CaptureEnv = {
       db: c.db, company: c.info, slug: c.slug, filesDir: captureFilesDir(companyDir(c.slug)),
-      provider: () => factory({ apiKey: readApiKey(deps.secrets()), mock: deps.mock() }),
+      provider: () => buildProvider(factory, deps.secrets(), deps.mock()),
       settings: (): AiSettings => getAiSettings(c.db),
       blocker: () => settingsView(getAiSettings(c.db), deps.secrets(), deps.mock()).blocker,
       images: deps.images ?? electronImages,

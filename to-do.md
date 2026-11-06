@@ -46,7 +46,7 @@ done on main were dropped. One line each; the pointer says where to look.
 
 ## 3. Things only the owner can supply
 
-- OpenAI API key for a live AI run (only mock runs so far; default model ids `gpt-6.1-sol` / `gpt-6-luna` unverified)
+- An AI key (any preset) or a local Ollama / LM Studio model for a live AI run (only mock runs and mocked HTTP so far). ~~Default model ids `gpt-6.1-sol` / `gpt-6-luna` unverified~~ DONE — PR #TBD (no built-in model id; picked from the service's list)
 - NIC e-invoice / e-way sandbox credentials (the client has never talked to the real portal) — `src/main/services/nic.ts`
 - Apple Developer ID certificate (`CSC_LINK` / `CSC_KEY_PASSWORD`) for signed, silently updating macOS builds — `release.yml`, `src/main/updater.ts`
 - A Windows code-signing certificate (SmartScreen warning until then) — PR #109

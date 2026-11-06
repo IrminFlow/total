@@ -69,6 +69,8 @@ export interface ChatHandlers {
 
 export interface AiProvider {
   readonly name: string
+  /** Phase 3a: what the endpoint can do (shared/aiProviders.ts). Absent = everything (the mock). */
+  readonly capabilities?: { tools: boolean; structured: boolean; images: boolean; files: boolean }
   chat(req: ChatRequest, handlers?: ChatHandlers): Promise<ChatResult>
   /** Model ids the key can use. */
   models(signal?: AbortSignal): Promise<string[]>

@@ -15,6 +15,7 @@ import { screenForDraft } from '../components/ai/AiDraftReview'
 import { useNav, useSession } from '../state/stores'
 import { AiSection } from '../screens/settings/AiSection'
 import { askDraftScreen } from '../simple/askTargets'
+import { providerViewOf } from '@shared/aiProviders'
 
 const invoke = vi.fn()
 
@@ -74,7 +75,7 @@ const SETTINGS = {
     enabled: true, noticeAcceptedAt: '2026-10-01T10:00:00.000Z', noticeAcceptedBy: 'Owner', noticeVersion: 1, defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna',
     privacy: { maskIds: true, pseudonymiseParties: false }, prices: {}, maxSteps: 8
   },
-  keyPresent: true, keyHint: '…WXYZ', secureStorageAvailable: true, mock: false, ready: true, blocker: null
+  provider: providerViewOf(), keyPresent: true, keyHint: '…WXYZ', secureStorageAvailable: true, mock: false, ready: true, blocker: null
 }
 
 let draft: AiDraftDto

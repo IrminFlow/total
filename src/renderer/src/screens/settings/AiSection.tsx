@@ -20,6 +20,7 @@ import { confirmDialog } from '../../lib/dialogs'
 import { Badge, Banner, Button, Checkbox, Field, Panel, SectionTitle, Segmented, SkeletonRows, TextInput } from '../../components/ui'
 import { DataTable, defineColumns } from '../../components/table'
 import { AiMemoryPanel } from './AiMemoryPanel'
+import { AiProviderPanel } from './AiProviderPanel'
 import { CAPABILITY_REFUSED_TEXT, canManageAi } from '../../lib/capabilities'
 
 const fmtInt = (n: number): string => n.toLocaleString('en-IN')
@@ -135,8 +136,9 @@ export function AiSection(): React.JSX.Element {
             <li>The assistant is optional and off by default. Total stays fully offline until you turn it on here.</li>
             <li>
               When you ask a question, this computer sends your question, the conversation so far, and the results of the reports the assistant
-              looks up (for example a ledger statement or the profit and loss) to <strong>OpenAI</strong>, using <strong>your own API key</strong>.
-              OpenAI’s terms for API use apply. Requests ask OpenAI not to store the conversation (<span className="num">store: false</span>).
+              looks up (for example a ledger statement or the profit and loss) to the AI service chosen below — now <strong data-testid="ai-notice-provider">{view.provider.label}</strong>
+              {view.provider.local ? ' (on this computer: nothing goes over the internet)' : <>, using <strong>your own API key</strong>. That service’s terms for API use apply</>}.
+              {view.provider.preset === 'openai' && <> Requests ask OpenAI not to store the conversation (<span className="num">store: false</span>).</>}
             </li>
             <li>Nothing else leaves this computer: no files, no backups, no other companies. Your books stay in this folder.</li>
             <li>GSTINs, PANs and bank numbers are masked by default; you can also replace party names with aliases.</li>
@@ -170,8 +172,14 @@ export function AiSection(): React.JSX.Element {
         </div>
       </Panel>
 
+      <AiProviderPanel key={`${view.provider.preset}|${view.provider.baseUrl}|${view.provider.headerNames.join(',')}`} view={view} isOwner={isOwner} />
+      {!view.provider.caps.tools && (
+        <Banner tone="info" testId="ai-no-tools">
+          This service can’t use Total’s tools: it can answer only from what the conversation shows — it can’t read your books or make drafts.
+        </Banner>
+      )}
       <KeyPanel view={view} isOwner={isOwner} />
-      <ModelsPanel view={view} isOwner={isOwner} />
+      <ModelsPanel key={`${s.defaultModel}|${s.fastModel}`} view={view} isOwner={isOwner} />
 
       <Panel className="p-5">
         <h3 className="mb-2 text-detail font-semibold">Privacy</h3>
@@ -271,10 +279,11 @@ function KeyPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean })
 
   return (
     <Panel className="p-5">
-      <h3 className="mb-1 text-detail font-semibold">OpenAI API key</h3>
+      <h3 className="mb-1 text-detail font-semibold">{view.provider.label} API key</h3>
       <p className="mb-3 text-body-sm text-muted">
-        Stored encrypted by your operating system’s keychain, outside every company file and backup, and used for all companies on this
-        computer. It never leaves the app except to OpenAI.
+        {view.provider.needsKey ? '' : 'Optional for this service. '}Stored encrypted by your operating system’s keychain, outside every company file and backup, and used for all companies on this
+        computer (each service keeps its own key). It never leaves the app except to {view.provider.label}.
+        {view.provider.keyPage && <> Get one at <span className="num">{view.provider.keyPage}</span>.</>}
       </p>
       {!view.secureStorageAvailable && (
         <Banner tone="warning" className="mb-3">
@@ -289,14 +298,14 @@ function KeyPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean })
         </Banner>
       )}
       <div className="flex items-end gap-2">
-        <Field label="API key" hint={view.keyPresent ? `A key is saved (${view.keyHint}). Type a new one to replace it.` : 'Starts with sk-'}>
+        <Field label="API key" hint={view.keyPresent ? `A key is saved (${view.keyHint}). Type a new one to replace it.` : view.provider.preset === 'openai' ? 'Starts with sk-' : view.provider.needsKey ? 'Paste the key from the service' : 'Not needed for a service on this computer'}>
           <TextInput
             type="password"
             autoComplete="off"
             spellCheck={false}
             className="num"
             value={key}
-            placeholder={view.keyPresent ? '••••••••••••' : 'sk-…'}
+            placeholder={view.keyPresent ? '••••••••••••' : view.provider.preset === 'openai' ? 'sk-…' : ''}
             disabled={!isOwner || !!blocked || busy}
             onChange={(e) => setKey(e.target.value)}
             data-testid="input-ai-key"
@@ -329,12 +338,14 @@ function KeyPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean })
       </div>
       <div className="mt-3 flex items-center gap-3">
         <Button
-          disabled={!isOwner || busy || (!view.keyPresent && !view.mock)}
+          disabled={!isOwner || busy || (!view.keyPresent && !view.mock && view.provider.needsKey)}
           loading={busy && test === null}
           onClick={async () => {
             setBusy(true)
             try {
-              setTest(await aiApi.testConnection())
+              const r = await aiApi.testConnection()
+              setTest(r)
+              if (r.picked) await queryClient.invalidateQueries({ queryKey: ['aiSettings'] })
             } catch (err) {
               toast.push('error', (err as Error).message)
             } finally {
@@ -349,8 +360,16 @@ function KeyPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean })
           <span className="text-body-sm" data-testid="ai-test-result" data-ok={test.ok ? 'true' : 'false'}>
             {test.ok ? (
               <>
-                Connected — {test.models.length} models. Default model {test.defaultModelFound ? <Badge tone="success">found</Badge> : <Badge tone="danger">not offered</Badge>}{' '}
-                · fast model {test.fastModelFound ? <Badge tone="success">found</Badge> : <Badge tone="danger">not offered</Badge>}
+                Connected — {test.models.length} models.{' '}
+                {test.picked && <span data-testid="ai-test-picked">Picked <span className="num">{test.picked.defaultModel}</span> (fast <span className="num">{test.picked.fastModel}</span>) from the list. </span>}
+                {test.models.length === 0 ? (
+                  'This service lists no models — type the model id below.'
+                ) : (
+                  <>
+                    Default model {test.defaultModelFound ? <Badge tone="success">found</Badge> : <Badge tone="danger">not offered</Badge>}{' '}
+                    · fast model {test.fastModelFound ? <Badge tone="success">found</Badge> : <Badge tone="danger">not offered</Badge>}
+                  </>
+                )}
               </>
             ) : (
               <span className="text-danger">{test.error}</span>
@@ -377,8 +396,8 @@ function ModelsPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean
   const [fast, setFast] = useState(s.fastModel)
   const [prices, setPrices] = useState<Record<string, Record<keyof AiModelPrice, string>>>(() => priceText(s.prices, [s.defaultModel, s.fastModel]))
   const [busy, setBusy] = useState(false)
-  const defErr = aiModelIdSchema.safeParse(def).success ? undefined : 'Letters, digits and . _ : - / only'
-  const fastErr = aiModelIdSchema.safeParse(fast).success ? undefined : 'Letters, digits and . _ : - / only'
+  const defErr = def.trim() === '' ? 'Pick or type a model' : aiModelIdSchema.safeParse(def).success ? undefined : 'Letters, digits and . _ : - / only'
+  const fastErr = fast.trim() === '' ? undefined : aiModelIdSchema.safeParse(fast).success ? undefined : 'Letters, digits and . _ : - / only'
   const models = [...new Set([def.trim(), fast.trim()].filter(Boolean))]
   const priceErrors = models.flatMap((m) =>
     (['inputPerM', 'cachedInputPerM', 'outputPerM'] as const).filter((k) => parseUsdToMicro(prices[m]?.[k] ?? '') === undefined).map((k) => `${m} ${k}`)
@@ -396,7 +415,7 @@ function ModelsPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean
           outputPerM: parseUsdToMicro(p?.outputPerM ?? '') ?? null
         }
       }
-      await aiApi.setSettings({ defaultModel: def.trim(), fastModel: fast.trim(), prices: table })
+      await aiApi.setSettings({ defaultModel: def.trim(), fastModel: fast.trim() || def.trim(), prices: table })
       await queryClient.invalidateQueries({ queryKey: ['aiSettings'] })
       toast.push('success', 'Models and prices saved')
     } catch (err) {
@@ -422,9 +441,9 @@ function ModelsPanel({ view, isOwner }: { view: AiSettingsView; isOwner: boolean
     <Panel className="p-5">
       <h3 className="mb-1 text-detail font-semibold">Models and prices</h3>
       <p className="mb-3 text-body-sm text-muted">
-        The defaults (<span className="num">gpt-6.1-sol</span>, fast <span className="num">gpt-6-luna</span>) come from the plan and are not checked
-        until you press Test connection, which lists the models your key can use. Prices are yours to fill in (US dollars per million tokens, from
-        OpenAI’s pricing page); without them the cost column shows “—”.
+        Test connection lists the models this service offers and, when none is set yet (or the one set is not offered), picks the newest chat
+        model for you. A service that lists none (some local servers): type the model id. Prices are yours to fill in (US dollars per million
+        tokens, from the service’s pricing page); without them the cost column shows “—” (not priced). A model on this computer costs nothing.
       </p>
       <div className="grid grid-cols-2 gap-3">
         <Field label="Default model" error={defErr}>

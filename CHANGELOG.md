@@ -20,6 +20,22 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
+**Plain words** (#TBD — AI service choice, upgrade plan Phase 3a). The AI helper can now use any
+service that works like OpenAI, with your own key — OpenRouter, Groq, Google Gemini, or a custom
+address — or a model running on this computer with **Ollama** or **LM Studio** (no key, nothing
+sent over the internet). Pick it in Settings → AI (or Settings → AI helper in simple mode). Total
+picks the model from the service's own list (or you type one when a local server lists none); it
+no longer assumes a model name. When a service can't do something — use Total's tools, read bills
+or bank lines, read photos or scanned PDFs — Total says so in plain words instead of failing.
+If you already use OpenAI nothing changes: same key, same models, same requests.
+
+- For developers: `shared/aiProviders.ts` (presets, capabilities, base-URL rule, `pickModels` moved
+  here), `main/ai/providerConfig.ts` (choice in `app-settings.json` → `aiProvider`, one key per
+  preset in the secret store — OpenAI keeps `openai_api_key` — headers under `ai_headers:<preset>`),
+  `provider.ts` gains a Chat Completions path, `createProvider` and capability refusals; new IPC
+  `ai:provider:set` (owner, the shared-key rule); `ai:testConnection` now saves a model picked from
+  the list when none is set or the set one is not offered (audited). No migration; no figure changes.
+
 **Plain words** (#194). Total is smaller. Seven rarely used tools are gone, and seven more stay out of
 sight until a business actually uses them. Nothing already in your books changes.
 

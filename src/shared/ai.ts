@@ -10,11 +10,10 @@
 import type { AssistEntryOffer, AssistPrefill } from './assist' // types only
 import { z } from 'zod'
 import { aiContextSchema, type AiContext } from './aiExplain'
+import type { AiProviderView } from './aiProviders'
 
-/** Defaults from the revamp plan. NOT verified against the provider's model list — the
- *  Settings "Test connection" lists the models the key can use and flags an id that is missing. */
-export const AI_DEFAULT_MODEL = 'gpt-6.1-sol'
-export const AI_DEFAULT_FAST_MODEL = 'gpt-6-luna'
+// Phase 3a: there is no default model id — models are picked from the endpoint's own list
+// (shared/aiProviders.ts pickModels) or typed when a local server lists none.
 
 /** Price of one model, integer micro-USD per 1,000,000 tokens. null = unknown (cost not estimated). */
 export interface AiModelPrice {
@@ -328,6 +327,8 @@ export interface AiOutboundRow {
 
 export interface AiSettingsView {
   settings: AiSettings
+  /** Phase 3a: the app-wide AI service (preset, address, what it can do). */
+  provider: AiProviderView
   keyPresent: boolean
   /** e.g. '…a1b2' — never the key. */
   keyHint: string | null
@@ -346,6 +347,9 @@ export interface AiConnectionResult {
   defaultModelFound: boolean
   fastModelFound: boolean
   error: string | null
+  /** Phase 3a: the check filled in the models from the list (none was set, or the one set is not
+   *  offered) — saved, audited. */
+  picked?: { defaultModel: string; fastModel: string } | null
 }
 
 export interface AiToolInfo {

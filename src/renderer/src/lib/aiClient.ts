@@ -5,6 +5,7 @@ import type {
   AiConnectionResult, AiDraftDto, AiMemoryCreateInput, AiMemoryDto, AiMemoryList, AiMemoryUpdateInput, AiEvent, AiMessageDto, AiOutboundRow, AiSendInput, AiSettingsPatch, AiSettingsView, AiThreadDto, AiToolInfo,
   AiUsageRow
 } from '@shared/ai'
+import type { AiProviderSetInput } from '@shared/aiProviders'
 
 export type * from '@shared/ai'
 
@@ -18,6 +19,8 @@ export const aiApi = {
   setKey: (key: string, confirmNoUsers = false) => call<AiSettingsView>('ai:key:set', { key, confirmNoUsers }),
   clearKey: (confirmNoUsers = false) => call<AiSettingsView>('ai:key:clear', { confirmNoUsers }),
   testConnection: () => call<AiConnectionResult>('ai:testConnection'),
+  /** Phase 3a: the app-wide AI service (preset, address, custom headers / capabilities). */
+  setProvider: (input: AiProviderSetInput) => call<AiSettingsView>('ai:provider:set', input),
   tools: () => call<AiToolInfo[]>('ai:tools'),
   threads: () => call<AiThreadDto[]>('ai:threads'),
   thread: (id: number) => call<{ thread: { id: number; title: string }; messages: AiMessageDto[]; running: boolean }>('ai:thread', { id }),

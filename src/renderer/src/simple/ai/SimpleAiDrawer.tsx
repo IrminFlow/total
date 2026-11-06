@@ -220,6 +220,7 @@ export function SimpleAiDrawer({
           </Banner>
         )}
         {view?.mock && <Banner tone="warning" testId="ai-plain-mock">{t('simple.ai.test')}</Banner>}
+        {ready && view?.provider && !view.provider.caps.tools && <Banner tone="info" testId="ai-plain-no-tools">{t('simple.ai.error.cantTools')}</Banner>}
         {state.messages.length === 0 && !state.running && ready && <p className="text-hint text-muted" data-testid="ai-plain-empty">{t('simple.ai.panel.empty')}</p>}
         {state.messages.map((m) => {
           if (m.role === 'user') {
