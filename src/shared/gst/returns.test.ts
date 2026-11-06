@@ -789,6 +789,15 @@ describe('B2CL limit by date', () => {
     expect(b2cl('2024-08-01', 10_000_000, '082024')).toBe(0)
     expect(b2cl('2024-08-01', 10_000_100, '082024')).toBe(1)
   })
+  it('the summary row names the limit in force: ₹2,50,000 for a return before Aug 2024, both across the change, else as always', () => {
+    const label = (docs: GstDoc[], period: string): string => buildGstr1(docs, COMPANY_GSTIN, COMPANY_STATE, period).summary.find((r) => r.section === 'b2cl')!.label
+    expect(label([inv('2024-07-10', 30_000_000)], '072024')).toBe('B2C (Large) — inter-state > ₹2,50,000')
+    expect(label([], '062024')).toBe('B2C (Large) — inter-state > ₹2,50,000')
+    expect(label([inv('2024-07-10', 30_000_000), inv('2024-08-10', 21_240_000)], '082024')).toBe('B2C (Large) — inter-state > ₹2,50,000 to 31 Jul 2024, > ₹1,00,000 from 1 Aug 2024')
+    // From Aug 2024 on: the label every existing return / fixture carries, byte for byte.
+    expect(label([inv('2024-08-10', 21_240_000)], '082024')).toBe('B2C (Large) — inter-state > ₹1,00,000')
+    expect(label([], '082025')).toBe('B2C (Large) — inter-state > ₹1,00,000')
+  })
   it('a note is judged by the limit on its ORIGINAL\'s date', () => {
     const n: GstDoc = {
       ...inv('2024-09-10', 1_180_000), voucherId: 82, kind: 'credit_note', number: 'CN-82',
