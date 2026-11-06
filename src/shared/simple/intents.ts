@@ -855,7 +855,10 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
   const date = n.date
   const billNo = n.kind === 'purchase' ? n.billNo : null
   const billName = uniqueName(billNo ?? number, ctx.takenNames.get(party.id), date)
-  const due = n.dueDate ?? addDaysISO(date, party.creditDays ?? 0)
+  // A party without days to pay (none, or 0) and no date given: the bill is stored WITHOUT a due
+  // date (owner decision, 7 Nov 2026 — it was dated the bill day, so it counted as late from the
+  // next day while the screens said "no due date set"). Bills saved before keep theirs.
+  const due: string | null = n.dueDate ?? ((party.creditDays ?? 0) > 0 ? addDaysISO(date, party.creditDays!) : null)
   const accountClasses: IntentLedgerClass[] = sale ? ['income'] : ['expense']
   const defaultAccount = sale ? ctx.defaults.salesId : ctx.defaults.purchaseId
   const charges = chargesGstOn(ctx.invoice, date)
@@ -893,7 +896,7 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
       rows,
       narration: n.narration,
       billName,
-      billDueDate: due,
+      billDueDate: due ?? '',
       reference: billNo
     }
     const built = invoiceEntry(ctx, 'bill', kind, type, state, 'items')
@@ -929,9 +932,9 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
   facts.total = total
   facts.paid = paid
   facts.due = total - paid
-  // WP 10.8: a party without days to pay has no due date to tell (the bill is still due on its
-  // date in the books, as before) — the preview says "no due date set" rather than "due by today".
-  if (facts.due > 0 && (n.dueDate != null || (party.creditDays ?? 0) > 0)) facts.dueDate = due
+  // WP 10.8: a party without days to pay has no due date to tell — the preview says "no due date
+  // set" rather than "due by today" (and since Nov 2026 the bill stores none either).
+  if (facts.due > 0 && due != null) facts.dueDate = due
   if (paid > 0) {
     const how = payment.how as MoneyHow
     const acct = moneyAccount(ctx, how, payment.accountId, 'payment')

@@ -191,9 +191,9 @@ describe('an opening without a due date is late from its date; an ordinary bill 
   it('an ordinary bill with no days to pay and no due date is never late (no due date set), and is not reminded', () => {
     ledger('Arun', 'Sundry Debtors')
     const sale = post({ kind: 'sale', date: '2025-06-01', customerId: L('Arun'), amount: { amount: '900' }, payment: { how: 'credit' } })
-    // A bill with no due date on it (as the accountant's invoice without a bill-wise due date
-    // stores it — the simple sale writes its date as the due date, WP 10.8).
-    db.prepare('UPDATE bill_refs SET due_date = NULL WHERE voucher_id = ?').run(sale.voucherIds[0]!)
+    // No days to pay: the simple sale stores its bill WITHOUT a due date (Nov 2026; it stored the
+    // bill date before, which made it late from the next day).
+    expect(db.prepare("SELECT due_date AS d FROM bill_refs WHERE voucher_id = ? AND kind = 'new'").all(sale.voucherIds[0]!)).toEqual([{ d: null }])
     const arun = personView(db, INFO, L('Arun'), TODAY)!
     expect(arun.bills).toEqual([expect.objectContaining({ dueDate: null, overdueDays: 0, pending: 90_000 })])
     expect(peopleList(db, TODAY).people.find((p) => p.ledgerId === L('Arun'))).toMatchObject({ open: 90_000, late: 0 })

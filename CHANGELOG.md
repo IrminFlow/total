@@ -260,6 +260,16 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   the folder after (it never did — found in #197's review); the scratch rekey checks that
   `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it; a swap that fails (copy / fsync / rename) removes its copy and
   reopens the untouched books instead of leaving a closed handle.
+- **A bill for someone with no days to pay is no longer late the next day** (#TBD). Plain words: in
+  the simple screens, a bill on credit to a customer (or from a supplier) with no "days to pay" said
+  "no due date set" but was saved as due on the bill's own date, so the next day it counted as late.
+  New bills like that are now saved without a due date, so they are never late until you give the
+  person days to pay or the bill a date. Bills already saved keep their due date. For accountants:
+  such a bill's bill-wise "new" reference has no due date (as an invoice saved without one in the
+  full editor); Outstandings ages it from its bill date as before, but its overdue days now follow
+  the ledger's credit days if some are set later (none = from the bill date, unchanged). For
+  developers: `mapTrade` (shared/simple/intents.ts) stores `dueDate: null` / `billDueDate: ''` when
+  no due date is given and the party's credit days are none or 0; `facts.dueDate` follows it.
 
 ## [0.12.0] - 2026-10-22
 

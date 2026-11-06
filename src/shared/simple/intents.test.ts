@@ -206,6 +206,25 @@ describe('sale', () => {
   })
 })
 
+describe('a party with no days to pay: no due date is stored (owner decision, 7 Nov 2026)', () => {
+  it('a credit sale of items or of an amount to a customer without days to pay stores no due date on its bill', () => {
+    const items = map({ kind: 'sale', customerId: L.kumar, date: '2025-08-14', items: [{ itemId: 100, qty: '1', rate: '100' }] })
+    expect(items.entries[0]!.payload.billRefs).toEqual([expect.objectContaining({ kind: 'new', dueDate: null })])
+    expect(items.facts.dueDate).toBeUndefined()
+    const amount = map({ kind: 'sale', customerId: L.kumar, date: '2025-08-14', amount: { amount: '500' } })
+    expect(amount.entries[0]!.payload.billRefs).toEqual([expect.objectContaining({ kind: 'new', dueDate: null })])
+  })
+  it('a purchase from a supplier without days to pay stores none either; a typed due date is kept; days to pay still date it', () => {
+    const m = map({ kind: 'purchase', supplierId: L.supplier, billNo: 'BS/7', date: '2025-08-10', amount: { amount: '500' } })
+    expect(m.entries[0]!.payload.billRefs).toEqual([expect.objectContaining({ name: 'BS/7', dueDate: null })])
+    const typed = map({ kind: 'purchase', supplierId: L.supplier, billNo: 'BS/8', date: '2025-08-10', dueDate: '2025-09-01', amount: { amount: '500' } })
+    expect(typed.entries[0]!.payload.billRefs).toEqual([expect.objectContaining({ dueDate: '2025-09-01' })])
+    expect(typed.facts.dueDate).toBe('2025-09-01')
+    const ramesh = map({ kind: 'sale', customerId: L.ramesh, date: '2025-08-14', amount: { amount: '500' } })
+    expect(ramesh.entries[0]!.payload.billRefs).toEqual([expect.objectContaining({ dueDate: '2025-08-29' })])
+  })
+})
+
 describe('purchase', () => {
   it("items with the supplier's bill number: reference + bill name, input tax, paid now = payment against it", () => {
     const m = map({ kind: 'purchase', supplierId: L.supplier, billNo: 'BS/101', date: '2025-08-10', items: [{ itemId: 100, qty: '10', rate: '100' }], payment: { how: 'bank' } })
@@ -214,7 +233,7 @@ describe('purchase', () => {
     expect(bill!.payload).toMatchObject({ date: '2025-08-10', reference: 'BS/101', partyLedgerId: L.supplier })
     expect(bill!.payload.lines.map((l) => [l.ledgerId, l.drCr])).toEqual([[L.supplier, 'cr'], [L.purchases, 'dr'], [L.cgstIn, 'dr'], [L.sgstIn, 'dr']])
     expect(bill!.payload.inventory[0]!.direction).toBe('in')
-    expect(bill!.payload.billRefs).toEqual([{ kind: 'new', name: 'BS/101', amount: 118_000, dueDate: '2025-08-10' }])
+    expect(bill!.payload.billRefs).toEqual([{ kind: 'new', name: 'BS/101', amount: 118_000, dueDate: null }]) // no days to pay: no due date (Nov 2026)
     expect(pay!.payload.lines.map((l) => [l.ledgerId, l.drCr, l.amount])).toEqual([[L.supplier, 'dr', 118_000], [L.bank, 'cr', 118_000]])
     expect(pay!.payload.billRefs).toEqual([{ kind: 'against', name: 'BS/101', amount: 118_000, dueDate: null }])
   })
