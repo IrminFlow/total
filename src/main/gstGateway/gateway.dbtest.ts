@@ -260,6 +260,22 @@ describe('GSTR-1 / GSTR-3B through the gateway', () => {
     expect(readGstFiledAll(b.db)['2026-08']!.gstr1!.arn).toBe(direct.ack_num)
   })
 
+  it('the Test GSP forgot the return (Total restarted): filing says so and the return goes back to "send it again"', async () => {
+    const b = books()
+    sale(b)
+    let g = await signedIn(b.db)
+    await returns.saveReturn(b.db, COMPANY, g, 'gstr1', '082026')
+    await returns.refreshReturnStatus(b.db, g, 'gstr1', '082026')
+    await returns.refreshReturnStatus(b.db, g, 'gstr1', '082026')
+    resetGatewaySessions() // = a restart: sessions and the simulator's memory are gone
+    g = await signedIn(b.db)
+    await returns.requestEvcOtp(b.db, COMPANY, g, 'gstr1', '082026', TODAY)
+    await expect(returns.fileReturn(b.db, COMPANY, g, 'gstr1', '082026', TEST_GSP_OTP, null, TODAY)).rejects.toMatchObject({ codes: ['TEST-NOT-SAVED'] })
+    expect(returns.returnRecord(b.db, g, 'gstr1', '082026')).toMatchObject({ state: 'error', errors: [{ code: 'TEST-RESET' }] })
+    // Sending again works from there.
+    expect((await returns.saveReturn(b.db, COMPANY, g, 'gstr1', '082026')).state).toBe('saved')
+  })
+
   it('a quarterly (QRMP) filer is refused before anything is sent', async () => {
     const b = books()
     sale(b)

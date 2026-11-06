@@ -215,6 +215,12 @@ export const ERROR_MAP = {
   gateway_not_processed: e('errors.gateway.notProcessed'),
   gateway_not_ready: e('errors.gateway.notReady'),
   gateway_quarterly: e('errors.gateway.quarterly'),
+  gateway_auth: e('errors.gateway.auth'),
+  gateway_otp: e('errors.gateway.otp'),
+  gateway_rate_limit: e('errors.gateway.rateLimit'),
+  gateway_2b_not_ready: e('errors.gateway.notReady2b'),
+  gateway_network: e('errors.gateway.network'),
+  gateway_portal: e('errors.gateway.portal'),
 
   // ---------- IPC boundary (src/main/ipc.ts) ----------
   duplicate_name: e('errors.duplicateName', 'name'),
