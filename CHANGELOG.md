@@ -261,6 +261,14 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it; a swap that fails (copy / fsync / rename) removes its copy and
   reopens the untouched books instead of leaving a closed handle.
 
+### Security
+
+- **Dependency patch updates** (#PR_PATCH). Plain words: nothing you see changes; three libraries
+  Total uses got their security fixes. For developers: lockfile only — `vite` 7.3.6 → 7.3.7 (dev
+  server), `fast-uri` 3.1.8 → 3.1.9 (via electron-builder's ajv), `undici` 6.29.0 → 6.29.1 (the
+  `openai` client's HTTP stack) and 8.12.1 → 8.12.4 (jsdom, tests only). Replaces Dependabot #179,
+  #182 and #183.
+
 ## [0.12.0] - 2026-10-22
 
 Everything merged after v0.11.0 (2026-10-13), 143 pull requests: Phase 9 (simple screens for the daily jobs), the
