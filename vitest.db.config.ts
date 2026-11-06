@@ -20,7 +20,9 @@ export default defineConfig({
     // scripts/test-db.mjs). Vitest 4 removed `poolOptions.forks.singleFork` (one process,
     // modules re-evaluated per file); its suggested stand-in, `isolate: false`, would share the
     // module graph AND each file's vi.mock('electron', …) across files, so we keep isolation and
-    // pay one process start per file instead.
+    // pay one process start per file instead. Measured on CI (PR #205): Windows test:db 8.5 →
+    // 13.6 min, Linux unchanged. Don't trade that back for `isolate: false` without first making
+    // every dbtest's electron mock identical.
     pool: 'forks',
     maxWorkers: 1,
     isolate: true
