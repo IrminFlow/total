@@ -12,7 +12,7 @@ Fully offline accounting app for macOS (Electron + React + TS + better-sqlite3) 
 - Money = integer paise; quantity = integer thousandths. No floats on amounts, ever.
 - Reports are always computed from `voucher_lines`; never store derived balances.
 - New DB schema = append a migration in `src/main/db/migrations.ts`.
-- Tests (`npm test`) run under system Node: never import the SQLite driver (better-sqlite3-multiple-ciphers) from a test (it's compiled for Electron's ABI). If the app itself hits `NODE_MODULE_VERSION` errors: `npx @electron/rebuild -f -w better-sqlite3-multiple-ciphers`.
+- Tests (`npm test`) run under system Node: never import the SQLite driver (better-sqlite3-multiple-ciphers) from a test — the engine stays pure; DB code goes in `*.dbtest.ts` (`npm run test:db`). The driver is Node-API since v13 (prebuilt per platform, no ABI rebuild).
 - Verify UI changes by building (`npm run build`) and running a `scripts/drive*.mjs` Playwright driver against the built app.
 - Before claiming done: `npm test` and `npm run typecheck` must pass.
 
