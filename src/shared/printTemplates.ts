@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { DOC_DATE_FORMATS } from './dates'
 import { DEFAULT_INVOICE_CONFIG, type InvoiceConfig } from './invoiceConfig'
+import { zod3Issues } from './zodMessages'
 
 /**
  * Print templates (WP 1.10c) — the model behind Settings → Invoice templates. Pure + Zod-validated.
@@ -623,7 +624,7 @@ export function parseTemplateImport(jsonText: string): PrintTemplate {
   const wrapped = templateExportSchema.safeParse(raw)
   const candidate = wrapped.success ? wrapped.data.template : raw
   const r = printTemplateSchema.safeParse(candidate)
-  if (!r.success) throw new Error(`Not a valid print template: ${r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')}`)
+  if (!r.success) throw new Error(`Not a valid print template: ${zod3Issues(r.error.issues).map((i) => `${i.path.map(String).join('.')}: ${i.message}`).join('; ')}`)
   return r.data
 }
 

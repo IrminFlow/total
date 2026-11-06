@@ -272,18 +272,29 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   drops `showEnteredBy`'s default (Zod 4 applies a default inside `.partial()`, which would have
   turned an omitted field into `false` over the saved config); three `z.unknown()` keys are
   `.optional()` (Zod 4 refuses an absent one; Zod 3 passed it on — `template:import` would otherwise
-  have read the wrapper as a template). Messages: `src/shared/zodMessages.ts` (imported by main, the
-  renderer, the CLI and the vitest setups) keeps Zod 3's "Required" for a missing value; every other
-  default message is Zod 4's wording. Error mapping (WP 8.5): issue codes are Zod 4's
+  have read the wrapper as a template). Messages: `src/shared/zodMessages.ts` (a global error map imported by
+  main, the renderer, the CLI, the check worker and the vitest setups) words every default message
+  as Zod 3.25 did — "name: Required", "String must contain at least 4 character(s)", "Invalid enum
+  value. Expected 'a' | 'b', received 'c'", "Unrecognized key(s) in object: 'x'", a record key's
+  own message … — so the accountant screens' fallback text, the e-invoice checks, import errors and
+  what the AI tools quote read as before (`zodMessages.test.ts` pins each template to Zod 3's
+  output). Every place that lists a Zod failure — `handle()`'s error and issues, the e-invoice
+  checks, price / template import, the AI tools' "Invalid arguments", bill capture and memory — goes
+  through `zod3Issues`, which gives Zod 3's issue LIST: a union whose value fit one branch's
+  type reports that branch's issues (Zod 3's rule — an int-or-text amount given 1.5 says "Expected
+  integer, received float", not "Invalid input"), a size check beside a type failure on the same
+  field is dropped, a repeated issue is listed once. Error mapping (WP 8.5): issue codes are Zod 4's
   (`zod.invalid_format`, `zod.invalid_value` …, all still "field invalid" as their Zod 3 names
-  were); a missing enum value — Zod 4's invalid_value — is reported as `zod.invalid_type`
-  (`zodIssueCode`), so the plain message under a field is unchanged. The AI tool-schema walker
-  (`ai/jsonSchema.ts`) and the CLI's voucher schema doc (`cli/schemaDoc.ts`) read Zod 4's `_zod.def`:
+  were); an enum value that is missing or of the wrong type — Zod 4's invalid_value, Zod 3's
+  invalid_type — is reported as `zod.invalid_type`, so the plain message under a field is
+  unchanged. Still different, all harmless: an `.int().min()` given 1.5 reports one issue instead of
+  two; an array's own size issue is listed after its items' issues instead of before. The AI
+  tool-schema walker (`ai/jsonSchema.ts`) and the CLI's voucher schema doc (`cli/schemaDoc.ts`) read Zod 4's `_zod.def`:
   the tool schemas sent to the model are pinned to a fixture generated with Zod 3
   (`toolSchemas.dbtest.ts`, every tool plus a schema of the walker's edge cases) and
   `agent-skill/voucher.schema.json` is unchanged byte for byte. Every exported schema in `src/shared`
-  (315) was parsed under both versions with the same inputs: same results, bar the codes above and a
-  second issue on a string schema given an array (still refused). Stricter in Zod 4 and harmless:
+  (315) and every AI tool input was parsed under both versions (a differential fuzz of ~11.6k
+  payloads): the same payloads pass and fail, with the same output. Stricter in Zod 4 and harmless:
   `.int()` refuses numbers past ±2^53, `z.number()` refuses Infinity.
 
 ## [0.12.0] - 2026-10-22

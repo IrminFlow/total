@@ -53,7 +53,7 @@ import {
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
 import { AppError, structuredOf, type StructuredError } from '@shared/errors'
-import { zodIssueCode } from '@shared/zodMessages'
+import { zod3Issues } from '@shared/zodMessages'
 import { formatPaise } from '@shared/money'
 import * as configSvc from './services/config'
 import { unusedFeatures } from './services/featureUsage'
@@ -493,9 +493,9 @@ export function ipcStructuredError(err: unknown): Partial<StructuredError> {
   if (err instanceof z.ZodError) {
     return {
       code: 'invalid_input',
-      issues: err.issues.map((i) => {
+      issues: zod3Issues(err.issues).map((i) => {
         const path = i.path[0] === 'data' ? i.path.slice(1) : i.path
-        return { code: `zod.${zodIssueCode(i)}`, ...(path.length ? { field: path.join('.') } : {}), message: `${i.path.join('.')}: ${i.message}` }
+        return { code: `zod.${i.code}`, ...(path.length ? { field: path.join('.') } : {}), message: `${i.path.map(String).join('.')}: ${i.message}` }
       })
     }
   }
@@ -575,7 +575,7 @@ function handle(channel: string, fn: Handler, minRole: Role = 'accountant'): voi
     } catch (err) {
       if (TRACE_IPC) console.log(`[ipc] ${channel} failed ${(performance.now() - t0).toFixed(0)} ms`)
       const message = err instanceof z.ZodError
-        ? err.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+        ? zod3Issues(err.issues).map((i) => `${i.path.map(String).join('.')}: ${i.message}`).join('; ')
         : err instanceof Error
           ? err.message
           : String(err)
