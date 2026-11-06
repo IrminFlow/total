@@ -174,22 +174,26 @@ not merged, when this was written. Their files and ids exist only after they mer
     - Today: when a sales bill has no item and its account has no rate, the rate is worked back from the tax posted. Some old months show more GST payable after this change.
     - Confirm: is that the right way to report it? Anything to tell clients with old months?
     - In the code: `src/shared/gst/postedRate.ts`. Also see 04 section 3.1, items 2 and 3.
+33. **The old B2C Large limit (Rs 2.5 lakh) around 1 August 2024**
+    - Today: an inter-state sale to an unregistered buyer goes in GSTR-1 table 5 (B2C Large) when its value is above Rs 1 lakh, the limit Notification 12/2024-Central Tax set from 1 August 2024. Above Rs 2.5 lakh was the limit before that. Total picks the limit by the INVOICE DATE: a July 2024 invoice of Rs 2,12,400 goes in B2C Small, an August 2024 one in B2C Large. A credit or debit note follows its original invoice's date (so a note issued in August 2024 against a July 2024 invoice of Rs 2,12,400 goes in B2C Small, not CDNUR). Quarterly (QRMP) filers have a July to September 2024 quarter that straddles the change.
+    - Confirm: does the portal apply the limit by invoice date, or by the tax period the return is for (for example the whole July to September 2024 quarter at one limit)? And for notes: by the original invoice's date, the note's own date, or the period? (GSTN's CDNUR help page still quotes Rs 2.5 lakh.)
+    - In the code: `src/shared/gst/returns.ts` `B2CL_LIMIT_CHANGED_ON` and `b2clLimitOn` (the UNVERIFIED note above them); the CDNUR rule in the same file (`isB2clNote`). to-do.md section 5, "GSTR-1 B2CL / CDNUR (#187)".
 
 ## MSME
 
-33. **Bank rate history**
+34. **Bank rate history**
     - Today: the RBI bank-rate rows before October 2025 are not read from the official text. Total uses 3 times the bank rate for the s.16 interest.
     - Confirm: the rate and its dates (6 Jun 2025, 7 Feb 2025, 9 Apr 2025, 8 Feb 2023).
     - In the code: `src/shared/payables/msmeSources.ts` (note on the bank-rate rows).
-34. **Traders and s.43B(h)**
+35. **Traders and s.43B(h)**
     - Today: a trader supplier is excluded from s.43B(h), as a reading of an office memorandum. Finance Act 2026 changes to s.37 are not read.
     - Confirm: are traders out? Anything new in FA 2026?
     - In the code: `src/shared/payables/msmeSources.ts` (notes on s.37 and s.43B(h)).
-35. **Form 1 and Udyam number**
+36. **Form 1 and Udyam number**
     - Today: the MSME Form 1 has the S.O. number from a secondary source. The Udyam number is read as state code then district code, no official text.
     - Confirm: the S.O. number and the layout.
     - In the code: `src/shared/payables/msmeSources.ts` (Form 1 and Udyam notes).
-36. **MSME bills in the cash forecast** (merged PR #156)
+37. **MSME bills in the cash forecast** (merged PR #156)
     - Today: if you tick the option, bills of registered micro and small suppliers move to their s.15 date in the forecast. The interest is listed separately and never posted.
     - Confirm: is the s.15 deadline (45 days with a written agreement, 15 without) used correctly, and is the interest worked as 3 times the bank rate, compounded monthly, as s.16 says?
     - In the code: `src/main/services/cashForecast.ts` (`withMsmeFacts`); `src/shared/payables/msme.ts`.
@@ -198,77 +202,77 @@ not merged, when this was written. Their files and ids exist only after they mer
 
 (Q7 above, plus these. Ideally also ask an HR or payroll adviser.)
 
-37. **EPF admin charge and EDLI**
+38. **EPF admin charge and EDLI**
     - Today: admin charge 0.5 percent with a Rs 500 minimum. EDLI 0.5 percent on the Rs 25,000 ceiling. The notification numbers are not confirmed.
     - Confirm: both rates and notifications.
     - In the code: `src/shared/payrollStatutory.ts` `UNVERIFIED_WP37` (first EPF lines); `src/main/db/migrations.ts` (the EDLI and admin rows).
-38. **ECR file**
+39. **ECR file**
     - Today: the ECR text file uses "#~#" between fields.
     - Confirm: is that the separator the EPFO portal takes?
     - In the code: `src/shared/payrollStatutory.ts` `UNVERIFIED_WP37` (line on the ECR separator).
-39. **ESI ceilings under the Code**
+40. **ESI ceilings under the Code**
     - Today: Rs 21,000 (Rs 25,000 for persons with disability), the Rs 176 exemption and staying covered to the end of the contribution period, as ESIC applies them. The upload template columns are not confirmed.
     - Confirm: legal basis under the Code on Social Security, and the template.
     - In the code: `src/shared/payrollStatutory.ts` `UNVERIFIED_WP37` (ESI lines); `src/main/db/migrations.ts` (ESI rows).
-40. **Professional tax**
+41. **Professional tax**
     - Today: slabs for West Bengal, Tamil Nadu (Chennai), Andhra Pradesh and Madhya Pradesh, and every state's due date except Telangana, are from secondary sources.
     - Confirm: the slabs and due dates for the states you serve.
     - In the code: `src/shared/payrollStatutory.ts` `UNVERIFIED_WP37` (PT line); `src/main/db/migrations.ts` (PT rows, comments `[PT-WB]`, `[PT-AP]`, `[PT-MP]`).
-41. **Gratuity, bonus and Form 16**
+42. **Gratuity, bonus and Form 16**
     - Today: gratuity ceiling Rs 20 lakh and bonus Rs 21,000 / Rs 7,000 as under the new Codes. The Form 16 Part B row list follows the 1962 Rules.
     - Confirm: the figures and the row list.
     - In the code: `src/shared/payrollStatutory.ts` `UNVERIFIED_WP37` (last two lines); `src/shared/print/form16.ts`.
-42. **Income-tax sections cited for salary**
+43. **Income-tax sections cited for salary**
     - Today: the 1961 texts for ss.16, 80C, 80CCD, 80D, 10(13A), 24(b), 87A, 192, 288A and 288B were not re-read. The 2025-Act equivalents carry the same figures.
     - Confirm: same figures in the year you file?
     - In the code: `src/shared/payrollStatutory.ts` `UNVERIFIED_WP37` (Income tax line).
 
 ## Fixed assets
 
-43. **Hotel and school furniture life**
+44. **Hotel and school furniture life**
     - Today: 8 years, from the Schedule II appendix. The MCA e-book copy says 10.
     - Confirm: 8 or 10.
     - In the code: `src/main/db/migrations.ts` (row `V(ii)` and the comment "Hotel / school furniture life").
-44. **Income-tax rates and Finance Act 2026**
+45. **Income-tax rates and Finance Act 2026**
     - Today: only FY 2025-26 income-tax block rates were read. Earlier years are seeded from FY 2017-18 with unconfirmed start dates. Finance Act 2026 is assumed to change nothing in s.33, s.41, s.74 or Appendix I.
     - Confirm: both points.
     - In the code: `src/main/db/migrations.ts` (comment "UNVERIFIED (kept editable"; rows `BLD5` onwards); `src/shared/depreciation.ts`.
-45. **Sale proceeds and half-rate additions**
+46. **Sale proceeds and half-rate additions**
     - Today: sale proceeds reduce the full-rate block before the half-rate additions (ICAI Illustration 4). The Act's text does not say so.
     - Confirm: is that the order?
     - In the code: `src/main/db/migrations.ts` (same UNVERIFIED comment); `src/shared/fixedAssetSources.ts` id `s50-text` (s.50 and s.43(6)(c) not re-read).
-46. **Partial disposal**
+47. **Partial disposal**
     - Today: a part sold takes a pro-rata share of cost, additions and depreciation. A part of a different value (one machine of a set) needs its cost typed in.
     - Confirm: is pro-rata fine for identical units?
     - In the code: `src/shared/fixedAssetSources.ts` ids `part-split`, `part-undo`.
-47. **Concessional regime, 40 percent cap**
+48. **Concessional regime, 40 percent cap**
     - Today: rule 25(2) cap of 40 percent of WDV, and no additional depreciation, applies to 2025-Act years only (FY 2026-27 on). The 1961 equivalent was not re-read.
     - Confirm: is the 1961 rule the same for FY 2025-26 and earlier? Is additional depreciation nil in this regime?
     - In the code: `src/shared/fixedAssetSources.ts` ids `r25-1961`, `r25-regime`.
-48. **Extra-shift depreciation and components**
+49. **Extra-shift depreciation and components**
     - Today: double shift +50 percent and triple +100 percent, pro rata by days, averaged over the period. Only the seeded classes are checked for "no extra shift". A component with its own life is split off only before the first depreciation run.
     - Confirm: the formula, and whether components can change later.
     - In the code: `src/shared/fixedAssetSources.ts` ids `shift-formula`, `shift-user-class`, `component-when`.
 
 ## Other
 
-49. **Forecast dates**
+50. **Forecast dates**
     - Today: the statutory due dates in the cash forecast were written from memory.
     - Confirm: the dates.
     - In the code: `src/main/services/cashForecast.ts` (UNVERIFIED comments).
-50. **Foreign exchange** — no longer applied
+51. **Foreign exchange** — no longer applied
     - Today: Total no longer revalues foreign balances or settles them at an actual rate (forex was cut in 1.0, PR #195). Books that already hold revaluation or settlement entries keep them as they are, and an un-reversed revaluation can still be reversed.
     - Confirm: nothing, unless your clients need foreign-currency books again. The old AS 11 / Ind AS 21 citations (as recalled) are still in the code for those entries.
     - In the code: `src/shared/forex.ts` (header comment).
-51. **Audit trail**
+52. **Audit trail**
     - Today: the edit log follows s.128(5), Income-tax rule 6F and the 2025 Act (s.62, rule 46(9)) retention. The exact wording was not re-read.
     - Confirm: retention period and what the log must show.
     - In the code: `src/main/services/audit.ts` (header comments).
-52. **State codes**
+53. **State codes**
     - Today: the GST state-code list was not re-read against the latest list.
     - Confirm: any state or code added or changed.
     - In the code: `src/shared/gst/states.ts`.
-53. **Applicability and advance GST** 
+54. **Applicability and advance GST** 
     - Today: the GPT review left these for a CA: when e-invoicing applies, GST on advances, and the MSME acceptance date.
     - Confirm: your view on each (the first is also Q17).
     - In the code: to-do.md section 5, last line ("GST calendar items from the GPT review").
