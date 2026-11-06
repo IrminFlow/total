@@ -182,7 +182,7 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   For developers: `TallyImport.voucherTypes`, `TallyInventoryLine.direction` / `godown`,
   `TallyVoucherLine.bills`, `TallyLedger.bills`; fixtures
   `src/shared/fixtures/tally/daybook-returns-stock-bills.xml` and `opening-bills-physical-stock.xml`.
-- **Tally import: two rare bill-wise slips** (PR #TBD). Plain words: after bringing books over from
+- **Tally import: two rare bill-wise slips** (#203). Plain words: after bringing books over from
   Tally, "who owes me" could show a bill as still open (and a "bill is not open" warning) when one
   receipt or payment named the same bill twice with another bill between them; and a bill could get
   the name of an advance that had already been used up. For accountants: a voucher's bill
