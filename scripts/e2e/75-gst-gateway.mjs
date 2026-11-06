@@ -5,7 +5,8 @@
 //   bill itself, its print and the e-documents list keep no IRN);
 //   GSTR-1 → sign in (test OTP) → Send → Check status → File with EVC → ARN (labelled test, never
 //   counted as filed: the Taxes / Home "filed" marks stay empty);
-//   GSTR-2B → Fetch from the portal (test mode) → the matcher shows the purchase bill matched.
+//   GSTR-2B → Fetch from the portal (test mode) → the screen's matcher shows the purchase bill
+//   matched (the 2B assistant / Home / Taxes never take a simulated 2B for the portal's).
 // Dates: the bills are two months back (that month is over and its GSTR-2B — the 14th of the next
 // month — exists on every day of the year); the books begin early enough and the working period is
 // moved to that bill's FY when it is not the current one.
@@ -146,10 +147,12 @@ await scenario('75-gst-gateway', async (h) => {
   await h.click('gw-2b-fetch')
   await h.page.waitForFunction(() => document.body.innerText.includes('G-55'), null, { timeout: 20000 })
   await h.shot('03-gstr2b-fetched')
+  // The screen's matcher on the fetched JSON: the bill is matched.
+  const recon = await h.invoke('gst:recon2b', { jsonText: (await h.invoke('gateway:2b:fetch', { period: retPeriod })).jsonText, from: `${month}-01`, to: `${month}-28` })
+  assertEq(recon.result.pairs.filter((p) => p.bucket === 'matched').length, 1, 'the purchase bill matches the simulated 2B')
+  // A simulation is built from the books: the 2B assistant, Home and Taxes never take it for the portal's.
   const mism = await h.invoke('assist:gst2b', { period: month })
-  assertEq(mism.statement?.documents, 1, 'the fetched statement is stored for the matcher')
-  assertEq(mism.matched, 1, 'the purchase bill matches the simulated 2B')
-  assertEq(mism.rows.length, 0, 'no mismatch')
+  assertEq(mism.statement, null, 'the 2B assistant sees no portal statement')
 
   // ---------- nothing counts as really filed ----------
   const taxes = await h.invoke('simple:taxes', { period: month })

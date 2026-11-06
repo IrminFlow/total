@@ -12,14 +12,17 @@ import { Button, TextInput } from '../../components/ui'
 type Regular = Extract<SimpleTaxes, { kind: 'regular' }>
 const FORMS: readonly GatewayForm[] = ['gstr1', 'gstr3b']
 const FORM_NAME: Record<GatewayForm, string> = { gstr1: 'GSTR-1', gstr3b: 'GSTR-3B' } // i18n-technical
-const STATE_KEY = {
-  saved: 'simple.taxes.portal.state.saved',
-  processing: 'simple.taxes.portal.state.processing',
-  processed: 'simple.taxes.portal.state.processed',
-  error: 'simple.taxes.portal.state.error',
-  offset: 'simple.taxes.portal.state.offset',
-  filed: 'simple.taxes.portal.state.filed'
-} as const // i18n-technical
+/** A return's state on the portal in plain words. */
+function stateText(state: GatewayReturnRecord['state'], form: string, t: ReturnType<typeof useT>): string {
+  switch (state) {
+    case 'saved': return t('simple.taxes.portal.state.saved', { form })
+    case 'processing': return t('simple.taxes.portal.state.processing', { form })
+    case 'processed': return t('simple.taxes.portal.state.processed', { form })
+    case 'error': return t('simple.taxes.portal.state.error', { form })
+    case 'offset': return t('simple.taxes.portal.state.offset', { form })
+    case 'filed': return t('simple.taxes.portal.state.filed', { form })
+  }
+}
 
 /** A refusal in the reader's words: the mapped message, else the field's, else the portal's own. */
 function plainError(err: unknown, t: ReturnType<typeof useT>): string {
@@ -70,13 +73,13 @@ function PortalReturn({ form, period, onFiled }: { form: GatewayForm; period: st
   if (state === 'filed' && rec) {
     return (
       <p className="text-detail" data-testid={`${tid}-filed`} data-test={rec.test}>
-        {rec.test ? t('simple.taxes.portal.filedTest', { form: name, arn: rec.arn ?? '' }) : t(STATE_KEY.filed, { form: name })}
+        {rec.test ? t('simple.taxes.portal.filedTest', { form: name, arn: rec.arn ?? '' }) : stateText('filed', name, t) /* i18n-technical */}
       </p>
     )
   }
   return (
     <div className="flex flex-col gap-1" data-testid={tid}>
-      {state && <p className="text-small text-muted" data-testid={`${tid}-state`} data-state={state}>{t(STATE_KEY[state], { form: name })}</p>}
+      {state && <p className="text-small text-muted" data-testid={`${tid}-state`} data-state={state}>{stateText(state, name, t)}</p>}
       <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" data-testid={`${tid}-send`} disabled={busy} onClick={() => void run(() => api.gateway.returnSave(form, period))}>
           {state ? t('simple.taxes.portal.sendAgain', { form: name }) : t('simple.taxes.portal.send', { form: name })}
@@ -92,7 +95,7 @@ function PortalReturn({ form, period, onFiled }: { form: GatewayForm; period: st
           </Button>
         )}
         {ready && !codeOpen && (
-          <Button size="sm" variant="primary" data-testid={`${tid}-code`} disabled={busy} onClick={() => void run(async () => { await api.gateway.requestOtp('evc', form, period); setCodeOpen(true) })}>
+          <Button size="sm" variant="primary" data-testid={`${tid}-code`} disabled={busy} onClick={() => void run(async () => { await api.gateway.requestOtp('evc', form, period); setCodeOpen(true) })}> // i18n-technical
             {t('simple.taxes.portal.fileCode', { form: name })}
           </Button>
         )}
@@ -141,7 +144,7 @@ export function PortalSend({ x }: { x: Regular }): React.JSX.Element | null {
             <CodeEntry testId="taxes-portal-signin" button={t('simple.taxes.portal.useCode')} hint={status?.testHints ? t('simple.taxes.portal.codeHint', { otp: status.testHints.otp }) : null} busy={busy}
               onSubmit={(otp) => void signIn(async () => { await api.gateway.signIn(otp); setCodeOpen(false) })} />
           ) : (
-            <Button size="sm" data-testid="taxes-portal-signin" disabled={busy} onClick={() => void signIn(async () => { await api.gateway.requestOtp('signin'); setCodeOpen(true) })}>
+            <Button size="sm" data-testid="taxes-portal-signin" disabled={busy} onClick={() => void signIn(async () => { await api.gateway.requestOtp('signin'); setCodeOpen(true) })}> // i18n-technical
               {t('simple.taxes.portal.signIn')}
             </Button>
           )}
@@ -149,7 +152,7 @@ export function PortalSend({ x }: { x: Regular }): React.JSX.Element | null {
       ) : (
         <div className="mt-2 flex flex-col gap-3">
           {FORMS.map((form) => (
-            <PortalReturn key={form} form={form} period={period} onFiled={() => void queryClient.invalidateQueries({ queryKey: ['simpleTaxes'] })} />
+            <PortalReturn key={form} form={form} period={period} onFiled={() => void queryClient.invalidateQueries({ queryKey: ['simpleTaxes'] })} /> // i18n-technical
           ))}
         </div>
       )}

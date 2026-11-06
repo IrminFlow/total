@@ -46,7 +46,7 @@ export function GatewayEdocModal({ voucherId, number, onClose }: { voucherId: nu
           <dt className="text-muted">e-Way bill</dt>
           <dd className="num" data-testid="gw-edoc-ewb">{rec?.ewbNo ? `${rec.ewbNo} · valid till ${rec.ewbValidUpto || '— (Part A only)'}` : '—'}</dd>
         </dl>
-        {rec?.irn && test && <Badge tone="warning" testId="gw-edoc-simulated">Simulated — not on the GST portal</Badge>}
+        {rec?.irn && test && <div><Badge tone="warning" testId="gw-edoc-simulated">Simulated — not on the GST portal</Badge></div>}
         <div className="flex flex-wrap gap-2">
           {!rec?.irnLive && (
             <Button variant="primary" data-testid="gw-edoc-irn-generate" disabled={busy} onClick={() => void run(() => api.gateway.generateIrn(voucherId), `IRN generated${suffix}`)}>
