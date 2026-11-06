@@ -260,7 +260,7 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   the folder after (it never did — found in #197's review); the scratch rekey checks that
   `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it; a swap that fails (copy / fsync / rename) removes its copy and
   reopens the untouched books instead of leaving a closed handle.
-- **An old opening balance no longer looks new every April** (#TBD). Plain words: a customer's
+- **An old opening balance no longer looks new every April** (#199). Plain words: a customer's
   opening balance that isn't split into bills used to start counting its days late again every
   1 April — on 1 April it was "not late" and a reminder was refused. It now counts from the day the
   books begin, like an opening bill without a date always did. For accountants: Outstandings,
