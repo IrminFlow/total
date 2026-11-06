@@ -204,6 +204,11 @@ describe('an opening without a due date is late from its date; an ordinary bill 
     ledger('Vimal', 'Sundry Debtors', { openingBalance: 50_000 })
     expect(personView(db, INFO, L('Vimal'), '2026-04-02')!.bills).toEqual([expect.objectContaining({ date: '2025-06-15', dueDate: '2025-06-15', overdueDays: 291 })])
   })
+  it('a books-begin day outside the first year (a wizard company that imported older Tally books) dates it that year\'s start', () => {
+    writeCompanyInfo(db, { ...INFO, booksFrom: 2024, booksBeginDate: '2025-06-15' })
+    ledger('Wasim', 'Sundry Debtors', { openingBalance: 50_000 })
+    expect(personView(db, INFO, L('Wasim'), '2025-04-02')!.bills).toEqual([expect.objectContaining({ date: '2024-04-01', overdueDays: 366 })])
+  })
   it('an ordinary bill with no days to pay and no due date is never late (no due date set), and is not reminded', () => {
     ledger('Arun', 'Sundry Debtors')
     const sale = post({ kind: 'sale', date: '2025-06-01', customerId: L('Arun'), amount: { amount: '900' }, payment: { how: 'credit' } })

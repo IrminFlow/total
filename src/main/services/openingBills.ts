@@ -48,11 +48,15 @@ export function openingBillsByParty(db: DB, partyIds?: readonly number[]): Map<n
 }
 
 /** The day an opening without bills (and the uncovered rest of one with bills) is dated on: the
- *  books-begin day — the setup's chosen day (WP 8.3 booksBeginDate), else the first FY's start
- *  (the same rule as openings.ts `booksBeginOf` and receivables' interest). */
+ *  books-begin day — the setup's chosen day (WP 8.3 booksBeginDate) when it lies in the first FY
+ *  (`booksFrom`), else that FY's start. The guard (review of #199): a wizard company that then
+ *  imports older Tally books has `booksFrom` moved back while `booksBeginDate` stays the wizard's
+ *  day — the opening is from before the oldest entry, never dated after it. */
 export function openingDateOf(db: DB): string {
   const info = readCompanyInfo(db)
-  return info.booksBeginDate ?? fyFromStartYear(info.booksFrom).from
+  const first = fyFromStartYear(info.booksFrom)
+  const begin = info.booksBeginDate
+  return begin != null && begin >= first.from && begin <= first.to ? begin : first.from
 }
 
 /**
