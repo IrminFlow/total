@@ -20,6 +20,25 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
+- **GST golden fixtures and official schema checks** (#PRNUM, Phase 2a of the upgrade plan). Plain
+  words: nothing changes on screen. 63 bills worked out by hand (intra / inter-state, B2B, B2C small /
+  large by date, SEZ and exports with / without tax, reverse charge, imports, blocked credit,
+  composition and unregistered businesses, credit / debit notes incl. CDNUR by the original bill,
+  advances, discounts, cess, amount-only bills, mixed rates, round off) are entered through the real
+  save path and each one's bill, GSTR-1 row, GSTR-3B boxes and e-invoice are checked against the hand
+  figures; every GSTR-1, GSTR-3B and e-invoice JSON is checked against the official GSTN / NIC
+  schemas (vendored, no network). For accountants: two export-format fixes the official GSTR-1
+  schema showed — an export invoice no longer sends empty (`null`) shipping-bill / port fields, and a
+  credit / debit note on an export (CDNUR EXPWP / EXPWOP) no longer sends a place of supply; no
+  figure changes. Seven disagreements between the app and the hand figures are listed for the owner
+  (to-do §2) and pinned as known: a rounded-DOWN bill's GSTR-1 / e-invoice value is its unrounded
+  total; tax typed rounded to the rupee on an amount-only bill is reported recomputed; the invoice
+  editor charges CGST + SGST to a same-state SEZ unit and IGST on LUT exports / SEZ supplies; GSTR-3B
+  leaves advances' tax out (UNVERIFIED rule). The app's GSTR-1 JSON still has Table 13 and 11A / 11B
+  in the v4.1 shape; GSTN's v5.0 (Feb 2026) reshaped them. For developers:
+  `src/main/services/gstGolden/` (fixtures + `gstGolden.dbtest.ts`, schemas + `schemas.test.ts`),
+  devDependency `ajv`.
+
 **Plain words** (#194). Total is smaller. Seven rarely used tools are gone, and seven more stay out of
 sight until a business actually uses them. Nothing already in your books changes.
 
