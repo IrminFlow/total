@@ -131,6 +131,29 @@ export function expectedGstr1(f: GoldenFixture): Record<string, unknown> {
       out.nil = { inv: [{ sply_ty: inter ? (reg ? 'INTRB2B' : 'INTRB2C') : reg ? 'INTRAB2B' : 'INTRAB2C', nil_amt: R(sign * nil), expt_amt: 0, ngsup_amt: 0 }] }
     }
   }
+  // Table 12: every line of an outward document by HSN + UQC + rate, B2B (buyer has a GSTIN) or B2C;
+  // a line without an HSN / SAC is not in the table. Credit notes reduce it.
+  if (outward(d) && e.gstr1 !== 'not-filed' && e.lines.length) {
+    const sign = d.kind === 'credit_note' ? -1 : 1
+    const sales = salesSideLedgers(d)
+    const rows = new Map<string, { hsn_sc: string; uqc: string; qty: number; rt: number } & Sum>()
+    e.lines.forEach((l, i) => {
+      const row = d.rows?.[i]
+      const item = row ? ITEMS[row.item] : null
+      const hsn = item ? item.hsn : sales[i]?.hsn
+      if (!hsn) return
+      const uqc = item ? item.uqc : 'OTH'
+      const key = `${hsn}|${uqc}|${l.rate}`
+      const r = rows.get(key) ?? { hsn_sc: hsn, uqc, qty: 0, rt: l.rate, ...zero() }
+      r.qty += sign * Math.round(Number(row?.qty ?? 0) * 1000)
+      add(r, l, sign)
+      rows.set(key, r)
+    })
+    const list = [...rows.values()]
+      .map((r) => ({ hsn_sc: r.hsn_sc, uqc: r.uqc, qty: r.qty / 1000 + 0, txval: R(r.taxable), iamt: R(r.igst), camt: R(r.cgst), samt: R(r.sgst), csamt: R(r.cess), rt: r.rt }))
+      .sort((a, b) => `${a.hsn_sc}|${a.rt}`.localeCompare(`${b.hsn_sc}|${b.rt}`))
+    if (list.length) out.hsn = p.gstin ? { hsn_b2b: list, hsn_b2c: [] } : { hsn_b2b: [], hsn_b2c: list }
+  }
   return { ...out, ...(e.gstr1Tables ?? {}) }
 }
 
@@ -181,9 +204,15 @@ export function expected3b(f: GoldenFixture): Expected3b {
     const all: Record<keyof Heads, number> = { txval: R(s.taxable), iamt: R(s.igst), camt: R(s.cgst), samt: R(s.sgst), csamt: R(s.cess) }
     return Object.fromEntries(keys.map((k) => [k, all[k]]))
   }
-  const net = zero()
-  for (const s of [isrc, oth]) { net.cgst += s.cgst; net.sgst += s.sgst; net.igst += s.igst; net.cess += s.cess }
   const o = e.gstr3b ?? {}
+  // 4(C) net ITC = 4(A) availed (IMPG + ISRC + OTH) − 4(B)(1) reversed, from the figures placed above.
+  const avl = {
+    IMPG: heads(o.itc_avl?.IMPG, TAX),
+    ISRC: o.itc_avl?.ISRC ? heads(o.itc_avl.ISRC, TAX) : h(isrc, TAX),
+    OTH: o.itc_avl?.OTH ? heads(o.itc_avl.OTH, TAX) : o.itc_avl?.IMPG ? heads(undefined, TAX) : h(oth, TAX)
+  }
+  const rul = heads(o.itc_rev_rul, TAX)
+  const net = Object.fromEntries(TAX.map((k) => [k, R(P(avl.IMPG[k]) + P(avl.ISRC[k]) + P(avl.OTH[k]) - P(rul[k]))]))
   return {
     sup_details: {
       osup_det: o.osup_det ? heads(o.osup_det, ALL) : h(det, ALL),
@@ -193,13 +222,9 @@ export function expected3b(f: GoldenFixture): Expected3b {
       osup_nongst: { txval: 0 }
     },
     unreg_details: o.unreg_details ?? [...unreg.entries()].map(([pos2, u]) => ({ pos: pos2, txval: R(u.txval), iamt: R(u.iamt) })),
-    itc_avl: {
-      IMPG: heads(o.itc_avl?.IMPG, TAX),
-      ISRC: o.itc_avl?.ISRC ? heads(o.itc_avl.ISRC, TAX) : h(isrc, TAX),
-      OTH: o.itc_avl?.OTH ? heads(o.itc_avl.OTH, TAX) : o.itc_avl?.IMPG ? heads(undefined, TAX) : h(oth, TAX)
-    },
-    itc_rev_rul: heads(o.itc_rev_rul, TAX),
-    itc_net: o.itc_net ? heads(o.itc_net, TAX) : h(net, TAX)
+    itc_avl: avl,
+    itc_rev_rul: rul,
+    itc_net: o.itc_net ? heads(o.itc_net, TAX) : net
   }
 }
 
@@ -245,6 +270,8 @@ export function expectedEinvoice(f: GoldenFixture, preceding: { number: string; 
       AssVal: R(t.taxable), CgstVal: R(t.cgst), SgstVal: R(t.sgst), IgstVal: R(t.igst), CesVal: R(t.cess),
       RndOffAmt: e.roundOff, TotInvVal: e.total
     },
+    // Exports: the shipping bill no. / date when known (no port, currency or country is captured).
+    ExpDtls: exp ? { ...(d.shippingBill ? { ShipBNo: d.shippingBill.num, ShipBDt: slashDate(d.shippingBill.date) } : {}) } : undefined,
     ...(isNote(d) && preceding ? { RefDtls: { PrecDocDtls: [{ InvNo: preceding.number, InvDt: slashDate(preceding.date) }] } } : {})
   }
 }

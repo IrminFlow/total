@@ -103,7 +103,22 @@ export interface GoldenFixture {
   expect: Expected
   /** The app disagrees with the hand-worked figure (a bug reported to the owner, not "fixed" in
    *  the fixture): those outputs' tests are expected to FAIL until the app is corrected (it.fails). */
-  knownBug?: { in: GoldenOutput[]; reason: string }
+  knownBug?: { in: GoldenOutput[]; reason: string; appGives: AppGives }
+}
+
+/** What the app gives today for a known bug — OBSERVED app output, stated only where it differs
+ *  from the hand-worked figure, so every other figure of that output stays checked. */
+export interface AppGives {
+  /** Replaces these keys of `expect` for the bill check. */
+  invoice?: Partial<Pick<Expected, 'lines' | 'roundOff' | 'total'>>
+  /** Dotted paths into the expected GSTR-1 tables / GSTR-3B figures / e-invoice values. */
+  gstr1?: Record<string, unknown>
+  gstr3b?: Record<string, unknown>
+  einvoice?: Record<string, unknown>
+  /** The app includes / leaves out the document in its e-invoice export, against `expect.einvoice`. */
+  einvoiceIncluded?: boolean
+  /** Schema / IRP-check errors the wrong value causes (else none). */
+  schema?: Partial<Record<GoldenOutput, string[]>>
 }
 
 /** The four outputs every fixture pins. */

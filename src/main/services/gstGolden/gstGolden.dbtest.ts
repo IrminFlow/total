@@ -10,7 +10,7 @@
 // A fixture marked `knownBug` is a disagreement reported to the owner: its outputs named there are
 // it.fails — they flip to failing the day the app is corrected, and the mark is then removed.
 import { describe, it, expect, beforeAll } from 'vitest'
-import { mkdtempSync } from 'fs'
+import { mkdtempSync, readFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { DB } from '../../db/connection'
@@ -24,12 +24,11 @@ import {
   buildInvoicePayload, computeInvoice, emptyInvoiceState, taxLedgerIdsFrom, taxSideOf,
   type InvoiceContext, type InvoiceFormState
 } from '@shared/voucherEdit/invoice'
-import { buildEInvoiceJson } from '@shared/gst/edocs'
 import { einvoiceIssues } from '@shared/gst/einvoiceSchema'
 import { createLedger, createStockItem, listLedgers, listStockItems } from '../masters'
 import { getVoucher, saveVoucher } from '../vouchers'
 import { gstr1, gstr3b } from '../gst'
-import { extractEdocInvoices, setTransport } from '../edocs'
+import { exportEInvoices, setTransport } from '../edocs'
 import { COMPANIES, ITEMS, LEDGERS, PARTIES, type LedgerKey, type PartyKey } from './masters'
 import { FIXTURES } from './fixtures'
 import type { DocIn, GoldenFixture, GoldenOutput } from './types'
@@ -140,7 +139,7 @@ const monthOf = (iso: string): { from: string; to: string; period: string } => {
 
 // ---- normalising the app's JSON for comparison (format only — never a figure) ----
 
-const HEADER = ['gstin', 'fp', 'gt', 'cur_gt', 'version', 'hash', 'hsn', 'doc_issue']
+const HEADER = ['gstin', 'fp', 'gt', 'cur_gt', 'version', 'hash', 'doc_issue']
 /** Tax heads the app leaves out when zero are filled in as 0; item rows are ordered by rate with
  *  their serial `num` dropped (the order of rate buckets is not a figure). */
 const rateOf = (it: Record<string, unknown>): number => ((it.itm_det as { rt?: number } | undefined)?.rt ?? (it.rt as number))
@@ -164,6 +163,14 @@ function normaliseGstr1(json: Record<string, unknown>): Record<string, unknown> 
       if (key === 'itms') return normaliseItms(value)
       return value
     })
+    if (k === 'hsn') {
+      // HSN rows: serial and description are not figures; absent zero heads filled in; sorted by code + rate.
+      const rows = (list: Record<string, unknown>[] | undefined) =>
+        (list ?? []).map(({ num: _n, desc: _d, ...h }): Record<string, unknown> => ({ iamt: 0, camt: 0, samt: 0, ...h }))
+          .sort((a, b) => `${a.hsn_sc}|${a.rt}`.localeCompare(`${b.hsn_sc}|${b.rt}`))
+      const h = v as Record<string, Record<string, unknown>[]>
+      out[k] = { hsn_b2b: rows(h.hsn_b2b), hsn_b2c: rows(h.hsn_b2c) }
+    }
     if (k === 'b2cs') out[k] = (out[k] as Record<string, unknown>[]).map((r): Record<string, unknown> => ({ iamt: 0, camt: 0, samt: 0, ...r })).sort((a, b) => (a.rt as number) - (b.rt as number))
   }
   return out
@@ -174,9 +181,20 @@ const TAX_SECTIONS = ['b2b', 'b2cl', 'b2cs', 'cdnr', 'cdnur', 'exp']
 /** GSTR-1 tables whose v5.0 shape differs from the v4.1 one the app writes. */
 const V41_ONLY = ['/doc_issue', '/at', '/txpd']
 
+/** Set `path` (dotted, array indices as numbers) of a deep copy of `obj` to `value`. */
+function patched<T>(obj: T, patch: Record<string, unknown> | undefined): T {
+  if (!patch) return obj
+  const out = JSON.parse(JSON.stringify(obj)) as Record<string, any>
+  for (const [path, value] of Object.entries(patch)) {
+    const keys = path.split('.')
+    let node = out
+    for (const k of keys.slice(0, -1)) node = node[k]
+    node[keys[keys.length - 1]!] = value
+  }
+  return out as T
+}
+
 function runFixture(f: GoldenFixture) {
-  const bugIn = (o: GoldenOutput): boolean => !!f.knownBug?.in.includes(o)
-  const test = (o: GoldenOutput, name: string, fn: () => void) => (bugIn(o) ? it.fails(`${name} — KNOWN BUG: ${f.knownBug!.reason}`, fn) : it(name, fn))
   let b: Books
   let entered: Entered
   let preceding: { number: string; date: string } | null = null
@@ -190,8 +208,19 @@ function runFixture(f: GoldenFixture) {
     entered = enter(b, f.doc)
   })
 
-  test('invoice', 'the bill: line figures, round off and total', () => {
-    const e = f.expect
+  /** Each output is checked against the hand-worked figures; for a known bug, also against what
+   *  the app gives today (`appGives`: the hand figures with ONLY the wrong values replaced, and the
+   *  schema errors that wrong value causes) — so everything else in that output stays pinned and
+   *  the hand-worked test (it.fails) flips the day the app is corrected. */
+  const output = (o: GoldenOutput, name: string, check: (asToday: boolean) => void) => {
+    if (!f.knownBug?.in.includes(o)) return it(name, () => check(false))
+    it(`${name} — the app as it is today (KNOWN BUG: ${f.knownBug.reason})`, () => check(true))
+    it.fails(`${name} — the hand-worked figure (fails until the known bug is fixed)`, () => check(false))
+  }
+  const schemaErrors = (o: GoldenOutput, asToday: boolean): string[] => (asToday ? f.knownBug?.appGives.schema?.[o] ?? [] : [])
+
+  output('invoice', 'the bill: line figures, round off and total', (asToday) => {
+    const e = asToday ? { ...f.expect, ...f.knownBug?.appGives.invoice } : f.expect
     const v = getVoucher(b.db, entered.id)!
     // The party line is what the buyer owes (or the supplier is owed): the bill's total.
     const partyLine = v.lines.find((l) => l.ledgerId === b.party[f.doc.party])!
@@ -206,55 +235,64 @@ function runFixture(f: GoldenFixture) {
     expect({ roundOff: R(c.roundDiff), total: R(c.rounded) }).toEqual({ roundOff: e.roundOff, total: e.total })
   })
 
-  test('gstr1', 'GSTR-1: its rows (and the JSON passes the GSTN schema)', () => {
+  output('gstr1', 'GSTR-1: its rows incl. HSN (and the JSON passes the GSTN schema)', (asToday) => {
     const r = gstr1(b.db, b.info, month.from, month.to, month.period)
     const actual = normaliseGstr1(r.json)
     if (f.expect.gstr1 === 'not-filed') {
       for (const s of TAX_SECTIONS) expect(actual[s], `no ${s} for a business that files no GSTR-1`).toBeUndefined()
       return
     }
-    expect(actual).toEqual(expectedGstr1(f))
-    expect(validateGstr1Json(r.json, 'v4.1')).toEqual([])
+    expect(actual).toEqual(patched(expectedGstr1(f), asToday ? f.knownBug?.appGives.gstr1 : undefined))
+    expect(validateGstr1Json(r.json, 'v4.1')).toEqual(schemaErrors('gstr1', asToday))
     // GSTN's current v5.0 schema (Feb 2026) reshaped three tables the app still writes in the v4.1
     // shape: Table 13 (`doc_det_new`, doc_num a string) and 11A / 11B (`at` / `txpd` objects split by
     // audience) — reported in the Phase 2a PR; everything else must already pass v5.0.
-    expect(validateGstr1Json(r.json, 'v5.0').filter((e) => !V41_ONLY.some((t) => e.startsWith(t)))).toEqual([])
+    expect(validateGstr1Json(r.json, 'v5.0').filter((e) => !V41_ONLY.some((t) => e.startsWith(t)))).toEqual(schemaErrors('gstr1', asToday))
   })
 
-  test('gstr3b', 'GSTR-3B: its boxes (and the JSON passes the GSTN schema)', () => {
+  output('gstr3b', 'GSTR-3B: its boxes (and the JSON passes the GSTN schema)', (asToday) => {
     const json = gstr3b(b.db, b.info, month.from, month.to, month.period).json as Record<string, any>
     if (f.expect.gstr1 === 'not-filed') {
       const sup = json.sup_details
-      for (const row of ['osup_det', 'osup_zero']) for (const k of ['iamt', 'camt', 'samt', 'csamt']) expect(sup[row][k] ?? 0, `${row}.${k}`).toBe(0)
+      for (const row of ['osup_det', 'osup_zero', 'isup_rev']) for (const k of ['iamt', 'camt', 'samt', 'csamt']) expect(sup[row][k] ?? 0, `${row}.${k}`).toBe(0)
+      expect(json.inter_sup.unreg_details).toEqual([])
       return
     }
-    const want = expected3b(f)
+    const want = patched(expected3b(f), asToday ? f.knownBug?.appGives.gstr3b : undefined)
     expect(json.sup_details).toEqual(want.sup_details)
     expect(json.inter_sup.unreg_details).toEqual(want.unreg_details)
     const avl = Object.fromEntries((json.itc_elg.itc_avl as Record<string, unknown>[]).map(({ ty, ...h }) => [ty, h]))
     expect({ IMPG: avl.IMPG, ISRC: avl.ISRC, OTH: avl.OTH }).toEqual(want.itc_avl)
-    const rul = (json.itc_elg.itc_rev as Record<string, unknown>[]).find((x) => x.ty === 'RUL')!
-    expect(pick(rul, ['iamt', 'camt', 'samt', 'csamt'])).toEqual(want.itc_rev_rul)
+    const rev = Object.fromEntries((json.itc_elg.itc_rev as Record<string, unknown>[]).map(({ ty, ...h }) => [ty, pick(h, ['iamt', 'camt', 'samt', 'csamt'])]))
+    expect(rev).toEqual({ RUL: want.itc_rev_rul, OTH: { iamt: 0, camt: 0, samt: 0, csamt: 0 } })
     expect(json.itc_elg.itc_net).toEqual(want.itc_net)
-    expect(validateGstr3bJson(json)).toEqual([])
+    // No fixture here has ineligible credit outside Circular 170's re-shaping: 4(D) stays nil.
+    for (const row of json.itc_elg.itc_inelg as Record<string, unknown>[]) expect(pick(row, ['iamt', 'camt', 'samt', 'csamt'])).toEqual({ iamt: 0, camt: 0, samt: 0, csamt: 0 })
+    expect(validateGstr3bJson(json)).toEqual(schemaErrors('gstr3b', asToday))
   })
 
-  if (f.expect.einvoice) {
-    test('einvoice', 'e-invoice JSON: its values (and it passes the NIC schema and IRP checks)', () => {
-      const inv = extractEdocInvoices(b.db, b.info, f.doc.date, f.doc.date, entered.id)
-      expect(inv).toHaveLength(1)
-      const [doc] = buildEInvoiceJson(inv, { name: b.info.name, gstin: b.info.gstin ?? '', stateCode: b.info.stateCode, address: b.info.address }) as Record<string, any>[]
-      const want = expectedEinvoice(f, preceding)
-      expect(doc!.TranDtls).toEqual(want.TranDtls)
-      expect(doc!.DocDtls).toEqual(want.DocDtls)
-      expect(pick(doc!.BuyerDtls, ['Gstin', 'Pos', 'Stcd'])).toEqual(want.BuyerDtls)
-      expect((doc!.ItemList as Record<string, unknown>[]).map((i) => pick(i, Object.keys(want.ItemList[0] ?? {})))).toEqual(want.ItemList)
-      expect(pick(doc!.ValDtls, Object.keys(want.ValDtls))).toEqual(want.ValDtls)
-      expect(doc!.RefDtls).toEqual(want.RefDtls)
-      expect(einvoiceIssues(doc)).toEqual([])
-      expect(validateEinvoiceJson(doc)).toEqual([])
-    })
-  }
+  // Through the real e-invoice export (exportEInvoices: which documents it takes, then the builder).
+  output('einvoice', f.expect.einvoice ? 'e-invoice JSON: its values (and it passes the NIC schema and IRP checks)' : 'no e-invoice for this document', (asToday) => {
+    const path = join(process.env.TOTAL_DATA_DIR!, `einvoice-${f.id}.json`)
+    const r = exportEInvoices(b.db, b.info, 'gst-golden', month.from, month.to, month.period, { path, range: { from: f.doc.date, to: f.doc.date } })
+    const docs = JSON.parse(readFileSync(path, 'utf8')) as Record<string, any>[]
+    const want = patched(expectedEinvoice(f, preceding), asToday ? f.knownBug?.appGives.einvoice : undefined)
+    const expected = asToday && f.knownBug?.appGives.einvoiceIncluded != null ? f.knownBug.appGives.einvoiceIncluded : f.expect.einvoice
+    if (!expected) {
+      expect(r.count).toBe(0)
+      return
+    }
+    expect(r.count).toBe(1)
+    const doc = docs[0]!
+    expect(doc.TranDtls).toEqual(want.TranDtls)
+    expect(doc.DocDtls).toEqual(want.DocDtls)
+    expect(pick(doc.BuyerDtls, ['Gstin', 'Pos', 'Stcd'])).toEqual(want.BuyerDtls)
+    expect((doc.ItemList as Record<string, unknown>[]).map((i) => pick(i, Object.keys(want.ItemList[0] ?? {})))).toEqual(want.ItemList)
+    expect(pick(doc.ValDtls, Object.keys(want.ValDtls))).toEqual(want.ValDtls)
+    expect(doc.RefDtls).toEqual(want.RefDtls)
+    expect(doc.ExpDtls).toEqual(want.ExpDtls)
+    expect([...einvoiceIssues(doc), ...validateEinvoiceJson(doc)]).toEqual(schemaErrors('einvoice', asToday))
+  })
 }
 
 describe('GST golden fixtures', () => {
