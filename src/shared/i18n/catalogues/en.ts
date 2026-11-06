@@ -2348,6 +2348,13 @@ export const en = {
   'errors.taxes.tooEarly': 'This period is not over yet, so its return can’t have been filed.',
   'errors.taxes.arn': 'Type the acknowledgement number (ARN) the GST portal showed — letters and numbers only.',
   'errors.taxes.filedDate': 'Enter the day you filed it: after the period ended, and not after today.',
+  'errors.gateway.liveUnavailable': 'Live filing is not available in this version — Total works in test mode, and nothing is sent to the GST portal.',
+  'errors.gateway.providerUnavailable': 'Only the built-in Test GSP can be chosen in this version.',
+  'errors.gateway.periodOpen': 'This month is not over yet, so its return can’t be filed.',
+  'errors.gateway.alreadyFiled': 'This return is already filed.',
+  'errors.gateway.notSaved': 'Send the return to the portal first.',
+  'errors.gateway.notProcessed': 'The portal has not finished checking the return yet. Check its status again in a moment.',
+  'errors.gateway.notReady': 'This return is not ready to file yet. Send it, wait until the portal has checked it, then try again.',
   'errors.taxes.prepareFailed': 'The file could not be prepared. Some bills need a fix first — open the return in the full app to see which.',
 
   // ---------- Ask Total (WP 10.1, src/main/assist/ — deterministic answers, no key needed) ----------

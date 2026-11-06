@@ -2247,6 +2247,13 @@ export const hi: Partial<Record<MessageKey, string>> = {
   'errors.taxes.tooEarly': 'यह समय अभी खत्म नहीं हुआ है, इसलिए इसका रिटर्न भरा नहीं जा सकता था।',
   'errors.taxes.arn': 'GST पोर्टल पर दिखा पावती नंबर (ARN) लिखें — सिर्फ़ अक्षर और अंक।',
   'errors.taxes.filedDate': 'जिस दिन आपने इसे भरा, वह तारीख डालें: समय खत्म होने के बाद की, और आज के बाद की नहीं।',
+  'errors.gateway.liveUnavailable': 'इस वर्ज़न में असली फ़ाइलिंग उपलब्ध नहीं है — Total टेस्ट मोड में चलता है, और GST पोर्टल पर कुछ नहीं भेजा जाता।',
+  'errors.gateway.providerUnavailable': 'इस वर्ज़न में सिर्फ़ बिल्ट-इन टेस्ट GSP चुना जा सकता है।',
+  'errors.gateway.periodOpen': 'यह महीना अभी खत्म नहीं हुआ है, इसलिए इसका रिटर्न नहीं भरा जा सकता।',
+  'errors.gateway.alreadyFiled': 'यह रिटर्न पहले ही भरा जा चुका है।',
+  'errors.gateway.notSaved': 'पहले रिटर्न पोर्टल पर भेजें।',
+  'errors.gateway.notProcessed': 'पोर्टल ने अभी रिटर्न की जाँच पूरी नहीं की है। थोड़ी देर में उसकी स्थिति फिर से देखें।',
+  'errors.gateway.notReady': 'यह रिटर्न अभी भरने के लिए तैयार नहीं है। इसे भेजें, पोर्टल की जाँच पूरी होने दें, फिर दोबारा कोशिश करें।',
   'errors.taxes.prepareFailed': 'फ़ाइल तैयार नहीं हो सकी। कुछ बिलों में पहले सुधार चाहिए — कौन से, यह देखने के लिए रिटर्न पूरे ऐप में खोलें।',
 
   'assist.suggest.profitHinglish': 'इस महीने कितना मुनाफ़ा हुआ?',

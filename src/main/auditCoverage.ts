@@ -350,6 +350,26 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'edoc:exportEwb': EXPORT,
   'edoc:ewbJson': EXPORT,
   'edoc:transportSet': a('voucher'),
+  // Phase 4 — the GST gateway (src/main/gstGateway/). In 1.0 only the Test GSP answers: its
+  // simulated e-documents / return states log as gst_gateway; a real adapter later writes the
+  // voucher's e-document columns (voucher), a filing's ARN goes into meta gstFiled (company) and a
+  // fetched GSTR-2B into gst2b_statements.
+  'gateway:status': QUERY,
+  'gateway:settings:set': a('gst_gateway'),
+  'gateway:edoc:record': QUERY,
+  'gateway:irn:generate': a('gst_gateway', 'voucher'),
+  'gateway:irn:cancel': a('gst_gateway', 'voucher'),
+  'gateway:ewb:generate': a('gst_gateway', 'voucher'),
+  'gateway:ewb:cancel': a('gst_gateway', 'voucher'),
+  'gateway:ewb:extend': a('gst_gateway', 'voucher'),
+  'gateway:otp:request': r('asks the portal (in 1.0 the Test GSP) to send an OTP; writes nothing to the books'),
+  'gateway:signIn': r('opens a portal session held in memory for this app session; writes nothing to the books'),
+  'gateway:return:get': QUERY,
+  'gateway:return:save': a('gst_gateway'),
+  'gateway:return:status': a('gst_gateway'),
+  'gateway:return:offset': a('gst_gateway'),
+  'gateway:return:file': a('gst_gateway', 'company'),
+  'gateway:2b:fetch': a('gst2b_statement'),
   'nic:testConnection': r('NIC auth handshake only — files nothing, writes nothing to the books'),
   'nic:generateIrn': a('voucher'),
   'nic:generateEwb': a('voucher'),

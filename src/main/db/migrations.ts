@@ -3616,5 +3616,47 @@ export const MIGRATIONS: string[] = [
   `
   ALTER TABLE inventory_lines ADD COLUMN count_cost INTEGER NOT NULL DEFAULT 0 CHECK (count_cost IN (0, 1));
   CREATE INDEX IF NOT EXISTS idx_inv_count_cost ON inventory_lines(id) WHERE count_cost = 1;
+  `,
+  // Phase 4 (upgrade plan) — the GST gateway (last; number by position). New tables only, plus one
+  // nullable column; nothing existing is read differently:
+  // - gst_gateway_test_edocs: what the built-in Test GSP answered for a voucher's IRN / e-way bill
+  //   (the same columns as the voucher's own NIC columns). Kept apart so a SIMULATED IRN never
+  //   reaches a print, never locks a voucher and never mixes with a real one.
+  // - gst_gateway_returns: a return's state on the portal as the gateway last saw it (saved →
+  //   processed / error → set off → filed with the ARN), per provider and test / real.
+  // - gst_test_gsp_state: the Test GSP's simulated "portal" memory (issued IRNs, e-way bills,
+  //   saved returns), so a duplicate stays a duplicate after a restart. No secret is ever in it.
+  // - gst2b_statements.source: NULL = imported from a file (every row before this), 'gateway' /
+  //   'gateway-test' = fetched through the gateway (a test fetch never replaces an imported file).
+  `
+  CREATE TABLE gst_gateway_test_edocs (
+    voucher_id INTEGER PRIMARY KEY REFERENCES vouchers(id) ON DELETE CASCADE,
+    irn TEXT, irn_ack_no TEXT, irn_ack_date TEXT, irn_signed_invoice TEXT, irn_signed_qr TEXT,
+    irn_cancelled_at TEXT, irn_cancel_reason TEXT, irn_cancel_remark TEXT,
+    ewb_no TEXT, ewb_valid_upto TEXT, ewb_date TEXT, ewb_history TEXT,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  );
+  CREATE TABLE gst_gateway_returns (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    test INTEGER NOT NULL CHECK (test IN (0, 1)),
+    form TEXT NOT NULL CHECK (form IN ('gstr1', 'gstr3b')),
+    period TEXT NOT NULL CHECK (length(period) = 6),
+    state TEXT NOT NULL CHECK (state IN ('saved', 'processing', 'processed', 'error', 'offset', 'filed')),
+    reference_id TEXT,
+    arn TEXT,
+    filed_on TEXT,
+    errors_json TEXT NOT NULL DEFAULT '[]',
+    saved_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    UNIQUE (provider, test, form, period)
+  );
+  CREATE TABLE gst_test_gsp_state (
+    kind TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    PRIMARY KEY (kind, key)
+  );
+  ALTER TABLE gst2b_statements ADD COLUMN source TEXT CHECK (source IS NULL OR source IN ('gateway', 'gateway-test'));
   `
 ]
