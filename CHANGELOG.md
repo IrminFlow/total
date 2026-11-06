@@ -263,7 +263,7 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
 
 ### Security
 
-- **Dependency patch updates** (#PR_PATCH). Plain words: nothing you see changes; three libraries
+- **Dependency patch updates** (#201). Plain words: nothing you see changes; three libraries
   Total uses got their security fixes. For developers: lockfile only — `vite` 7.3.6 → 7.3.7 (dev
   server), `fast-uri` 3.1.8 → 3.1.9 (via electron-builder's ajv), `undici` 6.29.0 → 6.29.1 (the
   `openai` client's HTTP stack) and 8.12.1 → 8.12.4 (jsdom, tests only). Replaces Dependabot #179,
