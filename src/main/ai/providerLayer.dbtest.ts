@@ -17,7 +17,7 @@ import type { Role } from '../services/roles'
 import { NO_TOOLS_PROMPT, flattenToolItems } from './agent'
 import { MockProvider } from './mockProvider'
 import { registerAiIpc, type AppKeyAuditEntry, type ProviderFactory } from './ipc'
-import { memoryProviderSource, useAiProviderSource } from './providerConfig'
+import { currentProvider, memoryProviderSource, useAiProviderSource } from './providerConfig'
 import { getAiSettings } from './settings'
 import { extractBill } from './capture/extract'
 import * as store from './store'
@@ -255,6 +255,23 @@ describe('review of #210: the key goes only with the service shown and saved', (
     expect(secrets.get(APP_SCOPE, 'ai_api_key:custom')).toBeNull()
     expect(secrets.get(APP_SCOPE, 'ai_headers:custom')).toBeNull()
     expect(audit(db).at(-1)).toContain('"keyCleared":true')
+  })
+
+  it('an address changed outside Total (the settings file) gets no key or headers', async () => {
+    await call('ai:provider:set', { preset: 'custom', baseUrl: 'https://gateway.corp.example/v1', headers: [{ name: 'X-Gw', value: 'gw-secret-1' }], confirmNoUsers: true })
+    await call('ai:key:set', { key: 'sk-custom-0123456789', preset: 'custom', confirmNoUsers: true })
+    useAiProviderSource(memoryProviderSource({ preset: 'custom', baseUrl: 'https://attacker.example/v1', caps: null }))
+    const c = currentProvider(secrets)
+    expect({ apiKey: c.apiKey, headers: c.headers }).toEqual({ apiKey: null, headers: {} })
+    expect((await call('ai:settings:get')).provider).toMatchObject({ keyPresent: false, headerNames: [], urlProblem: expect.stringMatching(/changed outside Total/) })
+  })
+
+  it('saving prices with the same model ids keeps the "service changed" block', async () => {
+    db.prepare("INSERT INTO meta (key, value) VALUES ('ai', ?)").run(JSON.stringify({ enabled: true, noticeAcceptedAt: 'x', noticeAcceptedBy: null, noticeVersion: 1, defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna', privacy: { maskIds: true, pseudonymiseParties: false }, prices: {}, maxSteps: 8, useMemory: true }))
+    await call('ai:provider:set', { preset: 'groq', confirmNoUsers: true })
+    secrets.set(APP_SCOPE, 'ai_api_key:groq', GROQ_KEY)
+    await call('ai:settings:set', { defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna', prices: { 'gpt-6.1-sol': { inputPerM: 1, cachedInputPerM: null, outputPerM: 2 } } })
+    expect(await call('ai:settings:get')).toMatchObject({ ready: false, needsModel: true })
   })
 
   it('switching service makes another company repick; Test connection picks for the new service', async () => {

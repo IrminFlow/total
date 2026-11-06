@@ -223,7 +223,8 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
       const stale = modelsStale(s, pr)
       const pick = pickModels(models, s)
       if (pick.found && (stale || (pick.changed && (!s.defaultModel || !models.includes(s.defaultModel) || !s.fastModel || !models.includes(s.fastModel))))) {
-        now = patchAiSettings(db(), { defaultModel: pick.defaultModel, fastModel: pick.fastModel }, { modelsFor: pr })
+        // Checked against this service's own list: the ids are now this service's, even unchanged.
+        now = patchAiSettings(db(), { defaultModel: pick.defaultModel, fastModel: pick.fastModel }, { modelsFor: pr, force: true })
         picked = { defaultModel: pick.defaultModel, fastModel: pick.fastModel }
       }
       return { ok: true, models, defaultModelFound: models.includes(now.defaultModel), fastModelFound: models.includes(now.fastModel), error: null, picked }

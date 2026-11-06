@@ -219,6 +219,17 @@ describe('Chat Completions stream details (review of #210)', () => {
     expect(r.toolCalls).toEqual([{ callId: 'a', name: 'trial_balance', arguments: '{"asOn":"2025-07-31"}' }])
   })
 
+  it('two whole calls streamed without index or id stay two calls', async () => {
+    const m = mockFetch(() =>
+      sse([
+        chunk({ tool_calls: [{ function: { name: 'find_party', arguments: '{"q":"A"}' } }] }),
+        chunk({ tool_calls: [{ function: { name: 'trial_balance', arguments: '{}' } }] }, 'tool_calls')
+      ])
+    )
+    const r = await createProvider(resolved('ollama'), null, {}, { fetch: m.fetch }).chat(REQ)
+    expect(r.toolCalls.map((c) => [c.name, c.arguments])).toEqual([['find_party', '{"q":"A"}'], ['trial_balance', '{}']])
+  })
+
   it('calls without ids get ids unique across steps; a content filter stop is incomplete', async () => {
     const m = mockFetch(() => sse([chunk({ tool_calls: [{ index: 0, function: { name: 'x', arguments: '{}' } }] }, 'content_filter')]))
     const p = createProvider(resolved('ollama'), null, {}, { fetch: m.fetch })

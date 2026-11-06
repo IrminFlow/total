@@ -213,6 +213,16 @@ export function chatUsageFrom(u: ChatUsageLike | null | undefined): ChatUsage {
   }
 }
 
+function completeJson(text: string): boolean {
+  if (!text.trim()) return false
+  try {
+    JSON.parse(text)
+    return true
+  } catch {
+    return false
+  }
+}
+
 /** What a request needs that the endpoint cannot do — the first such need, or null. */
 export function unmetNeed(req: ChatRequest, caps: AiCapabilities): AiCapabilityNeed | null {
   if (req.tools.length > 0 && !caps.tools) return 'tools'
@@ -472,8 +482,11 @@ export class OpenAiProvider implements AiProvider {
           }
           for (const tc of ch.delta?.tool_calls ?? []) {
             state.streamed = true
-            // A server that leaves `index` off a continuation chunk means the call in progress.
-            const i = tc.index ?? (tc.id || calls.size === 0 ? calls.size : last)
+            // A server that leaves `index` off a continuation chunk means the call in progress —
+            // unless the chunk names a new function after a call whose arguments are complete.
+            const cur = calls.get(last)
+            const startsNew = !!tc.id || calls.size === 0 || (!!tc.function?.name && !!cur?.name && completeJson(cur.arguments))
+            const i = tc.index ?? (startsNew ? calls.size : last)
             last = i
             const c = calls.get(i) ?? { callId: '', name: '', arguments: '' }
             if (tc.id) c.callId = tc.id

@@ -47,7 +47,7 @@ function writeSettings(db: DB, s: AiSettings): void {
 }
 
 /** Apply a validated patch. Turning AI on needs the data notice accepted first. */
-export function patchAiSettings(db: DB, raw: AiSettingsPatch, opts: { modelsFor?: string } = {}): AiSettings {
+export function patchAiSettings(db: DB, raw: AiSettingsPatch, opts: { modelsFor?: string; force?: boolean } = {}): AiSettings {
   const patch = aiSettingsPatchSchema.parse(raw)
   const before = getAiSettings(db)
   if (patch.enabled && (!before.noticeAcceptedAt || before.noticeVersion !== AI_DATA_NOTICE_VERSION)) {
@@ -61,7 +61,12 @@ export function patchAiSettings(db: DB, raw: AiSettingsPatch, opts: { modelsFor?
     ...(patch.maxSteps ? { maxSteps: patch.maxSteps } : {}),
     ...(patch.useMemory !== undefined ? { useMemory: patch.useMemory } : {}),
     // Models saved now belong to the service in use (Phase 3a).
-    ...((patch.defaultModel || patch.fastModel) && opts.modelsFor ? { modelsFor: opts.modelsFor } : {}),
+    // Only a real change of model ids (a save that re-sends the same ids, e.g. with prices, keeps
+    // the service they were picked for — review of #210).
+    ...(opts.modelsFor &&
+    ((patch.defaultModel && patch.defaultModel !== before.defaultModel) || (patch.fastModel && patch.fastModel !== before.fastModel) || opts.force)
+      ? { modelsFor: opts.modelsFor }
+      : {}),
     privacy: { ...before.privacy, ...(patch.privacy ?? {}) },
     prices: patch.prices ? { ...patch.prices } : before.prices
   }

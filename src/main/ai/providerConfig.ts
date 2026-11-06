@@ -80,9 +80,23 @@ export interface CurrentProvider {
   headers: Record<string, string>
 }
 
+export const CUSTOM_ORIGIN_MOVED = 'The address of the AI service changed outside Total — save it again in Settings → AI (its key and extra headers stay with the address they were saved for)'
+
 export function currentProvider(store: SecretStore): CurrentProvider {
   const settings = source.read()
   const resolved = resolveAiProvider(settings, FIXED_ENDPOINTS)
+  // A custom service's key and headers go only to the origin they were saved for — app-settings.json
+  // is plain text, so an address changed there (not through ai:provider:set) gets neither.
+  if (resolved.preset === 'custom' && resolved.baseUrl) {
+    const bound = boundCustomOrigin(store)
+    let origin: string | null = null
+    try {
+      origin = new URL(resolved.baseUrl).origin
+    } catch {
+      origin = null
+    }
+    if (bound && bound !== origin) return { settings, resolved: { ...resolved, urlProblem: resolved.urlProblem ?? CUSTOM_ORIGIN_MOVED }, apiKey: null, headers: {} }
+  }
   return { settings, resolved, apiKey: readPresetKey(store, resolved.preset), headers: readPresetHeaders(store, resolved.preset) }
 }
 
