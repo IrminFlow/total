@@ -263,7 +263,7 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
 
 ### Security
 
-- **Test runner: Vitest 3 → 5** (#PR_VITEST). Plain words: nothing in the app changes; the tool that
+- **Test runner: Vitest 3 → 5** (#205). Plain words: nothing in the app changes; the tool that
   runs Total's automated checks is updated, which clears the two critical alerts (tinypool, vitest)
   and the `@vitest/mocker` ones. For developers: `vitest` ^3.2 → ^5.1 (tinypool is gone; Vitest 5
   needs Node ≥ 22.12 — CI's Node 22 and Electron 37's Node 22.21 both qualify).
