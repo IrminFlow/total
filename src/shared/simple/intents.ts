@@ -855,10 +855,12 @@ function mapTrade(n: Extract<NormalIntent, { kind: 'sale' | 'purchase' }>, ctx: 
   const date = n.date
   const billNo = n.kind === 'purchase' ? n.billNo : null
   const billName = uniqueName(billNo ?? number, ctx.takenNames.get(party.id), date)
-  // A party without days to pay (none, or 0) and no date given: the bill is stored WITHOUT a due
+  // A party without days to pay (none set) and no date given: the bill is stored WITHOUT a due
   // date (owner decision, 7 Nov 2026 — it was dated the bill day, so it counted as late from the
-  // next day while the screens said "no due date set"). Bills saved before keep theirs.
-  const due: string | null = n.dueDate ?? ((party.creditDays ?? 0) > 0 ? addDaysISO(date, party.creditDays!) : null)
+  // next day while the screens said "no due date set"). Days to pay of 0 = due on the bill's own
+  // day (stored, and said — the Outstandings engine would date it so from the ledger anyway).
+  // Bills saved before keep theirs.
+  const due: string | null = n.dueDate ?? (party.creditDays != null ? addDaysISO(date, party.creditDays) : null)
   const accountClasses: IntentLedgerClass[] = sale ? ['income'] : ['expense']
   const defaultAccount = sale ? ctx.defaults.salesId : ctx.defaults.purchaseId
   const charges = chargesGstOn(ctx.invoice, date)

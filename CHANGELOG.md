@@ -269,7 +269,9 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   full editor); Outstandings ages it from its bill date as before, but its overdue days now follow
   the ledger's credit days if some are set later (none = from the bill date, unchanged). For
   developers: `mapTrade` (shared/simple/intents.ts) stores `dueDate: null` / `billDueDate: ''` when
-  no due date is given and the party's credit days are none or 0; `facts.dueDate` follows it.
+  no due date is given and the party has no credit days set; days to pay of 0 now store AND say the
+  bill's own day (it said "no due date set" though the engine dated it so); `facts.dueDate` follows
+  what is stored. The accountant invoice editor still pre-fills the bill date (unchanged).
 
 ## [0.12.0] - 2026-10-22
 

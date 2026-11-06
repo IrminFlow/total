@@ -223,6 +223,13 @@ describe('a party with no days to pay: no due date is stored (owner decision, 7 
     const ramesh = map({ kind: 'sale', customerId: L.ramesh, date: '2025-08-14', amount: { amount: '500' } })
     expect(ramesh.entries[0]!.payload.billRefs).toEqual([expect.objectContaining({ dueDate: '2025-08-29' })])
   })
+  it('days to pay of 0: due on the bill day, stored and said (the engine dates it so from the ledger anyway)', () => {
+    const base = ctx()
+    const c: IntentContext = { ...base, ledgers: new Map([...base.ledgers, [L.kumar, { ...base.ledgers.get(L.kumar)!, creditDays: 0 }]]) }
+    const m = map({ kind: 'sale', customerId: L.kumar, date: '2025-08-14', amount: { amount: '500' } }, c)
+    expect(m.entries[0]!.payload.billRefs).toEqual([expect.objectContaining({ kind: 'new', dueDate: '2025-08-14' })])
+    expect(m.facts.dueDate).toBe('2025-08-14')
+  })
 })
 
 describe('purchase', () => {
