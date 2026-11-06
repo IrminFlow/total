@@ -220,7 +220,9 @@ export function monthEndOf(date: string): string {
   return `${date.slice(0, 7)}-${String(last).padStart(2, '0')}`
 }
 
-/** The header of "Bills to pay": what falls due by Sunday / by the month's end (late included). */
+/** The header of "Bills to pay": what falls due by Sunday / by the month's end (late included).
+ *  A bill with no due date (`dueDate` null — the row says "no due date set", never late) falls due
+ *  on no day, so it is in neither total (it was counted by its bill date until Nov 2026). */
 export function billsToPayTotals(bills: readonly Pick<PersonBill, 'pending' | 'dueDate' | 'date' | 'overdueDays'>[], today: string): Pick<BillsToPay, 'weekEnd' | 'monthEnd' | 'dueThisWeek' | 'dueThisMonth' | 'late'> {
   const weekEnd = weekEndOf(today)
   const monthEnd = monthEndOf(today)
@@ -229,8 +231,9 @@ export function billsToPayTotals(bills: readonly Pick<PersonBill, 'pending' | 'd
   let late = 0
   for (const b of bills) {
     if (b.pending <= 0) continue
-    const due = b.dueDate ?? b.date
     if (b.overdueDays > 0) late += b.pending
+    const due = b.dueDate
+    if (due == null) continue
     if (due <= weekEnd) dueThisWeek += b.pending
     if (due <= monthEnd) dueThisMonth += b.pending
   }

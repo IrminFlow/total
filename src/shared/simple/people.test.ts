@@ -208,6 +208,15 @@ describe('bills to pay', () => {
     )
     expect(totals).toEqual({ weekEnd: '2026-10-18', monthEnd: '2026-10-31', dueThisWeek: 3_000, dueThisMonth: 7_000, late: 1_000 })
   })
+  it('a bill with no due date (the row says "no due date") is in neither total, whatever its date', () => {
+    const bills = [
+      { pending: 2_000, dueDate: '2026-10-18', date: '2026-10-01', overdueDays: 0 },
+      { pending: 16_000, dueDate: null, date: '2026-10-02', overdueDays: 0 },
+      { pending: 32_000, dueDate: null, date: '2026-10-20', overdueDays: 0 }
+    ]
+    expect(billsToPayTotals(bills, TODAY)).toEqual({ weekEnd: '2026-10-18', monthEnd: '2026-10-31', dueThisWeek: 2_000, dueThisMonth: 2_000, late: 0 })
+    expect(bills.map((b) => billTiming(b, TODAY, t))).toEqual(['due in 4 days', 'no due date', 'no due date'])
+  })
 })
 
 describe('the person view’s checks', () => {
