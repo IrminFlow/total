@@ -28,7 +28,10 @@ export interface MapOptions {
   fields?: readonly string[]
 }
 
-/** Zod issues arrive as 'zod.<issue code>' with the payload path as the field. */
+/** Zod issues arrive as 'zod.<issue code>' with the payload path as the field. Zod 4 codes: a
+ *  missing value is invalid_type (a missing enum value too — ipc.ts `zodIssueCode`), an empty /
+ *  short one too_small; the renamed ones (invalid_format, invalid_value — Zod 3's invalid_string,
+ *  invalid_enum_value, invalid_literal) fall to fieldInvalid exactly as their Zod 3 names did. */
 function zodEntry(code: string, field: string | undefined): ErrorMapEntry {
   const last = field?.split('.').pop() ?? ''
   if (/gstin$/i.test(last)) return { key: 'errors.gstinInvalid' }

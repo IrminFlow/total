@@ -53,6 +53,7 @@ import {
 } from '@shared/schemas'
 import { todayISO } from '@shared/dates'
 import { AppError, structuredOf, type StructuredError } from '@shared/errors'
+import { zodIssueCode } from '@shared/zodMessages'
 import { formatPaise } from '@shared/money'
 import * as configSvc from './services/config'
 import { unusedFeatures } from './services/featureUsage'
@@ -494,7 +495,7 @@ export function ipcStructuredError(err: unknown): Partial<StructuredError> {
       code: 'invalid_input',
       issues: err.issues.map((i) => {
         const path = i.path[0] === 'data' ? i.path.slice(1) : i.path
-        return { code: `zod.${i.code}`, ...(path.length ? { field: path.join('.') } : {}), message: `${i.path.join('.')}: ${i.message}` }
+        return { code: `zod.${zodIssueCode(i)}`, ...(path.length ? { field: path.join('.') } : {}), message: `${i.path.join('.')}: ${i.message}` }
       })
     }
   }
@@ -1795,7 +1796,7 @@ export function registerIpc(): void {
   })
   handle('master:godowns:delete', (p) => masters.deleteGodown(requireCompany().db, idSchema.parse(p).id))
   handle('master:batches:list', (p) => {
-    const { stockItemId } = z.object({ stockItemId: z.number().int().positive().optional() }).default({}).parse(p ?? {})
+    const { stockItemId } = z.object({ stockItemId: z.number().int().positive().optional() }).prefault({}).parse(p ?? {})
     return masters.listBatches(requireCompany().db, stockItemId)
   }, 'viewer')
   handle('master:batches:create', (p) => masters.createBatch(requireCompany().db, batchInputSchema.parse(p)))
@@ -2785,7 +2786,7 @@ export function registerIpc(): void {
   handle('invoice:previewHtml', (p) => {
     const { voucherId, config } = z
       .object({ voucherId: z.number().int().positive().optional(), config: invoiceConfigPartialSchema.optional() })
-      .default({})
+      .prefault({})
       .parse(p ?? {})
     const c = requireCompany()
     return invoice.invoicePreviewHtml(c.db, c.info, voucherId, config)
@@ -2835,7 +2836,7 @@ export function registerIpc(): void {
   }, 'viewer')
   // `jsonText` inline lets drivers/tests import without the native file dialog.
   handle('template:import', async (p) => {
-    const { jsonText } = z.object({ jsonText: z.string().max(2_000_000).optional() }).default({}).parse(p ?? {})
+    const { jsonText } = z.object({ jsonText: z.string().max(2_000_000).optional() }).prefault({}).parse(p ?? {})
     let text = jsonText
     if (text === undefined) {
       const picked = await dialog.showOpenDialog({
@@ -3596,7 +3597,7 @@ export function registerIpc(): void {
     return null
   }
   handle('app:updates:canSet', (p) => {
-    z.object({}).strict().default({}).parse(p ?? {})
+    z.object({}).strict().prefault({}).parse(p ?? {})
     return updatesVerdict()
   }, 'viewer')
   handle('app:updates:set', (p) => {
@@ -3640,7 +3641,7 @@ export function registerIpc(): void {
   // Drafts the removed MCP server / agent inbox made (WP 5.7) stay readable until each is saved or
   // discarded — Settings → Agent access lists any that are left.
   handle('agent:drafts', (p) => {
-    const { status } = z.object({ status: z.enum(['open', 'consumed', 'discarded']).optional() }).default({}).parse(p ?? {})
+    const { status } = z.object({ status: z.enum(['open', 'consumed', 'discarded']).optional() }).prefault({}).parse(p ?? {})
     return aiStore.listDrafts(requireCompany().db, status, undefined, ['mcp', 'inbox'])
   }, 'viewer')
 

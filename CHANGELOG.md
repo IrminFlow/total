@@ -261,6 +261,31 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it; a swap that fails (copy / fsync / rename) removes its copy and
   reopens the untouched books instead of leaving a closed handle.
 
+### Security
+
+- **Validation library: Zod 3 → 4** (#PR_ZOD). Plain words: nothing you see changes — every screen,
+  message and AI answer works as before. The library that checks every request between the screens
+  and the books moves to its current major version, which clears the high-severity "oversized
+  collections" memory alert against Zod 3 (Dependabot alert 138). For developers: `zod@^4.6.7`, no
+  `zod/v3` compat import. Object defaults that must fill in their own fields (`.default({})`) are
+  `.prefault({})` — Zod 4's `.default()` returns the value without parsing it; `invoiceConfigPartialSchema`
+  drops `showEnteredBy`'s default (Zod 4 applies a default inside `.partial()`, which would have
+  turned an omitted field into `false` over the saved config); three `z.unknown()` keys are
+  `.optional()` (Zod 4 refuses an absent one; Zod 3 passed it on — `template:import` would otherwise
+  have read the wrapper as a template). Messages: `src/shared/zodMessages.ts` (imported by main, the
+  renderer, the CLI and the vitest setups) keeps Zod 3's "Required" for a missing value; every other
+  default message is Zod 4's wording. Error mapping (WP 8.5): issue codes are Zod 4's
+  (`zod.invalid_format`, `zod.invalid_value` …, all still "field invalid" as their Zod 3 names
+  were); a missing enum value — Zod 4's invalid_value — is reported as `zod.invalid_type`
+  (`zodIssueCode`), so the plain message under a field is unchanged. The AI tool-schema walker
+  (`ai/jsonSchema.ts`) and the CLI's voucher schema doc (`cli/schemaDoc.ts`) read Zod 4's `_zod.def`:
+  the tool schemas sent to the model are pinned to a fixture generated with Zod 3
+  (`toolSchemas.dbtest.ts`, every tool plus a schema of the walker's edge cases) and
+  `agent-skill/voucher.schema.json` is unchanged byte for byte. Every exported schema in `src/shared`
+  (315) was parsed under both versions with the same inputs: same results, bar the codes above and a
+  second issue on a string schema given an array (still refused). Stricter in Zod 4 and harmless:
+  `.int()` refuses numbers past ±2^53, `z.number()` refuses Infinity.
+
 ## [0.12.0] - 2026-10-22
 
 Everything merged after v0.11.0 (2026-10-13), 143 pull requests: Phase 9 (simple screens for the daily jobs), the

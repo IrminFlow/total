@@ -265,11 +265,11 @@ export const printTemplateSchema = z.object({
       orientation: z.enum(['portrait', 'landscape']).default('portrait'),
       marginsMm: z
         .object({ top: mm.default(10), right: mm.default(10), bottom: mm.default(10), left: mm.default(10) })
-        .default({}),
+        .prefault({}),
       /** "Page x of y" footer (drawn by the PDF engine in the bottom margin). */
       pageNumbers: z.boolean().default(true)
     })
-    .default({}),
+    .prefault({}),
   header: z
     .object({
       showLogo: z.boolean().default(true),
@@ -287,11 +287,11 @@ export const printTemplateSchema = z.object({
       showEmail: z.boolean().default(false),
       showWebsite: z.boolean().default(false),
       website: text(120, ''),
-      titles: titlesSchema.default({}),
+      titles: titlesSchema.prefault({}),
       /** One printed copy per label, e.g. Original for Recipient / Duplicate for Transporter. */
       copyLabels: z.array(z.string().trim().min(1).max(40)).min(1).max(3).default(['Original for Recipient'])
     })
-    .default({}),
+    .prefault({}),
   party: z
     .object({
       billToLabel: text(40, 'Billed to'),
@@ -303,7 +303,7 @@ export const printTemplateSchema = z.object({
       showPlaceOfSupply: z.boolean().default(true),
       showVehicle: z.boolean().default(true)
     })
-    .default({}),
+    .prefault({}),
   columns: z.array(columnSchema).max(40).default([]).transform(normaliseColumns),
   table: z
     .object({
@@ -311,7 +311,7 @@ export const printTemplateSchema = z.object({
        *  the print engine break the table naturally (header row still repeats). */
       carryForwardEvery: z.number().int().min(0).max(200).default(16)
     })
-    .default({}),
+    .prefault({}),
   totals: z
     .object({
       taxSummary: z.enum(['hsn', 'rate', 'none']).default('hsn'),
@@ -320,7 +320,7 @@ export const printTemplateSchema = z.object({
       /** Party's ledger balance as on the document date, under the total. */
       showOutstanding: z.boolean().default(false)
     })
-    .default({}),
+    .prefault({}),
   footer: z
     .object({
       declaration: text(1000, DEFAULT_INVOICE_CONFIG.declaration),
@@ -334,7 +334,7 @@ export const printTemplateSchema = z.object({
       computerGeneratedText: text(160, 'This is a computer-generated document.'),
       showEnteredBy: z.boolean().default(false)
     })
-    .default({}),
+    .prefault({}),
   einvoice: z
     .object({
       showQr: z.boolean().default(true),
@@ -345,14 +345,14 @@ export const printTemplateSchema = z.object({
       /** e-Way bill number when one has been generated. */
       showEwb: z.boolean().default(true)
     })
-    .default({}),
+    .prefault({}),
   formats: z
     .object({
       date: z.enum(DOC_DATE_FORMATS).default('dd-mmm-yy'),
       number: z.enum(['indian', 'plain']).default('indian'),
       currencySymbolOnTotal: z.boolean().default(true)
     })
-    .default({}),
+    .prefault({}),
   typography: z
     .object({
       fontFamily: z.enum(FONT_FAMILIES).default('helvetica'),
@@ -360,7 +360,7 @@ export const printTemplateSchema = z.object({
       baseFontPx: z.number().min(8).max(16).multipleOf(0.5).default(12),
       accent: hexColorSchema.default('#16181f')
     })
-    .default({})
+    .prefault({})
 })
 
 export type PrintTemplate = z.output<typeof printTemplateSchema>
@@ -575,7 +575,7 @@ export const printTemplateStoreSchema = z.object({
   /** Customised built-ins (same id as the built-in) + user templates. */
   templates: z.array(z.unknown()).default([]),
   /** Default template id per document kind; a missing kind falls back to Classic. */
-  defaults: z.record(z.string(), z.string()).default({})
+  defaults: z.record(z.string(), z.string()).prefault({})
 })
 export interface PrintTemplateStore {
   version: 1
@@ -605,7 +605,7 @@ export function parseStore(raw: unknown): PrintTemplateStore {
 export const templateExportSchema = z.object({
   format: z.literal('total-print-template'),
   version: z.number().int(),
-  template: z.unknown()
+  template: z.unknown().optional() // as Zod 3: an absent key reaches parseStoredTemplate, which refuses it
 })
 
 export function exportTemplateJson(t: PrintTemplate): string {

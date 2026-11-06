@@ -39,7 +39,7 @@ export type MergeField = (typeof MERGE_FIELDS)[number][0]
 const text = (max: number, def: string) => z.string().max(max).default(def)
 
 const letterSchema = (subject: string, body: string) =>
-  z.object({ subject: text(200, subject), body: text(4000, body) }).default({})
+  z.object({ subject: text(200, subject), body: text(4000, body) }).prefault({})
 
 export const DEFAULT_REMINDERS: Record<ReminderBucket, { subject: string; body: string }> = {
   gentle: {
@@ -82,7 +82,7 @@ export const receivablesConfigSchema = z.object({
       firm: letterSchema(DEFAULT_REMINDERS.firm.subject, DEFAULT_REMINDERS.firm.body),
       final: letterSchema(DEFAULT_REMINDERS.final.subject, DEFAULT_REMINDERS.final.body)
     })
-    .default({}),
+    .prefault({}),
   /** A party whose oldest overdue bill is at least this many days overdue gets the firm / final letter. */
   firmFromDays: z.number().int().min(1).max(365).default(31),
   finalFromDays: z.number().int().min(2).max(730).default(61),
@@ -103,7 +103,7 @@ export const receivablesConfigSchema = z.object({
        *  '' = none. sources.ts 'sac-of-interest': 9971 is a suggestion, UNVERIFIED. */
       sac: z.string().trim().regex(/^(\d{4}|\d{6}|\d{8})?$/, 'SAC is 4, 6 or 8 digits').default('')
     })
-    .default({})
+    .prefault({})
 }).refine((c) => c.finalFromDays > c.firmFromDays, { message: 'The final letter must start after the firm one', path: ['finalFromDays'] })
 
 export type ReceivablesConfig = z.output<typeof receivablesConfigSchema>
