@@ -12,6 +12,7 @@ import { getVoucher } from './vouchers'
 import { partyAllocation } from './analysis'
 import { closingBalances } from './reports'
 import { extractAdvances } from './gst'
+import { partyChangeRefusal } from './bulkEdit'
 import { TEST_INFO } from '../db/testdb'
 import * as stock from './stockAnalysis'
 import {
@@ -199,5 +200,36 @@ describe('Tally import: an Agst Ref naming no open bill', () => {
     const a = partyAllocation(db, L('Cust'), '2026-04-30')
     expect(a.bills.map((b) => [b.number, b.pending])).toEqual([['S-3', 20_000]])
     expect(a.unappliedCredit).toBe(0)
+  })
+
+  it('one receipt naming the same bill twice keeps both refs in order — the excess of the second never eats a bill a ref between them names', () => {
+    // Merging S-1's two refs into one (₹700, first) made its ₹200 excess settle S-2 before the
+    // receipt's own S-2 ref did: Outstandings then warned "S-2 is not open" and held ₹200 as credit.
+    const { db, id, L } = run([tallyLedger('Cust', 'Sundry Debtors'),
+      tallyCreditSale('S-1', '20260401', 'Cust', 500, [{ name: 'S-1', type: 'New Ref', rupees: 500 }]),
+      tallyCreditSale('S-2', '20260402', 'Cust', 200, [{ name: 'S-2', type: 'New Ref', rupees: 200 }]),
+      tallyCreditSale('S-3', '20260403', 'Cust', 500, [{ name: 'S-3', type: 'New Ref', rupees: 500 }]),
+      tallyReceipt('R-1', '20260405', 'Cust', 900, [{ name: 'S-1', type: 'Agst Ref', rupees: 300 }, { name: 'S-2', type: 'Agst Ref', rupees: 200 }, { name: 'S-1', type: 'Agst Ref', rupees: 400 }])])
+    const a = partyAllocation(db, L('Cust'), '2026-04-30')
+    expect([a.bills.map((b) => [b.number, b.pending]), a.unappliedCredit, a.warnings]).toEqual([[['S-3', 30_000]], 0, []])
+    expect(getVoucher(db, id('R-1')!)!.billRefs).toEqual([
+      { kind: 'against', name: 'S-1', amount: 30_000, dueDate: null },
+      { kind: 'against', name: 'S-2', amount: 20_000, dueDate: null },
+      { kind: 'against', name: 'S-1', amount: 40_000, dueDate: null }
+    ])
+  })
+
+  it('a bill under its own number never takes the name of an advance already used up (FY added, as simple mode does)', () => {
+    // The advance "S-7" was used up by S-6; a bill named S-7 would look settled by S-6's Agst Ref
+    // to the advance (name-matched readers: bulk edit's party change, Undo's links).
+    const { db, id, L } = run([tallyLedger('Cust', 'Sundry Debtors'), tallyLedger('Other', 'Sundry Debtors'),
+      tallyReceipt('R-1', '20260401', 'Cust', 500, [{ name: 'S-7', type: 'Advance', rupees: 500 }]),
+      tallyCreditSale('S-6', '20260402', 'Cust', 500, [{ name: 'S-7', type: 'Agst Ref', rupees: 500 }]),
+      tallyCreditSale('S-7', '20260410', 'Cust', 400, [{ name: 'ADV-X', type: 'Agst Ref', rupees: 400 }])])
+    const s7 = getVoucher(db, id('S-7')!)!
+    expect(s7.billRefs).toEqual([{ kind: 'new', name: 'S-7/26-27', amount: 40_000, dueDate: null }])
+    const a = partyAllocation(db, L('Cust'), '2026-04-30')
+    expect([a.bills.map((b) => [b.number, b.pending]), a.unappliedCredit, a.warnings]).toEqual([[['S-7/26-27', 40_000]], 0, []])
+    expect(partyChangeRefusal(db, s7, L('Other'))).toBeNull()
   })
 })

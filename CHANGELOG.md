@@ -182,6 +182,15 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   For developers: `TallyImport.voucherTypes`, `TallyInventoryLine.direction` / `godown`,
   `TallyVoucherLine.bills`, `TallyLedger.bills`; fixtures
   `src/shared/fixtures/tally/daybook-returns-stock-bills.xml` and `opening-bills-physical-stock.xml`.
+- **Tally import: two rare bill-wise slips** (PR #TBD). Plain words: after bringing books over from
+  Tally, "who owes me" could show a bill as still open (and a "bill is not open" warning) when one
+  receipt or payment named the same bill twice with another bill between them; and a bill could get
+  the name of an advance that had already been used up. For accountants: a voucher's bill
+  references are kept in Tally's order — two references to the same bill are joined only when they
+  are next to each other (a reference joined to an earlier one settled, and spilled its excess
+  oldest first, before the references between them); a bill the import opens under the entry's
+  number never reuses any named credit's name, used up or not (FY added, as simple mode does). For
+  developers: `BillAllocator.creditNames()` (a live view of the names `result()` already returned).
 - **Quantities with commas are read right in the full app** (#192). Plain words: typing "1,500" as a
   quantity in an invoice, stock note, stock journal, manufacture, physical stock count, order, the
   counter, an item's opening stock / reorder level or a recipe now means one thousand five hundred —

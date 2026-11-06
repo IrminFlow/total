@@ -146,9 +146,12 @@ function settleOnOpenBills(party: PartyBills, partyName: string, v: TallyVoucher
   const open = party.allocator.open().map((b) => ({ name: b.number, left: b.pending }))
   const credits = party.allocator.openCredits().map((c) => ({ name: c.name, left: c.amount }))
   const out: ImportBillRef[] = []
+  // Joins a ref only to the one just before it of the same kind and name: the engine applies a
+  // voucher's refs in order, so a ref merged into an earlier one would settle (and spill its excess
+  // oldest first) before the refs between them — not what the tracking here worked out.
   const add = (r: ImportBillRef): void => {
-    const same = out.find((o) => o.kind === r.kind && o.name === r.name)
-    if (same) same.amount += r.amount
+    const same = out.at(-1)
+    if (same && same.kind === r.kind && same.name === r.name) same.amount += r.amount
     else out.push({ ...r })
   }
   const settleFifo = (amount: number): ImportBillRef[] => {
@@ -192,7 +195,9 @@ function settleOnOpenBills(party: PartyBills, partyName: string, v: TallyVoucher
       }
       if (kind === 'receipt' || kind === 'payment') return keepNone([r.name], 'advance', 'a refund can\'t open a bill of its own')
       if (!v.number) return keepNone([r.name], 'advance', 'the entry has no number to name a bill by')
-      const name = uniqueName(v.number, new Set([...open.map((b) => b.name), ...credits.map((c) => c.name)]), v.date)
+      // Never a name a named credit has had, used up or not (as simple mode): the Agst Ref that
+      // used it would look, to readers that match by name, like it rests on this bill.
+      const name = uniqueName(v.number, new Set([...open.map((b) => b.name), ...credits.map((c) => c.name), ...party.allocator.creditNames()]), v.date)
       add({ kind: 'new', name, amount: r.amount, dueDate: null })
       notes.push(`${notFound([r.name], 'advance')} — that part is a bill of its own, ${name}`)
       continue
