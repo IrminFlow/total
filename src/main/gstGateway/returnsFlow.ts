@@ -222,9 +222,12 @@ export async function fileReturn(
 export async function fetchGstr2b(db: DB, g: OpenGateway, retPeriod: string, user: string | null): Promise<Gateway2bResult> {
   const s = needSession(g)
   const imported = getStatement(db, retPeriod) && statementSource(db, retPeriod) === null
-  if (g.test && imported) return { period: retPeriod, documents: getStatement(db, retPeriod)!.documents, test: true, keptImported: true }
+  if (g.test && imported) {
+    const kept = getStatement(db, retPeriod)!
+    return { period: retPeriod, documents: kept.documents, test: true, keptImported: true, jsonText: kept.jsonText, fileName: kept.fileName }
+  }
   const { json } = await g.adapter.fetchGstr2b(g.who, s, retPeriod)
   const label = g.test ? `GSTR-2B ${retPeriod} (Test GSP — simulated)` : `GSTR-2B ${retPeriod} (from the GST portal)`
   const info = store2bStatement(db, { jsonText: json, fileName: label, period: periodRange(retPeriod).month, source: g.test ? 'gateway-test' : 'gateway' }, user)
-  return { period: info.period, documents: info.documents, test: g.test, keptImported: false }
+  return { period: info.period, documents: info.documents, test: g.test, keptImported: false, jsonText: json, fileName: label }
 }

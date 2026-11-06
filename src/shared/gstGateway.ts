@@ -89,6 +89,9 @@ export interface Gateway2bResult {
   test: boolean
   /** Refused to replace a statement imported from a file (a test fetch never does). */
   keptImported: boolean
+  /** The statement now stored for the month (the fetched one, or the imported one that was kept). */
+  jsonText: string
+  fileName: string | null
 }
 
 const mmyyyy = z.string().regex(/^(0[1-9]|1[0-2])\d{4}$/)
