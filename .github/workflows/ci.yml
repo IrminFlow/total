@@ -17,7 +17,7 @@ on:
 # a repository variable (Settings → Secrets and variables → Actions → Variables):
 #   CI_LINUX_RUNNER    default blacksmith-2vcpu-ubuntu-2404   (ubuntu-latest = back on GitHub,
 #                      e.g. when the month's Blacksmith minutes run out)
-#   CI_MAC_RUNNER      default macos-14                       (e.g. blacksmith-6vcpu-macos-15)
+#   CI_MAC_RUNNER      default macos-15                       (e.g. blacksmith-6vcpu-macos-15)
 #   CI_WINDOWS_RUNNER  default windows-latest                 (e.g. blacksmith-2vcpu-windows-2025)
 # The perf job's TOTAL_PERF_SCALE follows the Linux runner (it is this machine vs the budgets' laptop).
 
@@ -86,7 +86,7 @@ jobs:
           TOTAL_PERF_SCALE: ${{ startsWith(vars.CI_LINUX_RUNNER || 'blacksmith', 'blacksmith') && '1.6' || '1.6' }}
 
   smoke-mac:
-    runs-on: ${{ vars.CI_MAC_RUNNER || 'macos-14' }}
+    runs-on: ${{ vars.CI_MAC_RUNNER || 'macos-15' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -122,7 +122,7 @@ jobs:
   # only — it's the slowest job, and PRs already get the smoke-mac coverage above.
   e2e-mac:
     if: github.event_name == 'push'
-    runs-on: ${{ vars.CI_MAC_RUNNER || 'macos-14' }}
+    runs-on: ${{ vars.CI_MAC_RUNNER || 'macos-15' }}
     steps:
       - uses: actions/checkout@v4
 
