@@ -90,6 +90,23 @@ function writeRow(db: DB, g: OpenGateway, form: GatewayForm, period: string, pat
   return recordOf(rowOf(db, g, form, period)!)
 }
 
+/** The Test GSP forgets what it was sent when Total restarts or the company is reopened (its memory
+ *  is never kept in the company file). A return it no longer knows goes back to "send it again",
+ *  with that reason, instead of a dead end; the refusal is passed on. */
+async function knownToPortal<T>(db: DB, g: OpenGateway, form: GatewayForm, retPeriod: string, call: () => Promise<T>): Promise<T> {
+  try {
+    return await call()
+  } catch (e) {
+    if (g.test && e instanceof GatewayError && e.codes.some((c) => c === 'TEST-NOT-SAVED' || c === 'TEST-REF')) {
+      writeRow(db, g, form, retPeriod, {
+        state: 'error',
+        errors_json: JSON.stringify([{ code: 'TEST-RESET', message: 'The Test GSP was reset (Total restarted or the company was reopened) — send the return again.' }])
+      })
+    }
+    throw e
+  }
+}
+
 function needSession(g: OpenGateway): ReturnsSession {
   const s = g.session()
   if (!s) throw new GatewayError('Sign in to the GST portal with the OTP first', ['OTP_REQUIRED'], 'otp_required')
@@ -159,7 +176,7 @@ export async function refreshReturnStatus(db: DB, g: OpenGateway, form: GatewayF
   if (!prior?.reference_id) throw new AppError('gateway_not_saved', 'Send the return to the portal first.')
   if (prior.state === 'filed' || prior.state === 'offset') return recordOf(prior)
   const s = needSession(g)
-  const st = await g.adapter.returnStatus(g.who, s, form, retPeriod, prior.reference_id)
+  const st = await knownToPortal(db, g, form, retPeriod, () => g.adapter.returnStatus(g.who, s, form, retPeriod, prior.reference_id!))
   const state: GatewayReturnState = st.status_cd === 'IP' ? 'processing' : st.status_cd === 'P' ? 'processed' : 'error'
   const errors = st.error_report.map((e) => ({ code: e.error_cd, message: e.error_msg }))
   return writeRow(db, g, form, retPeriod, { state, errors_json: JSON.stringify(errors) })
@@ -179,7 +196,7 @@ export async function offsetLiability(db: DB, company: CompanyInfo, g: OpenGatew
   const creditUsed = Object.fromEntries(heads.map((h) => [h, Math.max(0, liability[h] - r.netPayable[h])]))
   const cash = Object.fromEntries(heads.map((h) => [h, r.netPayable[h] + r.rcmPayable[h]]))
   const s = needSession(g)
-  await g.adapter.offsetLiability(g.who, s, retPeriod, { gstin: r.gstin, ret_period: retPeriod, creditUsedPaise: creditUsed, cashPaise: cash })
+  await knownToPortal(db, g, 'gstr3b', retPeriod, () => g.adapter.offsetLiability(g.who, s, retPeriod, { gstin: r.gstin, ret_period: retPeriod, creditUsedPaise: creditUsed, cashPaise: cash }))
   return writeRow(db, g, 'gstr3b', retPeriod, { state: 'offset' })
 }
 
@@ -213,7 +230,7 @@ export async function fileReturn(
   if (!ready) throw new AppError('gateway_not_ready', 'This return is not ready to file yet.')
   let res: { ack_num: string; filed_on?: string }
   try {
-    res = await g.adapter.fileReturn(g.who, needSession(g), form, retPeriod, { pan: g.who.gstin.slice(2, 12), otp })
+    res = await knownToPortal(db, g, form, retPeriod, () => g.adapter.fileReturn(g.who, needSession(g), form, retPeriod, { pan: g.who.gstin.slice(2, 12), otp }))
   } catch (e) {
     // Already filed on the portal (an earlier answer that never reached the books — a crash, a
     // lost connection): record the ARN the portal names instead of leaving the return stuck.

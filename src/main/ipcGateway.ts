@@ -13,6 +13,8 @@ import {
 import { gatewayStatus, openGateway, setGatewaySettings } from './gstGateway'
 import { cancelEwbFlow, cancelIrnFlow, edocRecord, extendEwbFlow, generateEwbFlow, generateIrnFlow } from './gstGateway/edocFlow'
 import * as returns from './gstGateway/returnsFlow'
+import { GatewayError } from './gstGateway/types'
+import { AppError } from '@shared/errors'
 
 type Handle = (channel: string, fn: (payload: unknown) => unknown, minRole?: Role) => void
 interface Company {
@@ -21,7 +23,29 @@ interface Company {
   info: CompanyInfo
 }
 
-export function registerGatewayIpc(handle: Handle, company: () => Company, userName: () => string | null): void {
+/** A portal's refusal as a coded AppError (ERROR_MAP: a plain message in simple mode; the portal's
+ *  own wording, codes included, stays the message the accountant screens show). */
+function coded(e: unknown): never {
+  if (!(e instanceof GatewayError)) throw e
+  const code = e.kind === 'otp_required' || e.codes.some((c) => c === 'TEST-OTP-EXPIRED' || c === 'TEST-OTP-INVALID') ? 'gateway_otp'
+    : e.kind === 'auth' ? 'gateway_auth'
+    : e.kind === 'rate_limit' ? 'gateway_rate_limit'
+    : e.kind === 'not_ready' ? 'gateway_2b_not_ready'
+    : e.kind === 'network' ? 'gateway_network'
+    : 'gateway_portal'
+  throw new AppError(code, e.message, { params: { codes: e.codes.join(', ') } })
+}
+
+export function registerGatewayIpc(rawHandle: Handle, company: () => Company, userName: () => string | null): void {
+  const handle: Handle = (channel, fn, minRole) =>
+    rawHandle(channel, async (p) => {
+      try {
+        return await fn(p)
+      } catch (e) {
+        return coded(e)
+      }
+    }, minRole)
+
   const open = () => {
     const c = company()
     return { c, g: openGateway(c.db, c.slug, c.info) }
