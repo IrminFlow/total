@@ -20,7 +20,7 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
-**GST gateway, test mode** (#PRNUM; upgrade plan Phase 4, provider-neutral). Plain words: nothing
+**GST gateway, test mode** (#209; upgrade plan Phase 4, provider-neutral). Plain words: nothing
 changes on any screen yet and nothing is sent anywhere. Underneath, Total now has ONE way to the GST
 portals — the e-invoice (IRN) and e-way bill systems and the GST returns (GSTR-1, GSTR-3B, GSTR-2B) —
 and a built-in **Test GSP** that answers like the portals do (including their refusals: wrong login,
