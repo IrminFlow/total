@@ -263,6 +263,8 @@ function runFixture(f: GoldenFixture) {
     expect(json.inter_sup.unreg_details).toEqual(want.unreg_details)
     const avl = Object.fromEntries((json.itc_elg.itc_avl as Record<string, unknown>[]).map(({ ty, ...h }) => [ty, h]))
     expect({ IMPG: avl.IMPG, ISRC: avl.ISRC, OTH: avl.OTH }).toEqual(want.itc_avl)
+    // No fixture imports services or receives ISD credit: 4(A)(2) / 4(A)(4) stay nil.
+    expect({ IMPS: avl.IMPS, ISD: avl.ISD }).toEqual({ IMPS: { iamt: 0, camt: 0, samt: 0, csamt: 0 }, ISD: { iamt: 0, camt: 0, samt: 0, csamt: 0 } })
     const rev = Object.fromEntries((json.itc_elg.itc_rev as Record<string, unknown>[]).map(({ ty, ...h }) => [ty, pick(h, ['iamt', 'camt', 'samt', 'csamt'])]))
     expect(rev).toEqual({ RUL: want.itc_rev_rul, OTH: { iamt: 0, camt: 0, samt: 0, csamt: 0 } })
     expect(json.itc_elg.itc_net).toEqual(want.itc_net)

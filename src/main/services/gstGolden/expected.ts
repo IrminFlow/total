@@ -141,6 +141,9 @@ export function expectedGstr1(f: GoldenFixture): Record<string, unknown> {
       const row = d.rows?.[i]
       const item = row ? ITEMS[row.item] : null
       const hsn = item ? item.hsn : sales[i]?.hsn
+      // UNVERIFIED (GST_UNVERIFIED 'hsn-sac-uqc'): a line without an HSN is left out of Table 12, and a
+      // service (SAC) line is reported with UQC OTH and quantity 0 — GSTN's Table 12 advisories may
+      // require HSN on every line and UQC "NA" for services (not read in an official text yet).
       if (!hsn) return
       const uqc = item ? item.uqc : 'OTH'
       const key = `${hsn}|${uqc}|${l.rate}`
