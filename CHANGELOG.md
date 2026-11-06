@@ -263,7 +263,7 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
 
 ### Security
 
-- **Validation library: Zod 3 → 4** (#PR_ZOD). Plain words: nothing you see changes — every screen,
+- **Validation library: Zod 3 → 4** (#212). Plain words: nothing you see changes — every screen,
   message and AI answer works as before. The library that checks every request between the screens
   and the books moves to its current major version, which clears the high-severity "oversized
   collections" memory alert against Zod 3 (Dependabot alert 138). For developers: `zod@^4.6.7`, no
