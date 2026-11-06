@@ -12,9 +12,9 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
-      - uses: actions/checkout@v4
+      - uses: useblacksmith/checkout@v1
 
       - uses: actions/setup-node@v4
         with:
@@ -42,10 +42,10 @@ jobs:
   # fails when one is over 150 % of its budget × TOTAL_PERF_SCALE (this runner vs the laptop the
   # budgets were measured on). The 500k run is manual: npm run perf -- --vouchers 500000.
   perf:
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: useblacksmith/checkout@v1
 
       - uses: actions/setup-node@v4
         with:
@@ -74,7 +74,7 @@ jobs:
           TOTAL_PERF_SCALE: '1.6'
 
   smoke-mac:
-    runs-on: macos-14
+    runs-on: blacksmith-6vcpu-macos-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -110,7 +110,7 @@ jobs:
   # only — it's the slowest job, and PRs already get the smoke-mac coverage above.
   e2e-mac:
     if: github.event_name == 'push'
-    runs-on: macos-14
+    runs-on: blacksmith-6vcpu-macos-26
     steps:
       - uses: actions/checkout@v4
 
@@ -149,7 +149,7 @@ jobs:
   # build whose latest.yml must name the installer exactly, and the smoke again against the
   # PACKAGED exe (asar, extraResources fonts, DPAPI secret store). docs/windows.md has the matrix.
   build-win:
-    runs-on: windows-latest
+    runs-on: blacksmith-2vcpu-windows-2025
     timeout-minutes: 75
     steps:
       # Hosted runners scan every new file (node_modules, scratch company DBs, the -wal/-shm SQLite
