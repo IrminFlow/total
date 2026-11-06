@@ -133,3 +133,49 @@ export function GatewayReturnPanel({ form, period, blocked }: { form: GatewayFor
     </Panel>
   )
 }
+
+/** GSTR-2B: fetch the month's statement through the gateway (sign in first). The statement is
+ *  stored where the matcher reads it; `onFetched` shows it on the screen. A test fetch never
+ *  replaces a statement imported from a file (the kept one is shown instead). */
+export function Gateway2bFetch({ period, onFetched }: { period: string; onFetched: (jsonText: string, fileName: string | null) => void }): React.JSX.Element {
+  const toast = useToasts()
+  const queryClient = useQueryClient()
+  const { data: status } = useQuery({ queryKey: ['gatewayStatus'], queryFn: api.gateway.status })
+  const [busy, setBusy] = useState(false)
+  const [otpOpen, setOtpOpen] = useState(false)
+  const run = async (f: () => Promise<void>): Promise<void> => {
+    setBusy(true)
+    try {
+      await f()
+    } catch (err) {
+      toast.push('error', (err as Error).message)
+    } finally {
+      setBusy(false)
+      await queryClient.invalidateQueries({ queryKey: ['gatewayStatus'] })
+    }
+  }
+  const label = `Fetch from the portal${status?.testMode ? ' (test mode)' : ''}`
+  if (!status?.signedIn) {
+    return otpOpen ? (
+      <OtpEntry testId="gw-2b-signin" label="Sign in" hint={status?.testHints ? `Test OTP: ${status.testHints.otp}` : null} busy={busy}
+        onSubmit={(otp) => void run(async () => { await api.gateway.signIn(otp); setOtpOpen(false) })} />
+    ) : (
+      <Button data-testid="gw-2b-signin" disabled={busy} title={status?.testMode ? TEST_MODE_NOTE : undefined}
+        onClick={() => void run(async () => { await api.gateway.requestOtp('signin'); setOtpOpen(true) })}>
+        {label}…
+      </Button>
+    )
+  }
+  return (
+    <Button data-testid="gw-2b-fetch" disabled={busy} title={status.testMode ? TEST_MODE_NOTE : undefined}
+      onClick={() => void run(async () => {
+        const r = await api.gateway.fetch2b(period)
+        onFetched(r.jsonText, r.fileName)
+        toast.push(r.keptImported ? 'warning' : 'success', r.keptImported
+          ? 'You already imported this month’s GSTR-2B from a file — kept it; a test fetch never replaces it'
+          : `GSTR-2B fetched${r.test ? ' (test mode — simulated from your own purchase bills)' : ''}: ${r.documents} document${r.documents === 1 ? '' : 's'}`)
+      })}>
+      {label}
+    </Button>
+  )
+}

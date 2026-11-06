@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { assistantsApi } from '../lib/assistantsClient'
 import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
+import { Gateway2bFetch } from './gst/GatewayPanel'
 import { AmountInput, Button, Checkbox, DrawerSection, EmptyState, Field, Modal, Money, Page, PageHeader, Panel, SkeletonRows, TabBar, TextInput } from '../components/ui'
 import { OptionChoice, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
@@ -347,9 +348,19 @@ export function Gstr2bScreen(): React.JSX.Element {
         }
         controls={<MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr2b-month" />}
         secondary={
-          <Button variant="ghost" data-testid="btn-2b-paste" onClick={() => setPasteOpen(true)}>
-            Paste JSON…
-          </Button>
+          <>
+            <Gateway2bFetch
+              period={month.period}
+              onFetched={(jsonText, fileName) => {
+                // Already stored by the gateway (with its source) — never store it again as a file import.
+                storedRef.current = jsonText
+                setImported({ jsonText, ...(fileName ? { fileName } : {}) })
+              }}
+            />
+            <Button variant="ghost" data-testid="btn-2b-paste" onClick={() => setPasteOpen(true)}>
+              Paste JSON…
+            </Button>
+          </>
         }
         actions={
           <Button variant="primary" data-testid="btn-2b-pick" onClick={() => void doPick()}>
