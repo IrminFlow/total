@@ -54,6 +54,12 @@ figures moved. The run summary on GitHub lists every figure that changed (old va
 so you can see exactly what you approved. One approved pull request covers every difference in that
 release's batch, so look at the list.
 
+## If a release breaks halfway
+
+If building a release fails after its version tag was made, the release stays a draft and nobody
+sees it. The next slots then skip and the issue says so. To finish it: **Actions → Release → Run
+workflow**, type the tag (for example `v0.12.1`) and run it.
+
 ## Trying the gate without releasing
 
 On GitHub: **Actions → Scheduled release → Run workflow**, keep **dry run** ticked. It runs every

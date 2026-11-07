@@ -172,6 +172,8 @@ jobs:
         with:
           node-version: 22
       - uses: actions/download-artifact@v4
+        # After a preflight crash there is nothing to download; decide reports that itself.
+        continue-on-error: true
         with:
           pattern: gate-*
           merge-multiple: true
@@ -240,7 +242,10 @@ jobs:
             echo "pushed=true" >> "$GITHUB_OUTPUT"
           else
             git fetch -q origin main
-            if [ "$(git rev-parse origin/main)" != "${{ needs.preflight.outputs.sha }}" ]; then
+            if [ "$(git rev-parse origin/main)" = "$(git rev-parse HEAD)" ] && git ls-remote --exit-code --tags origin "refs/tags/v$v" > /dev/null; then
+              echo "the push landed (its reply was lost)"
+              echo "pushed=true" >> "$GITHUB_OUTPUT"
+            elif [ "$(git rev-parse origin/main)" != "${{ needs.preflight.outputs.sha }}" ]; then
               echo "main moved while pushing — not releasing; the next slot gates it" | tee -a "$GITHUB_STEP_SUMMARY"
             else
               exit 1

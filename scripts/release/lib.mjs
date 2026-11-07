@@ -166,12 +166,15 @@ export function blockerVerdict(openPrs) {
 
 /** Is the last tag a finished release — published (not a draft) with every asset? `release` is the
  *  GitHub release for the tag, or null when there is none. */
-export function lastReleaseVerdict(tag, release) {
+export function lastReleaseVerdict(tag, release, buildRunning = false) {
   const version = String(tag).replace(/^v/, '')
-  if (!release) return { ok: false, reason: `${tag} has no GitHub release — re-run release.yml for it (Actions → Release) before the next slot` }
-  if (release.draft) return { ok: false, reason: `the ${tag} release is still a draft — its build did not finish; re-run release.yml for it` }
+  const rerun = 're-run it: Actions → Release → Run workflow with that tag'
+  // A draft while its Release run is still going = being built (a release by hand): wait, quietly.
+  if ((!release || release.draft) && buildRunning) return { ok: false, wait: true, reason: `${tag} is still being built (its Release run is in progress)` }
+  if (!release) return { ok: false, reason: `${tag} has no GitHub release — ${rerun}` }
+  if (release.draft) return { ok: false, reason: `the ${tag} release is still a draft — its build did not finish; ${rerun}` }
   const missing = missingAssets(version, (release.assets ?? []).map((a) => a.name))
-  if (missing.length) return { ok: false, reason: `the ${tag} release lacks ${missing.join(', ')} — re-run release.yml for it` }
+  if (missing.length) return { ok: false, reason: `the ${tag} release lacks ${missing.join(', ')} — ${rerun}` }
   return { ok: true, reason: `${tag} is published with every asset` }
 }
 

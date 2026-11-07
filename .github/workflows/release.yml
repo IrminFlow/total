@@ -16,6 +16,13 @@ on:
         description: The v* tag to build and publish (already pushed)
         required: true
         type: string
+  # Re-run a release whose build failed after its tag was pushed (Actions → Release → Run workflow).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The v* tag to build and publish (already pushed)
+        required: true
+        type: string
 
 env:
   # The tag being released: the caller's input, else the pushed tag.

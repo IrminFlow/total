@@ -160,6 +160,11 @@ describe('the last tag must be a finished release', () => {
     expect(lastReleaseVerdict('v0.12.0', { draft: true, assets }).reason).toContain('draft')
     expect(lastReleaseVerdict('v0.12.0', { draft: false, assets: assets.slice(1) }).reason).toContain('macOS DMG')
   })
+  it('a draft whose Release run is still going is a quiet wait, not an issue', () => {
+    expect(lastReleaseVerdict('v0.13.0', { draft: true, assets: [] }, true)).toMatchObject({ ok: false, wait: true })
+    expect(lastReleaseVerdict('v0.13.0', null, true)).toMatchObject({ ok: false, wait: true })
+    expect(lastReleaseVerdict('v0.13.0', { draft: true, assets: [] }, false).wait).toBeUndefined()
+  })
 })
 
 describe('release assets', () => {

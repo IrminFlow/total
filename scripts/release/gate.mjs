@@ -82,22 +82,21 @@ function preflight(outFile) {
   const checks = []
   // The last tag must be a finished release (published, every asset), or the upgrade test would
   // start from code users never got and a broken "latest" would sit unnoticed. Not quiet.
-  const lastRelease = (() => {
-    try {
-      return ghApi(`repos/${REPO}/releases/tags/${lastTag}`)
-    } catch {
-      return null
-    }
-  })()
-  const lastDone = lastReleaseVerdict(lastTag, lastRelease)
+  // /releases/tags/{tag} hides drafts (404), so look through the list for this tag.
+  const lastRelease = (ghApi(`repos/${REPO}/releases?per_page=30`) ?? []).find((r) => r.tag_name === lastTag) ?? null
+  const releaseRuns = ghApi(`repos/${REPO}/actions/workflows/release.yml/runs?per_page=20`).workflow_runs ?? []
+  // A Release run still going (a tag pushed by hand, or a re-run by dispatch) = being built. A
+  // scheduled slot's own call runs inside its slot, which this one's concurrency group waits for.
+  const buildRunning = releaseRuns.some((r) => r.status !== 'completed')
+  const { wait: lastWait, ...lastDone } = lastReleaseVerdict(lastTag, lastRelease, buildRunning)
   checks.push({ name: 'last release complete', ...lastDone })
-  let quiet = false
+  let quiet = !!lastWait
   let wait = false
   if (Number(commits) === 0) {
-    quiet = lastDone.ok
+    quiet = quiet || lastDone.ok
     checks.push({ name: 'new commits', ok: false, reason: `nothing new on main since ${lastTag}` })
   } else if (!counting.length) {
-    quiet = lastDone.ok
+    quiet = quiet || lastDone.ok
     checks.push({ name: 'new commits', ok: false, reason: `${commits} commit(s) since ${lastTag}, only docs / site / CI / root Markdown changed` })
   } else {
     checks.push({ name: 'new commits', ok: true, reason: `${commits} commit(s) since ${lastTag}; ${counting.length} file(s) that ship changed` })
