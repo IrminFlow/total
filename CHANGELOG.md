@@ -20,7 +20,7 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
-- Fix (#TBD): e2e scenarios 39 / 41 / 43 / 44 / 45 turn the AI assistant on through the new harness
+- Fix (#217): e2e scenarios 39 / 41 / 43 / 44 / 45 turn the AI assistant on through the new harness
   `h.enableAi()` — notice, switch, then Test connection, which picks the model from the mock's list —
   since #210 there is no built-in model id. Tests only; no app change.
 
