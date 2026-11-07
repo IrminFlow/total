@@ -141,6 +141,12 @@ cycle and payroll statutory — the scenarios that drive one (11, 22, 24, 26, 28
 Turn on); 32, 34 and 72 make theirs used by their own first entries. The hiding itself
 is covered by `__tests__/hiddenFeatures.test.tsx` and `featureUsage.dbtest.ts`.
 
+## Upgrade plan to 1.0
+
+| Phase | What | Scenario | Notes |
+|---|---|---|---|
+| 4 | GST gateway in test mode (built-in Test GSP): a bill → IRN → e-way bill (e-Documents → Portal (test)) → GSTR-1 signed in, sent, checked, filed with EVC → ARN labelled as a test → GSTR-2B fetched into the screen's matcher | 75 | the simulated IRN never reaches the voucher / e-documents list; a test filing / 2B never counts as real (asserted). GSTR-3B offset + file, the simple Taxes portal step, refusals and the adapter contract are in `gateway.dbtest` / `testGsp.contract.test` / `__tests__/gatewayUi.test.tsx`. A real GSP sandbox: manual workflow `gsp-sandbox.yml` once an adapter exists |
+
 ## Remaining gaps (deferred)
 
 - Live NIC IRN / e-way generation against the real sandbox (no credentials; the fake NIC covers the

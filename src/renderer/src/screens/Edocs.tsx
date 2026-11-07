@@ -11,6 +11,7 @@ import { gstPeriodOf, toDisplayDate, todayISO } from '@shared/dates'
 import { EINVOICE_APPLICABILITY_UNVERIFIED, irpDaysLeft, irpLastReportingDay, reportingWindowApplies } from '@shared/gst/einvoiceApplicability'
 import { TransportModal } from './voucher/TransportModal'
 import { EinvoiceDetailsModal } from './edocs/EinvoiceDetails'
+import { GatewayEdocModal } from './edocs/GatewayEdoc'
 import { LedgerLink } from '../components/links'
 import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../lib/capabilities'
 
@@ -250,6 +251,7 @@ function EdocsDocuments(): React.JSX.Element {
   const [confirming, setConfirming] = useState<{ kind: 'irn' | 'ewb'; voucherId: number } | null>(null)
   const [transportFor, setTransportFor] = useState<{ voucherId: number; number: string } | null>(null)
   const [detailsFor, setDetailsFor] = useState<number | null>(null)
+  const [gatewayFor, setGatewayFor] = useState<{ voucherId: number; number: string } | null>(null)
   const [docTypeFilter, setDocTypeFilter] = useState<DocTypeFilter>('all')
   const allRows = data ?? []
   const rows = useMemo(
@@ -472,7 +474,7 @@ function EdocsDocuments(): React.JSX.Element {
             periodLabel: `${toDisplayDate(from)} to ${toDisplayDate(to)}`,
             filename: 'edocs'
           }}
-          trailingWidth={live ? 390 : 300}
+          trailingWidth={live ? 470 : 380}
           trailing={(r) => (
             <span className="whitespace-nowrap">
               {live && r.partyGstin && !r.irn && r.docType !== 'CHL' && (
@@ -511,6 +513,16 @@ function EdocsDocuments(): React.JSX.Element {
                   onClick={() => void perRowEwbJson(r.voucherId)}
                 >
                   EWB JSON
+                </button>
+              )}
+              {info?.gstin && r.partyGstin && r.docType !== 'CHL' && (
+                <button
+                  className="mr-2 text-small text-blue hover:underline"
+                  data-testid="btn-edocs-gateway"
+                  title="Send this document to the portal through the GST gateway — test mode: nothing is sent"
+                  onClick={() => setGatewayFor({ voucherId: r.voucherId, number: r.number })}
+                >
+                  Portal (test)
                 </button>
               )}
               <button
@@ -558,6 +570,10 @@ function EdocsDocuments(): React.JSX.Element {
             void queryClient.invalidateQueries({ queryKey: ['edocList'] })
           }}
         />
+      )}
+
+      {gatewayFor && (
+        <GatewayEdocModal voucherId={gatewayFor.voucherId} number={gatewayFor.number} onClose={() => setGatewayFor(null)} />
       )}
 
       {transportFor && (

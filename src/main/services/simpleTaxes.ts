@@ -26,7 +26,7 @@ import { depositDueDate } from '@shared/tdsInterest'
 import { tcsDepositDueDate } from '@shared/tcs'
 import { cmp08DueDate, gstr1DueDate, gstr3bDueDate, gstr4DueDate, pmt06DueDate } from '@shared/gst/filing'
 import {
-  GST_FILED_META_KEY, MISSING_BILL_CHECKS, realGstFiled, creditParts, gstPeriodChoices, gstPeriodEnd, gstPeriodFor, gstStartsOn, nextCompositionDue, normalizeArn, normalizeGstFiled,
+  GST_FILED_META_KEY, MISSING_BILL_CHECKS, realGstFiled, testGstFiled, creditParts, gstPeriodChoices, gstPeriodEnd, gstPeriodFor, gstStartsOn, nextCompositionDue, normalizeArn, normalizeGstFiled,
   type GstFiledEntry, type GstFiledInput, type GstFiledMeta, type GstFiledPeriod, type GstForm, type GstPeriod, type MissingBillsItem, type SimpleTaxes, type SupplierBillsMonth, type TaxesWithholding
 } from '@shared/simple/taxes'
 import { getFeatures, getGstProfile } from './config'
@@ -148,6 +148,7 @@ export function simpleTaxes(db: DB, company: CompanyInfo, q: { period?: string }
 
     const filedAll = readGstFiled(db)
     const filed: GstFiledPeriod = filedAll[period.period] ?? {}
+    const testFiled = testGstFiled(readGstFiledAll(db))[period.period]
     const due3b = gstr3bDueDate(period.period, filing, company.stateCode)
     return {
       kind: 'regular',
@@ -178,6 +179,7 @@ export function simpleTaxes(db: DB, company: CompanyInfo, q: { period?: string }
       prepared: { gstr1: preparedAt(db, 'gstr1', period), gstr3b: preparedAt(db, 'gstr3b', period) },
       filesMonthly: period.quarterly,
       filed,
+      ...(testFiled ? { testFiled } : {}),
       withholding
     }
   })()

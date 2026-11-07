@@ -12,6 +12,7 @@ import { useNav, useToasts } from '../../state/stores'
 import { Button } from '../../components/ui'
 import { cardCls } from '../reports/parts'
 import { FiledForm } from './FiledForm'
+import { PortalSend } from './PortalSend'
 
 type Regular = Extract<SimpleTaxes, { kind: 'regular' }>
 const closeScreen = (period: string): { name: 'assistants'; tab: 'close'; period: string } => ({ name: 'assistants', tab: 'close', period }) // i18n-technical
@@ -126,6 +127,7 @@ export function GstSteps({ x }: { x: Regular }): React.JSX.Element {
 
         <Step n={3} title={t('simple.taxes.gst.step3')} done={done.files} testId="taxes-step-3">
           <PrepareFiles x={x} />
+          <PortalSend key={x.period.period} x={x} />
         </Step>
 
         <Step n={4} title={t('simple.taxes.gst.step4')} done={done.filed} testId="taxes-step-4">
@@ -148,6 +150,11 @@ export function GstSteps({ x }: { x: Regular }): React.JSX.Element {
             <div className="mt-2 flex flex-col gap-3">
               {FORMS.map((form) => (
                 <FiledForm key={form} form={form} period={x.period.period} periodEnd={x.period.to} today={x.today} filed={x.filed[form] ?? null} />
+              ))}
+              {FORMS.filter((form) => !x.filed[form] && x.testFiled?.[form]).map((form) => (
+                <p key={form} className="text-small text-muted" data-testid={`taxes-test-filed-${form}`}>
+                  {form === 'gstr1' ? 'GSTR-1' : 'GSTR-3B' /* i18n-technical */} · {t('simple.taxes.portal.testFiled', { arn: x.testFiled![form]!.arn })}
+                </p>
               ))}
             </div>
           )}

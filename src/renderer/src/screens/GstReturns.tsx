@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { useFeatures } from '../lib/useFeatures'
 import { useNav, useSession, useToasts } from '../state/stores'
+import { GatewayReturnPanel } from './gst/GatewayPanel'
 import { AmountInput, Banner, Button, DrawerSection, EmptyState, Money, Page, PageHeader, Panel, Select, SkeletonRows, Spinner, TabBar } from '../components/ui'
 import { OptionChoice, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { DataTable, defineColumns } from '../components/table'
@@ -332,6 +333,8 @@ export function Gstr1Screen({ initialMonth }: { initialMonth?: string } = {}): R
         </Banner>
       )}
 
+      {info?.gstin && info.gstRegistrationType === 'regular' && <GatewayReturnPanel form="gstr1" period={month.period} blocked={exportBlockedReason} />}
+
       {validating ? (
         <Panel className="mb-section">
           <div className="flex items-center gap-2 px-3 py-3 text-body-sm text-muted">
@@ -617,6 +620,8 @@ export function Gstr3bScreen({ initialMonth }: { initialMonth?: string } = {}): 
           Add the company GSTIN under Company details to enable export.
         </Banner>
       )}
+
+      {info?.gstin && info.gstRegistrationType === 'regular' && <GatewayReturnPanel form="gstr3b" period={month.period} blocked={null} />}
 
       <Panel>
         {isLoading || !data ? (
