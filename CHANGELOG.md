@@ -260,6 +260,7 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   the folder after (it never did — found in #197's review); the scratch rekey checks that
   `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it; a swap that fails (copy / fsync / rename) removes its copy and
   reopens the untouched books instead of leaving a closed handle.
+<<<<<<< HEAD
 - **GSTR-1's B2C (Large) row names the old limit for months before August 2024** (#204). Plain words:
   the GSTR-1 screen said "inter-state > ₹1,00,000" even for months before 1 Aug 2024, when the
   limit was ₹2,50,000 (Total already sorted those invoices by the old limit — only the label was
@@ -267,6 +268,30 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   on the screen (`b2clLabelForPeriod`, shared/gst/returns.ts); `buildGstr1`'s summary keeps
   `B2CL_SUMMARY_LABEL` for every period, so exports, the CA pack's CSV and every pinned hash /
   fixture (reportEquality's May 2024 GSTR-1, gstPostedRateParity, tradeLegacy) are unchanged.
+||||||| 167e8ceb
+
+## [0.12.0] - 2026-10-22
+
+Everything merged after v0.11.0 (2026-10-13), 143 pull requests: Phase 9 (simple screens for the daily jobs), the
+Phase 10 simple-mode work (Ask Total, "Why?", help, Hindi, keyboard and accessibility, the plain AI
+helper, the beginner-study fixes), the Phase 7 work (performance, security, Windows, end-to-end
+tests, documentation) and several correctness fixes.
+
+=======
+- **CI runs its macOS jobs on macOS 15** (#206). Plain words: nothing in the app changes. For
+  developers: GitHub retired the `macos-14` runner image on 2 November 2026, so `smoke-mac` and
+  `e2e-mac` failed before starting on every branch; both now use `macos-15` (Apple silicon, like
+  macos-14). The release workflow uses `macos-latest`, which GitHub now maps to macOS 26 — so
+  tag builds run on a newer image than these checks (left as is; noted in #206).
+
+## [0.12.0] - 2026-10-22
+
+Everything merged after v0.11.0 (2026-10-13), 143 pull requests: Phase 9 (simple screens for the daily jobs), the
+Phase 10 simple-mode work (Ask Total, "Why?", help, Hindi, keyboard and accessibility, the plain AI
+helper, the beginner-study fixes), the Phase 7 work (performance, security, Windows, end-to-end
+tests, documentation) and several correctness fixes.
+
+>>>>>>> origin/main
 - Changing how Total updates (the automatic check, Download now, Skip this version) now follows the same rule as the shared AI key: only the owner when a business has sign-ins; in a business with none it is refused while another business on this computer has sign-ins, and otherwise asks you to confirm first. The settings say so before you click.
 
 ### For shop owners (simple mode)
