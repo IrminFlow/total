@@ -263,6 +263,11 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
 - **A question for your CA about the old B2C Large limit** (#198). Docs only: `docs/owner/09-questions-for-your-ca.md`
   Q33 asks whether the portal applies the ₹2.5 lakh B2C Large limit (before 1 Aug 2024) by invoice
   date or by tax period, and how a note follows its original (the later questions move down by one).
+- **CI runs its macOS jobs on macOS 15** (#206). Plain words: nothing in the app changes. For
+  developers: GitHub retired the `macos-14` runner image on 2 November 2026, so `smoke-mac` and
+  `e2e-mac` failed before starting on every branch; both now use `macos-15` (Apple silicon, like
+  macos-14). The release workflow uses `macos-latest`, which GitHub now maps to macOS 26 — so
+  tag builds run on a newer image than these checks (left as is; noted in #206).
 
 ## [0.12.0] - 2026-10-22
 
