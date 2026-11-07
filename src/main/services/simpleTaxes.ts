@@ -26,11 +26,11 @@ import { depositDueDate } from '@shared/tdsInterest'
 import { tcsDepositDueDate } from '@shared/tcs'
 import { cmp08DueDate, gstr1DueDate, gstr3bDueDate, gstr4DueDate, pmt06DueDate } from '@shared/gst/filing'
 import {
-  GST_FILED_META_KEY, MISSING_BILL_CHECKS, creditParts, gstPeriodChoices, gstPeriodEnd, gstPeriodFor, gstStartsOn, nextCompositionDue, normalizeArn, normalizeGstFiled,
-  type GstFiledInput, type GstFiledMeta, type GstFiledPeriod, type GstForm, type GstPeriod, type MissingBillsItem, type SimpleTaxes, type SupplierBillsMonth, type TaxesWithholding
+  GST_FILED_META_KEY, MISSING_BILL_CHECKS, realGstFiled, creditParts, gstPeriodChoices, gstPeriodEnd, gstPeriodFor, gstStartsOn, nextCompositionDue, normalizeArn, normalizeGstFiled,
+  type GstFiledEntry, type GstFiledInput, type GstFiledMeta, type GstFiledPeriod, type GstForm, type GstPeriod, type MissingBillsItem, type SimpleTaxes, type SupplierBillsMonth, type TaxesWithholding
 } from '@shared/simple/taxes'
 import { getFeatures, getGstProfile } from './config'
-import { dashGst, gst3bFigures } from './dashboard'
+import { dashGst, gst3bFigures, readGstFiledAll } from './dashboard'
 import { gstCredit, readGstFiled } from './simpleHome'
 import { closeChecklist, getStatement, gst2bMismatches, gstPreparedAt, withholdingFacts } from './assistants'
 import { listLedgers } from './masters'
@@ -193,8 +193,11 @@ export function setGstFiled(db: DB, company: CompanyInfo, input: GstFiledInput, 
   const p = gstPeriodFor(input.period, getGstProfile(db).filing, today)
   if (!p) throw new AppError('simple_taxes_period', 'That period has not started yet.', { field: 'period' })
   if (p.soFar) throw new AppError('gst_filed_too_early', 'This period is not over yet, so its return can’t have been filed.', { field: 'date' })
-  const all = readGstFiled(db)
-  const current = all[p.period]?.[input.form] ?? null
+  // The whole stored meta (a Test GSP filing of another period / form is kept as it is); a real
+  // "I've filed" replaces a simulated one of the same return.
+  const all = readGstFiledAll(db)
+  const stored = all[p.period]?.[input.form] ?? null
+  const current = stored?.via?.test ? null : stored
   let next: GstFiledPeriod[GstForm] | null = null
   if (input.arn !== null) {
     const arn = normalizeArn(input.arn)
@@ -202,10 +205,10 @@ export function setGstFiled(db: DB, company: CompanyInfo, input: GstFiledInput, 
     if (!input.date) throw new AppError('gst_filed_date', 'Enter the date you filed it.', { field: 'date' })
     if (input.date > today) throw new AppError('gst_filed_date', 'The filing date can’t be after today.', { field: 'date' })
     if (input.date <= p.to) throw new AppError('gst_filed_date', 'A return is filed after its period ends — check the date.', { field: 'date' })
-    if (current && current.arn === arn && current.date === input.date) return all[p.period]!
+    if (current && current.arn === arn && current.date === input.date) return realGstFiled(all)[p.period] ?? {}
     next = { arn, date: input.date, by: user, at: new Date().toISOString() }
   } else if (!current) {
-    return all[p.period] ?? {}
+    return realGstFiled(all)[p.period] ?? {}
   }
   const period: GstFiledPeriod = { ...(all[p.period] ?? {}) }
   if (next) period[input.form] = next
@@ -215,7 +218,28 @@ export function setGstFiled(db: DB, company: CompanyInfo, input: GstFiledInput, 
   else delete updated[p.period]
   db.transaction(() => {
     db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(META_KEY, JSON.stringify(updated))
-    writeAudit(db, 'company', 0, 'update', { gstFiled: { [p.period]: { [input.form]: current } } }, { gstFiled: { [p.period]: { [input.form]: next } } })
+    writeAudit(db, 'company', 0, 'update', { gstFiled: { [p.period]: { [input.form]: stored } } }, { gstFiled: { [p.period]: { [input.form]: next } } })
   })()
-  return period
+  return realGstFiled({ [p.period]: period })[p.period] ?? {}
+}
+
+/**
+ * Phase 4: a return filed through the GST gateway — its ARN and filing date go into the same meta
+ * `gstFiled` the "I've filed" form writes, with `via` naming the provider. A Test GSP filing is
+ * stored with `via.test` and never counts as filed (readGstFiled leaves it out); it never replaces
+ * a real mark. Audited as a company update like setGstFiled. `period` = MMYYYY's month as YYYY-MM
+ * of the return period's LAST month (the gateway files month by month, so the month itself).
+ */
+export function recordGatewayFiling(
+  db: DB, input: { month: string; form: GstForm; arn: string; date: string; provider: string; test: boolean }, user: string | null
+): GstFiledEntry {
+  const all = readGstFiledAll(db)
+  const stored = all[input.month]?.[input.form] ?? null
+  const next: GstFiledEntry = { arn: input.arn, date: input.date, by: user, at: new Date().toISOString(), via: { provider: input.provider, test: input.test } }
+  if (stored && !stored.via?.test && input.test) return stored
+  if (stored && stored.arn === next.arn && stored.date === next.date && stored.via?.provider === input.provider && !!stored.via?.test === input.test) return stored
+  const updated: GstFiledMeta = { ...all, [input.month]: { ...(all[input.month] ?? {}), [input.form]: next } }
+  db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(META_KEY, JSON.stringify(updated))
+  writeAudit(db, 'company', 0, 'update', { gstFiled: { [input.month]: { [input.form]: stored } } }, { gstFiled: { [input.month]: { [input.form]: next } } })
+  return next
 }
