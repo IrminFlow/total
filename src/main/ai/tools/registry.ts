@@ -13,6 +13,7 @@ import { roleAllows, type Role } from '../../services/roles'
 import { zodToJsonSchema } from '../jsonSchema'
 import type { ToolSpec } from '../types'
 import type { MemoryContext } from '../memoryRules'
+import { zod3Issues } from '@shared/zodMessages'
 
 export interface ToolContext {
   db: DB
@@ -114,7 +115,7 @@ export class ToolRegistry {
     }
     const parsed = tool.input.safeParse(input)
     if (!parsed.success) {
-      return { ok: false, name, input, error: `Invalid arguments: ${parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')}` }
+      return { ok: false, name, input, error: `Invalid arguments: ${zod3Issues(parsed.error.issues).map((i) => `${i.path.map(String).join('.') || '(root)'}: ${i.message}`).join('; ')}` }
     }
     try {
       const out = await tool.handler(parsed.data, ctx)
