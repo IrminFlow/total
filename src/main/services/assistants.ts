@@ -530,29 +530,46 @@ export function dismissAnomaly(db: DB, key: string, dismissed: boolean, note: st
 
 // ---------------------------------------------------------------- GSTR-2B
 
-export function getStatement(db: DB, returnPeriod: string): (Gst2bStatementInfo & { jsonText: string }) | null {
+/** The stored GSTR-2B of a return period. Phase 4: a statement the Test GSP SIMULATED (source
+ *  'gateway-test' — built from the books' own purchases, so it always agrees with them) is not the
+ *  portal's: every reader (the mismatch assistant, Home's credit, Taxes step 2, the AI tools) sees
+ *  none; only the gateway's own bookkeeping asks for it (`includeTest`). */
+export function getStatement(db: DB, returnPeriod: string, opts: { includeTest?: boolean } = {}): (Gst2bStatementInfo & { jsonText: string }) | null {
   const r = db
-    .prepare('SELECT period, file_name AS fileName, documents, imported_at AS importedAt, imported_by AS importedBy, json_text AS jsonText FROM gst2b_statements WHERE period = ?')
+    .prepare(
+      `SELECT period, file_name AS fileName, documents, imported_at AS importedAt, imported_by AS importedBy, json_text AS jsonText FROM gst2b_statements
+       WHERE period = ? ${opts.includeTest ? '' : "AND (source IS NULL OR source <> 'gateway-test')"}`
+    )
     .get(returnPeriod) as (Gst2bStatementInfo & { jsonText: string }) | undefined
   return r ?? null
 }
 
+/** Where a stored statement came from: null = a file import (every row before Phase 4),
+ *  'gateway' / 'gateway-test' = fetched through the GST gateway. */
+export function statementSource(db: DB, returnPeriod: string): 'gateway' | 'gateway-test' | null {
+  const r = db.prepare('SELECT source FROM gst2b_statements WHERE period = ?').get(returnPeriod) as { source: 'gateway' | 'gateway-test' | null } | undefined
+  return r?.source ?? null
+}
+
 /** Keep a GSTR-2B JSON for its return period (its rtnprd, else the month it was imported for). */
-export function store2bStatement(db: DB, input: { jsonText: string; fileName?: string; period: string }, user: string | null): Gst2bStatementInfo {
+export function store2bStatement(db: DB, input: { jsonText: string; fileName?: string; period: string; source?: 'gateway' | 'gateway-test' }, user: string | null): Gst2bStatementInfo {
   const parsed = parseGstr2b(input.jsonText)
   if (!parsed.invoices.length && parsed.errors.length) throw new Error(`Not a GSTR-2B JSON: ${parsed.errors[0]}`)
   const returnPeriod = parsed.period && /^(0[1-9]|1[0-2])\d{4}$/.test(parsed.period) ? parsed.period : gstPeriodOf(`${input.period}-01`)
   return db.transaction(() => {
-    const before = getStatement(db, returnPeriod)
+    const before = getStatement(db, returnPeriod, { includeTest: true })
+    const beforeSource = before ? statementSource(db, returnPeriod) : null
     db.prepare(
-      `INSERT INTO gst2b_statements (period, file_name, json_text, documents, imported_by) VALUES (?, ?, ?, ?, ?)
+      `INSERT INTO gst2b_statements (period, file_name, json_text, documents, imported_by, source) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT (period) DO UPDATE SET file_name = excluded.file_name, json_text = excluded.json_text, documents = excluded.documents,
-         imported_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), imported_by = excluded.imported_by`
-    ).run(returnPeriod, input.fileName ?? null, input.jsonText, parsed.invoices.length, user)
-    const after = getStatement(db, returnPeriod)!
+         imported_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), imported_by = excluded.imported_by, source = excluded.source`
+    ).run(returnPeriod, input.fileName ?? null, input.jsonText, parsed.invoices.length, user, input.source ?? null)
+    const after = getStatement(db, returnPeriod, { includeTest: true })!
     const id = (db.prepare('SELECT id FROM gst2b_statements WHERE period = ?').get(returnPeriod) as { id: number }).id
     const strip = (s: (Gst2bStatementInfo & { jsonText: string }) | null): Gst2bStatementInfo | null => (s ? { period: s.period, fileName: s.fileName, documents: s.documents, importedAt: s.importedAt, importedBy: s.importedBy } : null)
-    writeAudit(db, 'gst2b_statement', id, before ? 'update' : 'create', strip(before), strip(after), { user: user ?? undefined })
+    // Phase 4: a statement fetched through the gateway says so in the trail (a file import's row is unchanged).
+    const tag = (info: Gst2bStatementInfo | null, source: string | null): Record<string, unknown> | null => (info ? { ...info, ...(source ? { source } : {}) } : null)
+    writeAudit(db, 'gst2b_statement', id, before ? 'update' : 'create', tag(strip(before), beforeSource), tag(strip(after), input.source ?? null), { user: user ?? undefined })
     return strip(after)!
   })()
 }
