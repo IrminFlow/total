@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'fs'
 import { join } from 'path'
 import Database from 'better-sqlite3-multiple-ciphers'
+import ts from 'typescript'
+import { instrument } from '../perf/profile'
 import { installStatementCache, STATEMENT_CACHE_SIZE } from './encryption'
 
 function db(): Database.Database {
@@ -68,6 +70,35 @@ describe('statement cache', () => {
     expect(d.prepare(`SELECT ${STATEMENT_CACHE_SIZE}`)).toBe(kept)
   })
 
+  it('SQL with many parameters (one text per list length) is not kept', () => {
+    const d = db()
+    const sql = `SELECT name FROM t WHERE id IN (${Array.from({ length: 51 }, () => '?').join(', ')})`
+    const args = Array.from({ length: 51 }, (_, i) => i)
+    expect(d.prepare(sql)).not.toBe(d.prepare(sql))
+    expect((d.prepare(sql).all(...args) as unknown[]).length).toBe(3)
+  })
+
+  it('a changed safe-integer default reaches statements prepared before it', () => {
+    const d = db()
+    const sql = 'SELECT id FROM t WHERE id = 1'
+    expect(d.prepare(sql).get()).toEqual({ id: 1 })
+    d.defaultSafeIntegers(true)
+    expect(d.prepare(sql).get()).toEqual({ id: 1n })
+  })
+
+  it('installing twice changes nothing; the perf profiler wraps a shared statement once', () => {
+    const d = db()
+    installStatementCache(d)
+    const sql = 'SELECT name FROM t WHERE id = ?'
+    expect(d.prepare(sql)).toBe(d.prepare(sql))
+    const prof = instrument(d)
+    for (let i = 0; i < 20_000; i++) d.prepare(sql).get(1)
+    expect([...(d.prepare('SELECT id FROM t').iterate() as IterableIterator<unknown>)].length).toBe(3)
+    const stat = prof.stats().find((s) => s.sql === sql)!
+    expect(stat.calls).toBe(20_000)
+    prof.restore()
+  })
+
   it('a long synchronous run of the same statements does not pile up native memory', () => {
     const d = db()
     const sql = 'SELECT ' + Array.from({ length: 40 }, (_, i) => `name AS c${i}`).join(', ') + ' FROM t WHERE id = ?'
@@ -78,21 +109,54 @@ describe('statement cache', () => {
   })
 })
 
-// The private-copy rule needs the mode calls CHAINED (`db.prepare(sql).raw(true)` — the copy is the
-// method's return value). A bare `stmt.raw(true);` statement would set the mode on a copy and drop it.
-describe('mode calls are chained in app code', () => {
+// The private-copy rule needs the mode calls' RESULT used (`db.prepare(sql).raw(true)` — the copy is
+// the method's return value). A call whose result is dropped (`stmt.raw(true);`, `if (x) s.pluck()`,
+// `x && s.raw()`) would set the mode on a copy and lose it: none in app code (TypeScript AST).
+describe('mode calls never drop their result in app code', () => {
+  const MODE = new Set(['pluck', 'raw', 'expand', 'safeIntegers', 'bind'])
   const files = (dir: string): string[] =>
     readdirSync(dir).flatMap((n) => {
       const p = join(dir, n)
       return statSync(p).isDirectory() ? files(p) : /\.tsx?$/.test(n) && !/\.(test|dbtest)\.tsx?$/.test(n) ? [p] : []
     })
-  it('no statement-level `x.pluck(…)` / `x.raw(…)` / `x.expand(…)` / `x.safeIntegers(…)` whose result is dropped', () => {
+  /** The node's value is thrown away: an expression statement, or only reached through
+   *  && / || / ?? / , / ?: / ( ) / void on the way up to one. */
+  const discarded = (node: ts.Node): boolean => {
+    const p = node.parent
+    if (!p) return false
+    if (ts.isExpressionStatement(p)) return true
+    if (ts.isParenthesizedExpression(p) || ts.isVoidExpression(p)) return discarded(p)
+    if (ts.isConditionalExpression(p) && p.condition !== node) return discarded(p)
+    if (ts.isBinaryExpression(p)) {
+      const op = p.operatorToken.kind
+      if (op === ts.SyntaxKind.CommaToken) return p.left === node || discarded(p)
+      if ((op === ts.SyntaxKind.AmpersandAmpersandToken || op === ts.SyntaxKind.BarBarToken || op === ts.SyntaxKind.QuestionQuestionToken) && p.right === node) return discarded(p)
+    }
+    return false
+  }
+  it('every pluck / raw / expand / safeIntegers / bind result is used', () => {
     const bad: string[] = []
-    for (const f of files(join(__dirname, '..'))) {
-      readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
-        if (/^\s*[\w$.[\]]+\.(pluck|raw|expand|safeIntegers)\([^)]*\)\s*;?\s*$/.test(line)) bad.push(`${f}:${i + 1}`)
-      })
+    for (const f of [...files(join(__dirname, '..')), ...files(join(__dirname, '..', '..', 'shared'))]) {
+      const src = ts.createSourceFile(f, readFileSync(f, 'utf8'), ts.ScriptTarget.Latest, true)
+      const visit = (n: ts.Node): void => {
+        if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && MODE.has(n.expression.name.text) && discarded(n)) {
+          bad.push(`${f}:${src.getLineAndCharacterOfPosition(n.getStart()).line + 1}`)
+        }
+        ts.forEachChild(n, visit)
+      }
+      visit(src)
     }
     expect(bad).toEqual([])
+  })
+
+  it('the check itself catches the dropped forms', () => {
+    const src = ts.createSourceFile('x.ts', 's.raw(true)\nif (x) s.pluck()\nx && s.expand()\nconst k = s.raw(true)\nfoo(s.pluck())\n', ts.ScriptTarget.Latest, true)
+    const found: number[] = []
+    const visit = (n: ts.Node): void => {
+      if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && MODE.has(n.expression.name.text) && discarded(n)) found.push(src.getLineAndCharacterOfPosition(n.getStart()).line + 1)
+      ts.forEachChild(n, visit)
+    }
+    visit(src)
+    expect(found).toEqual([1, 2, 3])
   })
 })

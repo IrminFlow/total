@@ -327,6 +327,20 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   macos-14). The release workflow uses `macos-latest`, which GitHub now maps to macOS 26 — so
   tag builds run on a newer image than these checks (left as is; noted in #206).
 
+- **Long imports and big runs no longer run out of memory** (#PR_SC). Plain words: since the
+  Electron 45 upgrade (#208), a very long job done in one go — a large Tally or books import, a big
+  bulk edit — could make Total use more and more memory until it crashed; it now stays flat. Nothing
+  in the books changes. For developers: the SQLite driver 13 (Node-API) frees a prepared statement
+  only in a finalizer Node runs once the event loop turns, and never reports its native memory to
+  V8, so a synchronous run preparing the same SQL repeatedly grew without bound — CI's 100k perf
+  seed died (SIGTRAP at ~1.5 GB after 40k entries; red on main since #199 forced a fresh seed). Every
+  connection (`openDb`, and the dbtest helpers) now reuses one prepared statement per SQL text
+  (`installStatementCache`, LRU 500; SQL with > 50 parameters not kept); `pluck` / `raw` / `expand`
+  / `safeIntegers` / `bind` / `iterate` on a shared statement run on a private copy, so a shared one
+  never changes mode — callers must use those methods' RESULT (a TypeScript-AST lint in
+  `statementCache.dbtest.ts` enforces it). The seed now peaks at ~460 MB and is faster. The perf
+  profiler wraps each statement once.
+
 ### Security
 
 - **Dependency patch updates** (#201). Plain words: nothing you see changes; two libraries used to
