@@ -330,7 +330,6 @@ describe('zero-rated documents with rate-0 lines (F1 #4)', () => {
         exp_typ: 'WOPAY',
         inv: [{
           inum: 'EXP-9', idt: '20-07-2026', val: 5000,
-          sbpcode: null, sbnum: null, sbdt: null,
           itms: [{ txval: 5000, rt: 0, iamt: 0, csamt: 0 }]
         }]
       }
