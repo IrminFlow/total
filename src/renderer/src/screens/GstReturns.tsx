@@ -10,7 +10,7 @@ import { DataTable, defineColumns } from '../components/table'
 import { todayISO } from '@shared/dates'
 import { formatPaise } from '@shared/money'
 import { posLabel } from '@shared/gst/states'
-import type { Gstr1Result, Gstr3bResult } from '@shared/gst/returns'
+import { b2clLabelForPeriod, type Gstr1Result, type Gstr3bResult } from '@shared/gst/returns'
 import type { GstIssue } from '@shared/gst/validate'
 import type { Gst3bManualInput } from '@shared/schemas'
 import { CAPABILITY_REFUSED_TEXT, useCapabilityRefused } from '../lib/capabilities'
@@ -258,7 +258,13 @@ export function Gstr1Screen({ initialMonth }: { initialMonth?: string } = {}): R
     enabled: !!month
   })
 
-  const issues = validation?.issues ?? []
+  // The B2C (Large) row names the limit of the month shown (₹2,50,000 before Aug 2024); the
+  // service keeps its pinned label (returns.ts B2CL_SUMMARY_LABEL).
+  const summaryRows = useMemo(
+    () => (data?.summary ?? []).map((r) => (r.section === 'b2cl' ? { ...r, label: b2clLabelForPeriod(data!.period) } : r)),
+    [data]
+  )
+    const issues = validation?.issues ?? []
   const blocking = issues.filter((i) => i.severity === 'blocking')
   const warnings = issues.filter((i) => i.severity === 'warning')
   const roundOff = validation?.roundOff ?? []
@@ -364,7 +370,7 @@ export function Gstr1Screen({ initialMonth }: { initialMonth?: string } = {}): R
           testId="gstr1"
           ariaLabel="GSTR-1 section summary"
           columns={GSTR1_COLUMNS}
-          rows={data?.summary ?? []}
+          rows={summaryRows}
           rowKey={(s) => s.section}
           rowAttrs={(s) => ({ 'data-section': s.section })}
           rowClassName={(s) => (s.docs === 0 && s.taxable === 0 ? 'text-muted' : '')}

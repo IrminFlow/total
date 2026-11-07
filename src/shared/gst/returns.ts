@@ -125,6 +125,19 @@ export function b2clLimitOn(date: string): number {
   return date < B2CL_LIMIT_CHANGED_ON ? B2CL_THRESHOLD_BEFORE_AUG_2024_PAISE : B2CL_THRESHOLD_PAISE
 }
 
+/** The GSTR-1 summary's B2C (Large) row label as `buildGstr1` writes it. It stays this literal
+ *  for every period: it is part of outputs pinned by hash (reportEquality's GSTR-1 of a May 2024
+ *  return, gstPostedRateParity, tradeLegacy) — the GSTR-1 screen shows `b2clLabelForPeriod`. */
+export const B2CL_SUMMARY_LABEL = 'B2C (Large) — inter-state > ₹1,00,000'
+
+/** The B2C (Large) row label for a GSTR-1 return of one month (`period` MMYYYY): ₹2,50,000 before
+ *  Aug 2024 (the limit then — b2clLimitOn; the invoices are already classified by it), otherwise
+ *  `B2CL_SUMMARY_LABEL` unchanged. */
+export function b2clLabelForPeriod(period: string): string {
+  const m = /^(\d{2})(\d{4})$/.exec(period)
+  return m != null && `${m[2]}-${m[1]}-01` < B2CL_LIMIT_CHANGED_ON ? 'B2C (Large) — inter-state > ₹2,50,000' : B2CL_SUMMARY_LABEL
+}
+
 const toRupees = (paise: number): number => Math.round(paise) / 100
 
 /** Quantity thousandths → a 2-decimal number (portal HSN qty precision), integer math. */
@@ -620,7 +633,7 @@ export function buildGstr1(
     json,
     summary: [
       s('B2B — registered buyers', 'b2b', b2bDocs),
-      s('B2C (Large) — inter-state > ₹1,00,000', 'b2cl', b2clDocs),
+      s(B2CL_SUMMARY_LABEL, 'b2cl', b2clDocs),
       s('B2C (Small) — consolidated', 'b2cs', [...b2csDocs, ...b2csNoteDocs]),
       s('Exports (Table 6A)', 'exp', expDocs),
       s('Credit/Debit Notes (registered)', 'cdnr', cdnrDocs),
