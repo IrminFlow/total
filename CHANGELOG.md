@@ -272,6 +272,11 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   no due date is given and the party has no credit days set; days to pay of 0 now store AND say the
   bill's own day (it said "no due date set" though the engine dated it so); `facts.dueDate` follows
   what is stored. The accountant invoice editor still pre-fills the bill date (unchanged).
+- **CI runs its macOS jobs on macOS 15** (#206). Plain words: nothing in the app changes. For
+  developers: GitHub retired the `macos-14` runner image on 2 November 2026, so `smoke-mac` and
+  `e2e-mac` failed before starting on every branch; both now use `macos-15` (Apple silicon, like
+  macos-14). The release workflow uses `macos-latest`, which GitHub now maps to macOS 26 — so
+  tag builds run on a newer image than these checks (left as is; noted in #206).
 
 ## [0.12.0] - 2026-10-22
 
