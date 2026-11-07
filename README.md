@@ -29,7 +29,7 @@ files; you file the returns on gst.gov.in.
 
 ## Install (testers)
 
-Releases are on GitHub: <https://github.com/IrminFlow/total/releases>. The macOS builds are for Apple
+Releases are on GitHub: <https://github.com/Total-org/total-org/releases>. The macOS builds are for Apple
 Silicon (`Total-<version>-arm64.dmg`, plus a ZIP). Open the DMG and drag Total to Applications.
 Builds are not code-signed yet, so macOS says the app "is damaged and can't be opened". Right-click,
 Open does **not** get past this for the current build (see the site's Getting started page). Clear the

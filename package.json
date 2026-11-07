@@ -1,7 +1,7 @@
 {
   "name": "total",
   "version": "0.12.0",
-  "description": "Total — fully offline accounting for macOS. Tally-grade books, modern experience.",
+  "description": "Total \u2014 fully offline accounting for macOS. Tally-grade books, modern experience.",
   "main": "out/main/index.js",
   "author": "Irmin Labs",
   "license": "UNLICENSED",
@@ -26,7 +26,7 @@
     "@fontsource/ibm-plex-mono": "^5.3.0",
     "@fontsource/ibm-plex-sans": "^5.3.0",
     "@fontsource/ibm-plex-serif": "^5.3.0",
-    "better-sqlite3-multiple-ciphers": "^12.11.1",
+    "better-sqlite3-multiple-ciphers": "^13.0.3",
     "electron-updater": "^6.8.9",
     "openai": "^7.30.0",
     "qrcode-generator": "^2.0.4",
@@ -43,8 +43,8 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^4.6.0",
-    "electron": "^37.2.0",
-    "electron-builder": "^26.0.12",
+    "electron": "^45.2.3",
+    "electron-builder": "^26.18.0",
     "electron-vite": "^4.0.0",
     "jsdom": "^30.0.1",
     "playwright-core": "^1.62.1",
@@ -64,7 +64,9 @@
     "files": [
       "out/**/*",
       "!out/cli/**",
-      "package.json"
+      "package.json",
+      "!**/node_modules/better-sqlite3-multiple-ciphers/{deps,src,build}/**",
+      "!**/node_modules/better-sqlite3-multiple-ciphers/prebuilds/!(${platform}-${arch}).node"
     ],
     "extraResources": [
       {
@@ -79,6 +81,7 @@
     "mac": {
       "icon": "resources/total.icns",
       "category": "public.app-category.finance",
+      "minimumSystemVersion": "13.0",
       "target": [
         "dmg",
         "zip"
@@ -101,15 +104,15 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "IrminFlow",
-        "repo": "total",
+        "owner": "Total-org",
+        "repo": "total-org",
         "releaseType": "release"
       }
     ]
   },
   "allowScripts": {
-    "electron@37.10.3": true,
-    "better-sqlite3-multiple-ciphers@12.11.1": true,
+    "electron@45.2.3": true,
+    "better-sqlite3-multiple-ciphers@13.0.3": true,
     "esbuild@0.25.12": true,
     "esbuild@0.28.2": true,
     "electron-winstaller@5.4.0": true
