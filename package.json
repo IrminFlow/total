@@ -105,8 +105,8 @@
     "publish": [
       {
         "provider": "github",
-        "owner": "IrminFlow",
-        "repo": "total",
+        "owner": "Total-org",
+        "repo": "total-org",
         "releaseType": "release"
       }
     ]
