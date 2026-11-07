@@ -369,7 +369,7 @@ describe('simple:carryBack — the unsaved editor\'s changes back into the simpl
       const s = e.state as AccountingFormState
       const scale = (id: number | null, amt: number | null): number | null =>
         id === L('Bharat Steel') ? 295_000 : id === L('Rent') ? 250_000 : amt === 9000 ? 22_500 : amt
-      return { ...e, state: { ...s, date: '2025-08-12', rows: s.rows.map((r) => ({ ...r, amount: scale(r.ledgerId, r.amount) })), billRefs: s.billRefs.map((b) => ({ ...b, amount: 295_000, dueDate: '2025-08-12' })) } } as HandoffEntry
+      return { ...e, state: { ...s, date: '2025-08-12', rows: s.rows.map((r) => ({ ...r, amount: scale(r.ledgerId, r.amount) })), billRefs: s.billRefs.map((b) => ({ ...b, amount: 295_000 })) } } as HandoffEntry
     }, buyIntent)
     expect(back).toMatchObject({ mode: 'expense', categoryId: L('Rent'), amount: 250_000, gstRate: 18, date: '2025-08-12', billNo: 'R-9' })
   })

@@ -1,7 +1,7 @@
 // Scenario 59 — WP 9.8 People (simple mode).
 //   1. A wizard company (trader, no GST, no stock): two customers with credit bills — Ramesh with
 //      one bill 40 days old (late, 15 days to pay) and one 2 days old; Sita with one 3 days old —
-//      and a supplier, Bharat Steel, with a bill 20 days old.
+//      and a supplier, Bharat Steel (7 days to pay), with a bill 20 days old.
 //   2. People → Customers and suppliers: the list shows who owes what and who is late; its totals
 //      are Home's "customers owe you" / "you owe suppliers"; the filters narrow it.
 //   3. Ramesh's page: balance, the late part, the open bills oldest first in words; WhatsApp
@@ -84,7 +84,9 @@ await scenario('59-people', async (h) => {
     })
   const ramesh = await party('Ramesh Traders', 'Sundry Debtors', { creditDays: 15, phone: '98765 43210' })
   const sita = await party('Sita Stores', 'Sundry Debtors', { creditDays: 15 })
-  const bharat = await party('Bharat Steel', 'Sundry Creditors')
+  // 7 days to pay: the 20-day-old bill is late (a supplier with none set stores no due date and is
+  // never late since #202).
+  const bharat = await party('Bharat Steel', 'Sundry Creditors', { creditDays: 7 })
   let n = 0
   const sale = (customerId, amount, days) =>
     h.invoke('simple:post', { intent: { kind: 'sale', clientId: `e2e-59-${++n}-xxxxxxxx`, date: ago(days), customerId, amount: { amount }, payment: { how: 'credit' } }, today })

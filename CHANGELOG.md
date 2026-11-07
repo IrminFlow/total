@@ -314,6 +314,18 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
 - **A question for your CA about the old B2C Large limit** (#198). Docs only: `docs/owner/09-questions-for-your-ca.md`
   Q33 asks whether the portal applies the ₹2.5 lakh B2C Large limit (before 1 Aug 2024) by invoice
   date or by tax period, and how a note follows its original (the later questions move down by one).
+- **A bill for someone with no days to pay is no longer late the next day** (#202). Plain words: in
+  the simple screens, a bill on credit to a customer (or from a supplier) with no "days to pay" said
+  "no due date set" but was saved as due on the bill's own date, so the next day it counted as late.
+  New bills like that are now saved without a due date, so they are never late until you give the
+  person days to pay or the bill a date. Bills already saved keep their due date. For accountants:
+  such a bill's bill-wise "new" reference has no due date (as an invoice saved without one in the
+  full editor); Outstandings ages it from its bill date as before, but its overdue days now follow
+  the ledger's credit days if some are set later (none = from the bill date, unchanged). For
+  developers: `mapTrade` (shared/simple/intents.ts) stores `dueDate: null` / `billDueDate: ''` when
+  no due date is given and the party has no credit days set; days to pay of 0 now store AND say the
+  bill's own day (it said "no due date set" though the engine dated it so); `facts.dueDate` follows
+  what is stored. The accountant invoice editor still pre-fills the bill date (unchanged).
 - **An old opening balance no longer looks new every April** (#199). Plain words: a customer's
   opening balance that isn't split into bills used to start counting its days late again every
   1 April — on 1 April it was "not late" and a reminder was refused. It now counts from the day the

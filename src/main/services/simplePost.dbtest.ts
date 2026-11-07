@@ -215,7 +215,7 @@ describe('every intent kind round-trips through its editor and equals a hand-ent
     const { twin, ids } = handEntered([])
     ledger(twin, 'Cash sale', 'Sundry Debtors') // the walk-in the counter creates on first use
     const vt = typeId(twin, 'sales')
-    const st = blankAccounting(TODAY, [r('dr', walkIn, 118_000), r('cr', L('Sales', twin), 100_000), r('cr', L('CGST', twin), 9000), r('cr', L('SGST', twin), 9000)], [{ kind: 'new', name: number, amount: 118_000, dueDate: TODAY }], { number })
+    const st = blankAccounting(TODAY, [r('dr', walkIn, 118_000), r('cr', L('Sales', twin), 100_000), r('cr', L('CGST', twin), 9000), r('cr', L('SGST', twin), 9000)], [{ kind: 'new', name: number, amount: 118_000, dueDate: null }], { number })
     const built = buildAccountingPayload(st, { kind: 'sales', voucherTypeId: vt, derivedPartyId: walkIn })
     if (!built.ok) throw new Error(built.error)
     ids.push(saveVoucher(twin, built.payload).id)
@@ -229,7 +229,7 @@ describe('every intent kind round-trips through its editor and equals a hand-ent
     roundTrips(pay, 'accounting')
     expect(getVoucher(db, bill)!.reference).toBe('BS/101')
     const { twin, ids } = handEntered([
-      { kind: 'purchase', form: 'invoice', state: { ...emptyInvoiceState('2025-08-10'), partyId: L('Bharat Steel'), accountId: L('Purchases'), rows: [{ itemId: I('Widget'), qtyText: '10', rate: 10_000, discount: null, godownId: null, batchId: null }], billName: 'BS/101', billDueDate: '2025-08-10', reference: 'BS/101' } },
+      { kind: 'purchase', form: 'invoice', state: { ...emptyInvoiceState('2025-08-10'), partyId: L('Bharat Steel'), accountId: L('Purchases'), rows: [{ itemId: I('Widget'), qtyText: '10', rate: 10_000, discount: null, godownId: null, batchId: null }], billName: 'BS/101', billDueDate: '', reference: 'BS/101' } },
       { kind: 'payment', form: 'accounting', state: blankAccounting('2025-08-10', [r('dr', L('Bharat Steel'), 118_000), r('cr', L('HDFC Bank'), 118_000)], [{ kind: 'against', name: 'BS/101', amount: 118_000, dueDate: null }]) }
     ])
     expect(rows(twin, ids[0]!)).toEqual(rows(db, bill))
@@ -606,7 +606,7 @@ describe('simple date guards and plain-error fields', () => {
   it('an expense purchase equals the hand-entered one', () => {
     const out = post({ kind: 'purchase', supplierId: L('Bharat Steel'), billNo: 'R-9', amount: { amount: '1000', accountId: L('Rent') } })
     const { twin, ids } = handEntered([
-      acc('purchase', TODAY, [r('cr', L('Bharat Steel'), 118_000), r('dr', L('Rent'), 100_000), r('dr', L('CGST'), 9000), r('dr', L('SGST'), 9000)], [{ kind: 'new', name: 'R-9', amount: 118_000, dueDate: TODAY }], { number: getVoucher(db, out.voucherIds[0]!)!.number, reference: 'R-9' })
+      acc('purchase', TODAY, [r('cr', L('Bharat Steel'), 118_000), r('dr', L('Rent'), 100_000), r('dr', L('CGST'), 9000), r('dr', L('SGST'), 9000)], [{ kind: 'new', name: 'R-9', amount: 118_000, dueDate: null }], { number: getVoucher(db, out.voucherIds[0]!)!.number, reference: 'R-9' })
     ])
     expect(rows(twin, ids[0]!)).toEqual(rows(db, out.voucherIds[0]!))
   })
@@ -694,7 +694,7 @@ describe('WP 9.2 Make a bill: the form → simple:post = the invoice + receipt a
     const v = getVoucher(db, bill)!
     expect(v.lines.some((l) => l.ledgerId === L('IGST'))).toBe(true)
     const { twin, ids } = handEntered([
-      { kind: 'sales', form: 'invoice', state: inv('Kumar', [['Rice', '10', 3_000], ['Widget', '1', 20_000]], v.number, TODAY) },
+      { kind: 'sales', form: 'invoice', state: inv('Kumar', [['Rice', '10', 3_000], ['Widget', '1', 20_000]], v.number, '') }, // no days to pay: no due date (Nov 2026)
       { kind: 'receipt', form: 'accounting', state: blankAccounting(TODAY, [r('dr', L('HDFC Bank'), out.facts.total), r('cr', L('Kumar'), out.facts.total)], [{ kind: 'against', name: v.number, amount: out.facts.total, dueDate: null }]) }
     ])
     expect(rows(twin, ids[0]!)).toEqual(rows(db, bill))
@@ -710,7 +710,7 @@ describe('WP 9.2 Make a bill: the form → simple:post = the invoice + receipt a
     const number = getVoucher(db, bill)!.number
     const { twin, ids } = handEntered([])
     ledger(twin, 'Cash sale', 'Sundry Debtors') // the walk-in the counter creates on first use
-    const st = inv('Cash sale', [['Rice', '2', 5_000]], number, TODAY, twin)
+    const st = inv('Cash sale', [['Rice', '2', 5_000]], number, '', twin) // no days to pay: no due date (Nov 2026)
     const b1 = buildInvoicePayload(st, { ...invoiceCtx(twin), kind: 'sales' }, typeId(twin, 'sales'), taxLedgerIdsFrom(listLedgers(twin), 'output'))
     if (!b1.ok) throw new Error(b1.error)
     ids.push(saveVoucher(twin, b1.payload).id)
