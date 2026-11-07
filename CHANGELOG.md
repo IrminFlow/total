@@ -331,6 +331,9 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   the folder after (it never did — found in #197's review); the scratch rekey checks that
   `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it; a swap that fails (copy / fsync / rename) removes its copy and
   reopens the untouched books instead of leaving a closed handle.
+- **A question for your CA about the old B2C Large limit** (#198). Docs only: `docs/owner/09-questions-for-your-ca.md`
+  Q33 asks whether the portal applies the ₹2.5 lakh B2C Large limit (before 1 Aug 2024) by invoice
+  date or by tax period, and how a note follows its original (the later questions move down by one).
 - **A bill for someone with no days to pay is no longer late the next day** (#202). Plain words: in
   the simple screens, a bill on credit to a customer (or from a supplier) with no "days to pay" said
   "no due date set" but was saved as due on the bill's own date, so the next day it counted as late.
