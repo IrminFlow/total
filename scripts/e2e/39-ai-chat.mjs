@@ -92,8 +92,7 @@ await scenario('39-ai-chat', async (h) => {
   assertEq(await h.page.$('[data-testid="trial-balance-explain-debit"]'), null, 'no Explain-this while the assistant is off')
 
   // ---------- turn it on (the mock provider needs no key) ----------
-  await h.invoke('ai:notice:accept')
-  await h.invoke('ai:settings:set', { enabled: true })
+  await h.enableAi()
   assertEq((await h.invoke('ai:settings:get')).ready, true, 'assistant ready on the mock')
   await h.goto('settings') // the settings screen refreshes the cached AI settings
   await h.goto('trial-balance')

@@ -20,6 +20,10 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
+- Fix (#217): e2e scenarios 39 / 41 / 43 / 44 / 45 turn the AI assistant on through the new harness
+  `h.enableAi()` — notice, switch, then Test connection, which picks the model from the mock's list —
+  since #210 there is no built-in model id. Tests only; no app change.
+
 **GST gateway on screen, test mode** (#211; upgrade plan Phase 4, part 2). Plain words: the
 e-Invoice & e-way bill screen has a **Portal (test)** button per document, and the GSTR-1 / GSTR-3B
 screens a **Send to the portal (test mode)** panel. It signs in with a code, sends the return,

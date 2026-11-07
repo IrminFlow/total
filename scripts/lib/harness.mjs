@@ -153,6 +153,20 @@ export class Harness {
     return r.data
   }
 
+  /** Turn the AI assistant on for the open company the way an owner does (Phase 3a): accept the
+   *  data notice, switch it on, then Test connection — which picks the model from the service's
+   *  own list (the TOTAL_AI_MOCK provider lists gpt-6.1-sol / gpt-6-luna / mock-model). There is
+   *  no built-in model id, so without the test the assistant stays "Pick a model". */
+  async enableAi() {
+    await this.invoke('ai:notice:accept')
+    await this.invoke('ai:settings:set', { enabled: true })
+    const test = await this.invoke('ai:testConnection')
+    if (!test.ok) throw new Error(`enableAi: Test connection failed: ${test.error}`)
+    const view = await this.invoke('ai:settings:get')
+    if (!view.ready) throw new Error(`enableAi: assistant not ready: ${view.blocker}`)
+    return view
+  }
+
   /** Turn on features hidden until used (the feature cleanup) the way an owner does: Settings →
    *  Features → More features → Turn on, in the full app. A flag feature (cost centres, orders)
    *  moves to the main list once on. Asserts each reads as turned on afterwards. */
