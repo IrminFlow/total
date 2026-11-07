@@ -20,7 +20,7 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
-**Releases come by themselves** (#PRNUM). Twice a day (about 09:00 and 21:00 India time) GitHub
+**Releases come by themselves** (#216). Twice a day (about 09:00 and 21:00 India time) GitHub
 releases what is new on `main` as the next patch version, but only when every test on `main` passed,
 books made by the last release open in the new one with every report unchanged (trial balance, P&L,
 balance sheet, outstandings, stock, GSTR-1 / 3B) and the backup restore check passes, and no pull
