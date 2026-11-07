@@ -240,6 +240,14 @@ describe('each sentence says the figures it was given (WP 10.2)', () => {
     expect(billsToPayWhy({ today: TODAY, bills: one, ...billsToPayTotals(one, TODAY) }, 'week', t)).toBe('No supplier bill falls due by 18 Oct.')
   })
 
+  it('Bills to pay: a bill with no due date is counted in neither tile nor its Why (the row says "no due date")', () => {
+    const noDue = { ...BILLS[0]!, dueDate: null, date: '2026-10-02', overdueDays: 0 }
+    const data = { today: TODAY, bills: [noDue], ...billsToPayTotals([noDue], TODAY) }
+    expect(data).toMatchObject({ dueThisWeek: 0, dueThisMonth: 0, late: 0 })
+    expect(billsToPayWhy(data, 'week', t)).toBe('No supplier bill falls due by 18 Oct.')
+    expect(billsToPayWhy(data, 'month', t)).toBe('No supplier bill falls due by 31 Oct.')
+  })
+
   it('by month: each bar says its own month, its two figures and how many bills', () => {
     const sep = BARS.find((m) => m.month === '2026-09')!
     expect(byMonthBarWhy(sep, t)).toBe('In Sep 2026 you sold ₹70,000.00 on 3 bills and bought ₹40,000.00 on 2 bills, before GST.')

@@ -331,6 +331,12 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   the folder after (it never did — found in #197's review); the scratch rekey checks that
   `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it; a swap that fails (copy / fsync / rename) removes its copy and
   reopens the untouched books instead of leaving a closed handle.
+- **Bills to pay: a bill with no due date is not "due this week"** (#200). Plain words: on People →
+  Bills to pay, a supplier's bill with no due date (the row says "no due date") was still added to
+  "due this week" / "due this month" by its bill date. The totals, their "Why?" and the Due column
+  (here and on a person's page, now blank) now agree with the row. For developers:
+  `billsToPayTotals` / `billsToPayWhy` skip `dueDate == null`; opening bills keep their date as the due
+  date (`dueDateOf`), as before.
 - **A question for your CA about the old B2C Large limit** (#198). Docs only: `docs/owner/09-questions-for-your-ca.md`
   Q33 asks whether the portal applies the ₹2.5 lakh B2C Large limit (before 1 Aug 2024) by invoice
   date or by tax period, and how a note follows its original (the later questions move down by one).
