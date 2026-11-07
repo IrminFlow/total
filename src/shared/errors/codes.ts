@@ -206,6 +206,21 @@ export const ERROR_MAP = {
   gst_filed_too_early: e('errors.taxes.tooEarly', 'date'),
   gst_filed_arn: e('errors.taxes.arn', 'arn'),
   gst_filed_date: e('errors.taxes.filedDate', 'date'),
+  // Phase 4: the GST gateway (main/gstGateway/index.ts, returnsFlow.ts).
+  gateway_live_unavailable: e('errors.gateway.liveUnavailable', 'live'),
+  gateway_provider_unavailable: e('errors.gateway.providerUnavailable', 'provider'),
+  gateway_period_open: e('errors.gateway.periodOpen', 'period'),
+  gateway_already_filed: e('errors.gateway.alreadyFiled'),
+  gateway_not_saved: e('errors.gateway.notSaved'),
+  gateway_not_processed: e('errors.gateway.notProcessed'),
+  gateway_not_ready: e('errors.gateway.notReady'),
+  gateway_quarterly: e('errors.gateway.quarterly'),
+  gateway_auth: e('errors.gateway.auth'),
+  gateway_otp: e('errors.gateway.otp'),
+  gateway_rate_limit: e('errors.gateway.rateLimit'),
+  gateway_2b_not_ready: e('errors.gateway.notReady2b'),
+  gateway_network: e('errors.gateway.network'),
+  gateway_portal: e('errors.gateway.portal'),
 
   // ---------- IPC boundary (src/main/ipc.ts) ----------
   duplicate_name: e('errors.duplicateName', 'name'),
