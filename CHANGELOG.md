@@ -270,6 +270,11 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   year, so its age, overdue days and ageing bucket in any later year grow by the years since the
   books began (a ₹800 opening from 1 Apr 2025 is 404 days old on 10 May 2026, not 39). Receivables
   interest already ran from that day; opening bills with their own dates are unchanged.
+- **CI runs its macOS jobs on macOS 15** (#206). Plain words: nothing in the app changes. For
+  developers: GitHub retired the `macos-14` runner image on 2 November 2026, so `smoke-mac` and
+  `e2e-mac` failed before starting on every branch; both now use `macos-15` (Apple silicon, like
+  macos-14). The release workflow uses `macos-latest`, which GitHub now maps to macOS 26 — so
+  tag builds run on a newer image than these checks (left as is; noted in #206).
 
 ## [0.12.0] - 2026-10-22
 
