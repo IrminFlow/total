@@ -115,6 +115,10 @@ export interface GstFiledEntry {
   by: string | null
   /** When it was recorded (ISO timestamp). */
   at: string
+  /** Phase 4: filed through the GST gateway (absent = typed in by the user under "I've filed").
+   *  `test: true` = the built-in Test GSP — simulated, nothing reached the portal: such an entry
+   *  never counts as filed (readGstFiled leaves it out) and is only shown, labelled, on Taxes. */
+  via?: { provider: string; test: boolean }
 }
 
 export type GstFiledPeriod = Partial<Record<GstForm, GstFiledEntry>>
@@ -125,13 +129,43 @@ export const GST_FILED_META_KEY = 'gstFiled'
 /** meta `gstFiled`: { 'YYYY-MM' (the period's last month): { gstr1?, gstr3b? } }. */
 export type GstFiledMeta = Record<string, GstFiledPeriod>
 
-const filedEntrySchema = z.object({ arn: z.string(), date: iso, by: z.string().nullable(), at: z.string() }).strict()
+const filedEntrySchema = z
+  .object({ arn: z.string(), date: iso, by: z.string().nullable(), at: z.string(), via: z.object({ provider: z.string(), test: z.boolean() }).strict().optional() })
+  .strict()
 const filedMetaSchema = z.record(ym, z.object({ gstr1: filedEntrySchema.optional(), gstr3b: filedEntrySchema.optional() }).strict())
 
 /** Stored value → marks; missing or malformed = none. Never throws. */
 export function normalizeGstFiled(raw: unknown): GstFiledMeta {
   const p = filedMetaSchema.safeParse(raw)
   return p.success ? (p.data as GstFiledMeta) : {}
+}
+
+/** The marks that count as filed: every entry but the Test GSP's simulated ones (Phase 4). */
+export function realGstFiled(all: GstFiledMeta): GstFiledMeta {
+  const out: GstFiledMeta = {}
+  for (const [period, forms] of Object.entries(all)) {
+    const kept: GstFiledPeriod = {}
+    for (const f of GST_FORMS) {
+      const e = forms[f]
+      if (e && !e.via?.test) kept[f] = e
+    }
+    if (Object.keys(kept).length) out[period] = kept
+  }
+  return out
+}
+
+/** The Test GSP's simulated filings only (shown labelled on Taxes, never counted as filed). */
+export function testGstFiled(all: GstFiledMeta): GstFiledMeta {
+  const out: GstFiledMeta = {}
+  for (const [period, forms] of Object.entries(all)) {
+    const kept: GstFiledPeriod = {}
+    for (const f of GST_FORMS) {
+      const e = forms[f]
+      if (e?.via?.test) kept[f] = e
+    }
+    if (Object.keys(kept).length) out[period] = kept
+  }
+  return out
 }
 
 /**
