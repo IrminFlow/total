@@ -3,9 +3,9 @@
 // sales / purchase lists, Money's bill ticks, Reports' who owes, Ask Total); People says "no due date
 // set". An OPENING balance or opening bill (no voucher: `voucherId` null) without a due date is due
 // on its own date — the date typed on the opening bill (WP 8.7), or, for an opening without bills,
-// the date the engine gives it: the start of the financial year of the as-on date
-// (openingBills.ts openingEvents, unchanged since v0.3; so such an opening's days late restart each
-// April) — so it can be late and reminded (review). The Outstandings engine still ages every bill from its
+// the date the engine gives it: the books-begin day (openingBills.ts `openingDateOf`; until Nov 2026
+// the as-on date's FY start, so its days late restarted every 1 April) — so it can be late and
+// reminded (review). The Outstandings engine still ages every bill from its
 // due date else its own date (shared/outstanding.ts: the accountant's ageing buckets are unchanged);
 // the simple screens read the lateness through these two rules.
 
