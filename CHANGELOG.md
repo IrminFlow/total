@@ -319,6 +319,11 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
 
 ### Security
 
+- **Dependency patch updates** (#201). Plain words: nothing you see changes; two libraries used to
+  build and test Total got their security fixes. For developers: lockfile only, both dev-time —
+  `vite` 7.3.6 → 7.3.7 (dev server) and `undici` 8.12.1 → 8.12.4 (jsdom, renderer tests). The other
+  two bumps this PR first carried, `fast-uri` 3.1.9 and `undici` 6.29.1 (node-gyp), arrived with
+  #208's electron-builder update. Replaces Dependabot #179, #182 and #183.
 - **Validation library: Zod 3 → 4** (#212). Plain words: nothing you see changes — every screen,
   message and AI answer works as before. The library that checks every request between the screens
   and the books moves to its current major version, which clears the high-severity "oversized
