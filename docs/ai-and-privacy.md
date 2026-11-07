@@ -12,7 +12,7 @@ default (and can be switched off); the AI helper and live filing only after you 
 
 | What | When | Where it goes | Needs you to opt in? |
 |---|---|---|---|
-| Update check | About 5 seconds after launch, once per launch, packaged app only, and only while "Check for updates automatically" is on; also Settings, About (or How Total looks in simple mode), "Check for updates" / "Check now" | At launch: GitHub's release feed for `IrminFlow/total` (electron-updater); and, if that errors, `devjindal.tech/api/latest`, then `api.github.com`. "Check now" / "Check for updates" asks `devjindal.tech/api/latest` (then `api.github.com`) only | It is on by default and you can turn it off: "Check for updates automatically" (app-wide, owner only where the business has users). With it off, Total makes no request at launch. Nothing is downloaded until you press "Download now". |
+| Update check | About 5 seconds after launch, once per launch, packaged app only, and only while "Check for updates automatically" is on; also Settings, About (or How Total looks in simple mode), "Check for updates" / "Check now" | At launch: GitHub's release feed for `Total-org/total-org` (electron-updater); and, if that errors, `devjindal.tech/api/latest`, then `api.github.com`. "Check now" / "Check for updates" asks `devjindal.tech/api/latest` (then `api.github.com`) only | It is on by default and you can turn it off: "Check for updates automatically" (app-wide, owner only where the business has users). With it off, Total makes no request at launch. Nothing is downloaded until you press "Download now". |
 | AI helper | Only after you accept the data notice and add your own key | OpenAI (`https://api.openai.com/v1`) | Yes |
 | Live e-invoice / e-way bill filing | Only when you press a live-filing button after entering credentials | The NIC API address you typed in | Yes |
 | Opening a link | When you click a help link, a reminder's "Open in WhatsApp", "Email…" on a statement, or "Support" | Your browser or mail app, not Total | Only on click |
@@ -47,9 +47,9 @@ Total, backups, imports, exports) works with the network unplugged.
 Code: `src/main/updater.ts`, started from `src/main/index.ts`. Only the packaged app does this.
 
 1. About 5 seconds after launch, **only if "Check for updates automatically" is on** (the
-   default), the app asks electron-updater to check the GitHub releases feed of `IrminFlow/total`
+   default), the app asks electron-updater to check the GitHub releases feed of `Total-org/total-org`
    (`build.publish` in `package.json`): electron-updater 6.8 reads
-   `https://github.com/IrminFlow/total/releases.atom` (or `…/releases/latest`) and then the release's
+   `https://github.com/Total-org/total-org/releases.atom` (or `…/releases/latest`) and then the release's
    `latest-mac.yml` / `latest.yml`. electron-updater is set to `autoDownload = false` and
    `autoInstallOnAppQuit = false`: it only looks. If a newer version exists, an in-app notice says
    "Total 0.13.0 is available" with "Download now", "Later" and "Skip this version". Nothing is
@@ -66,7 +66,7 @@ Code: `src/main/updater.ts`, started from `src/main/index.ts`. Only the packaged
 3. If electron-updater reports an error (the usual case for today's unsigned macOS builds), a
    one-time fallback asks `https://devjindal.tech/api/latest` (`SITE_URL` in
    `src/shared/product.ts`) for the newest version, and if the site does not answer,
-   `https://api.github.com/repos/IrminFlow/total/releases/latest`. "Check now" (simple Settings) and
+   `https://api.github.com/repos/Total-org/total-org/releases/latest`. "Check now" (simple Settings) and
    "Check for updates" (Settings, About) go straight to these two. Only if the version is newer
    does the same notice appear; "Download now" then opens the release page or download link in
    your browser and you install the new version yourself. If a download or an install through
@@ -188,4 +188,4 @@ you to them.
 - Run `npm run test:db` and `npm test` from a source checkout; the boundary tests above run there.
 
 If you find a statement here that the code does not support, please open an issue on
-<https://github.com/IrminFlow/total/issues>.
+<https://github.com/Total-org/total-org/issues>.

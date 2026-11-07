@@ -4,7 +4,7 @@
  * with read access to releases, set in Vercel env). Works unauthenticated too once
  * the repo is public.
  */
-export const GITHUB_REPO = process.env.GITHUB_REPO ?? 'IrminFlow/total'
+export const GITHUB_REPO = process.env.GITHUB_REPO ?? 'Total-org/total-org'
 
 export const RELEASES_PAGE = `https://github.com/${GITHUB_REPO}/releases/latest`
 
