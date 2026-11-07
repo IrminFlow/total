@@ -31,6 +31,7 @@ import { fyOf } from '@shared/dates'
 import { writeAudit } from './audit'
 import { closingBalances, descendantIdSet } from './reports'
 import { NOT_FX_REVALUATION, openingBillsByParty, openingEvents, outstandings } from './analysis'
+import { openingDateOf } from './openingBills'
 import { listGroups, partyGroupIdsBySide } from './masters'
 import { pendingOrders, pendingStockNotes } from './tradeReports'
 import { statutoryDues } from './payrollStatutory'
@@ -172,9 +173,10 @@ export function receivableHistory(db: DB, asOn: string): HistoryBill[] {
   }
   const out: HistoryBill[] = []
   const openingBills = openingBillsByParty(db, parties.map((p) => p.id))
+  const openingDate = openingDateOf(db)
   for (const p of parties) {
     // WP 8.7: the opening through the one reader (its bills, or the single unnamed opening).
-    const opening = openingEvents(asOn, p.ob, 1, openingBills.get(p.id), p.creditDays)
+    const opening = openingEvents(openingDate, p.ob, 1, openingBills.get(p.id), p.creditDays)
     const events: BillEvent[] = [...opening, ...(byParty.get(p.id) ?? [])]
     // Opening bills aren't sales the customer paid on our terms — leave them out of the learned
     // shares (billHistory emits one record per bill opened, in order: the openings come first).

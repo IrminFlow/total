@@ -311,6 +311,16 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   the folder after (it never did — found in #197's review); the scratch rekey checks that
   `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it; a swap that fails (copy / fsync / rename) removes its copy and
   reopens the untouched books instead of leaving a closed handle.
+- **An old opening balance no longer looks new every April** (#199). Plain words: a customer's
+  opening balance that isn't split into bills used to start counting its days late again every
+  1 April — on 1 April it was "not late" and a reminder was refused. It now counts from the day the
+  books begin, like an opening bill without a date always did. For accountants: Outstandings,
+  statements, the cash forecast's collection history, People, Home and reminders date the unnamed
+  "Opening" bill (and an "Opening (balance)" remainder) on the books-begin day — the setup's chosen
+  day, else the first financial year's start — instead of the start of the as-on date's financial
+  year, so its age, overdue days and ageing bucket in any later year grow by the years since the
+  books began (a ₹800 opening from 1 Apr 2025 is 404 days old on 10 May 2026, not 39). Receivables
+  interest already ran from that day; opening bills with their own dates are unchanged.
 - **CI runs its macOS jobs on macOS 15** (#206). Plain words: nothing in the app changes. For
   developers: GitHub retired the `macos-14` runner image on 2 November 2026, so `smoke-mac` and
   `e2e-mac` failed before starting on every branch; both now use `macos-15` (Apple silicon, like
@@ -324,6 +334,17 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   `vite` 7.3.6 → 7.3.7 (dev server) and `undici` 8.12.1 → 8.12.4 (jsdom, renderer tests). The other
   two bumps this PR first carried, `fast-uri` 3.1.9 and `undici` 6.29.1 (node-gyp), arrived with
   #208's electron-builder update. Replaces Dependabot #179, #182 and #183.
+- **Test runner: Vitest 3 → 5** (#205). Plain words: nothing in the app changes; the tool that
+  runs Total's automated checks is updated, which clears the two critical tinypool alerts (90, 91)
+  and the medium vitest / `@vitest/mocker` ones (39, 49, 108). For developers: `vitest` ^3.2 → ^5.1 (tinypool is gone; Vitest 5
+  needs Node ≥ 22.12 — CI's Node 22 and Electron 37's Node 22.21 both qualify).
+  `vitest.db.config.ts` drops the removed `poolOptions.forks.singleFork` for `maxWorkers: 1` +
+  `isolate: true`: still one file at a time under Electron-as-Node (scripts/test-db.mjs unchanged),
+  now each in its own process, so one file's `vi.mock('electron', …)` can never reach another (the
+  cost: Windows CI's test:db 8.5 → 13.6 min; Linux unchanged). The
+  engine and renderer configs needed no change; Vitest 5's new defaults (`clearMocks: true`,
+  1-based worker ids, `vi.mock` only at top level) needed no test change. Replaces Dependabot #14
+  and #181.
 - **Validation library: Zod 3 → 4** (#212). Plain words: nothing you see changes — every screen,
   message and AI answer works as before. The library that checks every request between the screens
   and the books moves to its current major version, which clears the high-severity "oversized
