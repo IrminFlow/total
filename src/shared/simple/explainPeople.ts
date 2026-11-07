@@ -12,7 +12,7 @@ export function billsToPayWhy(b: BillsToPay, which: 'week' | 'month', t: Transla
   const end = which === 'week' ? b.weekEnd : b.monthEnd
   const amount = which === 'week' ? b.dueThisWeek : b.dueThisMonth
   const date = shortDate(end, b.today, t.lang)
-  const counted = b.bills.filter((x) => x.pending > 0 && (x.dueDate ?? x.date) <= end)
+  const counted = b.bills.filter((x) => x.pending > 0 && x.dueDate != null && x.dueDate <= end)
   if (counted.length === 0) return t('simple.why.billsToPayNone', { date })
   const suppliers = new Set(counted.map((x) => x.ledgerId)).size
   return join([

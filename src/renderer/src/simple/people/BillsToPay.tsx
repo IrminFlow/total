@@ -37,7 +37,7 @@ export function BillsToPay(): React.JSX.Element {
         { id: 'supplier', header: t('simple.people.col.supplier'), kind: 'text', hideable: false, value: (b) => b.party }, // i18n-technical
         { id: 'bill', header: t('simple.people.col.bill'), kind: 'text', width: 110, groupable: false, value: (b) => b.name }, // i18n-technical
         { id: 'date', header: t('simple.people.col.date'), kind: 'date', width: 120, groupable: false, value: (b) => b.date, text: (b) => toPlainDate(b.date, t.lang) }, // i18n-technical
-        { id: 'due', header: t('simple.people.col.due'), kind: 'date', width: 120, groupable: false, value: (b) => b.dueDate ?? b.date, text: (b) => toPlainDate(b.dueDate ?? b.date, t.lang) }, // i18n-technical
+        { id: 'due', header: t('simple.people.col.due'), kind: 'date', width: 120, groupable: false, value: (b) => b.dueDate ?? '', text: (b) => (b.dueDate ? toPlainDate(b.dueDate, t.lang) : '') }, // i18n-technical
         { id: 'pending', header: t('simple.people.col.pending'), kind: 'money', value: (b) => b.pending, aggregate: 'sum', explainable: false }, // i18n-technical
         {
           id: 'when', header: t('simple.people.col.when'), kind: 'text', groupable: false, filterable: false, // i18n-technical
