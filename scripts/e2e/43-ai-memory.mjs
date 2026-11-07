@@ -84,8 +84,7 @@ await scenario('43-ai-memory', async (h) => {
   await pay(day(`${fy}-04-20`), power.id, cash, 300_000, 'Being power bill')
 
   // ---------- AI on (the mock provider needs no key) ----------
-  await h.invoke('ai:notice:accept')
-  await h.invoke('ai:settings:set', { enabled: true })
+  await h.enableAi()
   assertEq((await h.invoke('ai:settings:get')).ready, true, 'assistant ready on the mock')
 
   // ---------- Settings → AI → Memory: a suggestion from the books, never active ----------

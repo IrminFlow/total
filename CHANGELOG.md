@@ -20,6 +20,10 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
+- Fix (#TBD): e2e scenarios 39 / 41 / 43 / 44 / 45 turn the AI assistant on through the new harness
+  `h.enableAi()` — notice, switch, then Test connection, which picks the model from the mock's list —
+  since #210 there is no built-in model id. Tests only; no app change.
+
 **Plain words** (#210 — AI service choice, upgrade plan Phase 3a). The AI helper can now use any
 service that works like OpenAI, with your own key — OpenRouter, Groq, Google Gemini, or a custom
 address — or a model running on this computer with **Ollama** or **LM Studio** (no key, nothing

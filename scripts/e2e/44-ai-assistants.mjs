@@ -149,8 +149,7 @@ await scenario('44-ai-assistants', async (h) => {
   await h.page.waitForSelector('[data-testid="rows-assistants-anomalies"] tr[data-kind="duplicate_party_amount"]', { state: 'detached', timeout: 10000 })
 
   // ---------- AI on: Run with AI ----------
-  await h.invoke('ai:notice:accept')
-  await h.invoke('ai:settings:set', { enabled: true })
+  await h.enableAi()
   await h.goto('settings')
   await h.goto('assistants')
   await h.page.waitForSelector('[data-testid="btn-assistants-close-ai"]', { timeout: 15000 })

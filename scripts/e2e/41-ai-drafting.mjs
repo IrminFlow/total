@@ -56,8 +56,7 @@ await scenario('41-ai-drafting', async (h) => {
   // ---------- the assistant on (mock provider: no key needed) ----------
   const features = await h.invoke('config:features:get')
   await h.invoke('config:features:set', { ...features, inventory: true, orders: true })
-  await h.invoke('ai:notice:accept')
-  await h.invoke('ai:settings:set', { enabled: true })
+  await h.enableAi()
   assertEq((await h.invoke('ai:settings:get')).ready, true, 'assistant ready on the mock provider')
   await h.goto('settings') // the settings screen refreshes the cached AI settings
   await h.goto('gateway')

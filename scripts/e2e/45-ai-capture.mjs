@@ -68,8 +68,7 @@ await scenario('45-ai-capture', async (h) => {
   const { slug } = await h.invoke('company:current')
 
   // ---------- AI on (mock provider) ----------
-  await h.invoke('ai:notice:accept')
-  await h.invoke('ai:settings:set', { enabled: true })
+  await h.enableAi()
   assertEq((await h.invoke('ai:settings:get')).ready, true, 'assistant ready on the mock provider')
 
   // ---------- 1. the inbox folder → queued → estimate → purchase draft ----------
