@@ -20,6 +20,26 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
+- **GST golden fixtures and official schema checks** (#207, Phase 2a of the upgrade plan). Plain
+  words: nothing changes on screen. 63 bills worked out by hand (intra / inter-state, B2B, B2C small /
+  large by date, SEZ and exports with / without tax, reverse charge, imports, blocked credit,
+  composition and unregistered businesses, credit / debit notes incl. CDNUR by the original bill,
+  advances, discounts, cess, amount-only bills, mixed rates, round off) are entered through the real
+  save path and each one's bill, GSTR-1 row, GSTR-3B boxes and e-invoice are checked against the hand
+  figures; every GSTR-1, GSTR-3B and e-invoice JSON is checked against the official GSTN / NIC
+  schemas (vendored, no network). For accountants: two export-format fixes the official GSTR-1
+  schema showed — an export invoice no longer sends empty (`null`) shipping-bill / port fields, and a
+  credit / debit note on an export (CDNUR EXPWP / EXPWOP) no longer sends a place of supply; no
+  figure changes. Disagreements between the app and the hand figures are listed for the owner
+  (to-do §2) and pinned as known: a rounded-DOWN bill's GSTR-1 / e-invoice value is its unrounded
+  total; tax typed rounded to the rupee on an amount-only bill is reported recomputed; the invoice
+  editor charges CGST + SGST to a same-state SEZ unit and IGST on LUT exports / SEZ supplies; GSTR-3B
+  leaves advances' tax out (UNVERIFIED rule); the e-invoice export also takes nil-rated bills of supply,
+  composition dealers' bills and an unregistered business's sales (it checks only the buyer's GSTIN). The app's GSTR-1 JSON still has Table 13 and 11A / 11B
+  in the v4.1 shape; GSTN's v5.0 (Feb 2026) reshaped them. For developers:
+  `src/main/services/gstGolden/` (fixtures + `gstGolden.dbtest.ts`, schemas + `schemas.test.ts`),
+  devDependency `ajv`.
+
 **Plain words** (#208). Total now runs on Electron 45 (from 37), with the newer security fixes of
 its Chromium and Node. **It needs macOS 13 Ventura or later** (Electron dropped macOS 11 and 12).
 Books, backups and passphrase-locked books open exactly as before — nothing in them changes.
@@ -318,6 +338,9 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   on the screen (`b2clLabelForPeriod`, shared/gst/returns.ts); `buildGstr1`'s summary keeps
   `B2CL_SUMMARY_LABEL` for every period, so exports, the CA pack's CSV and every pinned hash /
   fixture (reportEquality's May 2024 GSTR-1, gstPostedRateParity, tradeLegacy) are unchanged.
+- **A question for your CA about the old B2C Large limit** (#198). Docs only: `docs/owner/09-questions-for-your-ca.md`
+  Q33 asks whether the portal applies the ₹2.5 lakh B2C Large limit (before 1 Aug 2024) by invoice
+  date or by tax period, and how a note follows its original (the later questions move down by one).
 - **A bill for someone with no days to pay is no longer late the next day** (#202). Plain words: in
   the simple screens, a bill on credit to a customer (or from a supplier) with no "days to pay" said
   "no due date set" but was saved as due on the bill's own date, so the next day it counted as late.

@@ -414,11 +414,11 @@ export function buildGstr1(
           idt: toPortalDate(d.date),
           val: toRupees(d.invoiceValue),
           // Shipping-bill details are optional on the portal (supplied later via Table 6A
-          // amendment when not yet available) — null-safe here. sbpcode (port code) has no
-          // data source in the books yet, so it is always null.
-          sbpcode: null,
-          sbnum: d.shippingBill?.num ?? null,
-          sbdt: d.shippingBill?.date ? toPortalDate(d.shippingBill.date) : null,
+          // amendment when not yet available). The GSTN save schema types sbpcode / sbnum / sbdt
+          // as strings, so an unknown one is LEFT OUT, never sent as null (Phase 2a: null failed
+          // the schema — gstGolden). sbpcode (port code) has no data source in the books yet.
+          ...(d.shippingBill?.num ? { sbnum: d.shippingBill.num } : {}),
+          ...(d.shippingBill?.date ? { sbdt: toPortalDate(d.shippingBill.date) } : {}),
           // Exports item rows are flat (no itm_det wrapper) per the offline-tool schema.
           itms: d.ratedItems.map((item) => ({
             txval: toRupees(item.taxable),
@@ -452,12 +452,14 @@ export function buildGstr1(
   }))
 
   // ---- 9B — cdnur (unregistered, B2CL-type + exports) ----
+  // An export note carries no place of supply: the GSTN save schema requires pos for typ B2CL and
+  // forbids it for EXPWP / EXPWOP (Phase 2a: pos 96 failed the schema — gstGolden).
   const cdnur = cdnurDocs.map((d) => ({
     ntty: d.kind === 'credit_note' ? 'C' : 'D',
     nt_num: d.number,
     nt_dt: toPortalDate(d.date),
     typ: exportTypOf(d) ?? 'B2CL',
-    pos: d.pos,
+    ...(exportTypOf(d) ? {} : { pos: d.pos }),
     val: toRupees(d.invoiceValue),
     itms: d.ratedItems.map((item, i) => ({ num: i + 1, itm_det: itmDet(item) }))
   }))
