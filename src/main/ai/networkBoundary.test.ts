@@ -89,3 +89,30 @@ describe('Ask Total (WP 10.1, src/main/assist/) needs no key and no network', ()
     expect(offenders.map((p) => relative(ROOT, p))).toEqual([])
   })
 })
+
+describe('GST gateway (Phase 4, src/main/gstGateway/): only the adapters reach a portal', () => {
+  const NODE_NET = /(?:from\s+['"](?:node:)?(?:https?|net|tls|http2|dgram)['"]|require\(\s*['"](?:node:)?(?:https?|net|tls|http2|dgram)['"]\s*\)|\bnet\.request\s*\()/
+  const mainFiles = walk(join(ROOT, 'src', 'main'), /\.ts$/).filter((p) => !isTest(p) && !/\.testutil\.ts$/.test(p))
+  const rel = (p: string): string => relative(ROOT, p).split('\\').join('/')
+
+  it('in main, only the updater and the NIC transport (services/nic.ts) call fetch / http / net (the AI provider goes through the openai SDK)', () => {
+    const users = mainFiles.filter((p) => NETWORK_API.test(code(p)) || NODE_NET.test(code(p))).map(rel).sort()
+    expect(users).toEqual(['src/main/services/nic.ts', 'src/main/updater.ts'])
+  })
+
+  it('no gateway file calls the network itself; the Test GSP imports no transport at all', () => {
+    const files = walk(join(ROOT, 'src', 'main', 'gstGateway'), /\.ts$/).filter((p) => !isTest(p))
+    expect(files.length).toBeGreaterThanOrEqual(7)
+    expect(files.filter((p) => NETWORK_API.test(code(p)) || NODE_NET.test(code(p))).map(rel)).toEqual([])
+    const testGsp = readFileSync(join(ROOT, 'src', 'main', 'gstGateway', 'testGsp.ts'), 'utf8')
+    expect(testGsp).not.toMatch(/from\s+['"][./]*(?:services\/)?nic['"]|nicAdapter|updater|openai/)
+  })
+
+  it('the NIC transport is reached from the gateway only through nicAdapter.ts', () => {
+    const importsNic = /from\s+['"](?:\.\.\/services\/nic|\.\/services\/nic|\.\/nic)['"]/
+    const gatewayImporters = walk(join(ROOT, 'src', 'main', 'gstGateway'), /\.ts$/).filter((p) => !isTest(p) && importsNic.test(readFileSync(p, 'utf8'))).map(rel)
+    expect(gatewayImporters).toEqual(['src/main/gstGateway/nicAdapter.ts'])
+    // The gateway's IPC goes through openGateway, never the NIC client directly.
+    expect(readFileSync(join(ROOT, 'src', 'main', 'ipcGateway.ts'), 'utf8')).not.toMatch(importsNic)
+  })
+})

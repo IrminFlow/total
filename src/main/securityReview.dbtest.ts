@@ -478,6 +478,7 @@ describe('every export-audited channel is gated by canExport unless it is a prin
     const NOT_FILE_WRITES: Record<string, string> = {
       'capture:addFiles': 'input: bills queued for capture',
       'simple:taxes:filed': 'marks a return filed (meta), writes no file',
+      'gateway:return:file': 'files a GST return through the gateway (1.0: the Test GSP, nothing sent); writes no file',
       'company:revealExports': 'opens the exports folder',
       'stock:labelsHtml': 'label HTML for the on-screen preview',
       'counter:printHtml': 'bill HTML for the on-screen print',

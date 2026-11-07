@@ -1,8 +1,8 @@
 import { defineConfig } from 'vitest/config'
 import { resolve } from 'path'
 
-/** DB-layer tests: run under Electron-as-Node (see scripts/test-db.mjs) so better-sqlite3's
- *  Electron-ABI build loads correctly. Not part of the plain-Node `npm test` run. */
+/** DB-layer tests: run under Electron-as-Node (see scripts/test-db.mjs) — the Node the app ships
+ *  with. Not part of the plain-Node `npm test` run. */
 export default defineConfig({
   resolve: {
     alias: {

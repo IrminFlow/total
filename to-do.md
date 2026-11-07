@@ -48,6 +48,7 @@ done on main were dropped. One line each; the pointer says where to look.
 
 - OpenAI API key for a live AI run (only mock runs so far; default model ids `gpt-6.1-sol` / `gpt-6-luna` unverified)
 - NIC e-invoice / e-way sandbox credentials (the client has never talked to the real portal) — `src/main/services/nic.ts`
+- A GSP choice + its sandbox credentials + a test GSTIN (Phase 4): the gateway (`src/main/gstGateway/`) is built provider-neutral with the built-in Test GSP only; a real adapter plugs into `SELECTABLE_PROVIDERS` / `sandbox.contract.test.ts` (manual workflow `gsp-sandbox.yml`), and live filing stays off until then (`LIVE_FILING_AVAILABLE`) — PR #209
 - Apple Developer ID certificate (`CSC_LINK` / `CSC_KEY_PASSWORD`) for signed, silently updating macOS builds — `release.yml`, `src/main/updater.ts`
 - A Windows code-signing certificate (SmartScreen warning until then) — PR #109
 - A real Windows machine for the checks CI can't do (section 4, Windows) — PR #109
@@ -133,7 +134,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - Off-standard implied rate stays a warning (no source on what the portal accepts) — PR #93
 - A note to an unregistered buyer whose original invoice is not found (no return link, no reference = invoice number, no bill set against) is put in CDNUR / B2CS by its own value — PR #187, `services/gst.ts` originalInvoices
 - ~~Unused constant `GSTR3B_QRMP_DUE_DAY = 22` still exported from the close checklist~~ DONE — PR #118
-- "Exporting JSON" is treated as "prepared"; filing / payment evidence is a manual mark only — GPT review, `services/gst.ts`
+- "Exporting JSON" is treated as "prepared"; filing / payment evidence is a manual mark only — GPT review, `services/gst.ts` (filing evidence: the gateway now writes the ARN / date into `gstFiled` when a return is filed through it — a real adapter only; a Test GSP filing is labelled and never counts — PR #209; payment evidence still manual)
 
 ### Windows (needs a real machine — CI can't check)
 - NSIS install / uninstall, SmartScreen dialog, in-place update (first one works only from the release after 0.11.0) — PR #109
@@ -186,6 +187,7 @@ done on main were dropped. One line each; the pointer says where to look.
 - GSTR-9 row labels, the ₹2 crore exemption (N. 15/2025), GSTR-9 / ITC-04 / IMS JSON are the app's own layouts; IMS record key; s.50 interest 18 %; 3B 4(B) / 4(D) wording — `src/shared/gst/sources.ts`
 - Table 13 doc codes and supply-challan category 12; NIC e-way sub-supply codes for challans; inter-State job-work proviso; approval read as a supply — WP 2.5b, `shared/gst/edocs.ts`, `shared/voucherEdit/stockNote.ts`
 - e-invoice patterns the IRP enforces, OthChrg for TCS, IST of NIC timestamps, DUPIRN shape, URL prefixes / headers — `shared/gst/einvoiceSchema.ts`, `services/nic.ts`
+- Every GSTN returns API shape the gateway uses (OTP sign-in, RETSAVE / RETSTATUS / offset / RETFILE with EVC, GET2B; status codes, ARN layout, session length): the developer.gst.gov.in pages are behind sign-in, so they were read only in GSP write-ups — `src/main/gstGateway/sources.ts` `GATEWAY_UNVERIFIED` — PR #209
 - State-code list not re-read — `src/shared/gst/states.ts`
 - TDS (WP 3.1 / 3.2): rounding (nearest rupee vs s.288B / s.516 ₹10), 194Q GST base and ₹10 cr condition, 194N not seeded, senior-citizen age under the 2025 Act, pre-FY26 figures; s.201(1A) / s.398(3)(a) interest wording, 26Q reason codes, Form 16A layout, TRACES month counting — migration 020, `services/tdsWorkbench.ts`
 - TCS (WP 3.3): GST in the base outside 206C(1H), FA 2026 s.85 vs the s.394 table, Protean collectee codes 01 / 05 / 06, 1F due at receipt vs invoice — `services/tcs.ts`
@@ -219,7 +221,11 @@ done on main were dropped. One line each; the pointer says where to look.
 
 ## 7. Dependabot / dependency leftovers
 
-- Electron 37 → 43 major (PR #3 open): fixes ~50 alerts (fixed in 38.8.6 / 39.8.x / 41.10.x); needs its own WP — rebuild the SQLite cipher driver, full e2e on mac + Windows, DMG / EXE install check
+- ~~Electron 37 → 43 major (PR #3 open): fixes ~50 alerts (fixed in 38.8.6 / 39.8.x / 41.10.x); needs its own WP — rebuild the SQLite cipher driver, full e2e on mac + Windows, DMG / EXE install check~~ DONE — PR #208 (Electron 45.2.3, driver 13.0.3 Node-API; supersedes #180 / #3; needs macOS 13+)
+- Electron 46 removes the sync `safeStorage` calls (`isEncryptionAvailable` / `encryptString` / `decryptString`, deprecated in 45): `services/secretStore.ts` + `secrets.ts` must move to the async API (`isAsyncEncryptionAvailable` / `encryptStringAsync` / `decryptStringAsync` — the same key stores, old data decrypts) before the next Electron major — PR #208
+- Cheque PDFs ask for no margin (`margins: 'none'`) but have always printed with Electron's 1 cm default (printToPDF never read `marginType`, and the cheque HTML has no `@page` margin — barcode labels set `@page { margin: 0 }` so they are fine; found in PR #208, prints kept as they were). Fixing it (`margins: { top: 0, … }`) moves every printed cheque by 1 cm — owner decision, check against a real cheque leaf first
+- macOS deadline notifications (`app:notifyDeadlines`) need a code-signed app since Electron 42 (UNNotification); our unsigned builds log `deadline notification not shown` instead (the deadlines stay on Home / Taxes). Comes back with the Apple Developer ID signing (§3) — PR #208
+- File-open dialogs without a `defaultPath` start in Downloads since Electron 43 (they used to remember the last folder): ~12 pickers (ipcBanking, ipcWorkspace, ipcDataImport, ipc.ts statement / Tally / backup pickers, capture). Remember the last folder per picker if users miss it — PR #208
 - vitest 3 → 5 major (PRs #7 and #14 open; removes tinypool): fixes tinypool (critical, dev-only), vitest / @vitest/mocker alerts; needs its own WP (test:db under Electron-as-Node, renderer config)
 - No fix published: sprintf-js (medium), http-cache-semantics (high), extract-zip (high, via electron's installer) — `package-lock.json`, re-check when Electron moves
 - ~~site/ (deferred): next 16.3.1 → 16.3.8 (PR #63, fixes critical / high alerts), sharp 0.35.5 (PR #16), source-map-js 1.2.2 (PR #13)~~ DONE — PR #189 (one bump, `npm run build` passes; supersedes #16 / #13; then next 16.4.5 (critical advisories GHSA-2464-fhr4-w9xw / GHSA-673q-mjm6-r5xr / GHSA-p3m5-59mp-jv5r affect 16.0–16.4.0; `npm audit --omit=dev` clean); supersedes #184 too)

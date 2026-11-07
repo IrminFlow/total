@@ -116,6 +116,8 @@ import { registerAiIpc, aiRuns, type AppKeyAuditEntry } from './ai/ipc'
 import { registerCaptureIpc, captureOnCompanyOpen, captureOnCompanyClose, resumeCapture } from './ai/capture/ipc'
 import { dropPendingAttachments, flushCaptureAttachments } from './ai/capture/consume'
 import { registerAssistantsIpc } from './ipcAssistants'
+import { registerGatewayIpc } from './ipcGateway'
+import { resetGatewaySessions } from './gstGateway'
 import { registerAskTotalIpc } from './assist/ipc'
 import { classify as classifyAsk } from './assist/classify'
 import { assistAskSchema, type AssistAnswer } from '@shared/assist'
@@ -422,6 +424,7 @@ export function closeCurrentCompany(opts: { keepKey?: boolean } = {}): void {
   agentBridge.cancelMirrorRefresh()
   // The cached NIC login belongs to this company's identity — never carry it into the next one.
   nic.resetNicSession()
+  resetGatewaySessions()
   // In-flight AI answers belong to this company's handle — stop them before it closes.
   aiRuns.cancelAll()
   // WP 5.4: the capture queue runner and the capture-inbox watcher, too.
@@ -657,6 +660,8 @@ export function registerIpc(): void {
   })
   // ---------- assistants (WP 5.5): close checklist, anomalies, GSTR-2B mismatches — ipcAssistants.ts ----------
   registerAssistantsIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser())
+  // ---------- GST gateway (Phase 4): IRN / e-way bill / GSTR-1 / 3B / 2B through one adapter — ipcGateway.ts ----------
+  registerGatewayIpc(handle, () => requireCompany(), () => sessionUser?.name ?? osAuditUser())
   // ---------- Ask Total (WP 10.1): deterministic answers + entry drafts, no key — assist/ipc.ts ----------
   // WP 7.2: a profit question from a user who may not see profit gets the redaction note — the
   // deterministic classifier reads the question exactly as assist:ask does (Hinglish included).
@@ -3654,7 +3659,11 @@ export function registerIpc(): void {
     const db = requireCompany().db
     if (configSvc.shouldNotifyDeadlinesToday(db, todayISO())) {
       for (const item of items) {
-        new Notification({ title: item.title, body: item.body }).show()
+        const n = new Notification({ title: item.title, body: item.body })
+        // Electron 42+ shows macOS notifications through UNNotification, which needs a code-signed
+        // app: an unsigned build gets `failed` instead (the deadlines are still on Home / Taxes).
+        n.on('failed', (_e, error) => log('warn', 'deadline notification not shown', { error }))
+        n.show()
       }
     }
     return null

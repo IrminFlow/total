@@ -49,7 +49,7 @@ Total keeps all its data in the folder **Documents → total** on your Mac.
 Pick one way and stick to it:
 
 - **Easiest:** keep a note on your laptop with one line per finding: *what you did → what you saw → what you expected*. Add a screenshot (⌘ Shift 4) when you can. Hand the note to Claude at the end of the week; Claude will copy each item into a new section **"9. Owner test, October 2026"** at the bottom of `to-do.md`.
-- **Or:** open a GitHub issue per finding on `IrminFlow/total` (title = the short problem, body = the three parts above). Remember the repo is public — don't paste real customer names, GSTINs or phone numbers.
+- **Or:** open a GitHub issue per finding on `Total-org/total-org` (title = the short problem, body = the three parts above). Remember the repo is public — don't paste real customer names, GSTINs or phone numbers.
 
 Mark each finding **Blocker** (must be fixed before 1.0), **Should fix**, or **Later**. If you're not sure, leave it blank and Claude will suggest one.
 
