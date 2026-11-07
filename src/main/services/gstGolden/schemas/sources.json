@@ -1,0 +1,53 @@
+{
+  "_note": "Official published JSON schemas (and their sample payloads), vendored byte-for-byte for the GST golden fixtures' schema checks. No licence or terms statement is published with any of these files; they are government reference data, cited here with their source. Fetched 2026-11-07 (developer.gst.gov.in sits behind a bot check: read through a browser, file URLs below). schemas.ts repairs the e-invoice file in code (see the comment there); the files stay as published. Re-fetch and update sha256 when GSTN publishes a new version.",
+  "files": {
+    "gstr1-save-v5.0.schema.json": {
+      "title": "GSTN API portal — Returns — GSTR1 - Save GSTR1 data, v5.0 (published 2026-02-23), request_schema.json",
+      "url": "https://developer.gst.gov.in/pages/apiportal/data/Returns/GSTR1%20-%20Save%20GSTR1%20data/v5.0/GSTR1%20-%20Save%20GSTR1%20data%20request_schema.json",
+      "lastModified": "Fri, 06 Nov 2026 07:44:55 GMT", "fetched": "2026-11-07",
+      "sha256": "dc7da4a034712ae3cc588d8cecd06287614f05b42c0a973c0dd513babcb52fc7"
+    },
+    "gstr1-save-v5.0.sample.json": {
+      "title": "GSTN API portal — GSTR1 - Save GSTR1 data, v5.0, request_payload.json (the portal's sample)",
+      "url": "https://developer.gst.gov.in/pages/apiportal/data/Returns/GSTR1%20-%20Save%20GSTR1%20data/v5.0/request_payload.json",
+      "lastModified": "Fri, 06 Nov 2026 07:44:55 GMT", "fetched": "2026-11-07",
+      "sha256": "805bb72f743cd8c3bd66f0754e828973f37a35f1f6396113f5be9ec423e7568c"
+    },
+    "gstr1-save-v4.1.schema.json": {
+      "title": "GSTN API portal — Returns — GSTR1 - Save GSTR1 data, v4.1 (published 2025-02-04), request_schema.json",
+      "url": "https://developer.gst.gov.in/pages/apiportal/data/Returns/GSTR1%20-%20Save%20GSTR1%20data/v4.1/GSTR1%20-%20Save%20GSTR1%20data%20request_schema.json",
+      "lastModified": "Fri, 06 Nov 2026 07:44:55 GMT", "fetched": "2026-11-07",
+      "sha256": "db2c0313b8596a1fe88832202374cf2889595ad8dceb5f4730d3ab2b03543457"
+    },
+    "gstr1-save-v4.1.sample.json": {
+      "title": "GSTN API portal — GSTR1 - Save GSTR1 data, v4.1, request_payload.json (the portal's sample)",
+      "url": "https://developer.gst.gov.in/pages/apiportal/data/Returns/GSTR1%20-%20Save%20GSTR1%20data/v4.1/request_payload.json",
+      "lastModified": "Fri, 06 Nov 2026 07:44:55 GMT", "fetched": "2026-11-07",
+      "sha256": "a86550f8b091d62f89fab52ad7e6aa2cb31bcddfb937e51ae920de53169cb337"
+    },
+    "gstr3b-save-v7.1.schema.json": {
+      "title": "GSTN API portal — Returns — GSTR3B - Save GSTR3B data, v7.1 (marked Draft, 2026-03-23; byte-identical to v6.0 and v7.0), request_schema.json",
+      "url": "https://developer.gst.gov.in/pages/apiportal/data/Returns/GSTR3B%20-%20Save%20GSTR3B%20data/v7.1/GSTR3B%20-%20Save%20GSTR3B%20data%20request_schema.json",
+      "lastModified": "Fri, 06 Nov 2026 07:44:55 GMT", "fetched": "2026-11-07",
+      "sha256": "043917ea6fcbe34e97e851fde6cfe9a472aaefb2be503e9438973b16e67480ae"
+    },
+    "gstr3b-save-v7.1.sample.json": {
+      "title": "GSTN API portal — GSTR3B - Save GSTR3B data, v7.1, request_payload.json (the portal's sample)",
+      "url": "https://developer.gst.gov.in/pages/apiportal/data/Returns/GSTR3B%20-%20Save%20GSTR3B%20data/v7.1/request_payload.json",
+      "lastModified": "Fri, 06 Nov 2026 07:44:55 GMT", "fetched": "2026-11-07",
+      "sha256": "31a7aa048808d685d517237107b112cdccb099f40630b8268aaf9b2f8c840756"
+    },
+    "einvoice-1.1.schema.json": {
+      "title": "GSTN e-invoice portal — Schema/Validations (Version 1.1), \"Download e-Invoice Schema/Format\"",
+      "url": "https://einvoice.gst.gov.in/uiassets/js/assets/files/e-Invoice-schema.json",
+      "lastModified": "Mon, 26 Oct 2026 05:56:32 GMT", "fetched": "2026-11-07",
+      "sha256": "ff96242d0fef1a53c4fbf110d2666670b1f47e531e74c06ca25fddfda4ff05af"
+    },
+    "einvoice-1.1.sample.json": {
+      "title": "GSTN e-invoice portal — sample e-invoice (Version 1.1)",
+      "url": "https://einvoice.gst.gov.in/uiassets/js/assets/files/sample_e-Invoice.json",
+      "lastModified": "Mon, 26 Oct 2026 05:56:33 GMT", "fetched": "2026-11-07",
+      "sha256": "bb42bc817e274da8f363fd990e960a39e4dd632baf5098e097afc69c46976b66"
+    }
+  }
+}
