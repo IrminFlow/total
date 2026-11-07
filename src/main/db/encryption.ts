@@ -100,7 +100,88 @@ export function openDb(path: string, opts: OpenDbOptions = {}): DB {
     }
   }
   installE2eSqlClock(db)
+  installStatementCache(db)
   return db
+}
+
+/** Prepared statements a connection keeps for reuse, by SQL text (least recently used out first). */
+export const STATEMENT_CACHE_SIZE = 500
+
+/** The statement methods that change a statement's state for whoever holds it — on a shared
+ *  (cached) statement they run on a private copy instead (see installStatementCache). */
+const PRIVATE_COPY_METHODS = ['pluck', 'raw', 'expand', 'safeIntegers', 'bind', 'iterate'] as const
+
+/**
+ * Reuse one prepared statement per SQL text on this connection.
+ *
+ * Why: the driver (better-sqlite3-multiple-ciphers v13, Node-API) frees a statement's native memory
+ * only in a finalizer Node runs once the event loop turns, and never tells V8 how much it holds.
+ * A long SYNCHRONOUS run — an import, a bulk edit, the 100k perf seed — that prepares the same
+ * statements again and again therefore grew without bound (≈ 25 KB a statement: the perf seed died
+ * of it at ~1.5 GB after 40k entries; a forced GC frees nothing until the loop turns). v12 (V8
+ * ObjectWrap) freed them during GC.
+ *
+ * Safe to share because a cached statement never changes: its row mode stays the default and it is
+ * never bound or iterated. Each method that would change it for every holder (`pluck`, `raw`,
+ * `expand`, `safeIntegers`, `bind`, `iterate`) runs on a private, uncached copy of the same SQL and
+ * returns that copy — so `db.prepare(sql).raw(true)` gives the caller its own raw statement, as
+ * before, and `db.prepare(sql).iterate()` its own cursor. What is shared is used only through
+ * `run` / `get` / `all`, which finish before they return. (Code that sets a mode WITHOUT using the
+ * method's return value — `s.raw(true); s.iterate()` — would not get it; there is none:
+ * `statementCache.dbtest.ts` checks that no such call's result is dropped.)
+ *
+ * Not covered: each private copy (a `raw` / `pluck` / `iterate` call) and `db.pragma()` is still a
+ * new statement freed only when the loop turns — the app's two such sites run once per report /
+ * stock pass, not per entry.
+ */
+export function installStatementCache(db: DB): void {
+  if (cachedHandles.has(db)) return
+  cachedHandles.add(db)
+  const prepare = db.prepare.bind(db) as (sql: string) => Database.Statement
+  const cache = new Map<string, Database.Statement>()
+  ;(db as unknown as { prepare: (sql: string) => Database.Statement }).prepare = (sql: string) => {
+    const hit = cache.get(sql)
+    if (hit) {
+      cache.delete(sql)
+      cache.set(sql, hit) // most recently used last
+      return hit
+    }
+    const stmt = prepare(sql)
+    // One text per list length (`IN (?, ?, …)` chunks): not kept, so a run of many lengths cannot
+    // push the statements every save reuses out of the cache.
+    if (placeholderCount(sql) > UNCACHED_PLACEHOLDERS) return stmt
+    for (const m of PRIVATE_COPY_METHODS) {
+      Object.defineProperty(stmt, m, {
+        configurable: true,
+        writable: true, // tooling may wrap a method (perf/profile.ts)
+        value: (...args: unknown[]) => {
+          const own = prepare(sql) as unknown as Record<string, (...a: unknown[]) => unknown>
+          return own[m]!(...args)
+        }
+      })
+    }
+    cache.set(sql, stmt)
+    if (cache.size > STATEMENT_CACHE_SIZE) cache.delete(cache.keys().next().value as string)
+    return stmt
+  }
+  // A statement takes the connection's safe-integer default when it is PREPARED: a changed default
+  // must not leave earlier statements behind.
+  const defaultSafeIntegers = db.defaultSafeIntegers.bind(db)
+  ;(db as unknown as { defaultSafeIntegers: (on?: boolean) => DB }).defaultSafeIntegers = (on?: boolean) => {
+    cache.clear()
+    return defaultSafeIntegers(on)
+  }
+}
+
+const cachedHandles = new WeakSet<object>()
+
+/** SQL with more parameters than this is prepared fresh every time (see installStatementCache). */
+const UNCACHED_PLACEHOLDERS = 50
+
+function placeholderCount(sql: string): number {
+  let n = 0
+  for (let i = 0; i < sql.length; i++) if (sql.charCodeAt(i) === 63 /* ? */) n++
+  return n
 }
 
 /** Scripted runs only (TOTAL_E2E_TODAY, shared/e2eClock.ts): SQLite's own 'now' — column defaults
