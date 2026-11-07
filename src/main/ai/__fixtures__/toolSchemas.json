@@ -1,0 +1,1340 @@
+[
+  {
+    "name": "get_company_info",
+    "description": "The company: name, GSTIN, state, registration type, the first financial year of the books, and the working period and today’s date.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "list_ledgers",
+    "description": "Find ledgers (accounts) by name, group, GSTIN or PAN. Returns id, name and group — use the id with ledger_statement or draft_voucher.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "search": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Part of the name, group, GSTIN or PAN; omit for all ledgers"
+        },
+        "group": {
+          "type": "string",
+          "maxLength": 80,
+          "description": "Only ledgers whose group name contains this, e.g. \"Sundry Debtors\" or \"Bank\""
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "ledger_statement",
+    "description": "One ledger’s statement for a period: opening balance, each voucher (date, type, number, other side, debit, credit, running balance), totals and closing balance.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "ledgerId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "First day (YYYY-MM-DD)"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Last day (YYYY-MM-DD)"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "ledgerId",
+        "from",
+        "to"
+      ]
+    }
+  },
+  {
+    "name": "trial_balance",
+    "description": "Trial balance as on a date: every ledger with a closing balance (debit or credit) and the totals.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "asOn": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "As on (YYYY-MM-DD)"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "asOn"
+      ]
+    }
+  },
+  {
+    "name": "profit_and_loss",
+    "description": "Profit and loss for a period: trading section (opening/closing stock, sales, purchases, direct items, gross profit) and the P&L section (indirect incomes and expenses, net profit), by group and ledger.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "First day (YYYY-MM-DD)"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Last day (YYYY-MM-DD)"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ]
+    }
+  },
+  {
+    "name": "balance_sheet",
+    "description": "Balance sheet as on a date: liabilities and assets by group and ledger, the current period’s profit, and the totals.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "asOn": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "As on (YYYY-MM-DD)"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "asOn"
+      ]
+    }
+  },
+  {
+    "name": "outstandings",
+    "description": "Bill-wise outstandings as on a date: receivables (what customers owe) or payables (what the company owes suppliers), by party with ageing buckets and the open bills.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "side": {
+          "type": "string",
+          "enum": [
+            "receivable",
+            "payable"
+          ]
+        },
+        "asOn": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "As on (YYYY-MM-DD)"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "side",
+        "asOn"
+      ]
+    }
+  },
+  {
+    "name": "search_books",
+    "description": "Search the books (ledgers, stock items, vouchers) with the app’s search language: free words, and filters such as type:sales, party:\"Name\", amount>5000, date:2025-07, in:vouchers.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "query"
+      ]
+    }
+  },
+  {
+    "name": "day_book",
+    "description": "Every voucher in a period (all entries, like a day book): date, type, number, main account, narration and amount.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "First day (YYYY-MM-DD)"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Last day (YYYY-MM-DD)"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "from",
+        "to"
+      ]
+    }
+  },
+  {
+    "name": "stock_summary",
+    "description": "Stock summary as on a date: each item’s closing quantity and value (inventory valuation of the books).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "asOn": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "As on (YYYY-MM-DD)"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "asOn"
+      ]
+    }
+  },
+  {
+    "name": "gst_summary",
+    "description": "GSTR-3B summary for one month as computed from the books: outward supplies and tax, reverse charge, eligible ITC and the net tax payable in cash.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}$",
+          "description": "The month, YYYY-MM"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "period"
+      ]
+    }
+  },
+  {
+    "name": "tds_summary",
+    "description": "TDS by section and quarter for a financial year: deductees, base amount, TDS deducted, booked to payable, deposited, allocated to challans.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "fy": {
+          "type": "integer",
+          "minimum": 1990,
+          "maximum": 2100,
+          "description": "Financial year start, e.g. 2025 for FY 2025-26"
+        },
+        "quarter": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "description": "1 = Apr–Jun … 4 = Jan–Mar; omit for the whole year"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "fy"
+      ]
+    }
+  },
+  {
+    "name": "current_screen_data",
+    "description": "The data on the screen the user is looking at right now (from the screen context: screen, period, parameters) — the same rows the screen shows, capped. Use it for \"this\", \"here\" or \"why is this high?\" questions.",
+    "parameters": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "explain_figure",
+    "description": "Explain one figure (\"Explain this\"): for a ledger — opening, debits, credits, closing, the largest vouchers and other-side ledgers with their share, the previous period and anomalies (outsized entries, possible duplicates, negative cash / bank); for a group or report line — the ledgers that make it up with shares and the previous period; for a voucher — its lines; for a stock item — its movements. Pass the ids and period from \"Figure to explain\"; omitted fields default to it.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "ledgerId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "voucherId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "itemId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "groupName": {
+          "type": "string",
+          "maxLength": 240,
+          "description": "A group or report line name, e.g. \"Sales Accounts\"; several joined by \" + \""
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "asOn": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "For balances as on a date (trial balance, balance sheet)"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "item_movements",
+    "description": "One stock item’s movements for a period (stock movement register): opening, every inward / outward line with quantity and engine value, totals and closing quantity and value.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "itemId": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "description": "The stock item id (from stock_summary or search_books)"
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "First day (YYYY-MM-DD); omit for the working period"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Last day (YYYY-MM-DD); omit for the working period"
+        },
+        "godownId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "itemId"
+      ]
+    }
+  },
+  {
+    "name": "manufacture_register",
+    "description": "Manufacture vouchers in a period: finished item, quantity, material / labour / by-product cost, production cost now vs at save, sale value and profit.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "First day (YYYY-MM-DD); omit for the working period"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Last day (YYYY-MM-DD); omit for the working period"
+        },
+        "itemId": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "description": "Only this finished item"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "trade_pending",
+    "description": "Open trade documents as on a date, line by line with the pending quantity and value: delivery challans not yet invoiced, GRNs not yet billed, or pending sales / purchase orders.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "stage": {
+          "type": "string",
+          "enum": [
+            "challans",
+            "grns",
+            "sales_orders",
+            "purchase_orders"
+          ]
+        },
+        "asOn": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "As on (YYYY-MM-DD); omit for the working period"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "stage"
+      ]
+    }
+  },
+  {
+    "name": "bank_unreconciled",
+    "description": "Bank reconciliation for one bank ledger and period: balance as per books, unreconciled deposits and withdrawals (no bank date yet), and the balance as per bank, with the unreconciled entries.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "ledgerId": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "description": "The bank ledger; omit for the first bank ledger"
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "First day (YYYY-MM-DD); omit for the working period"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Last day (YYYY-MM-DD); omit for the working period"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "tds_eligible",
+    "description": "Vouchers in a period where TDS looks applicable but is not deducted (the TDS workbench): party, PAN, section, base, the effective rate and the suggested deduction, and why it is listed.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "First day (YYYY-MM-DD); omit for the working period"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Last day (YYYY-MM-DD); omit for the working period"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "forecast_summary",
+    "description": "Cash-flow forecast from today (expected scenario, 13 weeks by default): opening cash and bank, per period inflow / outflow / closing, the lowest point, the first shortfall and the largest expected flows.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "unit": {
+          "type": "string",
+          "enum": [
+            "week",
+            "month"
+          ]
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 26
+        },
+        "scenario": {
+          "type": "string",
+          "enum": [
+            "best",
+            "expected",
+            "worst"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "audit_log_recent",
+    "description": "The latest audit-trail (edit log) entries: when, who, what (entity, action, reference). Optionally for one voucher or one entity kind.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "voucherId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "entity": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "e.g. voucher, ledger, user"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "close_checklist",
+    "description": "The month-end close checklist for one month: each check (bank reconciliation, unallocated receipts/payments, overdue bills, GSTR-1/3B prepared, TDS/TCS deposited, negative stock, unbilled challans/GRNs, suspense, post-dated cheques, depreciation, regular expenses missing, blank narrations, rounding, open drafts, lock date) with its status (ok / warn / fail / done / na), a summary, the screen that fixes it and the first rows behind it.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "pattern": "^\\d{4}-(0[1-9]|1[0-2])$",
+          "description": "The month (YYYY-MM); omit for the current one"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "gst_2b_mismatches",
+    "description": "GSTR-2B vs the purchase register for one month, from the 2B JSON imported in the app: the mismatches by category (missing in books, missing in 2B, amount differs, period differs, GSTIN differs), each with the documents, the difference, a suggested action and whether a draft can be prepared (use draft_gst_2b_fix with its key).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "pattern": "^\\d{4}-(0[1-9]|1[0-2])$",
+          "description": "The month (YYYY-MM); omit for the current one"
+        },
+        "category": {
+          "type": "string",
+          "enum": [
+            "missing_in_books",
+            "missing_in_2b",
+            "amount_differs",
+            "period_differs",
+            "gstin_differs"
+          ]
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "find_anomalies",
+    "description": "Unusual entries in a period: possible duplicates (same party and amount within days, same bill number, same narration and amount), large round amounts, ledger pairings never used before, amounts far above a party’s or ledger’s usual (z-score), weekend / holiday dates, back-dated entries, GST charged unlike the item rates and items of one HSN at different rates. Dismissed findings are left out. Each finding has a short letters-only `ref`: quote it to refer to a finding, and pass `refs` to look at just those findings again.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "First day (YYYY-MM-DD); omit for the working period"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Last day (YYYY-MM-DD)"
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "duplicate_party_amount",
+              "duplicate_bill_number",
+              "duplicate_narration",
+              "round_amount",
+              "unusual_pairing",
+              "amount_outlier",
+              "weekend_posting",
+              "holiday_posting",
+              "backdated",
+              "gst_rate_deviation",
+              "hsn_rate_mismatch"
+            ]
+          },
+          "maxItems": 11,
+          "description": "Only these kinds"
+        },
+        "refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z]{10}$"
+          },
+          "maxItems": 50,
+          "description": "Only the findings with these refs (from an earlier find_anomalies result)"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "draft_gst_2b_fix",
+    "description": "Prepare (NOT save) the draft a GSTR-2B mismatch suggests — the purchase for an invoice missing in the books, or a debit note for an entry above what the supplier reported. Pass the mismatch key from gst_2b_mismatches. The user reviews and saves it in the voucher editor.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "period": {
+          "type": "string",
+          "pattern": "^\\d{4}-(0[1-9]|1[0-2])$",
+          "description": "The month (YYYY-MM)"
+        },
+        "key": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 200,
+          "description": "The mismatch key from gst_2b_mismatches"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "period",
+        "key"
+      ]
+    }
+  },
+  {
+    "name": "categorise_statement",
+    "description": "Proposes, for each open (unmatched) line of an imported bank statement, the ledger and voucher kind it belongs to — from bank rules, the narrations of earlier matched lines and party names. Lines no rule places come back with `candidates`: pick ONLY from those. To draft one, call draft_voucher with kind payment / receipt / contra, the bank as the account, the line amount as given, and `statementLineId`. Nothing is posted.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "bankLedgerId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "bank": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "The bank account name, when the id is not known"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  {
+    "name": "draft_voucher",
+    "description": "Prepare (NOT save) a payment, receipt, contra or journal voucher for the user to review — e.g. \"pay Bharat Steel against bills P/12 and P/15 from HDFC\", \"journal: rent 25,000 Dr Rent Cr Landlord\". A payment / receipt to a party can be given as party + account + amount and/or the bills it settles. Pass names, quantities, amounts and dates exactly as the user said them — the app resolves them (it never guesses between similar names: you get status \"needs_clarification\" with the candidates, and must ask the user). Never pass tax amounts or totals: GST, totals and bill amounts are computed by the app. The result is a DRAFT the user reviews in the editor; it is validated like a real save (locked period, credit hold, stock, links) and refused with the reason when it would not save.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "payment",
+            "receipt",
+            "contra",
+            "journal"
+          ],
+          "description": "payment = money out of cash/bank; receipt = money in; contra = between cash and bank; journal = no cash/bank (e.g. an expense bill on credit)"
+        },
+        "voucherTypeId": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "description": "A specific voucher type of that kind; omit for the default"
+        },
+        "date": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "The date as the user said it — \"2025-07-31\", \"yesterday\", \"last Friday\", \"15 Aug\"; the app resolves it against the working date. Omit for the working date."
+        },
+        "narration": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "reference": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "ledgerId": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "description": "A ledger id from an earlier tool result"
+              },
+              "ledger": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "description": "Or the ledger name as the user said it"
+              },
+              "preferred": {
+                "type": "string",
+                "enum": [
+                  "payment",
+                  "receipt",
+                  "sales",
+                  "purchase",
+                  "expense",
+                  "income",
+                  "cash",
+                  "bank"
+                ],
+                "description": "Or use the ledger the memory block remembers for this purpose (e.g. \"payment\" = the account payments are made from)"
+              },
+              "drCr": {
+                "type": "string",
+                "enum": [
+                  "dr",
+                  "cr"
+                ]
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^(₹|rs\\.?\\s*)?\\s?(\\d+|\\d{1,3}(,\\d{3})+|\\d{1,2}(,\\d{2})*,\\d{3})(\\.\\d{1,9})?\\s*(lakhs?|lacs?|l|crores?|cr|k|thousand)?$",
+                "description": "Amount in rupees exactly as the user gave it, e.g. \"5000\", \"12,500.50\", \"1.5 lakh\" — never a figure you worked out"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "drCr",
+              "amount"
+            ]
+          },
+          "minItems": 2,
+          "maxItems": 20,
+          "description": "Debit and credit lines (debits must equal credits). For a payment / receipt to a party you may instead give party + account + amount / bills."
+        },
+        "party": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Party name or GSTIN as the user said it (the app finds the ledger; omit when you pass partyLedgerId)"
+        },
+        "partyLedgerId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Payment / receipt: the cash or bank ledger, as said"
+        },
+        "accountLedgerId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "amount": {
+          "type": "string",
+          "pattern": "^(₹|rs\\.?\\s*)?\\s?(\\d+|\\d{1,3}(,\\d{3})+|\\d{1,2}(,\\d{2})*,\\d{3})(\\.\\d{1,9})?\\s*(lakhs?|lacs?|l|crores?|cr|k|thousand)?$",
+          "description": "Payment / receipt amount; omit when it is \"the bills\" — the app adds up their pending amounts"
+        },
+        "bills": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "bill": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "description": "Bill / invoice number as the user said it"
+              },
+              "amount": {
+                "type": "string",
+                "pattern": "^(₹|rs\\.?\\s*)?\\s?(\\d+|\\d{1,3}(,\\d{3})+|\\d{1,2}(,\\d{2})*,\\d{3})(\\.\\d{1,9})?\\s*(lakhs?|lacs?|l|crores?|cr|k|thousand)?$",
+                "description": "Omit to settle the bill in full"
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "bill"
+            ]
+          },
+          "maxItems": 30,
+          "description": "The party's open bills this settles (resolved against its outstandings)"
+        },
+        "oldestBillsFirst": {
+          "type": "boolean",
+          "description": "Allocate the amount to the oldest open bills first"
+        },
+        "instrumentNo": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Cheque / UTR number"
+        },
+        "statementLineId": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "description": "WP 5.4: the bank statement line (from categorise_statement) this voucher accounts for — it must post that line’s amount on its bank; saving the draft reconciles the line"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "kind"
+      ]
+    }
+  },
+  {
+    "name": "draft_invoice",
+    "description": "Prepare (NOT save) a sales invoice, purchase invoice, credit note or debit note with item lines — e.g. \"sales invoice to Umbrella Retail for 2 Laptop 14 at 45,000\". GST (CGST/SGST or IGST by place of supply), round-off and the total are computed by the invoice editor’s own calculation from the item masters; a note against an invoice links the returned lines and settles that bill. Pass names, quantities, amounts and dates exactly as the user said them — the app resolves them (it never guesses between similar names: you get status \"needs_clarification\" with the candidates, and must ask the user). Never pass tax amounts or totals: GST, totals and bill amounts are computed by the app. The result is a DRAFT the user reviews in the editor; it is validated like a real save (locked period, credit hold, stock, links) and refused with the reason when it would not save.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "sales",
+            "purchase",
+            "credit_note",
+            "debit_note"
+          ],
+          "description": "sales invoice; purchase invoice (bill); credit note = sales return; debit note = purchase return"
+        },
+        "voucherTypeId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "party": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Party name or GSTIN as the user said it (the app finds the ledger; omit when you pass partyLedgerId)"
+        },
+        "partyLedgerId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "date": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "The date as the user said it — \"2025-07-31\", \"yesterday\", \"last Friday\", \"15 Aug\"; the app resolves it against the working date. Omit for the working date."
+        },
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Sales / purchase ledger, as said; omit for the usual one"
+        },
+        "accountLedgerId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "description": "Item name, barcode or HSN as the user said it"
+              },
+              "itemId": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "description": "A stock item id from an earlier tool result"
+              },
+              "qty": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 30
+                  },
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                ],
+                "description": "Quantity as the user said it, e.g. \"2\" or \"2.5\""
+              },
+              "rate": {
+                "type": "string",
+                "pattern": "^(₹|rs\\.?\\s*)?\\s?(\\d+|\\d{1,3}(,\\d{3})+|\\d{1,2}(,\\d{2})*,\\d{3})(\\.\\d{1,9})?\\s*(lakhs?|lacs?|l|crores?|cr|k|thousand)?$",
+                "description": "Rate per unit before tax, as the user said it; omit to use the price list / party rate"
+              },
+              "discount": {
+                "type": "string",
+                "pattern": "^(₹|rs\\.?\\s*)?\\s?(\\d+|\\d{1,3}(,\\d{3})+|\\d{1,2}(,\\d{2})*,\\d{3})(\\.\\d{1,9})?\\s*(lakhs?|lacs?|l|crores?|cr|k|thousand)?$",
+                "description": "Line discount in rupees, as said"
+              },
+              "discountPercent": {
+                "type": "string",
+                "pattern": "^\\d{1,3}(\\.\\d{1,2})?\\s*%?$",
+                "description": "Line discount as a percentage, e.g. \"10%\""
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "qty"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "placeOfSupply": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Only when the user names a state other than the party’s (code \"29\" or name)"
+        },
+        "narration": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "billNo": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Purchase: the supplier's invoice number (the bill name)"
+        },
+        "dueDate": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Due date as said; omit for the party’s credit days"
+        },
+        "againstInvoice": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Credit / debit note: the original invoice number it returns against"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "items"
+      ]
+    }
+  },
+  {
+    "name": "draft_stock_note",
+    "description": "Prepare (NOT save) a delivery challan or a goods receipt note (GRN): a party, item lines and a purpose — goods move, nothing is posted to ledgers. Pass names, quantities, amounts and dates exactly as the user said them — the app resolves them (it never guesses between similar names: you get status \"needs_clarification\" with the candidates, and must ask the user). Never pass tax amounts or totals: GST, totals and bill amounts are computed by the app. The result is a DRAFT the user reviews in the editor; it is validated like a real save (locked period, credit hold, stock, links) and refused with the reason when it would not save.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "delivery_note",
+            "receipt_note"
+          ],
+          "description": "delivery_note = delivery challan (goods out); receipt_note = goods receipt note / GRN (goods in)"
+        },
+        "voucherTypeId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "party": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Party name or GSTIN as the user said it (the app finds the ledger; omit when you pass partyLedgerId)"
+        },
+        "partyLedgerId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "date": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "The date as the user said it — \"2025-07-31\", \"yesterday\", \"last Friday\", \"15 Aug\"; the app resolves it against the working date. Omit for the working date."
+        },
+        "purpose": {
+          "type": "string",
+          "maxLength": 40,
+          "description": "Challan: supply, job_work, approval, liquid_gas, non_supply. GRN: purchase, job_work, return. Omit for supply / purchase."
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "description": "Item name, barcode or HSN as the user said it"
+              },
+              "itemId": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "description": "A stock item id from an earlier tool result"
+              },
+              "qty": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 30
+                  },
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                ],
+                "description": "Quantity as the user said it, e.g. \"2\" or \"2.5\""
+              },
+              "rate": {
+                "type": "string",
+                "pattern": "^(₹|rs\\.?\\s*)?\\s?(\\d+|\\d{1,3}(,\\d{3})+|\\d{1,2}(,\\d{2})*,\\d{3})(\\.\\d{1,9})?\\s*(lakhs?|lacs?|l|crores?|cr|k|thousand)?$",
+                "description": "Rate per unit before tax, as the user said it; omit to use the price list / party rate"
+              },
+              "discount": {
+                "type": "string",
+                "pattern": "^(₹|rs\\.?\\s*)?\\s?(\\d+|\\d{1,3}(,\\d{3})+|\\d{1,2}(,\\d{2})*,\\d{3})(\\.\\d{1,9})?\\s*(lakhs?|lacs?|l|crores?|cr|k|thousand)?$",
+                "description": "Line discount in rupees, as said"
+              },
+              "discountPercent": {
+                "type": "string",
+                "pattern": "^\\d{1,3}(\\.\\d{1,2})?\\s*%?$",
+                "description": "Line discount as a percentage, e.g. \"10%\""
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "qty"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "reference": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Buyer's order no. / supplier's challan no."
+        },
+        "narration": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "vehicleNo": {
+          "type": "string",
+          "maxLength": 20
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "items"
+      ]
+    }
+  },
+  {
+    "name": "draft_manufacture",
+    "description": "Prepare (NOT save) a manufacture voucher: the finished item and quantity; raw materials come from its bill of materials scaled to the quantity, costed by the stock valuation engine. Pass names, quantities, amounts and dates exactly as the user said them — the app resolves them (it never guesses between similar names: you get status \"needs_clarification\" with the candidates, and must ask the user). Never pass tax amounts or totals: GST, totals and bill amounts are computed by the app. The result is a DRAFT the user reviews in the editor; it is validated like a real save (locked period, credit hold, stock, links) and refused with the reason when it would not save.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "item": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "The finished item, as said"
+        },
+        "itemId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "qty": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 30
+            },
+            {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          ]
+        },
+        "date": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "The date as the user said it — \"2025-07-31\", \"yesterday\", \"last Friday\", \"15 Aug\"; the app resolves it against the working date. Omit for the working date."
+        },
+        "godown": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "labour": {
+          "type": "string",
+          "pattern": "^(₹|rs\\.?\\s*)?\\s?(\\d+|\\d{1,3}(,\\d{3})+|\\d{1,2}(,\\d{2})*,\\d{3})(\\.\\d{1,9})?\\s*(lakhs?|lacs?|l|crores?|cr|k|thousand)?$",
+          "description": "Labour cost, as said"
+        },
+        "saleRate": {
+          "type": "string",
+          "pattern": "^(₹|rs\\.?\\s*)?\\s?(\\d+|\\d{1,3}(,\\d{3})+|\\d{1,2}(,\\d{2})*,\\d{3})(\\.\\d{1,9})?\\s*(lakhs?|lacs?|l|crores?|cr|k|thousand)?$",
+          "description": "Expected sale rate per unit (only for the profit line); omit for the average"
+        },
+        "narration": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120
+              },
+              "itemId": {
+                "type": "integer",
+                "exclusiveMinimum": 0
+              },
+              "qty": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 30
+                  },
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "qty"
+            ]
+          },
+          "maxItems": 50,
+          "description": "Only when the item has no bill of materials (or the user lists different components)"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "qty"
+      ]
+    }
+  },
+  {
+    "name": "draft_trade_doc",
+    "description": "Prepare (NOT save) a quotation, sales order or purchase order with item lines; totals with GST through the invoice calculation. Pass names, quantities, amounts and dates exactly as the user said them — the app resolves them (it never guesses between similar names: you get status \"needs_clarification\" with the candidates, and must ask the user). Never pass tax amounts or totals: GST, totals and bill amounts are computed by the app. The result is a DRAFT the user reviews in the editor; it is validated like a real save (locked period, credit hold, stock, links) and refused with the reason when it would not save.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "quotation",
+            "sales_order",
+            "purchase_order"
+          ]
+        },
+        "docTypeId": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "description": "A specific numbering series (trade document type) id"
+        },
+        "series": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80,
+          "description": "Or the series name / prefix as the user said it; omit for the first series of the kind"
+        },
+        "party": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "Party name or GSTIN as the user said it (the app finds the ledger; omit when you pass partyLedgerId)"
+        },
+        "partyLedgerId": {
+          "type": "integer",
+          "exclusiveMinimum": 0
+        },
+        "date": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "The date as the user said it — \"2025-07-31\", \"yesterday\", \"last Friday\", \"15 Aug\"; the app resolves it against the working date. Omit for the working date."
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 120,
+                "description": "Item name, barcode or HSN as the user said it"
+              },
+              "itemId": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "description": "A stock item id from an earlier tool result"
+              },
+              "qty": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 30
+                  },
+                  {
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                  }
+                ],
+                "description": "Quantity as the user said it, e.g. \"2\" or \"2.5\""
+              },
+              "rate": {
+                "type": "string",
+                "pattern": "^(₹|rs\\.?\\s*)?\\s?(\\d+|\\d{1,3}(,\\d{3})+|\\d{1,2}(,\\d{2})*,\\d{3})(\\.\\d{1,9})?\\s*(lakhs?|lacs?|l|crores?|cr|k|thousand)?$",
+                "description": "Rate per unit before tax, as the user said it; omit to use the price list / party rate"
+              },
+              "discount": {
+                "type": "string",
+                "pattern": "^(₹|rs\\.?\\s*)?\\s?(\\d+|\\d{1,3}(,\\d{3})+|\\d{1,2}(,\\d{2})*,\\d{3})(\\.\\d{1,9})?\\s*(lakhs?|lacs?|l|crores?|cr|k|thousand)?$",
+                "description": "Line discount in rupees, as said"
+              },
+              "discountPercent": {
+                "type": "string",
+                "pattern": "^\\d{1,3}(\\.\\d{1,2})?\\s*%?$",
+                "description": "Line discount as a percentage, e.g. \"10%\""
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "qty"
+            ]
+          },
+          "minItems": 1,
+          "maxItems": 50
+        },
+        "validUntil": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Quotation: valid until, as said"
+        },
+        "dueDate": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40,
+          "description": "Order: expected delivery / receipt date, as said"
+        },
+        "reference": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "terms": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "narration": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "placeOfSupply": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "items"
+      ]
+    }
+  },
+  {
+    "name": "remember",
+    "description": "Propose (NOT save) a memory for this company — only something the user explicitly asked you to remember or stated as a standing preference in their message. It is stored as a suggestion the user accepts or dismisses; it never takes effect on its own. Never pass identifiers (GSTIN, PAN, bank account numbers).",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "preference",
+            "style",
+            "party",
+            "fact"
+          ],
+          "description": "preference = a default ledger for a purpose; party = how a party is usually booked; style = how the user writes; fact = anything else they asked you to keep"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 300,
+          "description": "One short sentence in the user’s own terms, e.g. \"Ram Traders is always booked to Purchase A/c\""
+        },
+        "data": {
+          "type": "object",
+          "properties": {
+            "purpose": {
+              "type": "string",
+              "enum": [
+                "payment",
+                "receipt",
+                "sales",
+                "purchase",
+                "expense",
+                "income",
+                "cash",
+                "bank"
+              ],
+              "description": "preference: what the ledger is for (payment = the cash/bank ledger payments are made from)"
+            },
+            "ledgerId": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "description": "The ledger it is about: the preferred ledger, or a party’s usual ledger"
+            },
+            "partyLedgerId": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "description": "party: the party ledger"
+            },
+            "itemId": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "description": "party: the usual stock item"
+            },
+            "billDay": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 31,
+              "description": "party: the usual day of the month it bills"
+            },
+            "aspect": {
+              "type": "string",
+              "enum": [
+                "narration",
+                "dates",
+                "numbers",
+                "tone"
+              ],
+              "description": "style: what the style is about"
+            }
+          },
+          "additionalProperties": false,
+          "description": "Ids from tool results that make it usable: purpose + ledgerId for a preference, partyLedgerId (+ ledgerId / itemId) for a party"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "text"
+      ]
+    }
+  }
+]

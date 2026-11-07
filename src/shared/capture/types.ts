@@ -158,7 +158,7 @@ export const captureAddFilesSchema = z.object({
     .max(50)
 })
 
-export const captureIdsSchema = z.object({ ids: z.array(id).max(500).optional() }).default({})
+export const captureIdsSchema = z.object({ ids: z.array(id).max(500).optional() }).prefault({})
 export const captureIdSchema = z.object({ id })
 export const captureProcessSchema = z.object({ ids: z.array(id).min(1).max(500) })
 

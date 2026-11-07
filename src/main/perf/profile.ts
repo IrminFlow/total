@@ -8,7 +8,12 @@ interface Stat { sql: string; calls: number; ms: number; stack?: string }
 export function instrument(db: DB): { stats: () => Stat[]; restore: () => void } {
   const original = db.prepare.bind(db)
   const stats = new Map<string, Stat>()
+  // The connection reuses one statement per SQL text (db/encryption.ts installStatementCache):
+  // wrap each statement object once, or every prepare would stack another timer on it.
+  const wrapped = new WeakSet<object>()
   const wrap = (sql: string, stmt: ReturnType<DB['prepare']>): ReturnType<DB['prepare']> => {
+    if (wrapped.has(stmt)) return stmt
+    wrapped.add(stmt)
     const stat = stats.get(sql) ?? { sql, calls: 0, ms: 0 }
     stats.set(sql, stat)
     for (const m of ['run', 'get', 'all'] as const) {

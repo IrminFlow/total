@@ -6,6 +6,7 @@ import { parseCsv, rowsToCsv } from '@shared/csv'
 import { formatQtyMilli, plainRupees, parseRupees } from '@shared/money'
 import type { RateGridCell, RateGridRow, RatesImportResult } from '@shared/pricingTypes'
 import { writeAudit } from './audit'
+import { zod3Issues } from '@shared/zodMessages'
 
 export type { RateGridCell, RateGridRow, RatesImportResult }
 
@@ -342,7 +343,7 @@ function importRatesCsvInner(db: DB, csvText: string, dryRun: boolean): RatesImp
     if (!Number.isFinite(minQty) || minQty < 0) return void errors.push({ line, message: 'Min qty must be a number' })
     if (!Number.isFinite(disc) || disc < 0 || disc > 10000) return void errors.push({ line, message: 'Discount % must be 0–100' })
     const r = priceRateInputSchema.safeParse({ priceLevelId: 1, stockItemId: itemId, rate, effectiveFrom: from, effectiveTo: to, minQtyMilli: minQty, discountBp: disc, currency })
-    if (!r.success) return void errors.push({ line, message: r.error.issues.map((x) => x.message).join('; ') })
+    if (!r.success) return void errors.push({ line, message: zod3Issues(r.error.issues).map((x) => x.message).join('; ') })
     if (!levelsByName.has(level.toLowerCase())) newLevels.add(level)
     parsed.push({ level, input: r.data })
   })

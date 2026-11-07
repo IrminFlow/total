@@ -1,0 +1,182 @@
+{
+  "type": "object",
+  "properties": {
+    "describedOptional": {
+      "type": "string",
+      "description": "inner text"
+    },
+    "describedNullable": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "description": "a count"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "a count"
+    },
+    "describedDefault": {
+      "type": "boolean",
+      "description": "a flag",
+      "default": true
+    },
+    "ownWrapperText": {
+      "type": "string",
+      "description": "outer"
+    },
+    "refined": {
+      "type": "string",
+      "minLength": 1,
+      "description": "refined"
+    },
+    "refinedOptional": {
+      "type": "string"
+    },
+    "transformed": {
+      "type": "string",
+      "maxLength": 5
+    },
+    "transformedOptional": {
+      "type": "string"
+    },
+    "preprocessed": {
+      "type": "number",
+      "minimum": 2,
+      "maximum": 9
+    },
+    "bounds": {
+      "type": "number",
+      "minimum": 0,
+      "exclusiveMaximum": 10
+    },
+    "exclusive": {
+      "type": "integer",
+      "exclusiveMinimum": 3
+    },
+    "safe": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "safePositive": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991,
+      "exclusiveMinimum": 0
+    },
+    "arrayMinZero": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 0
+    },
+    "arrayNonEmpty": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "maxItems": 4
+    },
+    "arrayTwice": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      },
+      "minItems": 2,
+      "maxItems": 8
+    },
+    "arrayExact": {
+      "type": "array",
+      "items": {
+        "type": "number"
+      }
+    },
+    "stringLength": {
+      "type": "string",
+      "pattern": "^a+$"
+    },
+    "trimmed": {
+      "type": "string",
+      "minLength": 2
+    },
+    "objectDefault": {
+      "type": "object",
+      "properties": {
+        "a": {
+          "type": "number",
+          "default": 1
+        }
+      },
+      "additionalProperties": false,
+      "default": {
+        "a": 2
+      }
+    },
+    "literal": {
+      "const": "only"
+    },
+    "union": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        }
+      ],
+      "description": "either"
+    },
+    "nested": {
+      "type": "object",
+      "properties": {
+        "deep": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "k": {
+                "type": "string",
+                "enum": [
+                  "a",
+                  "b"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "required": [
+              "k"
+            ]
+          }
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "deep"
+      ]
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "describedNullable",
+    "refined",
+    "transformed",
+    "preprocessed",
+    "bounds",
+    "exclusive",
+    "safe",
+    "safePositive",
+    "arrayMinZero",
+    "arrayNonEmpty",
+    "arrayTwice",
+    "arrayExact",
+    "stringLength",
+    "trimmed",
+    "literal",
+    "union"
+  ],
+  "description": "shapes"
+}
