@@ -5,6 +5,7 @@
 // sends both its text and a page image), a text layer ~1,200; plus ~700 for the instructions and
 // schema and ~1,200 output tokens per bill.
 import type { AiModelPrice } from '@shared/ai'
+import type { AiCapabilities } from '@shared/aiProviders'
 import { estimateCostMicroUsd } from '../cost'
 
 export const ESTIMATE_TOKENS = { imagePage: 1600, pdfFilePage: 2200, textPage: 1200, prompt: 700, outputPerBill: 1200 } as const
@@ -34,4 +35,17 @@ export function estimateCapture(items: readonly EstimateInput[], price: AiModelP
   const output = items.length * ESTIMATE_TOKENS.outputPerBill
   const cost = items.length ? estimateCostMicroUsd({ inputTokens: input, cachedTokens: 0, outputTokens: output, reasoningTokens: 0 }, price) : 0
   return { pages, inputTokens: input, outputTokens: output, costMicroUsd: cost, unmaskable }
+}
+
+/** Phase 3a: the queued files a service with these capabilities can't read — every file when it
+ *  gives no structured answers, else photos without image input and text-less PDFs without file
+ *  input. Null when all are readable. */
+export function unreadableItems(items: readonly EstimateInput[], caps: AiCapabilities): { need: 'images' | 'files' | 'structured'; count: number } | null {
+  if (items.length === 0) return null
+  if (!caps.structured) return { need: 'structured', count: items.length }
+  const photos = items.filter((i) => i.mime !== 'application/pdf').length
+  const scans = items.filter((i) => i.mime === 'application/pdf' && !i.textLayer).length
+  if (photos && !caps.images) return { need: 'images', count: photos + (caps.files ? 0 : scans) }
+  if (scans && !caps.files) return { need: 'files', count: scans }
+  return null
 }

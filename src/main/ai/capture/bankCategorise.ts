@@ -4,6 +4,7 @@
 // context and a structured answer whose ids are enumerated by the schema (and checked again).
 // Accepting a row makes a DRAFT through the draft_voucher builder (WP 5.3), linked to its
 // statement line: saving the draft reconciles the line (consume.ts → reconcileSavedDraft).
+import { AiCapabilityError } from '@shared/aiProviders'
 import type { DB } from '../../db/connection'
 import type { CompanyInfo } from '@shared/domain'
 import { formatPaise } from '@shared/money'
@@ -100,11 +101,21 @@ export async function categoriseStatement(deps: CategoriseDeps, bankLedgerId: nu
   if (residual.length && opts.useAi !== false) {
     if (!deps.ask) aiNote = 'The assistant is off — only the rules and history were used'
     else {
-      const res = await deps.ask(inputs.lines, residual)
-      aiUsed = true
-      const applied = applyModelPicks(proposals, res, ledgers)
-      proposals = applied.proposals
-      rejected = applied.rejected.length
+      // Phase 3a: a service that can't give structured answers leaves the rules' picks standing
+      // and says so — nothing was sent.
+      let res: Awaited<ReturnType<AskResidual>> | null = null
+      try {
+        res = await deps.ask(inputs.lines, residual)
+      } catch (err) {
+        if (!(err instanceof AiCapabilityError)) throw err
+        aiNote = err.message
+      }
+      if (res) {
+        aiUsed = true
+        const applied = applyModelPicks(proposals, res, ledgers)
+        proposals = applied.proposals
+        rejected = applied.rejected.length
+      }
     }
   }
   const byId = new Map(ledgers.map((l) => [l.id, l.name]))

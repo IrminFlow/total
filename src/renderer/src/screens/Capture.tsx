@@ -17,6 +17,7 @@ import { MenuButton } from '../components/kit'
 import { ItemPicker, LedgerPicker } from '../components/pickers'
 import { VoucherLink } from '../components/links'
 import { useMode } from '../lib/mode'
+import { CAPABILITY_MESSAGES } from '@shared/aiProviders'
 import { PlainCaptureEstimate } from '../simple/ai/CaptureEstimatePlain'
 
 const STATUS: Record<CaptureStatus, { label: string; tone: 'neutral' | 'info' | 'success' | 'warning' | 'danger' }> = {
@@ -295,6 +296,11 @@ function EstimateModal({ estimate, onClose, onConfirm }: { estimate: CaptureEsti
             : 'Masking is OFF in Settings → AI: PDFs with a text layer are sent with GSTINs, PANs and account numbers in clear'}
           {estimate.pseudonymise ? '; party names are replaced by aliases.' : '; party names are sent as they are.'}
         </p>
+        {estimate.cannotRead && (
+          <Banner tone="warning" testId="banner-capture-cannot-read">
+            {estimate.cannotRead.count} {estimate.cannotRead.count === 1 ? 'file' : 'files'} will fail: {CAPABILITY_MESSAGES[estimate.cannotRead.need]}
+          </Banner>
+        )}
         {estimate.blocker && <Banner tone="danger">{estimate.blocker}</Banner>}
         <div className="flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>

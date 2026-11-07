@@ -490,6 +490,12 @@ export function AssistantDrawer({ onClose, onBack }: { onClose: () => void; /** 
           {view.blocker}. The assistant is optional and off until you turn it on; nothing leaves this computer until then.
         </Banner>
       )}
+      {view?.ready && view.provider && !view.provider.caps.tools && (
+        <Banner tone="info" className="mb-3" testId="ai-no-tools">
+          {view.provider.label} can’t use Total’s tools here, so it answers only from the conversation — it can’t read your books or make drafts. Pick another
+          service or model in Settings → AI for that.
+        </Banner>
+      )}
       {onBack && (
         <Banner tone="info" className="mb-3" testId="ai-escalated" action={<Button size="sm" onClick={onBack} data-testid="btn-back-ask-total">{tr('assist.panel.back')}</Button>}>
           {tr('assist.panel.aiAnswered')}

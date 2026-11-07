@@ -469,7 +469,8 @@ export const AUDIT_COVERAGE: Record<string, AuditCoverage> = {
   'ai:key:canSet': r('says whether this company may change the shared API key; writes nothing'),
   'ai:key:set': a('ai_settings'),
   'ai:key:clear': a('ai_settings'),
-  'ai:testConnection': r('lists the provider\'s models over the network; sends no company data and writes nothing'),
+  'ai:testConnection': a('ai_settings'),
+  'ai:provider:set': a('ai_settings'),
   'ai:thread:delete': a('ai_thread'),
   // Viewer-level, listed anyway: a question writes only the AI tables (thread, messages, usage,
   // outbound log) — never the books — and audits any draft a draft tool creates.

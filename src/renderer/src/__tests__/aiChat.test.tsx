@@ -22,6 +22,7 @@ import { Money } from '../components/ui'
 import { StatementTree } from '../components/StatementTree'
 import { CommandPalette } from '../components/CommandPalette'
 import { useNav, useSession } from '../state/stores'
+import { providerViewOf } from '@shared/aiProviders'
 
 const INFO: CompanyInfo = {
   name: 'Demo Traders', stateCode: '27', gstin: null, gstRegistrationType: 'regular', address: '', booksFrom: 2025, email: null, phone: null, pan: null, tan: null
@@ -43,7 +44,7 @@ const VIEW: AiSettingsView = {
     enabled: true, noticeAcceptedAt: '2025-08-01T10:00:00.000Z', noticeAcceptedBy: 'Owner', noticeVersion: 1, defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna',
     privacy: { maskIds: true, pseudonymiseParties: true }, prices: {}, maxSteps: 8, useMemory: true
   },
-  keyPresent: true, keyHint: '…WXYZ', secureStorageAvailable: true, mock: false, ready: true, blocker: null
+  provider: providerViewOf(), keyPresent: true, keyHint: '…WXYZ', secureStorageAvailable: true, mock: false, ready: true, blocker: null
 }
 
 const THREADS: AiThreadDto[] = [

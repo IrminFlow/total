@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { readUpdateSettings, writeUpdateSettings } from './appSettings'
+import { readAiProviderSetting, readUpdateSettings, writeAiProviderSetting, writeUpdateSettings } from './appSettings'
 
 let root = ''
 beforeEach(() => {
@@ -47,5 +47,18 @@ describe('app-level update settings', () => {
     writeUpdateSettings(root, { autoCheck: true }, null, '0.12.0')
     expect(existsSync(join(root, 'app-settings.json'))).toBe(false)
     expect(existsSync(join(root, 'app-settings-audit.jsonl'))).toBe(false)
+  })
+})
+
+describe('the AI service (Phase 3a)', () => {
+  it('a file without aiProvider (every install before presets) reads as OpenAI; writing keeps the update settings', () => {
+    expect(readAiProviderSetting(root)).toEqual({ preset: 'openai', baseUrl: null, caps: null })
+    writeUpdateSettings(root, { autoCheck: false }, 'Owner', '1.0.0')
+    expect(readAiProviderSetting(root)).toEqual({ preset: 'openai', baseUrl: null, caps: null })
+    writeAiProviderSetting(root, { preset: 'ollama', baseUrl: 'http://localhost:11500/v1', caps: null }, 'Owner', '1.0.0')
+    expect(readAiProviderSetting(root)).toEqual({ preset: 'ollama', baseUrl: 'http://localhost:11500/v1', caps: null })
+    expect(readUpdateSettings(root).autoCheck).toBe(false)
+    const log = readFileSync(join(root, 'app-settings-audit.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as { setting: string; after: unknown })
+    expect(log.at(-1)).toMatchObject({ setting: 'aiProvider', after: { preset: 'ollama' } })
   })
 })

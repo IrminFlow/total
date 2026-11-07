@@ -52,7 +52,7 @@ const pdf = (lines: string[]): Buffer => Buffer.from(makeTestPdf(lines, { deflat
 const PHOTO = readFileSync(join(__dirname, '../../../../scripts/e2e/fixtures/bharat-steel-bill-photo.png'))
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
 
-const settings = (): AiSettings => ({ ...defaultAiSettings(), enabled: true, noticeAcceptedAt: 'x', noticeVersion: 1, prices: { 'gpt-6.1-sol': { inputPerM: 2_000_000, cachedInputPerM: null, outputPerM: 8_000_000 } } })
+const settings = (): AiSettings => ({ ...defaultAiSettings(), defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna', enabled: true, noticeAcceptedAt: 'x', noticeVersion: 1, prices: { 'gpt-6.1-sol': { inputPerM: 2_000_000, cachedInputPerM: null, outputPerM: 8_000_000 } } })
 
 let dir: string
 let provider: MockProvider

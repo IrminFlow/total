@@ -15,6 +15,7 @@ import { AssistantPanel, useAssistantPanel } from '../components/ai/AssistantPan
 import { useNav, useSession } from '../state/stores'
 import { DockModeContext, isPanelOpen } from '../components/kit'
 import { a11yProblems } from './helpers/a11yProblems'
+import { providerViewOf } from '@shared/aiProviders'
 
 const invoke = vi.fn()
 let listener: ((e: unknown) => void) | null = null
@@ -32,7 +33,7 @@ function baseView(over: Partial<AiSettingsView> = {}, settings: Partial<AiSettin
       enabled: false, noticeAcceptedAt: null, noticeAcceptedBy: null, noticeVersion: null, defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna',
       privacy: { maskIds: true, pseudonymiseParties: false }, prices: {}, maxSteps: 8, useMemory: true, ...settings
     },
-    keyPresent: false, keyHint: null, secureStorageAvailable: true, mock: false, ready: false, blocker: 'Add an API key', ...over
+    provider: providerViewOf(), keyPresent: false, keyHint: null, secureStorageAvailable: true, mock: false, ready: false, blocker: 'Add an API key', ...over
   }
 }
 const READY = (): AiSettingsView => baseView({ keyPresent: true, keyHint: '…WXYZ', ready: true, blocker: null }, { enabled: true, noticeAcceptedAt: '2026-10-01T10:00:00.000Z', noticeVersion: 1 })
@@ -76,6 +77,11 @@ beforeEach(() => {
       case 'ai:key:canSet': return { ok: true, data: canSet }
       case 'ai:key:clear': return { ok: true, data: view }
       case 'ai:testConnection': return { ok: true, data: test }
+      case 'ai:provider:set': {
+        const p = payload as { preset: 'ollama' | 'custom'; baseUrl?: string | null; caps?: AiSettingsView['provider']['caps'] }
+        view = { ...view, provider: providerViewOf({ preset: p.preset, baseUrl: p.baseUrl ?? null, caps: p.caps ?? null }) }
+        return { ok: true, data: view }
+      }
       case 'ai:usage': return { ok: true, data: usage }
       case 'fx:rates': return { ok: true, data: rates }
       case 'ai:threads': return { ok: true, data: [] }
@@ -130,7 +136,7 @@ describe('Settings → AI helper (simple)', () => {
     const ok = await screen.findByTestId('simple-ai-check-ok')
     expect(ok.textContent).toContain('Works. Models available: gpt-5, gpt-5-mini, whisper-1, text-embedding-3-small.')
     expect(screen.getByTestId('simple-ai-picked').textContent).toBe('Total will use gpt-5.')
-    expect(calls('ai:key:set')).toEqual([{ key: 'sk-test-0123456789WXYZ', confirmNoUsers: false }])
+    expect(calls('ai:key:set')).toEqual([{ key: 'sk-test-0123456789WXYZ', confirmNoUsers: false, preset: 'openai' }])
     expect(calls('ai:settings:set')).toContainEqual({ defaultModel: 'gpt-5', fastModel: 'gpt-5-mini' })
     // The key never comes back into the page.
     expect(document.documentElement.outerHTML).not.toContain('sk-test-0123456789WXYZ')
@@ -489,5 +495,93 @@ describe('WP 10.5: keyboard and screen readers', () => {
     expect(screen.getByRole('complementary', { name: panel.querySelector('h2')!.textContent! })).toBe(panel)
     expect(isPanelOpen()).toBe(true)
     expect(a11yProblems()).toEqual([])
+  })
+})
+
+describe('Settings → AI helper: which AI service (Phase 3a)', () => {
+  it('picks a local service: asks its address (localhost only), saves it, then says no key is needed', async () => {
+    wrap(<AiHelper />)
+    await screen.findByTestId('simple-ai-provider')
+    expect(screen.getByTestId('simple-ai-provider-openai').getAttribute('aria-checked')).toBe('true')
+    expect(screen.queryByTestId('simple-ai-provider-url')).toBeNull()
+    fireEvent.click(screen.getByTestId('simple-ai-provider-ollama'))
+    const url = screen.getByTestId('simple-ai-provider-url') as HTMLInputElement
+    expect(url.value).toBe('http://localhost:11434/v1')
+    fireEvent.change(url, { target: { value: 'http://192.168.1.9:11434/v1' } })
+    expect(screen.getByTestId('simple-ai-provider').textContent).toContain('localhost')
+    expect((screen.getByTestId('simple-ai-provider-save') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(url, { target: { value: 'http://localhost:11500/v1' } })
+    fireEvent.click(screen.getByTestId('simple-ai-provider-save'))
+    await waitFor(() => expect(calls('ai:provider:set')).toEqual([{ preset: 'ollama', baseUrl: 'http://localhost:11500/v1', confirmNoUsers: false }]))
+    await waitFor(() => expect(screen.getByTestId('simple-ai-key-what').textContent).toMatch(/needs no key/))
+    expect(screen.getByTestId('simple-ai-provider-local').textContent).toMatch(/nothing is sent over the internet/)
+    expect(screen.getByTestId('simple-ai-notice-where').textContent).toMatch(/nowhere outside this computer — Ollama \(on this computer\) runs on it/)
+    // A local service can be checked and turned on without a key.
+    expect((screen.getByTestId('simple-ai-check') as HTMLButtonElement).disabled).toBe(false)
+    // What it can't do, in plain words.
+    expect(screen.getByTestId('simple-ai-provider-cannot').textContent).toContain('read scanned pdfs')
+  })
+
+  it('a service that lists no models: the model name is typed, then saved', async () => {
+    view = baseView({ provider: providerViewOf({ preset: 'ollama', baseUrl: null, caps: null }) }, { defaultModel: '', fastModel: '' })
+    test = { ok: true, models: [], defaultModelFound: false, fastModelFound: false, error: null, picked: null }
+    wrap(<AiHelper />)
+    fireEvent.click(await screen.findByTestId('simple-ai-check'))
+    await screen.findByTestId('simple-ai-type-model')
+    expect(screen.queryByTestId('simple-ai-no-model')).toBeNull()
+    fireEvent.change(screen.getByTestId('simple-ai-model-input'), { target: { value: 'bad model' } })
+    expect((screen.getByTestId('simple-ai-model-save') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.change(screen.getByTestId('simple-ai-model-input'), { target: { value: 'llama3.2' } })
+    fireEvent.click(screen.getByTestId('simple-ai-model-save'))
+    await waitFor(() => expect(calls('ai:settings:set')).toContainEqual({ defaultModel: 'llama3.2', fastModel: 'llama3.2' }))
+  })
+
+  it('another service names itself in the notice and the key help; its abilities are asked', async () => {
+    wrap(<AiHelper />)
+    fireEvent.click(await screen.findByTestId('simple-ai-provider-custom'))
+    expect((screen.getByTestId('simple-ai-provider-url') as HTMLInputElement).value).toBe('')
+    fireEvent.change(screen.getByTestId('simple-ai-provider-url'), { target: { value: 'https://llm.example.com/v1' } })
+    fireEvent.click(screen.getByTestId('simple-ai-cap-tools'))
+    fireEvent.click(screen.getByTestId('simple-ai-provider-save'))
+    await waitFor(() =>
+      expect(calls('ai:provider:set')).toEqual([{ preset: 'custom', baseUrl: 'https://llm.example.com/v1', caps: { tools: false, structured: true, images: false, files: false }, confirmNoUsers: false }])
+    )
+    await waitFor(() => expect(screen.getByTestId('simple-ai-provider-cannot').textContent).toContain('look at your books and prepare entries'))
+  })
+
+  it('a capability refusal from main is said in plain words', async () => {
+    const { classifyAiError } = await import('@shared/simple/aiPlain')
+    expect(classifyAiError('This AI service can’t read photos. Pick another service or model in Settings → AI, or use a PDF with text in it.').kind).toBe('cantPhotos')
+    expect(classifyAiError('This AI service can’t use Total’s tools, so it can’t read your books or make drafts. (x)').kind).toBe('cantTools')
+  })
+
+  it('review of #210: the key waits while another service is picked but not saved', async () => {
+    wrap(<AiHelper />)
+    fireEvent.click(await screen.findByTestId('simple-ai-provider-groq'))
+    await waitFor(() => expect((screen.getByTestId('simple-ai-key-input') as HTMLInputElement).disabled).toBe(true))
+    expect((screen.getByTestId('simple-ai-check') as HTMLButtonElement).disabled).toBe(true)
+    expect(screen.getByTestId('simple-ai-save-service-first').textContent).toMatch(/Use this service/)
+    fireEvent.click(screen.getByTestId('simple-ai-provider-openai'))
+    await waitFor(() => expect((screen.getByTestId('simple-ai-key-input') as HTMLInputElement).disabled).toBe(false))
+  })
+
+  it('review of #210: an address problem is said in the reader\'s words (code → t())', async () => {
+    wrap(<AiHelper />)
+    fireEvent.click(await screen.findByTestId('simple-ai-provider-ollama'))
+    fireEvent.change(screen.getByTestId('simple-ai-provider-url'), { target: { value: 'http://10.0.0.5:11434/v1' } })
+    expect(screen.getByTestId('simple-ai-provider').textContent).toContain('This runs on this computer: the address must be localhost or 127.0.0.1.')
+  })
+
+  it('review of #210: with no model yet, Turn on waits and says to check first', async () => {
+    view = baseView({ provider: providerViewOf({ preset: 'ollama', baseUrl: null, caps: null }), needsModel: true, blocker: 'Pick a model' }, { defaultModel: '', fastModel: '', noticeAcceptedAt: '2026-10-01T10:00:00.000Z', noticeVersion: 1 })
+    wrap(<AiHelper />)
+    expect((await screen.findByTestId('simple-ai-off-why')).textContent).toMatch(/Check it/)
+    expect((screen.getByTestId('simple-ai-on') as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('the service picker passes the a11y sweep', async () => {
+    wrap(<AiHelper />)
+    const card = await screen.findByTestId('simple-ai-provider')
+    expect(a11yProblems(card)).toEqual([])
   })
 })

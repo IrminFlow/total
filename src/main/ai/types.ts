@@ -5,7 +5,7 @@
 /** One item of the conversation sent to the model. */
 export type ChatItem =
   | { type: 'message'; role: 'user' | 'assistant'; content: string; attachments?: ChatAttachment[] }
-  | { type: 'tool_call'; callId: string; name: string; arguments: string }
+  | { type: 'tool_call'; callId: string; name: string; arguments: string; extra?: Record<string, unknown> }
   | { type: 'tool_result'; callId: string; output: string }
   /** A reasoning item from an earlier step of the same question, passed back verbatim (with its
    *  encrypted content — requests are not stored, so this is how the model keeps its reasoning
@@ -49,6 +49,8 @@ export interface ChatToolCall {
   name: string
   /** JSON text, as the model produced it. */
   arguments: string
+  /** Provider metadata to send back with this call next step (Gemini's thought signature). */
+  extra?: Record<string, unknown>
 }
 
 export interface ChatResult {
@@ -69,7 +71,11 @@ export interface ChatHandlers {
 
 export interface AiProvider {
   readonly name: string
+  /** Phase 3a: what the endpoint can do (shared/aiProviders.ts). Absent = everything (the mock). */
+  readonly capabilities?: { tools: boolean; structured: boolean; images: boolean; files: boolean }
   chat(req: ChatRequest, handlers?: ChatHandlers): Promise<ChatResult>
+  /** Phase 3a: a model on this computer — calls cost nothing (cost 0, never "not priced"). */
+  readonly free?: boolean
   /** Model ids the key can use. */
   models(signal?: AbortSignal): Promise<string[]>
 }

@@ -21,10 +21,12 @@ import { roleAllows, type Role } from '../services/roles'
 import type { SecretStore } from '../services/secrets'
 import { writeAudit } from '../services/audit'
 import { AgentRuns, AI_OFF_MESSAGE, settingsBlocker, startTurn } from './agent'
-import { acceptNotice, clearApiKey, getAiSettings, keyHint, patchAiSettings, readApiKey, setApiKey } from './settings'
+import { acceptNotice, clearApiKey, getAiSettings, keyHint, patchAiSettings, setApiKey } from './settings'
 import { createToolRegistry } from './tools'
 import { MockProvider, demoScript } from './mockProvider'
-import { OpenAiProvider, redactSecrets } from './provider'
+import { createProvider, redactSecrets } from './provider'
+import { aiProviderSource, bindCustomOrigin, boundCustomOrigin, currentProvider, providerView, readPresetHeaders, readPresetKey, writePresetHeaders } from './providerConfig'
+import { AI_PRESETS, aiProviderSetSchema, checkBaseUrl, pickModels, type AiProviderSettings, type ResolvedAiProvider } from '@shared/aiProviders'
 import { discardDraft } from './drafts'
 import { createMemory, deleteMemory, forgetAllMemory, getMemory, memoryList, resolveDerived, setMemoryStatus, updateMemory } from './memory'
 import { todayISO } from '@shared/dates'
@@ -41,8 +43,11 @@ interface Company {
 
 export interface AppKeyAuditEntry {
   at: string
-  action: 'set' | 'clear'
+  action: 'set' | 'clear' | 'provider'
   keyHint: string | null
+  /** Phase 3a: the preset whose key changed, or the provider choice after a 'provider' change. */
+  preset?: string
+  provider?: { preset: string; baseUrl: string | null; headerNames: string[]; keyCleared?: boolean }
   company: string
   user: string | null
   mode: 'owner' | 'no-users-confirmed'
@@ -66,33 +71,59 @@ export interface AiIpcDeps {
   appAudit: (entry: AppKeyAuditEntry) => void
   /** Today (local ISO date) — injected by tests; derived memory looks back a year from it. */
   today?: () => string
-  /** Injected by tests; the default builds the OpenAI provider (or the demo mock). */
-  providerFactory?: (opts: { apiKey: string | null; mock: boolean }) => AiProvider
+  /** Injected by tests; the default builds the chosen provider (or the demo mock). */
+  providerFactory?: ProviderFactory
 }
+
+/** Phase 3a: builds the client for the app's chosen AI service. `provider` / `headers` are the
+ *  resolved choice (shared/aiProviders.ts); tests may ignore them. */
+export type ProviderFactory = (opts: { apiKey: string | null; mock: boolean; provider: ResolvedAiProvider; headers: Record<string, string> }) => AiProvider
 
 /** One registry of in-flight runs for the app, keyed by company + thread (a company close stops them all). */
 export const aiRuns = new AgentRuns()
 
-export const defaultProviderFactory = ({ apiKey, mock }: { apiKey: string | null; mock: boolean }): AiProvider => {
+export const defaultProviderFactory: ProviderFactory = ({ apiKey, mock, provider, headers }) => {
   if (mock) return new MockProvider(demoScript, { models: ['gpt-6.1-sol', 'gpt-6-luna', 'mock-model'], delayMs: 20, chunk: 6 })
-  if (!apiKey) throw new Error('No API key — add one in Settings → AI')
-  return new OpenAiProvider({ apiKey })
+  return createProvider(provider, apiKey, headers)
+}
+
+/** The client for the current choice, through `factory`. */
+export function buildProvider(factory: ProviderFactory, secrets: SecretStore, mock: boolean): AiProvider {
+  const c = currentProvider(secrets)
+  if (!mock && c.resolved.urlProblem) throw new Error(c.resolved.urlProblem)
+  return factory({ apiKey: c.apiKey, mock, provider: c.resolved, headers: c.headers })
+}
+
+export const PICK_MODEL_MESSAGE = 'Pick a model — Test connection in Settings → AI lists the ones this service offers'
+export const REPICK_MODEL_MESSAGE = 'The AI service changed — Test connection in Settings → AI to pick a model it offers'
+
+/** The models were picked for another service than the one in use (absent = OpenAI's). */
+export function modelsStale(settings: AiSettings, preset: string): boolean {
+  return !!settings.defaultModel && (settings.modelsFor ?? 'openai') !== preset
 }
 
 export function settingsView(settings: AiSettings, secrets: SecretStore, mock: boolean): AiSettingsView {
-  const key = readApiKey(secrets)
-  const keyPresent = !!key
-  const blocker = settingsBlocker(settings) ?? (!keyPresent && !mock ? 'Add an API key' : null)
+  const provider = providerView(secrets)
+  const blocker =
+    settingsBlocker(settings) ??
+    (mock ? null : provider.urlProblem) ??
+    (!provider.keyPresent && !mock && provider.needsKey ? 'Add an API key' : null) ??
+    (!settings.defaultModel ? PICK_MODEL_MESSAGE : null) ??
+    (!mock && modelsStale(settings, provider.preset) ? REPICK_MODEL_MESSAGE : null)
   return {
     settings,
-    keyPresent,
-    keyHint: keyHint(key),
+    provider,
+    needsModel: !settings.defaultModel || (!mock && modelsStale(settings, provider.preset)),
+    keyPresent: provider.keyPresent,
+    keyHint: provider.keyHint,
     secureStorageAvailable: secrets.available(),
     mock,
     ready: blocker === null,
     blocker
   }
 }
+
+export const SAVE_SERVICE_FIRST = 'Save the AI service first (Use this service), then add its key'
 
 export const KEY_OTHER_COMPANY_HAS_USERS =
   'The API key is shared by every company on this computer. Another company here has users — open it and sign in as its owner to change the key.'
@@ -134,7 +165,8 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
   const factory = deps.providerFactory ?? defaultProviderFactory
   const today = deps.today ?? todayISO
   const view = (): AiSettingsView => settingsView(getAiSettings(db()), deps.secrets(), deps.mock())
-  const provider = (): AiProvider => factory({ apiKey: readApiKey(deps.secrets()), mock: deps.mock() })
+  const provider = (): AiProvider => buildProvider(factory, deps.secrets(), deps.mock())
+  const preset = (): AiProviderSettings['preset'] => aiProviderSource().read().preset
   const idSchema = z.object({ id: z.number().int().positive() })
   const guardKey = (confirmNoUsers: boolean): AppKeyAuditEntry['mode'] => {
     const c = deps.company()
@@ -146,7 +178,7 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
   // ---------- settings ----------
   handle('ai:settings:get', () => view(), 'viewer')
   handle('ai:settings:set', (p) => {
-    patchAiSettings(db(), aiSettingsPatchSchema.parse(p))
+    patchAiSettings(db(), aiSettingsPatchSchema.parse(p), { modelsFor: preset() })
     return view()
   }, 'owner')
   handle('ai:notice:accept', () => {
@@ -159,28 +191,107 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     return keyCanSet({ companyHasUsers: c.usersExist, isOwner: roleAllows(deps.session().role, 'owner'), anyCompanyHasUsers: !c.usersExist && deps.anyCompanyHasUsers() })
   }, 'viewer')
   handle('ai:key:set', (p) => {
-    const { key, confirmNoUsers } = aiKeySetSchema.extend({ confirmNoUsers: z.boolean().default(false) }).parse(p)
+    const { key, confirmNoUsers, preset: shown } = aiKeySetSchema.extend({ confirmNoUsers: z.boolean().default(false) }).parse(p)
+    const pr = preset()
+    // The key goes with the service the screen shows; one not saved yet would get another
+    // service's key (and send it to that service's server).
+    if (shown && shown !== pr) throw new Error(SAVE_SERVICE_FIRST)
     const mode = guardKey(confirmNoUsers)
-    setApiKey(db(), deps.secrets(), key)
-    deps.appAudit({ at: new Date().toISOString(), action: 'set', keyHint: keyHint(key), company: scope(), user: deps.session().name, mode })
+    setApiKey(db(), deps.secrets(), key, pr)
+    if (pr === 'custom') bindCustomOrigin(deps.secrets(), currentProvider(deps.secrets()).resolved.baseUrl)
+    deps.appAudit({ at: new Date().toISOString(), action: 'set', keyHint: keyHint(key), company: scope(), user: deps.session().name, mode, ...(pr === 'openai' ? {} : { preset: pr }) })
     return view()
   }, 'owner')
   handle('ai:key:clear', (p) => {
     const { confirmNoUsers } = z.object({ confirmNoUsers: z.boolean().default(false) }).prefault({}).parse(p ?? {})
     const mode = guardKey(confirmNoUsers)
-    clearApiKey(db(), deps.secrets())
-    deps.appAudit({ at: new Date().toISOString(), action: 'clear', keyHint: null, company: scope(), user: deps.session().name, mode })
+    const pr = preset()
+    clearApiKey(db(), deps.secrets(), pr)
+    deps.appAudit({ at: new Date().toISOString(), action: 'clear', keyHint: null, company: scope(), user: deps.session().name, mode, ...(pr === 'openai' ? {} : { preset: pr }) })
     return view()
   }, 'owner')
+  // Lists the service's models. When no model is set yet, or the one set is not on a non-empty
+  // list, the best listed chat model is picked and saved (audited) — never a hard-coded id. A
+  // server that lists nothing leaves the ids alone: the user types one.
   handle('ai:testConnection', async (): Promise<AiConnectionResult> => {
     const s = getAiSettings(db())
     try {
       const models = await provider().models()
-      return { ok: true, models, defaultModelFound: models.includes(s.defaultModel), fastModelFound: models.includes(s.fastModel), error: null }
+      let picked: AiConnectionResult['picked'] = null
+      let now = s
+      const pr = preset()
+      const stale = modelsStale(s, pr)
+      const pick = pickModels(models, s)
+      if (pick.found && (stale || (pick.changed && (!s.defaultModel || !models.includes(s.defaultModel) || !s.fastModel || !models.includes(s.fastModel))))) {
+        // Checked against this service's own list: the ids are now this service's, even unchanged.
+        now = patchAiSettings(db(), { defaultModel: pick.defaultModel, fastModel: pick.fastModel }, { modelsFor: pr, force: true })
+        picked = { defaultModel: pick.defaultModel, fastModel: pick.fastModel }
+      }
+      return { ok: true, models, defaultModelFound: models.includes(now.defaultModel), fastModelFound: models.includes(now.fastModel), error: null, picked }
     } catch (err) {
-      const error = redactSecrets(err instanceof Error ? err.message : String(err), readApiKey(deps.secrets()))
-      return { ok: false, models: [], defaultModelFound: false, fastModelFound: false, error }
+      const c = currentProvider(deps.secrets())
+      const error = redactSecrets(err instanceof Error ? err.message : String(err), c.apiKey, Object.values(c.headers))
+      return { ok: false, models: [], defaultModelFound: false, fastModelFound: false, error, picked: null }
     }
+  }, 'owner')
+  // ---------- the AI service (Phase 3a): app-wide, guarded like the key ----------
+  handle('ai:provider:set', (p) => {
+    const input = aiProviderSetSchema.parse(p)
+    const mode = guardKey(input.confirmNoUsers)
+    const preset = AI_PRESETS[input.preset]
+    let baseUrl: string | null = null
+    if (input.baseUrl != null && input.baseUrl.trim() !== '') {
+      if (!preset.editableUrl) throw new Error(`${preset.label} has a fixed address`)
+      const c = checkBaseUrl(preset.id, input.baseUrl)
+      if (!c.ok) throw new Error(c.error)
+      baseUrl = c.url === preset.baseUrl ? null : c.url
+    } else if (preset.id === 'custom') {
+      throw new Error('Type the address of the AI service (it usually ends in /v1).')
+    }
+    if (input.caps && preset.id !== 'custom') throw new Error('Only a custom service takes its own list of what it can do')
+    if (input.headers?.length && !preset.headers) throw new Error(`${preset.label} takes no extra headers`)
+    const secrets = deps.secrets()
+    const source = aiProviderSource()
+    const before = source.read()
+    const beforeHeaders = readPresetHeaders(secrets, preset.id)
+    let headers = beforeHeaders
+    if (input.headers) {
+      headers = {}
+      for (const h of input.headers) {
+        if (Object.keys(headers).some((n) => n.toLowerCase() === h.name.toLowerCase())) throw new Error(`The header ${h.name} is listed twice`)
+        const kept = Object.entries(beforeHeaders).find(([n]) => n.toLowerCase() === h.name.toLowerCase())?.[1]
+        const value = h.value.trim() || kept
+        if (!value) throw new Error(`Type a value for the header ${h.name}`)
+        headers[h.name] = value
+      }
+    }
+    const after: AiProviderSettings = { preset: preset.id, baseUrl, caps: preset.id === 'custom' ? (input.caps ?? before.caps ?? null) : null }
+    const names = (hs: Record<string, string>): string[] => Object.keys(hs).sort()
+    // A custom service's key and headers belong to the address they were saved for: a new origin
+    // drops them (headers typed in this same change are kept), so they never go to another host.
+    let keyCleared = false
+    if (preset.id === 'custom' && baseUrl) {
+      const bound = boundCustomOrigin(secrets)
+      const origin = new URL(baseUrl).origin
+      if (bound && bound !== origin) {
+        if (readPresetKey(secrets, 'custom')) {
+          clearApiKey(db(), secrets, 'custom')
+          keyCleared = true
+        }
+        headers = Object.fromEntries(Object.entries(headers).filter(([n]) => input.headers?.some((h) => h.name.toLowerCase() === n.toLowerCase() && h.value.trim() !== '')))
+      }
+    }
+    const headersChanged = JSON.stringify(headers) !== JSON.stringify(beforeHeaders)
+    if (JSON.stringify(after) === JSON.stringify(before) && !headersChanged && !keyCleared) return view()
+    if (headersChanged) writePresetHeaders(secrets, preset.id, headers)
+    if (preset.id === 'custom' && baseUrl) bindCustomOrigin(secrets, baseUrl)
+    source.write(after, deps.session().name)
+    writeAudit(db(), 'ai_settings', 0, 'update', { provider: { ...before, headerNames: names(beforeHeaders) } }, { provider: { ...after, headerNames: names(headers), ...(keyCleared ? { keyCleared: true } : {}) } })
+    deps.appAudit({
+      at: new Date().toISOString(), action: 'provider', keyHint: null, company: scope(), user: deps.session().name, mode,
+      preset: after.preset, provider: { preset: after.preset, baseUrl: after.baseUrl, headerNames: names(headers), ...(keyCleared ? { keyCleared: true } : {}) }
+    })
+    return view()
   }, 'owner')
   handle('ai:tools', () => registry.info(), 'viewer')
 

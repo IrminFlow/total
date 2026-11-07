@@ -8,9 +8,15 @@ import { moneyText, rateNote, usdRateOn } from '@shared/simple/aiPlain'
 import { todayISO } from '@shared/dates'
 import { cfApi } from '../../lib/cashFinanceClient'
 import { useT } from '../../lib/i18n'
+import type { MessageKey } from '@shared/i18n'
 import { Banner, Button, Modal } from '../../components/ui'
 
 const RATES_KEY = ['fxRates'] // i18n-technical
+const CANNOT_READ: Record<'images' | 'files' | 'structured', MessageKey> = {
+  images: 'simple.ai.error.cantPhotos',
+  files: 'simple.ai.error.cantScans',
+  structured: 'simple.ai.error.cantRead'
+}
 
 export function PlainCaptureEstimate({ estimate, onClose, onConfirm }: { estimate: CaptureEstimate; onClose: () => void; onConfirm: () => void }): React.JSX.Element {
   const t = useT()
@@ -32,6 +38,11 @@ export function PlainCaptureEstimate({ estimate, onClose, onConfirm }: { estimat
         {estimate.unmaskable > 0 && (
           <Banner tone="warning" testId="banner-capture-unmaskable">
             {t('simple.ai.capture.photos', { count: estimate.unmaskable })}
+          </Banner>
+        )}
+        {estimate.cannotRead && (
+          <Banner tone="warning" testId="banner-capture-cannot-read">
+            {t('simple.ai.capture.cannotRead', { count: estimate.cannotRead.count })} {t(CANNOT_READ[estimate.cannotRead.need]) /* i18n-technical: keys in CANNOT_READ */}
           </Banner>
         )}
         {estimate.blocker && <Banner tone="danger">{t('simple.ai.panel.off')}</Banner>}

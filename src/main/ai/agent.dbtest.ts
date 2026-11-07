@@ -74,6 +74,9 @@ function fixture(): Fixture {
 
 const ON: AiSettings = {
   ...defaultAiSettings(),
+  // Phase 3a: no built-in model id — a company's settings carry the one it picked.
+  defaultModel: 'gpt-6.1-sol',
+  fastModel: 'gpt-6-luna',
   enabled: true,
   noticeAcceptedAt: '2025-08-01T00:00:00.000Z',
   noticeAcceptedBy: 'Owner',
@@ -457,12 +460,14 @@ describe('IPC layer: settings, key, gates, audit', () => {
     otherCompanyHasUsers = false
     const view = (await call('ai:key:set', { key: KEY, confirmNoUsers: true })) as { keyPresent: boolean; keyHint: string; ready: boolean }
     expect(appAudits).toEqual([expect.objectContaining({ action: 'set', keyHint: '…WXYZ', company: 'agent-test', mode: 'no-users-confirmed' })])
-    expect(view).toMatchObject({ keyPresent: true, keyHint: '…WXYZ', ready: true })
+    // Phase 3a: a new company has no model until the service's list gives one.
+    expect(view).toMatchObject({ keyPresent: true, keyHint: '…WXYZ', ready: false, blocker: expect.stringMatching(/^Pick a model/) })
     expect(JSON.stringify(await call('ai:settings:get'))).not.toContain(KEY)
     expect(secrets.get(APP_SCOPE, 'openai_api_key')).toBe(KEY)
 
-    const test = (await call('ai:testConnection')) as { ok: boolean; defaultModelFound: boolean; fastModelFound: boolean }
-    expect(test).toMatchObject({ ok: true, defaultModelFound: true, fastModelFound: false })
+    const test = (await call('ai:testConnection')) as { ok: boolean; defaultModelFound: boolean; fastModelFound: boolean; picked: unknown }
+    expect(test).toMatchObject({ ok: true, defaultModelFound: true, fastModelFound: true, picked: { defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6.1-sol' } })
+    expect(((await call('ai:settings:get')) as { ready: boolean }).ready).toBe(true)
 
     const sent = (await call('ai:send', { text: 'Trial balance total?', context: { screen: 'gateway', from: '2025-04-01', to: '2025-08-31' } })) as { threadId: number }
     await new Promise((r) => setTimeout(r, 50))
@@ -490,6 +495,7 @@ describe('IPC layer: settings, key, gates, audit', () => {
       'ai_settings:update', // notice
       'ai_settings:update', // enabled
       'ai_settings:update', // key set
+      'ai_settings:update', // Test connection picked the model from the list (Phase 3a)
       'ai_settings:update', // privacy / model / prices
       'ai_thread:delete',
       'ai_data:delete',

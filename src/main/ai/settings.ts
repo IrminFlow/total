@@ -4,14 +4,14 @@
 // exception: it is app-wide, in the secret store (scope 'app', services/secrets.ts), never in a
 // company DB or backup, and only a hint ("…a1b2") is ever returned to the renderer.
 import type { DB } from '../db/connection'
-import {
-  AI_DATA_NOTICE_VERSION, AI_DEFAULT_FAST_MODEL, AI_DEFAULT_MODEL, aiSettingsPatchSchema, type AiSettings, type AiSettingsPatch
-} from '@shared/ai'
+import { AI_DATA_NOTICE_VERSION, aiSettingsPatchSchema, type AiSettings, type AiSettingsPatch } from '@shared/ai'
+import { presetKeySecret, type AiPresetId } from '@shared/aiProviders'
 import { APP_SCOPE, type SecretStore } from '../services/secrets'
 import { writeAudit } from '../services/audit'
 
 const META_KEY = 'ai'
-export const API_KEY_SECRET = 'openai_api_key'
+/** The OpenAI preset's key (the name it always had); other presets: presetKeySecret(preset). */
+export const API_KEY_SECRET = presetKeySecret('openai')
 
 export function defaultAiSettings(): AiSettings {
   return {
@@ -19,8 +19,10 @@ export function defaultAiSettings(): AiSettings {
     noticeAcceptedAt: null,
     noticeAcceptedBy: null,
     noticeVersion: null,
-    defaultModel: AI_DEFAULT_MODEL,
-    fastModel: AI_DEFAULT_FAST_MODEL,
+    // Phase 3a: no hard-coded model — it is picked from the endpoint's own list (Test connection /
+    // Check it) or typed. A company that saved settings before keeps the ids it stored.
+    defaultModel: '',
+    fastModel: '',
     privacy: { maskIds: true, pseudonymiseParties: false },
     prices: {},
     maxSteps: 8,
@@ -45,7 +47,7 @@ function writeSettings(db: DB, s: AiSettings): void {
 }
 
 /** Apply a validated patch. Turning AI on needs the data notice accepted first. */
-export function patchAiSettings(db: DB, raw: AiSettingsPatch): AiSettings {
+export function patchAiSettings(db: DB, raw: AiSettingsPatch, opts: { modelsFor?: string; force?: boolean } = {}): AiSettings {
   const patch = aiSettingsPatchSchema.parse(raw)
   const before = getAiSettings(db)
   if (patch.enabled && (!before.noticeAcceptedAt || before.noticeVersion !== AI_DATA_NOTICE_VERSION)) {
@@ -58,6 +60,13 @@ export function patchAiSettings(db: DB, raw: AiSettingsPatch): AiSettings {
     ...(patch.fastModel ? { fastModel: patch.fastModel } : {}),
     ...(patch.maxSteps ? { maxSteps: patch.maxSteps } : {}),
     ...(patch.useMemory !== undefined ? { useMemory: patch.useMemory } : {}),
+    // Models saved now belong to the service in use (Phase 3a).
+    // Only a real change of model ids (a save that re-sends the same ids, e.g. with prices, keeps
+    // the service they were picked for — review of #210).
+    ...(opts.modelsFor &&
+    ((patch.defaultModel && patch.defaultModel !== before.defaultModel) || (patch.fastModel && patch.fastModel !== before.fastModel) || opts.force)
+      ? { modelsFor: opts.modelsFor }
+      : {}),
     privacy: { ...before.privacy, ...(patch.privacy ?? {}) },
     prices: patch.prices ? { ...patch.prices } : before.prices
   }
@@ -85,24 +94,26 @@ export function keyHint(key: string | null): string | null {
   return `…${key.slice(-4)}`
 }
 
-export function readApiKey(store: SecretStore): string | null {
+export function readApiKey(store: SecretStore, preset: AiPresetId = 'openai'): string | null {
   try {
-    return store.get(APP_SCOPE, API_KEY_SECRET)
+    return store.get(APP_SCOPE, presetKeySecret(preset))
   } catch {
     return null
   }
 }
 
 /** Store the key; the company's audit trail records that a key was set (and its hint), never the key. */
-export function setApiKey(db: DB | null, store: SecretStore, key: string): { keyHint: string | null } {
-  const before = readApiKey(store)
-  store.set(APP_SCOPE, API_KEY_SECRET, key)
-  if (db) writeAudit(db, 'ai_settings', 0, 'update', { apiKey: before ? keyHint(before) : null }, { apiKey: keyHint(key) })
+export function setApiKey(db: DB | null, store: SecretStore, key: string, preset: AiPresetId = 'openai'): { keyHint: string | null } {
+  const before = readApiKey(store, preset)
+  store.set(APP_SCOPE, presetKeySecret(preset), key)
+  const tag = preset === 'openai' ? {} : { preset }
+  if (db) writeAudit(db, 'ai_settings', 0, 'update', { apiKey: before ? keyHint(before) : null, ...tag }, { apiKey: keyHint(key), ...tag })
   return { keyHint: keyHint(key) }
 }
 
-export function clearApiKey(db: DB | null, store: SecretStore): void {
-  const before = readApiKey(store)
-  store.delete(APP_SCOPE, API_KEY_SECRET)
-  if (db) writeAudit(db, 'ai_settings', 0, 'update', { apiKey: before ? keyHint(before) : null }, { apiKey: null })
+export function clearApiKey(db: DB | null, store: SecretStore, preset: AiPresetId = 'openai'): void {
+  const before = readApiKey(store, preset)
+  store.delete(APP_SCOPE, presetKeySecret(preset))
+  const tag = preset === 'openai' ? {} : { preset }
+  if (db) writeAudit(db, 'ai_settings', 0, 'update', { apiKey: before ? keyHint(before) : null, ...tag }, { apiKey: null, ...tag })
 }

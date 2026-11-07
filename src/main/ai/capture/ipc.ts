@@ -19,8 +19,10 @@ import type { Role } from '../../services/roles'
 import type { SecretStore } from '../../services/secrets'
 import { writeAudit } from '../../services/audit'
 import { companyDir } from '../../paths'
-import { getAiSettings, readApiKey } from '../settings'
-import { defaultProviderFactory, settingsView } from '../ipc'
+import { getAiSettings } from '../settings'
+import { currentProvider } from '../providerConfig'
+import { unreadableItems } from './estimate'
+import { buildProvider, defaultProviderFactory, settingsView, type ProviderFactory } from '../ipc'
 import type { AiProvider } from '../types'
 import { captureFilesDir, captureInboxDir, deleteCaptureFile } from './files'
 import { addCaptureFile, fileStillUsed, getItem, listItems, patchItem, recoverQueue, removeItem, toCaptureDto, type CaptureItemRow } from './store'
@@ -44,7 +46,7 @@ export interface CaptureIpcDeps {
   session: () => { name: string | null; role: Role }
   secrets: () => SecretStore
   mock: () => boolean
-  providerFactory?: (opts: { apiKey: string | null; mock: boolean }) => AiProvider
+  providerFactory?: ProviderFactory
   /** Injected by tests; the app converts with Electron's nativeImage. */
   images?: ImageConverter
 }
@@ -71,7 +73,7 @@ export function registerCaptureIpc(handle: Handle, deps: CaptureIpcDeps): void {
     const c = deps.company()
     const e: CaptureEnv = {
       db: c.db, company: c.info, slug: c.slug, filesDir: captureFilesDir(companyDir(c.slug)),
-      provider: () => factory({ apiKey: readApiKey(deps.secrets()), mock: deps.mock() }),
+      provider: () => buildProvider(factory, deps.secrets(), deps.mock()),
       settings: (): AiSettings => getAiSettings(c.db),
       blocker: () => settingsView(getAiSettings(c.db), deps.secrets(), deps.mock()).blocker,
       images: deps.images ?? electronImages,
@@ -135,8 +137,14 @@ export function registerCaptureIpc(handle: Handle, deps: CaptureIpcDeps): void {
     const { ids } = captureIdsSchema.parse(p ?? {})
     const s = getAiSettings(db())
     const items = listItems(db()).filter((i) => i.status === 'queued' && (!ids?.length || ids.includes(i.id)))
+    const current = currentProvider(deps.secrets())
     const e = estimateCapture(items, s.prices[s.defaultModel])
-    return { items: items.length, ids: items.map((i) => i.id), ...e, model: s.defaultModel, blocker: env().blocker(), maskIds: s.privacy.maskIds, pseudonymise: s.privacy.pseudonymiseParties }
+    // A model on this computer costs nothing.
+    if (current.resolved.local && !deps.mock()) e.costMicroUsd = 0
+    return {
+      items: items.length, ids: items.map((i) => i.id), ...e, model: s.defaultModel, blocker: env().blocker(), maskIds: s.privacy.maskIds, pseudonymise: s.privacy.pseudonymiseParties,
+      cannotRead: deps.mock() ? null : unreadableItems(items, current.resolved.caps)
+    }
   }, 'viewer')
   handle('capture:process', (p) => {
     const { ids } = captureProcessSchema.parse(p)

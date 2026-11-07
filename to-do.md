@@ -48,7 +48,7 @@ done on main were dropped. One line each; the pointer says where to look.
 
 ## 3. Things only the owner can supply
 
-- OpenAI API key for a live AI run (only mock runs so far; default model ids `gpt-6.1-sol` / `gpt-6-luna` unverified)
+- An AI key (any preset) or a local Ollama / LM Studio model for a live AI run (only mock runs and mocked HTTP so far). ~~Default model ids `gpt-6.1-sol` / `gpt-6-luna` unverified~~ DONE — PR #210 (no built-in model id; picked from the service's list)
 - NIC e-invoice / e-way sandbox credentials (the client has never talked to the real portal) — `src/main/services/nic.ts`
 - A GSP choice + its sandbox credentials + a test GSTIN (Phase 4): the gateway (`src/main/gstGateway/`) is built provider-neutral with the built-in Test GSP only; a real adapter plugs into `SELECTABLE_PROVIDERS` / `sandbox.contract.test.ts` (manual workflow `gsp-sandbox.yml`), and live filing stays off until then (`LIVE_FILING_AVAILABLE`) — PR #209
 - Apple Developer ID certificate (`CSC_LINK` / `CSC_KEY_PASSWORD`) for signed, silently updating macOS builds — `release.yml`, `src/main/updater.ts`
