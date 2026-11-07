@@ -116,7 +116,14 @@ interface PartyBills {
    *  their date — Outstandings replays by date, so a bill dated after a voucher is not open for it. */
   pending: BillEvent[]
   next: number
+  /** Every bill / ref name the party has had or will have in the books (openings, its book entries
+   *  at any date, the vouchers imported so far): a generated bill name never reuses one — a paid
+   *  bill's or a used-up advance's name would make readers that match by name (bulk edit's party
+   *  move, undo's link check) think a ref rests on the new bill (review of #203). */
+  names: Set<string>
 }
+
+const eventNames = (e: BillEvent): string[] => [e.number, ...e.refs.map((r) => r.name)]
 
 function advanceTo(p: PartyBills, date: string): void {
   while (p.next < p.pending.length && p.pending[p.next]!.date <= date) p.allocator.apply(p.pending[p.next++]!)
@@ -146,9 +153,13 @@ function settleOnOpenBills(party: PartyBills, partyName: string, v: TallyVoucher
   const open = party.allocator.open().map((b) => ({ name: b.number, left: b.pending }))
   const credits = party.allocator.openCredits().map((c) => ({ name: c.name, left: c.amount }))
   const out: ImportBillRef[] = []
+  // An Agst ref joins only the one just before it of the same name: the engine applies a voucher's
+  // refs in order, so one merged into an earlier ref would settle (and spill its excess oldest
+  // first) before the refs between them — not what the tracking here worked out. A New ref joins
+  // any earlier New ref of its name (two would open two bills of one name — review of #203).
   const add = (r: ImportBillRef): void => {
-    const same = out.find((o) => o.kind === r.kind && o.name === r.name)
-    if (same) same.amount += r.amount
+    const same = r.kind === 'new' ? out.find((o) => o.kind === 'new' && o.name === r.name) : out.at(-1)
+    if (same && same.kind === r.kind && same.name === r.name) same.amount += r.amount
     else out.push({ ...r })
   }
   const settleFifo = (amount: number): ImportBillRef[] => {
@@ -178,6 +189,8 @@ function settleOnOpenBills(party: PartyBills, partyName: string, v: TallyVoucher
   }
   const notes: string[] = []
   const unknown: ImportBillRef[] = []
+  // One generated bill per voucher, whatever number of missing advances it names.
+  let generated: string | null = null
   for (const r of refs) {
     if (r.kind !== 'against') {
       add(r)
@@ -192,7 +205,9 @@ function settleOnOpenBills(party: PartyBills, partyName: string, v: TallyVoucher
       }
       if (kind === 'receipt' || kind === 'payment') return keepNone([r.name], 'advance', 'a refund can\'t open a bill of its own')
       if (!v.number) return keepNone([r.name], 'advance', 'the entry has no number to name a bill by')
-      const name = uniqueName(v.number, new Set([...open.map((b) => b.name), ...credits.map((c) => c.name)]), v.date)
+      // Never a name the party has had (a paid bill, a used-up advance — `PartyBills.names`); the
+      // voucher's own New Ref of that name takes the part (`add` joins New refs of one name).
+      const name = (generated ??= uniqueName(v.number, new Set([...open.map((b) => b.name), ...credits.map((c) => c.name), ...party.allocator.creditNames(), ...party.names]), v.date))
       add({ kind: 'new', name, amount: r.amount, dueDate: null })
       notes.push(`${notFound([r.name], 'advance')} — that part is a bill of its own, ${name}`)
       continue
@@ -581,7 +596,8 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
       const ev = partyBillEventParts(db, partyId, '9999-12-31')!
       const allocator = billAllocator(ev.creditDays)
       for (const e of ev.opening) allocator.apply(e)
-      p = { allocator, sign: ev.sign, pending: ev.movements, next: 0 }
+      const names = new Set([...ev.opening, ...ev.movements].flatMap(eventNames))
+      p = { allocator, sign: ev.sign, pending: ev.movements, next: 0, names }
       partyBills.set(partyId, p)
     }
     advanceTo(p, date)
@@ -709,7 +725,9 @@ function applyParsedTallyImport(db: DB, data: TallyImport, canSetBooksFrom: bool
           if (!own.length) continue
           advanceTo(p, saved.date)
           const net = own.reduce((s, l) => s + (l.drCr === 'dr' ? l.amount : -l.amount), 0)
-          p.allocator.apply({ voucherId: saved.id, date: saved.date, number: saved.number, amount: p.sign * net, refs: saved.partyLedgerId === partyId ? saved.billRefs.map((r) => ({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.dueDate })) : [] })
+          const event: BillEvent = { voucherId: saved.id, date: saved.date, number: saved.number, amount: p.sign * net, refs: saved.partyLedgerId === partyId ? saved.billRefs.map((r) => ({ kind: r.kind, name: r.name, amount: r.amount, dueDate: r.dueDate })) : [] }
+          p.allocator.apply(event)
+          for (const n of eventNames(event)) p.names.add(n)
         }
       }
     } catch (err) {
