@@ -9,7 +9,7 @@ import type { CompanyInfo, Voucher, VoucherKind } from '@shared/domain'
 import { saveVoucher } from '../services/vouchers'
 import { createLedger } from '../services/masters'
 import { basename } from 'path'
-import { rekeyFile } from './encryption'
+import { installStatementCache, rekeyFile } from './encryption'
 import { newDataKey, wrapKey } from './keyEnvelope'
 import { writeEnvelope } from '../services/companyKeys'
 
@@ -42,12 +42,14 @@ export const TEST_INFO: CompanyInfo = {
 export function testFileDb(path: string, options?: Database.Options): DB {
   const db = new Database(path, options)
   if (!options?.readonly) db.pragma('synchronous = OFF')
+  installStatementCache(db) // as every app connection (openDb)
   return db
 }
 
 /** An in-memory DB with the schema migrated but no seed data. */
 export function freshDb(): DB {
   const db = new Database(':memory:')
+  installStatementCache(db) // as every app connection (openDb)
   db.pragma('foreign_keys = ON')
   migrate(db)
   return db
@@ -57,6 +59,7 @@ export function freshDb(): DB {
  *  stage legacy data and then let migrate() finish (data-migration assertions). */
 export function freshPartialDb(count: number): DB {
   const db = new Database(':memory:')
+  installStatementCache(db) // as every app connection (openDb)
   db.pragma('foreign_keys = ON')
   // Through the real runner, so a '-- @foreign-keys-off' migration gets its FK-off handling.
   migrate(db, MIGRATIONS.slice(0, count))

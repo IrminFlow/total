@@ -2,7 +2,7 @@
  * Generate a JSON-Schema-style document for the voucher input contract by walking the live zod
  * schema (`voucherInputSchema`) — no zod-to-json-schema dependency. The walk covers exactly the
  * zod constructs that schema uses (object/number/string/enum/array/nullable/optional/default/
- * effects); anything unrecognized renders as {} rather than throwing, and the unit test asserts
+ * pipe — Zod 4 internals, `_zod.def`); anything unrecognized renders as {} rather than throwing, and the unit test asserts
  * every top-level field of the real schema appears here, so the doc can't silently drift.
  *
  * Pure module: imports only zod schemas from src/shared — safe under plain-Node vitest.
@@ -56,42 +56,59 @@ const FIELD_DOCS: Record<string, string> = {
   trade: "Delivery challan / goods receipt note only: { purpose } (why the goods moved — supply, job_work, approval, liquid_gas or non_supply on a challan; purchase, return or job_work on a GRN). Absent keeps the stored purpose; ignored for every other kind."
 }
 
+type Schema = z.core.$ZodType
+
 interface ZodDefLike {
-  typeName?: string
-  innerType?: z.ZodTypeAny
-  schema?: z.ZodTypeAny
-  type?: z.ZodTypeAny
-  values?: string[]
-  checks?: { kind: string; value?: unknown; regex?: RegExp; inclusive?: boolean }[]
-  defaultValue?: () => unknown
-  exactLength?: { value: number } | null
-  minLength?: { value: number } | null
-  maxLength?: { value: number } | null
+  type: string
+  innerType?: Schema
+  in?: Schema
+  out?: Schema
+  shape?: Record<string, Schema>
+  element?: Schema
+  entries?: Record<string, string>
+  checks?: z.core.$ZodCheck[]
+  defaultValue?: unknown
 }
 
-function defOf(schema: z.ZodTypeAny): ZodDefLike {
-  return (schema as unknown as { _def: ZodDefLike })._def
+interface CheckDef {
+  check: string
+  value?: number
+  inclusive?: boolean
+  minimum?: number
+  maximum?: number
+  length?: number
+  format?: string
+  pattern?: RegExp
+}
+
+function defOf(schema: Schema): ZodDefLike {
+  return schema._zod.def as unknown as ZodDefLike
+}
+
+function checksOf(def: ZodDefLike): CheckDef[] {
+  return (def.checks ?? []).map((c) => c._zod.def as unknown as CheckDef)
 }
 
 /** Walk one zod node into a JSON-Schema-ish node. Returns [schema, isOptional]. */
-function walk(schema: z.ZodTypeAny): { node: JsonSchema; optional: boolean; hasDefault: boolean } {
+function walk(schema: Schema): { node: JsonSchema; optional: boolean; hasDefault: boolean } {
   const def = defOf(schema)
-  switch (def.typeName) {
-    case 'ZodDefault': {
+  switch (def.type) {
+    case 'default':
+    case 'prefault': {
       const inner = walk(def.innerType!)
       let dflt: unknown
       try {
-        dflt = def.defaultValue!()
+        dflt = def.defaultValue
       } catch {
         dflt = undefined
       }
       return { node: { ...inner.node, default: dflt }, optional: true, hasDefault: true }
     }
-    case 'ZodOptional': {
+    case 'optional': {
       const inner = walk(def.innerType!)
       return { node: inner.node, optional: true, hasDefault: inner.hasDefault }
     }
-    case 'ZodNullable': {
+    case 'nullable': {
       const inner = walk(def.innerType!)
       const t = inner.node.type
       return {
@@ -100,14 +117,14 @@ function walk(schema: z.ZodTypeAny): { node: JsonSchema; optional: boolean; hasD
         hasDefault: inner.hasDefault
       }
     }
-    case 'ZodEffects': // .transform()/.refine() — document the input shape
-      return walk(def.schema!)
-    case 'ZodObject': {
-      const shape = (schema as z.ZodObject<z.ZodRawShape>).shape
+    case 'pipe': // .transform() / z.preprocess() — document the input shape (a refinement is a check)
+      return walk(defOf(def.in!).type === 'transform' ? def.out! : def.in!)
+    case 'object': {
+      const shape = def.shape!
       const properties: Record<string, JsonSchema> = {}
       const requiredKeys: string[] = []
       for (const [key, child] of Object.entries(shape)) {
-        const walked = walk(child as z.ZodTypeAny)
+        const walked = walk(child)
         properties[key] = walked.node
         if (FIELD_DOCS[key]) properties[key] = { description: FIELD_DOCS[key], ...properties[key] }
         if (!walked.optional) requiredKeys.push(key)
@@ -118,36 +135,45 @@ function walk(schema: z.ZodTypeAny): { node: JsonSchema; optional: boolean; hasD
         hasDefault: false
       }
     }
-    case 'ZodArray': {
-      const item = walk(def.type!)
+    case 'array': {
+      const item = walk(def.element!)
       const node: JsonSchema = { type: 'array', items: item.node }
-      if (def.maxLength) node.maxItems = def.maxLength.value
+      for (const check of checksOf(def)) if (check.check === 'max_length') node.maxItems = check.maximum
       return { node, optional: false, hasDefault: false }
     }
-    case 'ZodEnum':
-      return { node: { type: 'string', enum: def.values ?? [] }, optional: false, hasDefault: false }
-    case 'ZodString': {
+    case 'enum':
+      return { node: { type: 'string', enum: Object.values(def.entries ?? {}) }, optional: false, hasDefault: false }
+    case 'string': {
       const node: JsonSchema = { type: 'string' }
-      for (const check of def.checks ?? []) {
-        if (check.kind === 'regex' && check.regex) node.pattern = check.regex.source
-        if (check.kind === 'max' && typeof check.value === 'number') node.maxLength = check.value
-        if (check.kind === 'min' && typeof check.value === 'number') node.minLength = check.value
-        if (check.kind === 'length' && typeof check.value === 'number') {
-          node.minLength = check.value
-          node.maxLength = check.value
+      for (const check of checksOf(def)) {
+        if (check.check === 'string_format' && check.format === 'regex' && check.pattern) node.pattern = check.pattern.source
+        if (check.check === 'max_length' && typeof check.maximum === 'number') node.maxLength = check.maximum
+        if (check.check === 'min_length' && typeof check.minimum === 'number') node.minLength = check.minimum
+        if (check.check === 'length_equals' && typeof check.length === 'number') {
+          node.minLength = check.length
+          node.maxLength = check.length
         }
       }
       return { node, optional: false, hasDefault: false }
     }
-    case 'ZodNumber': {
+    case 'number': {
       const node: JsonSchema = { type: 'number' }
-      for (const check of def.checks ?? []) {
-        if (check.kind === 'int') node.type = 'integer'
-        if (check.kind === 'min' && typeof check.value === 'number') {
+      let safeInts = 0
+      for (const check of checksOf(def)) {
+        if (check.check === 'number_format' && check.format === 'safeint') {
+          // Zod 4's .safe() is the same check as .int(); the second one is the `.int().safe()` our
+          // schemas write, which Zod 3 documented as the safe-integer bounds.
+          if (++safeInts === 1) node.type = 'integer'
+          else {
+            node.minimum = Math.max(node.minimum ?? -Infinity, Number.MIN_SAFE_INTEGER)
+            node.maximum = Math.min(node.maximum ?? Infinity, Number.MAX_SAFE_INTEGER)
+          }
+        }
+        if (check.check === 'greater_than' && typeof check.value === 'number') {
           if (check.inclusive === false) node.exclusiveMinimum = Math.max(node.exclusiveMinimum ?? -Infinity, check.value)
           else node.minimum = Math.max(node.minimum ?? -Infinity, check.value)
         }
-        if (check.kind === 'max' && typeof check.value === 'number' && check.inclusive !== false) {
+        if (check.check === 'less_than' && typeof check.value === 'number' && check.inclusive !== false) {
           node.maximum = Math.min(node.maximum ?? Infinity, check.value)
         }
       }
@@ -156,7 +182,7 @@ function walk(schema: z.ZodTypeAny): { node: JsonSchema; optional: boolean; hasD
       }
       return { node, optional: false, hasDefault: false }
     }
-    case 'ZodBoolean':
+    case 'boolean':
       return { node: { type: 'boolean' }, optional: false, hasDefault: false }
     default:
       return { node: {}, optional: false, hasDefault: false }

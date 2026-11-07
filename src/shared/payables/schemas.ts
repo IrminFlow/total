@@ -43,7 +43,7 @@ export const paymentRunSchema = z.object({
 export type PaymentRunInput = z.input<typeof paymentRunSchema>
 
 export const paymentRunIdSchema = z.object({ id })
-export const paymentRunsListSchema = z.object({ from: isoDate.optional(), to: isoDate.optional() }).default({})
+export const paymentRunsListSchema = z.object({ from: isoDate.optional(), to: isoDate.optional() }).prefault({})
 
 export const msmeReportSchema = z.object({
   asOn: isoDate,

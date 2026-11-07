@@ -83,7 +83,9 @@ export const invoiceConfigSchema = z.object({
  *  always a full InvoiceConfig, but callers (and the invoice:previewHtml IPC payload) only need
  *  to promise a subset; the service layer merges whatever's given over the *saved* config, not
  *  the hard defaults, so an omitted field falls back to what's on disk. */
-export const invoiceConfigPartialSchema = invoiceConfigSchema.partial()
+// showEnteredBy without its default: Zod 4 applies a default inside .partial()'s optional, which
+// would turn an omitted field into `false` and override the saved config (Zod 3 left it absent).
+export const invoiceConfigPartialSchema = invoiceConfigSchema.extend({ showEnteredBy: z.boolean() }).partial()
 
 /** Merge a partial/unknown-shaped object over the defaults, then validate. Never throws — falls
  *  back to all-defaults if the merged shape still doesn't validate. */
