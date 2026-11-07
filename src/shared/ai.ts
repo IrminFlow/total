@@ -98,7 +98,7 @@ export const AI_PRE_CALL_TOOLS = ['close_checklist', 'gst_2b_mismatches', 'find_
 
 export const aiPreCallSchema = z.object({
   tool: z.enum(AI_PRE_CALL_TOOLS),
-  input: z.record(z.string(), z.unknown()).default({})
+  input: z.record(z.string(), z.unknown()).prefault({})
 })
 export type AiPreCall = z.infer<typeof aiPreCallSchema>
 

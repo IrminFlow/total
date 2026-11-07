@@ -60,7 +60,7 @@ export function registerWorkspaceIpc(handle: Handle, company: () => Company): vo
     return r
   })
   handle('bulk:list', (p) => {
-    const { target } = z.object({ target: z.enum(['voucher', 'ledger', 'stockItem']).optional() }).default({}).parse(p)
+    const { target } = z.object({ target: z.enum(['voucher', 'ledger', 'stockItem']).optional() }).prefault({}).parse(p)
     return bulk.listBulkBatches(db(), target)
   }, 'viewer')
   handle('bulk:get', (p) => bulk.getBulkBatch(db(), idSchema.parse(p).id), 'viewer')

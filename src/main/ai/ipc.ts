@@ -186,7 +186,7 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     return view()
   }, 'owner')
   handle('ai:key:canSet', (p) => {
-    z.object({}).strict().default({}).parse(p ?? {})
+    z.object({}).strict().prefault({}).parse(p ?? {})
     const c = deps.company()
     return keyCanSet({ companyHasUsers: c.usersExist, isOwner: roleAllows(deps.session().role, 'owner'), anyCompanyHasUsers: !c.usersExist && deps.anyCompanyHasUsers() })
   }, 'viewer')
@@ -203,7 +203,7 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
     return view()
   }, 'owner')
   handle('ai:key:clear', (p) => {
-    const { confirmNoUsers } = z.object({ confirmNoUsers: z.boolean().default(false) }).default({}).parse(p ?? {})
+    const { confirmNoUsers } = z.object({ confirmNoUsers: z.boolean().default(false) }).prefault({}).parse(p ?? {})
     const mode = guardKey(confirmNoUsers)
     const pr = preset()
     clearApiKey(db(), deps.secrets(), pr)
@@ -376,7 +376,7 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
   handle('ai:drafts', (p) => {
     const { status, threadId } = z
       .object({ status: z.enum(['open', 'consumed', 'discarded']).optional(), threadId: z.number().int().positive().optional() })
-      .default({})
+      .prefault({})
       .parse(p ?? {})
     return store.listDrafts(db(), status, threadId)
   }, 'viewer')
@@ -417,7 +417,7 @@ export function registerAiIpc(handle: Handle, deps: AiIpcDeps): void {
   // Deletes conversations, drafts, memory and aliases. It cannot (and must not) remove the audit
   // trail's rows about AI settings and drafts: audit_log is append-only (MCA rule 3(1)).
   handle('ai:data:deleteAll', (p) => {
-    const { includeLogs } = z.object({ includeLogs: z.boolean().default(false) }).default({}).parse(p ?? {})
+    const { includeLogs } = z.object({ includeLogs: z.boolean().default(false) }).prefault({}).parse(p ?? {})
     for (const t of aiRuns.running(scope())) aiRuns.cancel(t, scope())
     const d = db()
     return d.transaction(() => {

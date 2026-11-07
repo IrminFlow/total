@@ -53,11 +53,11 @@ export const itc04QuerySchema = z.object({
 /** User-entered rule 42 / 43 facts for one period (meta `gst.itcRev.inputs.<MMYYYY>`). */
 export const itcReversalInputsSchema = z.object({
   /** T1 — inputs / input services used exclusively for non-business purposes. */
-  T1: heads.default({}),
+  T1: heads.prefault({}),
   /** T2 — used exclusively for exempt supplies. */
-  T2: heads.default({}),
+  T2: heads.prefault({}),
   /** T4 — used exclusively for taxable (incl. zero-rated) supplies. */
-  T4: heads.default({}),
+  T4: heads.prefault({}),
   /** Inputs partly used for non-business purposes (D2 = 5% of C2). */
   nonBusiness: z.boolean().default(false),
   /** Capital-goods vouchers used EXCLUSIVELY for taxable supplies (left out of rule 43's Tc). */

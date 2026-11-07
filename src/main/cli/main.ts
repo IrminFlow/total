@@ -14,6 +14,7 @@
  */
 // Prints / plain errors in a company's language: register hi / hinglish (the renderer loads them lazily).
 import '@shared/i18n/all'
+import '@shared/zodMessages'
 import { readFileSync, writeFileSync } from 'fs'
 import { setAuditContext } from '../services/audit'
 import { todayISO } from '@shared/dates'
