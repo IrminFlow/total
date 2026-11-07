@@ -565,7 +565,7 @@ days and assume no surprises.
 Needs Node 22 and npm, on a Mac (or Windows).
 
 ```bash
-git clone https://github.com/IrminFlow/total.git && cd total
+git clone https://github.com/Total-org/total-org.git && cd total
 npm ci                                                    # install; rebuilds the SQLite driver
 npx @electron/rebuild -f -w better-sqlite3-multiple-ciphers   # only if NODE_MODULE_VERSION errors
 npm run dev                                               # the app with live reload
