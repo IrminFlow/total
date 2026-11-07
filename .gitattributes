@@ -4,3 +4,6 @@
 *.icns binary
 # WP 7.3: Windows-encoded importer fixtures (BOM / UTF-16 / CRLF) must stay byte-exact.
 src/shared/fixtures/windows/*crlf* binary
+# Phase 2a: official GSTN / NIC schema files, vendored byte-for-byte (SHA-256 in sources.json).
+src/main/services/gstGolden/schemas/*.schema.json binary
+src/main/services/gstGolden/schemas/*.sample.json binary
