@@ -327,7 +327,7 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   macos-14). The release workflow uses `macos-latest`, which GitHub now maps to macOS 26 — so
   tag builds run on a newer image than these checks (left as is; noted in #206).
 
-- **Long imports and big runs no longer run out of memory** (#PR_SC). Plain words: since the
+- **Long imports and big runs no longer run out of memory** (#215). Plain words: since the
   Electron 45 upgrade (#208), a very long job done in one go — a large Tally or books import, a big
   bulk edit — could make Total use more and more memory until it crashed; it now stays flat. Nothing
   in the books changes. For developers: the SQLite driver 13 (Node-API) frees a prepared statement
