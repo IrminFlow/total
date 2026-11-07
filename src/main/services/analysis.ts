@@ -4,7 +4,7 @@ import { allocateBills, billAllocator, type AllocateBillsResult, type BillAlloca
 import { fyOf } from '@shared/dates'
 import { descendantIdsByName, partyGroupIdsBySide } from './masters'
 import { IN_BOOKS } from './vouchers'
-import { openingBillsByParty, openingEvents } from './openingBills'
+import { openingBillsByParty, openingDateOf, openingEvents } from './openingBills'
 
 /** WP 4.4: forex revaluation journals and their reversals restate a foreign balance at a closing
  *  rate; they are not bills or payments, so they stay out of the bill events (otherwise the
@@ -232,8 +232,9 @@ export function outstandingsWithAdvances(
 
   const eventsByParty = partyEventsBatch(db, parties.map((p) => p.id), asOn, sign)
   const openingBills = openingBillsByParty(db)
+  const openingDate = openingDateOf(db)
   for (const party of parties) {
-    const events = [...openingEvents(asOn, party.opening_balance, sign, openingBills.get(party.id), party.credit_days), ...(eventsByParty.get(party.id) ?? [])]
+    const events = [...openingEvents(openingDate, party.opening_balance, sign, openingBills.get(party.id), party.credit_days), ...(eventsByParty.get(party.id) ?? [])]
     const { bills, warnings, unappliedCredit } = allocateBills(events, asOn, party.credit_days)
     if (unappliedCredit > 0) {
       advances += unappliedCredit
@@ -306,7 +307,7 @@ export function partyBillEventParts(db: DB, partyLedgerId: number, asOn: string,
   const debtorIds = opts.seededSide ? descendantIdsByName(db, ['Sundry Debtors']) : partyGroupIdsBySide(db, 'debtor')
   const sign = debtorIds.has(ledger.group_id) ? 1 : -1
   return {
-    opening: openingEvents(asOn, ledger.opening_balance, sign, openingBillsByParty(db, [partyLedgerId]).get(partyLedgerId), ledger.credit_days),
+    opening: openingEvents(openingDateOf(db), ledger.opening_balance, sign, openingBillsByParty(db, [partyLedgerId]).get(partyLedgerId), ledger.credit_days),
     movements: partyEventsBatch(db, [partyLedgerId], asOn, sign).get(partyLedgerId) ?? [],
     sign,
     creditDays: ledger.credit_days

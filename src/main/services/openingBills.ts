@@ -14,11 +14,13 @@
  *
  * Every bill-wise reader goes through `openingEvents` (via analysis.ts: Outstandings, statements,
  * receivables, payables, dashboard, cash forecast, AI tools …). A party without bills is exactly
- * the old single 'Opening' bill dated the FY start.
+ * the old single 'Opening' bill, dated the books-begin day (`openingDateOf`; it was dated the FY
+ * start of the as-on date until Nov 2026, so its age restarted every 1 April — owner decision).
  */
 import type { DB } from '../db/connection'
 import type { BillEvent } from '@shared/outstanding'
-import { addDaysISO, fyOf } from '@shared/dates'
+import { addDaysISO, fyFromStartYear } from '@shared/dates'
+import { readCompanyInfo } from '../db/seed'
 import { AppError } from '@shared/errors'
 import { OPENING_BALANCE_NAME } from '@shared/simple/openings'
 import { writeAudit } from './audit'
@@ -45,19 +47,30 @@ export function openingBillsByParty(db: DB, partyIds?: readonly number[]): Map<n
   return out
 }
 
+/** The day an opening without bills (and the uncovered rest of one with bills) is dated on: the
+ *  books-begin day — the setup's chosen day (WP 8.3 booksBeginDate) when it lies in the first FY
+ *  (`booksFrom`), else that FY's start. The guard (review of #199): a wizard company that then
+ *  imports older Tally books has `booksFrom` moved back while `booksBeginDate` stays the wizard's
+ *  day — the opening is from before the oldest entry, never dated after it. */
+export function openingDateOf(db: DB): string {
+  const info = readCompanyInfo(db)
+  const first = fyFromStartYear(info.booksFrom)
+  const begin = info.booksBeginDate
+  return begin != null && begin >= first.from && begin <= first.to ? begin : first.from
+}
+
 /**
  * A party's opening as bill events, in the allocation's sign convention (`sign` +1 receivable,
- * −1 payable). No bills: the one unnamed 'Opening' bill dated the FY start of `asOn` (unchanged).
+ * −1 payable). No bills: the one unnamed 'Opening' bill dated `openingDate` (= `openingDateOf`).
  * With bills: one named bill each on its own date, due on its due date, else bill date + the
  * party's credit days, else the bill date itself; if the opening ever differs from them (it
  * cannot through the app — see the header) the difference is an "Opening (balance)" bill or
  * settles them oldest first.
  */
-export function openingEvents(asOn: string, openingBalance: number, sign: number, bills: readonly OpeningBillRow[] | undefined, creditDays: number | null = null): BillEvent[] {
+export function openingEvents(openingDate: string, openingBalance: number, sign: number, bills: readonly OpeningBillRow[] | undefined, creditDays: number | null = null): BillEvent[] {
   if (!bills?.length) {
     if (openingBalance === 0) return []
-    // v0.3 #62: the FY start of asOn — `${asOn.year}-04-01` was wrong for Jan–Mar dates.
-    return [{ voucherId: null, date: fyOf(asOn).from, number: 'Opening', amount: sign * openingBalance, refs: [] }]
+    return [{ voucherId: null, date: openingDate, number: 'Opening', amount: sign * openingBalance, refs: [] }]
   }
   const events: BillEvent[] = bills.map((b) => ({
     voucherId: null,
@@ -67,7 +80,7 @@ export function openingEvents(asOn: string, openingBalance: number, sign: number
     refs: [{ kind: 'new', name: b.name, amount: b.amount, dueDate: b.dueDate ?? (creditDays != null ? addDaysISO(b.date, creditDays) : b.date) }]
   }))
   const rest = sign * openingBalance - bills.reduce((s, b) => s + b.amount, 0)
-  if (rest !== 0) events.push({ voucherId: null, date: fyOf(asOn).from, number: OPENING_BALANCE_NAME, amount: rest, refs: [] })
+  if (rest !== 0) events.push({ voucherId: null, date: openingDate, number: OPENING_BALANCE_NAME, amount: rest, refs: [] })
   return events
 }
 
