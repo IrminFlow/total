@@ -153,9 +153,6 @@ export class Harness {
     return r.data
   }
 
-  /** Turn on features hidden until used (the feature cleanup) the way an owner does: Settings →
-   *  Features → More features → Turn on, in the full app. A flag feature (cost centres, orders)
-   *  moves to the main list once on. Asserts each reads as turned on afterwards. */
   /** Turn the AI assistant on for the open company the way an owner does (Phase 3a): accept the
    *  data notice, switch it on, then Test connection — which picks the model from the service's
    *  own list (the TOTAL_AI_MOCK provider lists gpt-6.1-sol / gpt-6-luna / mock-model). There is
@@ -170,6 +167,9 @@ export class Harness {
     return view
   }
 
+  /** Turn on features hidden until used (the feature cleanup) the way an owner does: Settings →
+   *  Features → More features → Turn on, in the full app. A flag feature (cost centres, orders)
+   *  moves to the main list once on. Asserts each reads as turned on afterwards. */
   async useFeature(...names) {
     const FLAG = { costCentres: 'costCentres', tradeCycle: 'orders' }
     await this.goto('settings')
