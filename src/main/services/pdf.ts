@@ -58,8 +58,10 @@ async function renderPdf(html: string, opts: HtmlToPdfOptions): Promise<Buffer> 
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html))
   const printOpts: Electron.PrintToPDFOptions = { printBackground: true }
   if (opts.pageSize) printOpts.pageSize = opts.pageSize as Electron.PrintToPDFOptions['pageSize']
-  if (opts.margins === 'none') printOpts.margins = { marginType: 'none' }
-  else if (opts.marginsMm) {
+  // `margins: 'none'` sets nothing: printToPDF never read a `marginType` (Electron 37 took only
+  // top / right / bottom / left, 0.4" default — Electron 45 dropped the key from the type), so these
+  // prints have always had the default margin. Kept as printed before; zero margins = to-do §7.
+  if (opts.margins !== 'none' && opts.marginsMm) {
     const inch = (mm: number): number => mm / 25.4
     const m = opts.marginsMm
     printOpts.margins = { top: inch(m.top), right: inch(m.right), bottom: inch(m.bottom), left: inch(m.left) }
