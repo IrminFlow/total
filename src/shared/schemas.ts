@@ -735,7 +735,7 @@ export const tdsRateInputSchema = z
   })
 export type TdsRateInput = z.input<typeof tdsRateInputSchema>
 
-export const tdsRatesQuerySchema = z.object({ sectionId: id.optional() }).default({})
+export const tdsRatesQuerySchema = z.object({ sectionId: id.optional() }).prefault({})
 
 export const tdsCertificateInputSchema = z
   .object({
@@ -751,7 +751,7 @@ export const tdsCertificateInputSchema = z
   .refine((c) => c.validTo >= c.validFrom, { message: 'Valid-to date is before valid-from', path: ['validTo'] })
 export type TdsCertificateInput = z.input<typeof tdsCertificateInputSchema>
 
-export const tdsCertificatesQuerySchema = z.object({ ledgerId: id.optional() }).default({})
+export const tdsCertificatesQuerySchema = z.object({ ledgerId: id.optional() }).prefault({})
 
 export const tdsSuggestSchema = z.object({
   partyLedgerId: id,
@@ -1117,7 +1117,7 @@ export const tallyImportSchema = z
     filePath: z.string().optional(),
     dryRun: z.boolean().default(false)
   })
-  .default({})
+  .prefault({})
 export type TallyImportInput = z.infer<typeof tallyImportSchema>
 
 // ---------- GST rebuild (lane G): voucher transport + GSTR-3B manual adjustments ----------
@@ -1153,13 +1153,13 @@ const itcPartSchema = z.object({
 /** Manual GSTR-3B adjustments for one period, persisted in meta `gst3b.manual.<MMYYYY>`:
  *  4(B) ITC reversals, 5.1 interest and late fee. All amounts integer paise. */
 export const gst3bManualSchema = z.object({
-  itcRevRul: itcPartSchema.default({}),
-  itcRevOth: itcPartSchema.default({}),
+  itcRevRul: itcPartSchema.prefault({}),
+  itcRevOth: itcPartSchema.prefault({}),
   /** 4(D)(1) — ITC reclaimed that was reversed under 4(B)(2) in an earlier period (rule 37 /
    *  37A re-availment; Circular 170/02/2022-GST): availed again in 4(A)(5) and reported here. */
-  itcReclaimed: itcPartSchema.default({}),
-  interest: itcPartSchema.default({}),
-  lateFee: z.object({ camt: paise.default(0), samt: paise.default(0) }).default({})
+  itcReclaimed: itcPartSchema.prefault({}),
+  interest: itcPartSchema.prefault({}),
+  lateFee: z.object({ camt: paise.default(0), samt: paise.default(0) }).prefault({})
 })
 export type Gst3bManualInput = z.infer<typeof gst3bManualSchema>
 // ---------- inventory depth (lane I): batches, price levels, stock analysis ----------
@@ -1292,7 +1292,7 @@ export const manufactureReportSchema = z.object({ from: isoDate, to: isoDate, it
  *  The voucher payload is parsed again by saveVoucher. */
 export const jobWorkChallanSaveSchema = z.object({
   id: id.optional(),
-  voucher: z.unknown(),
+  voucher: z.unknown().optional(), // Zod 4 refuses an absent z.unknown() key; Zod 3 passed it on (saveVoucher refuses it)
   challan: z.object({
     kind: z.enum(['send', 'return']),
     godownId: id,
