@@ -354,6 +354,17 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   `vite` 7.3.6 → 7.3.7 (dev server) and `undici` 8.12.1 → 8.12.4 (jsdom, renderer tests). The other
   two bumps this PR first carried, `fast-uri` 3.1.9 and `undici` 6.29.1 (node-gyp), arrived with
   #208's electron-builder update. Replaces Dependabot #179, #182 and #183.
+- **Test runner: Vitest 3 → 5** (#205). Plain words: nothing in the app changes; the tool that
+  runs Total's automated checks is updated, which clears the two critical tinypool alerts (90, 91)
+  and the medium vitest / `@vitest/mocker` ones (39, 49, 108). For developers: `vitest` ^3.2 → ^5.1 (tinypool is gone; Vitest 5
+  needs Node ≥ 22.12 — CI's Node 22 and Electron 37's Node 22.21 both qualify).
+  `vitest.db.config.ts` drops the removed `poolOptions.forks.singleFork` for `maxWorkers: 1` +
+  `isolate: true`: still one file at a time under Electron-as-Node (scripts/test-db.mjs unchanged),
+  now each in its own process, so one file's `vi.mock('electron', …)` can never reach another (the
+  cost: Windows CI's test:db 8.5 → 13.6 min; Linux unchanged). The
+  engine and renderer configs needed no change; Vitest 5's new defaults (`clearMocks: true`,
+  1-based worker ids, `vi.mock` only at top level) needed no test change. Replaces Dependabot #14
+  and #181.
 
 ## [0.12.0] - 2026-10-22
 
