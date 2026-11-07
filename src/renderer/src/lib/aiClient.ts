@@ -5,6 +5,7 @@ import type {
   AiConnectionResult, AiDraftDto, AiMemoryCreateInput, AiMemoryDto, AiMemoryList, AiMemoryUpdateInput, AiEvent, AiMessageDto, AiOutboundRow, AiSendInput, AiSettingsPatch, AiSettingsView, AiThreadDto, AiToolInfo,
   AiUsageRow
 } from '@shared/ai'
+import type { AiProviderSetInput } from '@shared/aiProviders'
 
 export type * from '@shared/ai'
 
@@ -15,9 +16,12 @@ export const aiApi = {
   /** Whether this company may change the shared key (asked before anything is pasted). */
   keyCanSet: () => call<{ allowed: boolean; reason: 'ok' | 'owner_only' | 'other_company_has_users' | 'needs_confirmation' }>('ai:key:canSet'),
   /** `confirmNoUsers`: no company on this computer has users — the user confirmed that anyone can change the shared key. */
-  setKey: (key: string, confirmNoUsers = false) => call<AiSettingsView>('ai:key:set', { key, confirmNoUsers }),
+  /** `preset`: the service the screen shows — main refuses it unless it is the saved one. */
+  setKey: (key: string, confirmNoUsers = false, preset?: string) => call<AiSettingsView>('ai:key:set', { key, confirmNoUsers, ...(preset ? { preset } : {}) }),
   clearKey: (confirmNoUsers = false) => call<AiSettingsView>('ai:key:clear', { confirmNoUsers }),
   testConnection: () => call<AiConnectionResult>('ai:testConnection'),
+  /** Phase 3a: the app-wide AI service (preset, address, custom headers / capabilities). */
+  setProvider: (input: AiProviderSetInput) => call<AiSettingsView>('ai:provider:set', input),
   tools: () => call<AiToolInfo[]>('ai:tools'),
   threads: () => call<AiThreadDto[]>('ai:threads'),
   thread: (id: number) => call<{ thread: { id: number; title: string }; messages: AiMessageDto[]; running: boolean }>('ai:thread', { id }),

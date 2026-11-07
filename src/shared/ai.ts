@@ -10,11 +10,10 @@
 import type { AssistEntryOffer, AssistPrefill } from './assist' // types only
 import { z } from 'zod'
 import { aiContextSchema, type AiContext } from './aiExplain'
+import type { AiProviderView } from './aiProviders'
 
-/** Defaults from the revamp plan. NOT verified against the provider's model list — the
- *  Settings "Test connection" lists the models the key can use and flags an id that is missing. */
-export const AI_DEFAULT_MODEL = 'gpt-6.1-sol'
-export const AI_DEFAULT_FAST_MODEL = 'gpt-6-luna'
+// Phase 3a: there is no default model id — models are picked from the endpoint's own list
+// (shared/aiProviders.ts pickModels) or typed when a local server lists none.
 
 /** Price of one model, integer micro-USD per 1,000,000 tokens. null = unknown (cost not estimated). */
 export interface AiModelPrice {
@@ -49,6 +48,10 @@ export interface AiSettings {
   maxSteps: number
   /** WP 5.6: send the active memories with each question (a DATA block in the system prompt). */
   useMemory: boolean
+  /** Phase 3a: the AI service (preset id) the model ids were picked / saved for. The service is
+   *  app-wide but models are per company: a company whose models belong to another service must
+   *  pick again. Absent = 'openai' (every company saved before presets). */
+  modelsFor?: string
 }
 
 export const AI_DATA_NOTICE_VERSION = 1
@@ -79,7 +82,11 @@ export const aiSettingsPatchSchema = z
   .strict()
 export type AiSettingsPatch = z.infer<typeof aiSettingsPatchSchema>
 
-export const aiKeySetSchema = z.object({ key: z.string().trim().min(8).max(400) })
+export const aiKeySetSchema = z.object({
+  key: z.string().trim().min(8).max(400),
+  /** Phase 3a: the service the screen shows; refused when it is not the saved one. */
+  preset: z.string().max(40).optional()
+})
 
 // The screen context (WP 5.2: screen, title, period, parameters, the figure to explain) lives in
 // aiExplain.ts with the pure builders that share it between the panel and the prompt.
@@ -144,6 +151,9 @@ export interface AiToolCallDto {
   name: string
   /** As the model sent it (after pseudonyms are mapped back). */
   input: unknown
+  /** Phase 3a: the provider's own metadata for this call (Gemini's `extra_content` thought
+   *  signature), passed back verbatim on the next step — opaque, never shown. */
+  extra?: Record<string, unknown>
 }
 
 export type AiMessageRole = 'user' | 'assistant' | 'tool'
@@ -328,6 +338,10 @@ export interface AiOutboundRow {
 
 export interface AiSettingsView {
   settings: AiSettings
+  /** Phase 3a: the app-wide AI service (preset, address, what it can do). */
+  provider: AiProviderView
+  /** Phase 3a: no model yet, or the models were picked for another service — pick again. */
+  needsModel?: boolean
   keyPresent: boolean
   /** e.g. '…a1b2' — never the key. */
   keyHint: string | null
@@ -346,6 +360,9 @@ export interface AiConnectionResult {
   defaultModelFound: boolean
   fastModelFound: boolean
   error: string | null
+  /** Phase 3a: the check filled in the models from the list (none was set, or the one set is not
+   *  offered) — saved, audited. */
+  picked?: { defaultModel: string; fastModel: string } | null
 }
 
 export interface AiToolInfo {

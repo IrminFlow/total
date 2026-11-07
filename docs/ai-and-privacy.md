@@ -13,7 +13,7 @@ default (and can be switched off); the AI helper and live filing only after you 
 | What | When | Where it goes | Needs you to opt in? |
 |---|---|---|---|
 | Update check | About 5 seconds after launch, once per launch, packaged app only, and only while "Check for updates automatically" is on; also Settings, About (or How Total looks in simple mode), "Check for updates" / "Check now" | At launch: GitHub's release feed for `Total-org/total-org` (electron-updater); and, if that errors, `devjindal.tech/api/latest`, then `api.github.com`. "Check now" / "Check for updates" asks `devjindal.tech/api/latest` (then `api.github.com`) only | It is on by default and you can turn it off: "Check for updates automatically" (app-wide, owner only where the business has users). With it off, Total makes no request at launch. Nothing is downloaded until you press "Download now". |
-| AI helper | Only after you accept the data notice and add your own key | OpenAI (`https://api.openai.com/v1`) | Yes |
+| AI helper | Only after you accept the data notice and add your own key (none for a model on this computer) | The AI service you chose (Settings → AI): OpenAI (`https://api.openai.com/v1`, the default), OpenRouter, Groq, Google Gemini's OpenAI-compatible endpoint, a custom https address — or Ollama / LM Studio on this computer (localhost only, nothing leaves it) | Yes |
 | Live e-invoice / e-way bill filing | Only when you press a live-filing button after entering credentials | The NIC API address you typed in | Yes |
 | Opening a link | When you click a help link, a reminder's "Open in WhatsApp", "Email…" on a statement, or "Support" | Your browser or mail app, not Total | Only on click |
 
@@ -100,8 +100,21 @@ Code: `src/main/ai/` (settings in `ai/settings.ts`, the network call in `ai/prov
 `ai/privacy.ts`, the outbound log written in `ai/agent.ts`). Shapes the screens need are in `src/shared/ai.ts`.
 
 **It is off until you do four things:** open Settings, AI (or "AI helper" in simple mode), read and
-accept the data notice, paste an OpenAI API key, and turn it on. It is off per company. If the
-notice text changes, you must accept it again. You pay OpenAI directly; Total has no hosted service.
+accept the data notice, paste your AI service's API key, and turn it on. It is off per company. If the
+notice text changes, you must accept it again. You pay the service directly; Total has no hosted service.
+
+**Which service** (Phase 3a, `src/shared/aiProviders.ts`, `ai/providerConfig.ts`): one choice for the
+whole computer, kept in `<dataRoot>/app-settings.json` (`aiProvider`, changes in
+`app-settings-audit.jsonl` and `ai-key-audit.jsonl`). OpenAI is the default and is used exactly as
+before (Responses API, `store: false`, the key Total always kept). The other presets use the Chat
+Completions API. Each service keeps its own key in the secret store; a custom service may add extra
+headers, which are kept there too (only their names are ever shown). Ollama and LM Studio need no
+key and may only point at this computer (`localhost`, `127.0.0.1`, `::1`); a custom address must be
+https unless it is on this computer. Models are picked from the service's own list (or typed when a
+local server lists none) — Total has no built-in model id. When a service can't do something
+(Total's tools, structured answers for bills / bank lines, photos, scanned PDFs) Total does not
+send that request and says so in plain words; masking, the outbound log, the figure check and the
+cost meter work the same for every service (cost is "not priced" until you enter prices).
 
 **What is sent when you use it.** Only what a question needs: your message, the screen you are on
 (the panel shows the exact lines it will tell the model), and the results of the read-only tools the

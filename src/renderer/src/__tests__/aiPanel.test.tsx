@@ -9,6 +9,7 @@ import { applyAiEvent, emptyPanel, turnCost } from '../lib/aiThread'
 import { AssistantDrawer, screenFor } from '../components/ai/AssistantPanel'
 import { AiSection } from '../screens/settings/AiSection'
 import { useNav, useSession } from '../state/stores'
+import { providerViewOf } from '@shared/aiProviders'
 
 const invoke = vi.fn()
 const isDisabled = (el: HTMLElement): boolean => (el as HTMLInputElement).disabled
@@ -28,7 +29,7 @@ function view(over: Partial<AiSettingsView> = {}, settings: Partial<AiSettingsVi
       enabled: true, noticeAcceptedAt: '2025-08-01T10:00:00.000Z', noticeAcceptedBy: 'Owner', noticeVersion: 1, defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna',
       privacy: { maskIds: true, pseudonymiseParties: false }, prices: {}, maxSteps: 8, useMemory: true, ...settings
     },
-    keyPresent: true, keyHint: '…WXYZ', secureStorageAvailable: true, mock: false, ready: true, blocker: null, ...over
+    provider: providerViewOf(), keyPresent: true, keyHint: '…WXYZ', secureStorageAvailable: true, mock: false, ready: true, blocker: null, ...over
   }
 }
 

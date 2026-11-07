@@ -8,7 +8,7 @@
 // a key error under the key box.
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { AI_DATA_NOTICE_VERSION, type AiConnectionResult } from '@shared/ai'
+import { AI_DATA_NOTICE_VERSION, aiModelIdSchema, type AiConnectionResult } from '@shared/ai'
 import { classifyAiError, modelsListText, monthSpend, monthSpendSentence, pickModels, rateNote, usdRateOn, type AiPlainError } from '@shared/simple/aiPlain'
 import { todayISO, toPlainDate } from '@shared/dates'
 import type { MessageKey } from '@shared/i18n'
@@ -19,6 +19,7 @@ import { useT } from '../../lib/i18n'
 import { useCanManageAi } from '../../lib/capabilities'
 import { useNav, useSession, useToasts } from '../../state/stores'
 import { Badge, Banner, Button, Checkbox, Field, Page, SkeletonRows, TextInput } from '../../components/ui'
+import { presetName, ProviderCard } from './ProviderCard'
 
 const SETTINGS_KEY = ['aiSettings'] // i18n-technical
 const CAN_SET_KEY = ['aiKeyCanSet'] // i18n-technical
@@ -72,6 +73,10 @@ export function AiHelper(): React.JSX.Element {
   const [stoppedByCheck, setStoppedByCheck] = useState(false)
   const [keyError, setKeyError] = useState<AiPlainError | null>(null)
   const [error, setError] = useState<AiPlainError | null>(null)
+  /** Phase 3a: a typed model id (a service that lists none). */
+  const [typedModel, setTypedModel] = useState('')
+  /** Phase 3a: the service card holds a choice not saved yet — the key waits for it. */
+  const [serviceDirty, setServiceDirty] = useState(false)
 
   const refresh = async (): Promise<void> => {
     await queryClient.invalidateQueries({ queryKey: SETTINGS_KEY })
@@ -99,7 +104,10 @@ export function AiHelper(): React.JSX.Element {
   const on = view.ready
   // Asked from main before anything is pasted; its own refusals in ai:key:set stay as the backstop.
   const keyBlock = canSet && !canSet.allowed && (canSet.reason === 'other_company_has_users' || (canSet.reason === 'owner_only' && !canEdit)) ? canSet.reason : null
-  const canTest = view.keyPresent || view.mock || key.trim().length > 0
+  const provider = view.provider
+  const service = presetName(provider.preset, t)
+  const keyReady = view.keyPresent || view.mock || !provider.needsKey
+  const canTest = keyReady || key.trim().length > 0
   const today = todayISO()
   const rate = usdRateOn(rates, today)
   const spend = monthSpend(usage ?? [], today.slice(0, 7))
@@ -127,7 +135,7 @@ export function AiHelper(): React.JSX.Element {
       if (typed) {
         const confirmed = await confirmShared()
         if (confirmed === null) return
-        await aiApi.setKey(typed, confirmed)
+        await aiApi.setKey(typed, confirmed, view.provider.preset)
         setKey('')
         await refresh()
       }
@@ -145,11 +153,12 @@ export function AiHelper(): React.JSX.Element {
         }
         return
       }
-      const pick = pickModels(result.models, s)
+      // Main already saved a pick when no model was set (or the one set isn't offered).
+      const pick = result.picked ? { ...result.picked, changed: false, found: true } : pickModels(result.models, s)
       if (pick.changed && canEdit) {
         await aiApi.setSettings({ defaultModel: pick.defaultModel, fastModel: pick.fastModel })
-        await refresh()
       }
+      await refresh()
       setCheck({ result, picked: pick.found ? pick.defaultModel : null })
     } catch (err) {
       fail(err)
@@ -217,6 +226,16 @@ export function AiHelper(): React.JSX.Element {
   }
 
   const NOTICE_FULL: MessageKey[] = ['simple.ai.notice.full1', 'simple.ai.notice.full2', 'simple.ai.notice.full3', 'simple.ai.notice.full4', 'simple.ai.notice.full5', 'simple.ai.notice.full6'] // i18n-technical
+  /** OpenAI keeps the notice words it always had; another service is named in them. */
+  const noticeText = (k: MessageKey): string =>
+    k === 'simple.ai.notice.full2' && provider.preset !== 'openai' ? t('simple.ai.notice.full2Service', { service }) : t(k) // i18n-technical: keys in NOTICE_FULL
+  const typedOk = aiModelIdSchema.safeParse(typedModel).success
+  const useTyped = async (): Promise<void> => {
+    if (!typedOk) return
+    await save({ defaultModel: typedModel.trim(), fastModel: typedModel.trim() })
+    setCheck((c) => (c ? { ...c, picked: typedModel.trim() } : c))
+    setTypedModel('')
+  }
 
   return (
     <Page width="narrow" data-testid="simple-ai" data-on={on ? 'true' : 'false'}>
@@ -240,13 +259,19 @@ export function AiHelper(): React.JSX.Element {
           <ul className="flex list-disc flex-col gap-1 pl-5 text-body-sm text-ink" data-testid="simple-ai-notice-summary">
             <li>{t('simple.ai.notice.sent')}</li>
             <li>{s.privacy.maskIds ? t('simple.ai.notice.masked') : t('simple.ai.notice.notMasked')}</li>
-            <li>{t('simple.ai.notice.where')}</li>
+            <li data-testid="simple-ai-notice-where">
+              {provider.local
+                ? t('simple.ai.notice.whereLocal', { service })
+                : provider.preset === 'openai'
+                  ? t('simple.ai.notice.where')
+                  : t('simple.ai.notice.whereService', { service })}
+            </li>
           </ul>
           <details className="mt-2 text-small" data-testid="simple-ai-notice-full">
             <summary className="cursor-pointer text-muted hover:text-ink">{t('simple.ai.notice.readFull')}</summary>
             <ul className="mt-1.5 flex list-disc flex-col gap-1 pl-5 text-ink">
               {NOTICE_FULL.map((k) => (
-                <li key={k}>{t(k) /* i18n-technical: keys in NOTICE_FULL */}</li>
+                <li key={k}>{noticeText(k)}</li>
               ))}
             </ul>
           </details>
@@ -256,8 +281,23 @@ export function AiHelper(): React.JSX.Element {
           {s.noticeAcceptedAt && !noticeCurrent && <p className="mt-2 text-hint text-warning">{t('simple.ai.turnOn.noticeChanged')}</p>}
         </Card>
 
+        <ProviderCard
+          key={`${provider.preset}|${provider.baseUrl}|${JSON.stringify(provider.caps)}` /* i18n-technical */}
+          view={view}
+          canEdit={canEdit}
+          blocked={!!keyBlock}
+          busy={busy !== null}
+          onError={(e) => {
+            setCheck(null)
+            setError(e)
+          }}
+          onDirty={setServiceDirty}
+        />
+
         <Card title={t('simple.ai.key.title')} testId="simple-ai-key">
-          <p className="mb-3 text-small text-muted">{t('simple.ai.key.what')}</p>
+          <p className="mb-3 text-small text-muted" data-testid="simple-ai-key-what">
+            {!provider.needsKey ? t('simple.ai.key.whatLocal') : provider.preset === 'openai' ? t('simple.ai.key.what') : t('simple.ai.key.whatService', { service })}
+          </p>
           {!view.secureStorageAvailable && <Banner tone="warning" className="mb-3">{t('simple.ai.error.noSecureStorage')}</Banner>}
           {keyBlock && (
             <Banner tone="info" className="mb-3" testId="simple-ai-key-blocked">
@@ -274,7 +314,7 @@ export function AiHelper(): React.JSX.Element {
                   className="num"
                   value={key}
                   invalid={!!keyError}
-                  disabled={!canEdit || !!keyBlock || busy !== null}
+                  disabled={!canEdit || !!keyBlock || busy !== null || serviceDirty}
                   onChange={(e) => {
                     setKey(e.target.value)
                     setKeyError(null)
@@ -283,9 +323,10 @@ export function AiHelper(): React.JSX.Element {
                 />
               </Field>
               {keyError && <PlainError error={keyError} testId="simple-ai-key-error" />}
+              {serviceDirty && <p className="mt-1 text-small text-warning" data-testid="simple-ai-save-service-first">{t('simple.ai.provider.saveFirst')}</p>}
             </div>
             <div className="mt-[22px] flex shrink-0 gap-2">
-              <Button variant="primary" disabled={!canEdit || busy !== null || !canTest} loading={busy === 'check'} onClick={() => void checkIt()} data-testid="simple-ai-check">
+              <Button variant="primary" disabled={!canEdit || busy !== null || !canTest || serviceDirty} loading={busy === 'check'} onClick={() => void checkIt()} data-testid="simple-ai-check">
                 {busy === 'check' ? t('simple.ai.key.checking') : key.trim() || !view.keyPresent ? t('simple.ai.key.check') : t('simple.ai.key.recheck')}
               </Button>
             </div>
@@ -295,8 +336,20 @@ export function AiHelper(): React.JSX.Element {
               <p>{check.result.models.length ? t('simple.ai.key.works', { models: modelsListText(check.result.models, t) }) : t('simple.ai.key.worksNoList')}</p>
               {check.picked ? (
                 <p className="text-muted" data-testid="simple-ai-picked">{t('simple.ai.key.picked', { model: check.picked })}</p>
-              ) : (
+              ) : check.result.models.length > 0 && s.defaultModel ? (
                 <p className="text-warning" data-testid="simple-ai-no-model">{t('simple.ai.key.noModel', { model: s.defaultModel })}</p>
+              ) : null}
+              {!check.picked && canEdit && (
+                <div className="mt-2 flex items-end gap-2" data-testid="simple-ai-type-model">
+                  <div className="min-w-0 flex-1">
+                    <Field label={t('simple.ai.model.label')} hint={t('simple.ai.model.hint')} error={typedModel && !typedOk ? t('simple.ai.model.bad') : undefined}>
+                      <TextInput className="num" value={typedModel} disabled={busy !== null} onChange={(e) => setTypedModel(e.target.value)} data-testid="simple-ai-model-input" />
+                    </Field>
+                  </div>
+                  <Button disabled={busy !== null || !typedOk} onClick={() => void useTyped()} data-testid="simple-ai-model-save">
+                    {t('simple.ai.model.save')}
+                  </Button>
+                </div>
               )}
             </div>
           )}
@@ -326,11 +379,13 @@ export function AiHelper(): React.JSX.Element {
             </div>
           ) : (
             <div className="flex items-center justify-between gap-3">
-              <p className="text-small text-muted">{view.keyPresent || view.mock ? t('simple.ai.panel.off') : t('simple.ai.turnOn.needKey')}</p>
+              <p className="text-small text-muted" data-testid="simple-ai-off-why">
+                {!keyReady ? t('simple.ai.turnOn.needKey') : view.needsModel ? t('simple.ai.model.first') : t('simple.ai.panel.off')}
+              </p>
               {canEdit && (
                 <Button
                   variant="primary"
-                  disabled={busy !== null || (!view.keyPresent && !view.mock)}
+                  disabled={busy !== null || !keyReady || !!view.needsModel}
                   loading={busy === 'on'}
                   onClick={() => void turnOn()}
                   data-testid="simple-ai-on"

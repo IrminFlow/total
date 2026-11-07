@@ -8,6 +8,7 @@ import type { AiEvent, AiMemoryDto, AiMemoryList, AiMessageDto, AiSettingsView }
 import { AiMemoryPanel, memoryRows } from '../screens/settings/AiMemoryPanel'
 import { AssistantDrawer } from '../components/ai/AssistantPanel'
 import { useNav, useSession } from '../state/stores'
+import { providerViewOf } from '@shared/aiProviders'
 
 const invoke = vi.fn()
 let listener: ((e: unknown) => void) | null = null
@@ -32,7 +33,7 @@ const VIEW: AiSettingsView = {
     enabled: true, noticeAcceptedAt: '2025-08-01T10:00:00.000Z', noticeAcceptedBy: 'Owner', noticeVersion: 1, defaultModel: 'gpt-6.1-sol', fastModel: 'gpt-6-luna',
     privacy: { maskIds: true, pseudonymiseParties: false }, prices: {}, maxSteps: 8, useMemory: true
   },
-  keyPresent: true, keyHint: '…WXYZ', secureStorageAvailable: true, mock: false, ready: true, blocker: null
+  provider: providerViewOf(), keyPresent: true, keyHint: '…WXYZ', secureStorageAvailable: true, mock: false, ready: true, blocker: null
 }
 
 let list: AiMemoryList

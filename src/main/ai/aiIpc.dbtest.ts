@@ -87,6 +87,8 @@ beforeAll(async () => {
   await mk('Sales', 'Sales Accounts')
   await ok('ai:notice:accept')
   await ok('ai:settings:set', { enabled: true })
+  // Phase 3a: the model comes from the (demo) service's list.
+  await ok('ai:testConnection')
 })
 
 describe('AI through the real IPC', () => {

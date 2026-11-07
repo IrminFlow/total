@@ -113,6 +113,8 @@ import { registerPayrollStatutoryIpc } from './ipcPayrollStatutory'
 import { registerPricingIpc } from './ipcPricing'
 import { registerReportsIpc } from './ipcReports'
 import { registerAiIpc, aiRuns, type AppKeyAuditEntry } from './ai/ipc'
+import { useAiProviderSource } from './ai/providerConfig'
+import { readAiProviderSetting, writeAiProviderSetting } from './services/appSettings'
 import { registerCaptureIpc, captureOnCompanyOpen, captureOnCompanyClose, resumeCapture } from './ai/capture/ipc'
 import { dropPendingAttachments, flushCaptureAttachments } from './ai/capture/consume'
 import { registerAssistantsIpc } from './ipcAssistants'
@@ -637,6 +639,10 @@ export function registerIpc(): void {
   // ---------- comparatives, ratios (WP 6.2) ----------
   registerReportsIpc(handle, () => requireCompany())
   // ---------- AI agent (WP 5.1) — channels live in ai/ipc.ts; events stream on 'total:ai:event' ----------
+  useAiProviderSource({
+    read: () => readAiProviderSetting(dataRoot()),
+    write: (next, who) => writeAiProviderSetting(dataRoot(), next, who, app.getVersion())
+  })
   registerAiIpc(handle, {
     company: () => requireCompany(),
     session: () => (sessionUser ? { name: sessionUser.name, role: sessionUser.role } : { name: null, role: 'owner' }),

@@ -17,67 +17,10 @@ import { formatPaise } from '../money'
 import { toPlainDate } from '../dates'
 import { parseQtyText } from '../qty'
 
-// ---------- the model pick ----------
+// ---------- the model pick (shared/aiProviders.ts — main uses it too) ----------
 
-/** Model ids that are not chat models (embeddings, speech, images, moderation …). */
-const NOT_CHAT = /(embed|whisper|tts|audio|speech|transcri|dall-?e|image|moderation|realtime|search|computer-use|instruct|babbage|davinci|codex)/i
-/** Small / quick variants — good for the fast model, not the default. */
-const SMALL = /(mini|nano|luna|lite|small|fast|haiku|flash)/i
-/** A dated snapshot (…-2025-08-06 / …-0613) — the undated alias is preferred. */
-const DATED = /-(\d{4}-\d{2}-\d{2}|\d{4})$/
-
-/** gpt-6.1-sol → [6, 1]; o3 → [3]; anything else → []. */
-function versionOf(id: string): number[] {
-  const m = /^(?:gpt-|o)(\d+(?:\.\d+)*)/i.exec(id)
-  return m ? m[1]!.split('.').map(Number) : []
-}
-
-function compareVersions(a: number[], b: number[]): number {
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const d = (a[i] ?? -1) - (b[i] ?? -1)
-    if (d !== 0) return d
-  }
-  return 0
-}
-
-/** Best first: chat models, undated, newest version, then by name (stable). */
-function rank(models: readonly string[], small: boolean): string[] {
-  return models
-    .filter((m) => !NOT_CHAT.test(m) && SMALL.test(m) === small)
-    .sort((a, b) => {
-      const dated = Number(DATED.test(a)) - Number(DATED.test(b))
-      if (dated !== 0) return dated
-      const v = compareVersions(versionOf(b), versionOf(a))
-      return v !== 0 ? v : a.localeCompare(b)
-    })
-}
-
-export interface ModelPick {
-  defaultModel: string
-  fastModel: string
-  /** Either differs from the current settings (the screen saves it). */
-  changed: boolean
-  /** The default model is one the key's list offers. False = the list had no chat model (or was
-   *  empty): the current ids are kept, unverified, and the screen says so — never a guess. */
-  found: boolean
-}
-
-/**
- * The key check listed `models`: keep the current default / fast model when the key offers it,
- * else pick from the list — the newest undated chat model for the default, the newest small one
- * for the fast model (else the default). An empty list keeps the current ids (nothing to pick from).
- */
-export function pickModels(models: readonly string[], current: { defaultModel: string; fastModel: string }): ModelPick {
-  const keep = { defaultModel: current.defaultModel, fastModel: current.fastModel, changed: false, found: false }
-  if (models.length === 0) return keep
-  const big = rank(models, false)
-  const small = rank(models, true)
-  // Never fall back to any listed id (an embedding or speech model would be "picked").
-  const defaultModel = models.includes(current.defaultModel) ? current.defaultModel : (big[0] ?? small[0])
-  if (!defaultModel) return keep
-  const fastModel = models.includes(current.fastModel) ? current.fastModel : (small[0] ?? defaultModel)
-  return { defaultModel, fastModel, changed: defaultModel !== current.defaultModel || fastModel !== current.fastModel, found: true }
-}
+export { pickModels, type ModelPick } from '../aiProviders'
+import { rankModels as rank } from '../aiProviders'
 
 /** "gpt-5, gpt-5-mini, gpt-4.1 and 9 more" — the chat models first (best first), at most `max`. */
 export function modelsListText(models: readonly string[], t: Translate, max = 5): string {
@@ -89,7 +32,7 @@ export function modelsListText(models: readonly string[], t: Translate, max = 5)
 
 // ---------- provider errors → plain words + a field ----------
 
-export type AiPlainErrorKind = 'key' | 'quota' | 'busy' | 'network' | 'model' | 'sharedKey' | 'sharedKeyConfirm' | 'noSecureStorage' | 'other'
+export type AiPlainErrorKind = 'key' | 'quota' | 'busy' | 'network' | 'model' | 'sharedKey' | 'sharedKeyConfirm' | 'noSecureStorage' | 'cantTools' | 'cantRead' | 'cantPhotos' | 'cantScans' | 'other'
 
 export interface AiPlainError {
   kind: AiPlainErrorKind
@@ -109,6 +52,10 @@ const ERROR_KEYS: Record<AiPlainErrorKind, MessageKey> = {
   sharedKey: 'simple.ai.error.sharedKey',
   sharedKeyConfirm: 'simple.ai.error.sharedKeyConfirm',
   noSecureStorage: 'simple.ai.error.noSecureStorage',
+  cantTools: 'simple.ai.error.cantTools',
+  cantRead: 'simple.ai.error.cantRead',
+  cantPhotos: 'simple.ai.error.cantPhotos',
+  cantScans: 'simple.ai.error.cantScans',
   other: 'simple.ai.error.other'
 }
 
@@ -120,6 +67,11 @@ export function classifyAiError(message: string): AiPlainError {
     /another company here has users/i.test(m) ? 'sharedKey'
       : /confirm to continue/i.test(m) ? 'sharedKeyConfirm'
         : /secure storage/i.test(m) ? 'noSecureStorage'
+          // Phase 3a: what the chosen service can't do (shared/aiProviders.ts CAPABILITY_MESSAGES).
+          : /can’t use Total’s tools/.test(m) ? 'cantTools'
+          : /can’t give the structured answers/.test(m) ? 'cantRead'
+          : /can’t read photos/.test(m) ? 'cantPhotos'
+          : /can’t read PDF files/.test(m) ? 'cantScans'
           : /\b401\b|rejected the api key|incorrect api key|invalid api key|invalid_api_key|no api key/i.test(m) ? 'key'
             : /insufficient_quota|exceeded your current quota|\bquota\b|billing|out of credit|credit balance/i.test(m) ? 'quota'
               : /\b429\b|rate[- ]limit/i.test(m) ? 'busy'
