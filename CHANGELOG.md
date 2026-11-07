@@ -334,6 +334,20 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   macos-14). The release workflow uses `macos-latest`, which GitHub now maps to macOS 26 — so
   tag builds run on a newer image than these checks (left as is; noted in #206).
 
+- **Long imports and big runs no longer run out of memory** (#215). Plain words: since the
+  Electron 45 upgrade (#208), a very long job done in one go — a large Tally or books import, a big
+  bulk edit — could make Total use more and more memory until it crashed; it now stays flat. Nothing
+  in the books changes. For developers: the SQLite driver 13 (Node-API) frees a prepared statement
+  only in a finalizer Node runs once the event loop turns, and never reports its native memory to
+  V8, so a synchronous run preparing the same SQL repeatedly grew without bound — CI's 100k perf
+  seed died (SIGTRAP at ~1.5 GB after 40k entries; red on main since #199 forced a fresh seed). Every
+  connection (`openDb`, and the dbtest helpers) now reuses one prepared statement per SQL text
+  (`installStatementCache`, LRU 500; SQL with > 50 parameters not kept); `pluck` / `raw` / `expand`
+  / `safeIntegers` / `bind` / `iterate` on a shared statement run on a private copy, so a shared one
+  never changes mode — callers must use those methods' RESULT (a TypeScript-AST lint in
+  `statementCache.dbtest.ts` enforces it). The seed now peaks at ~460 MB and is faster. The perf
+  profiler wraps each statement once.
+
 ### Security
 
 - **Dependency patch updates** (#201). Plain words: nothing you see changes; two libraries used to
@@ -341,6 +355,50 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   `vite` 7.3.6 → 7.3.7 (dev server) and `undici` 8.12.1 → 8.12.4 (jsdom, renderer tests). The other
   two bumps this PR first carried, `fast-uri` 3.1.9 and `undici` 6.29.1 (node-gyp), arrived with
   #208's electron-builder update. Replaces Dependabot #179, #182 and #183.
+- **Test runner: Vitest 3 → 5** (#205). Plain words: nothing in the app changes; the tool that
+  runs Total's automated checks is updated, which clears the two critical tinypool alerts (90, 91)
+  and the medium vitest / `@vitest/mocker` ones (39, 49, 108). For developers: `vitest` ^3.2 → ^5.1 (tinypool is gone; Vitest 5
+  needs Node ≥ 22.12 — CI's Node 22 and Electron 37's Node 22.21 both qualify).
+  `vitest.db.config.ts` drops the removed `poolOptions.forks.singleFork` for `maxWorkers: 1` +
+  `isolate: true`: still one file at a time under Electron-as-Node (scripts/test-db.mjs unchanged),
+  now each in its own process, so one file's `vi.mock('electron', …)` can never reach another (the
+  cost: Windows CI's test:db 8.5 → 13.6 min; Linux unchanged). The
+  engine and renderer configs needed no change; Vitest 5's new defaults (`clearMocks: true`,
+  1-based worker ids, `vi.mock` only at top level) needed no test change. Replaces Dependabot #14
+  and #181.
+- **Validation library: Zod 3 → 4** (#212). Plain words: nothing you see changes — every screen,
+  message and AI answer works as before. The library that checks every request between the screens
+  and the books moves to its current major version, which clears the high-severity "oversized
+  collections" memory alert against Zod 3 (Dependabot alert 138). For developers: `zod@^4.6.7`, no
+  `zod/v3` compat import. Object defaults that must fill in their own fields (`.default({})`) are
+  `.prefault({})` — Zod 4's `.default()` returns the value without parsing it; `invoiceConfigPartialSchema`
+  drops `showEnteredBy`'s default (Zod 4 applies a default inside `.partial()`, which would have
+  turned an omitted field into `false` over the saved config); three `z.unknown()` keys are
+  `.optional()` (Zod 4 refuses an absent one; Zod 3 passed it on — `template:import` would otherwise
+  have read the wrapper as a template). Messages: `src/shared/zodMessages.ts` (a global error map imported by
+  main, the renderer, the CLI, the check worker and the vitest setups) words every default message
+  as Zod 3.25 did — "name: Required", "String must contain at least 4 character(s)", "Invalid enum
+  value. Expected 'a' | 'b', received 'c'", "Unrecognized key(s) in object: 'x'", a record key's
+  own message … — so the accountant screens' fallback text, the e-invoice checks, import errors and
+  what the AI tools quote read as before (`zodMessages.test.ts` pins each template to Zod 3's
+  output). Every place that lists a Zod failure — `handle()`'s error and issues, the e-invoice
+  checks, price / template import, the AI tools' "Invalid arguments", bill capture and memory — goes
+  through `zod3Issues`, which gives Zod 3's issue LIST: a union whose value fit one branch's
+  type reports that branch's issues (Zod 3's rule — an int-or-text amount given 1.5 says "Expected
+  integer, received float", not "Invalid input"), a size check beside a type failure on the same
+  field is dropped, a repeated issue is listed once. Error mapping (WP 8.5): issue codes are Zod 4's
+  (`zod.invalid_format`, `zod.invalid_value` …, all still "field invalid" as their Zod 3 names
+  were); an enum value that is missing or of the wrong type — Zod 4's invalid_value, Zod 3's
+  invalid_type — is reported as `zod.invalid_type`, so the plain message under a field is
+  unchanged. Still different, all harmless: an `.int().min()` given 1.5 reports one issue instead of
+  two; an array's own size issue is listed after its items' issues instead of before. The AI
+  tool-schema walker (`ai/jsonSchema.ts`) and the CLI's voucher schema doc (`cli/schemaDoc.ts`) read Zod 4's `_zod.def`:
+  the tool schemas sent to the model are pinned to a fixture generated with Zod 3
+  (`toolSchemas.dbtest.ts`, every tool plus a schema of the walker's edge cases) and
+  `agent-skill/voucher.schema.json` is unchanged byte for byte. Every exported schema in `src/shared`
+  (315) and every AI tool input was parsed under both versions (a differential fuzz of ~11.6k
+  payloads): the same payloads pass and fail, with the same output. Stricter in Zod 4 and harmless:
+  `.int()` refuses numbers past ±2^53, `z.number()` refuses Infinity.
 
 ## [0.12.0] - 2026-10-22
 

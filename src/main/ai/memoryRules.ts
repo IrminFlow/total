@@ -17,6 +17,7 @@ import {
 } from '@shared/ai'
 import { maskIdentifiers } from './privacy'
 import type { LedgerClass } from './ledgerClass'
+import { zod3Issues } from '@shared/zodMessages'
 
 export const MEMORY_IDENTIFIER_ERROR =
   'A memory cannot hold a GSTIN, PAN, IFSC code, bank account number, UPI handle, e-mail address or phone number — leave it out (the assistant reads such details from the ledger when it needs them).'
@@ -74,7 +75,7 @@ export function memoryProblems(e: { kind: AiMemoryKind; text: string; data?: AiM
   if (hasMaskedIdentifier(text)) out.push(MEMORY_IDENTIFIER_ERROR)
   if (e.data) {
     const parsed = aiMemoryDataSchema.safeParse(e.data)
-    if (!parsed.success) out.push(`Bad details: ${parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'} ${i.message}`).join('; ')}`)
+    if (!parsed.success) out.push(`Bad details: ${zod3Issues(parsed.error.issues).map((i) => `${i.path.map(String).join('.') || '(root)'} ${i.message}`).join('; ')}`)
     const d = e.data
     if (d.purpose && !d.ledgerId) out.push('A preferred ledger needs the ledger')
     if (d.purpose && e.kind !== 'preference') out.push('Only a preference has a purpose')

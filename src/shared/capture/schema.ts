@@ -7,6 +7,7 @@
 // with money.ts parseAmountText (→ integer paise) in parse.ts, and recomputes every total itself
 // (totals.ts); a printed figure that disagrees becomes a flagged discrepancy, never a correction.
 import { z } from 'zod'
+import { zod3Issues } from '../zodMessages'
 
 const str = { type: 'string' } as const
 const nstr = { type: ['string', 'null'] } as const
@@ -119,7 +120,7 @@ export function readExtraction(text: string): BillExtraction {
   }
   const r = billExtractionSchema.safeParse(raw)
   if (!r.success) {
-    throw new Error(`The bill extraction did not match the schema: ${r.error.issues.slice(0, 3).map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ')}`)
+    throw new Error(`The bill extraction did not match the schema: ${zod3Issues(r.error.issues).slice(0, 3).map((i) => `${i.path.map(String).join('.') || '(root)'}: ${i.message}`).join('; ')}`)
   }
   return r.data
 }

@@ -71,11 +71,11 @@ const tableRunSchema = z.object({
   headerRow: z.number().int().min(0),
   profileId: z.string().max(60),
   mapping: z.record(z.string(), z.number().int().min(0).nullable()),
-  options: optionsSchema.default({}),
+  options: optionsSchema.prefault({}),
   saveTemplate: z.object({ name: z.string().trim().min(1).max(80) }).nullable().optional()
 })
 
-const planRunSchema = z.object({ token: z.string().uuid(), options: optionsSchema.default({}) })
+const planRunSchema = z.object({ token: z.string().uuid(), options: optionsSchema.prefault({}) })
 
 function planMeta(f: LoadedFile): dataImport.RunMeta {
   return { source: f.kind === 'books' ? 'total-books' : 'busy-xml', profileId: null, fileName: f.fileName }
@@ -224,7 +224,7 @@ export function registerDataImportIpc(handle: Handle, company: () => Company, se
   handle('importwiz:templateSave', (p) => {
     const q = z.object({
       name: z.string().trim().min(1).max(80), profileId: z.string().max(60), headers: z.array(z.string()).max(1000),
-      mapping: z.record(z.string(), z.number().int().min(0).nullable()), options: z.record(z.string(), z.unknown()).default({})
+      mapping: z.record(z.string(), z.number().int().min(0).nullable()), options: z.record(z.string(), z.unknown()).prefault({})
     }).parse(p)
     const profile = profileById(q.profileId)
     if (!profile) throw new Error(`Unknown import profile ${q.profileId}`)

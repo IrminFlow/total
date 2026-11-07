@@ -111,7 +111,7 @@ export function registerBankingIpc(handle: Handle, company: () => Company): void
   })
 
   // ---------- cheque books + register ----------
-  handle('cheques:books', (p) => cheques.listChequeBooks(db(), z.object({ bankLedgerId: id.optional() }).default({}).parse(p ?? {}).bankLedgerId), 'viewer')
+  handle('cheques:books', (p) => cheques.listChequeBooks(db(), z.object({ bankLedgerId: id.optional() }).prefault({}).parse(p ?? {}).bankLedgerId), 'viewer')
   handle('cheques:saveBook', (p) => {
     const { id: bookId, data } = z.object({ id: id.optional(), data: chequeBookInputSchema }).parse(p)
     return cheques.saveChequeBook(db(), data, bookId)
@@ -156,7 +156,7 @@ export function registerBankingIpc(handle: Handle, company: () => Company): void
 
   // ---------- post-dated cheques ----------
   handle('pdc:register', (p) => {
-    const { today } = z.object({ today: isoDate.optional() }).default({}).parse(p ?? {})
+    const { today } = z.object({ today: isoDate.optional() }).prefault({}).parse(p ?? {})
     return pdc.pdcRegisterFull(db(), today ?? todayISO())
   }, 'viewer')
   handle('pdc:bounce', (p) => pdc.bouncePdc(db(), bounceSchema.parse(p)))
