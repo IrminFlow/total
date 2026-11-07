@@ -78,6 +78,8 @@ export interface BillAllocator {
   apply(ev: BillEvent): void
   open(): readonly OutstandingBill[]
   openCredits(): readonly { name: string; amount: number }[]
+  /** Every name a named credit has had so far, used up or not (live view). */
+  creditNames(): ReadonlySet<string>
   /** Ages the open bills as of `asOn`; call once, after the last `apply`. */
   result(asOn: string): AllocateBillsResult & { credits: { name: string; amount: number }[]; creditNames: string[] }
 }
@@ -201,7 +203,7 @@ export function billAllocator(creditDays: number | null): BillAllocator {
     return { bills: open, unappliedCredit: credit + namedCredits.reduce((t, c) => t + c.amount, 0), warnings, credits: namedCredits.map((c) => ({ ...c })), creditNames: [...creditNames] }
   }
 
-  return { apply, open: () => open, openCredits: () => namedCredits, result }
+  return { apply, open: () => open, openCredits: () => namedCredits, creditNames: () => creditNames, result }
 }
 
 export interface ReminderCompany {
