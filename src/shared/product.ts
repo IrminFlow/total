@@ -9,4 +9,4 @@
 export const SITE_URL = 'https://devjindal.tech'
 
 /** owner/repo on GitHub — where releases are published. */
-export const GITHUB_REPO = 'IrminFlow/total'
+export const GITHUB_REPO = 'Total-org/total-org'
