@@ -1,0 +1,279 @@
+# Scheduled release (owner, 7 Nov 2026): every 12 hours — about 09:00 and 21:00 IST — main is
+# released as the next PATCH version if, and only if, the gate passes. Runs on GitHub, so it works
+# with the laptop off. Plain-words guide: docs/owner/10-scheduled-releases.md.
+#
+# A slot:
+#   1. preflight  — anything new since the last v* tag? (docs/, site/, .github/, scripts/release/ and
+#                   root *.md alone don't count → quiet skip); package.json = last tag and < 1.0
+#                   (1.x needs .github/release-minor-approved); main's ci.yml run on that exact
+#                   SHA finished with every job green incl. e2e-mac and perf (still running → skip
+#                   this slot); no open PR labelled `release-blocker`.
+#   2. upgrade    — the LAST RELEASE's code creates books (Demo Traders + a Perf Traders seed) and
+#                   reports on them; HEAD's code opens + migrates the same files and reports again.
+#                   Any figure that moved fails, unless a PR in the batch is labelled
+#                   `figures-approved`. Migration, integrity, audit chain and the backup restore
+#                   check must be clean.
+#   3. decide     — run summary; a skip with a reason opens / updates ONE issue
+#                   "Scheduled release skipped" (closed after the next successful release).
+#   4. bump       — npm version patch + CHANGELOG "Unreleased" → the new version, committed and
+#                   tagged by github-actions[bot], pushed to main (refused if main moved).
+#   5. release    — calls release.yml (mac DMG/ZIP, Windows EXE, latest.yml name check,
+#                   packaged smoke). Releases publish directly, never drafts.
+#   6. verify     — /releases/latest carries every asset and devjindal.tech/api/latest says the
+#                   new version.
+#
+# workflow_dispatch with dry_run = run the whole gate, never bump or release. A pull request that
+# touches the release machinery runs the same dry run (a workflow can be dispatched only once it
+# is on the default branch).
+name: Scheduled release
+
+on:
+  schedule:
+    - cron: '30 3 * * *' # 09:00 IST
+    - cron: '30 15 * * *' # 21:00 IST
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Run the gate only — never bump, tag or release
+        type: boolean
+        default: true
+  pull_request:
+    branches: [main]
+    paths:
+      - .github/workflows/scheduled-release.yml
+      - .github/workflows/release.yml
+      - scripts/release/**
+
+concurrency:
+  # Two slots (or a slot and a manual run) never overlap; a queued one waits, never cancels.
+  group: scheduled-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  DRY_RUN: ${{ github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      ok: ${{ steps.pre.outputs.ok }}
+      quiet: ${{ steps.pre.outputs.quiet }}
+      sha: ${{ steps.pre.outputs.sha }}
+      last_tag: ${{ steps.pre.outputs.last_tag }}
+      next_version: ${{ steps.pre.outputs.next_version }}
+    steps:
+      # Always main (a dry run from a PR judges what the next slot would see); the PR's own scripts.
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Fetch main and the tags
+        run: git fetch --force --tags origin main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Preflight (commits, version, CI on main HEAD, blockers)
+        id: pre
+        run: |
+          mkdir -p "$RUNNER_TEMP/gate"
+          GATE_SHA=$(git rev-parse origin/main) node scripts/release/gate.mjs preflight "$RUNNER_TEMP/gate/preflight.json"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gate-preflight
+          path: ${{ runner.temp }}/gate/preflight.json
+          retention-days: 30
+
+  upgrade:
+    # A scheduled slot runs it only when every preflight check passed (a skip is already decided);
+    # a dry run always exercises the whole gate.
+    needs: preflight
+    if: needs.preflight.outputs.ok == 'true' || github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      UPGRADE_VOUCHERS: '3000'
+    steps:
+      - name: Check out main HEAD (the code under test)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+          path: head
+      - name: Check out the last release (${{ needs.preflight.outputs.last_tag }})
+        uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ needs.preflight.outputs.last_tag }}
+          path: old
+      - name: This run's gate scripts (a PR dry run tests its own)
+        uses: actions/checkout@v4
+        with:
+          path: gate
+          sparse-checkout: scripts/release
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install the last release's dependencies
+        working-directory: old
+        run: npm ci --no-audit --no-fund
+      - name: Install HEAD's dependencies
+        working-directory: head
+        run: npm ci --no-audit --no-fund
+      - name: Books + figures under the last release
+        run: |
+          UPGRADE_TODAY=$(date -u +%F)
+          export UPGRADE_TODAY
+          echo "UPGRADE_TODAY=$UPGRADE_TODAY" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/gate"
+          node gate/scripts/release/run-snapshot.mjs old seed "$RUNNER_TEMP/books"
+          node gate/scripts/release/run-snapshot.mjs old dump "$RUNNER_TEMP/books" "$RUNNER_TEMP/gate/old.json"
+      - name: Open + migrate the same books with HEAD, figures again
+        run: node gate/scripts/release/run-snapshot.mjs head check "$RUNNER_TEMP/books" "$RUNNER_TEMP/gate/new.json"
+      - uses: actions/download-artifact@v4
+        with:
+          name: gate-preflight
+          path: ${{ runner.temp }}/gate
+      - name: Compare
+        run: node gate/scripts/release/gate.mjs compare "$RUNNER_TEMP/gate/old.json" "$RUNNER_TEMP/gate/new.json" "$RUNNER_TEMP/gate/preflight.json" "$RUNNER_TEMP/gate/upgrade.json"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gate-upgrade
+          path: |
+            ${{ runner.temp }}/gate/upgrade.json
+            ${{ runner.temp }}/gate/old.json
+            ${{ runner.temp }}/gate/new.json
+          retention-days: 30
+
+  decide:
+    needs: [preflight, upgrade]
+    if: always() && needs.preflight.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    outputs:
+      release: ${{ steps.decide.outputs.release }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/release
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gate-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/gate
+      - name: Decide
+        id: decide
+        run: node scripts/release/gate.mjs decide "$RUNNER_TEMP/gate/preflight.json" "$RUNNER_TEMP/gate/upgrade.json" "$RUNNER_TEMP/gate/decision.json"
+      - name: Skipped-release issue
+        run: node scripts/release/gate.mjs issue "$RUNNER_TEMP/gate/decision.json"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gate-decision
+          path: ${{ runner.temp }}/gate/decision.json
+          retention-days: 30
+
+  bump:
+    needs: [preflight, decide]
+    if: needs.decide.outputs.release == 'true' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: v${{ needs.decide.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: main must still be the commit the gate passed
+        run: |
+          now=$(git rev-parse HEAD)
+          if [ "$now" != "${{ needs.preflight.outputs.sha }}" ]; then
+            echo "main moved to $now during the gate — the next slot releases it"; exit 1
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Version + CHANGELOG
+        run: node scripts/release/gate.mjs bump "${{ needs.decide.outputs.version }}" "$(TZ=Asia/Kolkata date +%F)"
+      - name: Commit, tag, push (atomic)
+        run: |
+          v="${{ needs.decide.outputs.version }}"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add package.json package-lock.json CHANGELOG.md
+          git commit -m "release: v$v (scheduled)"
+          git tag -a "v$v" -m "Total $v (scheduled release)"
+          git push --atomic origin HEAD:main "v$v"
+
+  release:
+    needs: bump
+    permissions:
+      contents: write
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.bump.outputs.tag }}
+    secrets: inherit
+
+  verify:
+    needs: [decide, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/release
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: /releases/latest and the site report the new version
+        run: node scripts/release/gate.mjs verify "${{ needs.decide.outputs.version }}"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: gate-decision
+          path: ${{ runner.temp }}/gate
+      - name: Close the skipped-release issue
+        run: node scripts/release/gate.mjs issue "$RUNNER_TEMP/gate/decision.json" released
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  report-failure:
+    # Tagging or building failed after the gate passed: say so in the same issue.
+    needs: [decide, bump, release, verify]
+    if: failure() && needs.decide.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts/release
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: gate-decision
+          path: ${{ runner.temp }}/gate
+      - run: node scripts/release/gate.mjs issue "$RUNNER_TEMP/gate/decision.json" failed
+        env:
+          GH_TOKEN: ${{ github.token }}
