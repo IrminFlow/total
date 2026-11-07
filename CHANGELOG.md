@@ -319,6 +319,11 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
 
 ### Security
 
+- **Dependency patch updates** (#201). Plain words: nothing you see changes; two libraries used to
+  build and test Total got their security fixes. For developers: lockfile only, both dev-time —
+  `vite` 7.3.6 → 7.3.7 (dev server) and `undici` 8.12.1 → 8.12.4 (jsdom, renderer tests). The other
+  two bumps this PR first carried, `fast-uri` 3.1.9 and `undici` 6.29.1 (node-gyp), arrived with
+  #208's electron-builder update. Replaces Dependabot #179, #182 and #183.
 - **Test runner: Vitest 3 → 5** (#205). Plain words: nothing in the app changes; the tool that
   runs Total's automated checks is updated, which clears the two critical tinypool alerts (90, 91)
   and the medium vitest / `@vitest/mocker` ones (39, 49, 108). For developers: `vitest` ^3.2 → ^5.1 (tinypool is gone; Vitest 5
