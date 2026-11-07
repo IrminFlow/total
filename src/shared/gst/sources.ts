@@ -114,6 +114,28 @@ export const GST_SOURCES = {
   rule61: {
     id: 'rule61', title: 'Rule 61 CGST Rules — GSTR-3B by the 20th (monthly)',
     url: 'https://taxinformation.cbic.gov.in/content/html/tax_repository/gst/rules/cgst_rules/active/chapter8/rule61_v1.00.html', accessed: ACCESSED, verified: true
+  },
+  // Phase 2a (golden fixtures): the official JSON schemas the app's exports are validated against
+  // in CI — vendored byte-for-byte in src/main/services/gstGolden/schemas/ (sources.json there).
+  gstr1Schema: {
+    id: 'gstr1Schema', title: 'GSTN API portal — GSTR1 "Save GSTR1 data" request schema v5.0 (2026-02-23) and v4.1 (2025-02-04)',
+    url: 'https://developer.gst.gov.in/pages/apiportal/data/Returns/GSTR1%20-%20Save%20GSTR1%20data/v5.0/GSTR1%20-%20Save%20GSTR1%20data%20request_schema.json',
+    accessed: '2026-11-07', verified: true, note: 'Official GSTN file. The GSTN offline tool\'s upload format is assumed to be this save payload (the tool publishes no separate schema).'
+  },
+  gstr3bSchema: {
+    id: 'gstr3bSchema', title: 'GSTN API portal — GSTR3B "Save GSTR3B data" request schema v7.1 (marked Draft, 2026-03-23; identical to v6.0 / v7.0)',
+    url: 'https://developer.gst.gov.in/pages/apiportal/data/Returns/GSTR3B%20-%20Save%20GSTR3B%20data/v7.1/GSTR3B%20-%20Save%20GSTR3B%20data%20request_schema.json',
+    accessed: '2026-11-07', verified: true
+  },
+  einvoiceSchemaFile: {
+    id: 'einvoiceSchemaFile', title: 'GSTN e-invoice portal — e-Invoice Schema/Validations Version 1.1 (JSON file)',
+    url: 'https://einvoice.gst.gov.in/uiassets/js/assets/files/e-Invoice-schema.json', accessed: '2026-11-07', verified: true,
+    note: 'Official file, but malformed as a JSON Schema (fields at the root, lists as one-element arrays, stray spaces) — repaired in code for validation (gstGolden/schemas.ts).'
+  },
+  gstr3bAutoPopulation: {
+    id: 'gstr3bAutoPopulation', title: 'GSTN — auto-population of GSTR-3B from GSTR-1 (Table 3.1(a) takes 11A advances received less 11B advances adjusted)',
+    url: 'https://tutorial.gst.gov.in/userguide/returns/Manual_GSTR3B.htm', accessed: '2026-11-07', verified: false,
+    note: 'Not read in an official text for this rule; worked into the golden fixtures ADV-01 / ADV-02 and pending the CA.'
   }
 } satisfies Record<string, GstSource>
 
@@ -130,7 +152,13 @@ export const GST_UNVERIFIED: { id: string; text: string; sources: GstSourceId[] 
   { id: 'ims-json', text: 'The IMS Offline Tool’s JSON schema is not published — the IMS action export is the app’s own JSON / CSV.', sources: ['imsOffline'] },
   { id: 'ims-key', text: 'An IMS record is identified by supplier GSTIN + document type + number (+ date, value) — taken from the portal views, not an official spec.', sources: ['imsFaq'] },
   { id: 's50-rate', text: 'Interest at 18% p.a. (s.50) — the notified rate was confirmed only in secondary sources; interest assumes the credit was utilised.', sources: ['s50'] },
-  { id: '3b-labels', text: 'GSTR-3B 4(B)/4(D) row wording per Notification 14/2022-CT from secondary sources; their meaning is from Circular 170/02/2022-GST.', sources: ['circular170'] }
+  { id: '3b-labels', text: 'GSTR-3B 4(B)/4(D) row wording per Notification 14/2022-CT from secondary sources; their meaning is from Circular 170/02/2022-GST.', sources: ['circular170'] },
+  { id: 'gstr3b-schema-draft', text: 'The GSTR-3B save schema the exports are checked against (v7.1) is marked "Draft" on the GSTN API portal.', sources: ['gstr3bSchema'] },
+  { id: 'einvoice-schema-repair', text: 'The published e-invoice 1.1 schema file is malformed; it is repaired in code to validate the e-invoice JSON — whether the IRP reads it the same way is not confirmed.', sources: ['einvoiceSchemaFile'] },
+  { id: 'posted-tax-rupee', text: 'An amount-only bill whose tax was typed rounded to the rupee is reported at its inferred rate on its value (e.g. 111.06), not the tax it charged (111.00) — which one GSTR-1 / 3B should carry is unconfirmed (golden fixture LDG-04).', sources: ['gstr1Schema'] },
+  { id: 'gstr3b-negative', text: 'In a month with only credit notes, GSTR-3B 3.1 / 3.2 and 4(A) come out negative (the save schema allows it; whether the portal accepts it or shows 0 and carries it forward is unconfirmed).', sources: ['gstr3bSchema'] },
+  { id: 'hsn-sac-uqc', text: 'GSTR-1 Table 12: a line without an HSN / SAC is left out, and a service (SAC) line goes in with UQC OTH and quantity 0 — GSTN\'s Table 12 advisories may require an HSN on every line and UQC "NA" for services (not read in an official text).', sources: ['gstr1Schema'] },
+  { id: 'gstr3b-advances', text: 'Whether GSTR-3B 3.1(a) must include tax on advances (GSTR-1 11A less 11B) — the app leaves it out; the golden fixtures expect it in (GSTN auto-population). Ask the CA.', sources: ['gstr3bAutoPopulation'] }
 ]
 
 // ---------- sourced figures ----------
