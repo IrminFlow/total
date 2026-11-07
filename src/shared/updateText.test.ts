@@ -11,7 +11,7 @@ describe('updateText', () => {
     expect(downloadUrlFor('https://devjindal.tech/api/download', 'win32')).toBe('https://devjindal.tech/api/download?platform=win')
     expect(downloadUrlFor('https://devjindal.tech/api/download', 'darwin')).toBe('https://devjindal.tech/api/download?platform=mac')
     expect(downloadUrlFor('https://devjindal.tech/api/download?platform=mac', 'win32')).toBe('https://devjindal.tech/api/download?platform=mac')
-    expect(downloadUrlFor('https://github.com/IrminFlow/total/releases/tag/v1', 'win32')).toBe('https://github.com/IrminFlow/total/releases/tag/v1')
+    expect(downloadUrlFor('https://github.com/Total-org/total-org/releases/tag/v1', 'win32')).toBe('https://github.com/Total-org/total-org/releases/tag/v1')
     expect(downloadUrlFor('https://devjindal.tech/api/download', 'linux')).toBe('https://devjindal.tech/api/download')
   })
   it('scripted runs turn the startup check off', () => {

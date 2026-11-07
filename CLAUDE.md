@@ -2,7 +2,7 @@
 
 Total is a **fully offline accounting app for macOS** (Electron + React + TypeScript + SQLite): Tally-grade double-entry books with GST returns, invoicing/PDF, inventory + manufacturing (BOM), banking reconciliation, payroll, Tally XML import, and optional live e-invoice/e-way-bill filing via the NIC APIs. All user data lives in `~/Documents/total/` — no cloud, no accounts. The repo also contains the marketing site (`site/`, Next.js, deployed on Vercel).
 
-GitHub: **public repo `IrminFlow/total`** (made public 2026-10-07) (HTTPS remote, `gh` credential helper).
+GitHub: **public repo `Total-org/total-org`** (made public 2026-10-07; moved from `IrminFlow/total` on 2026-11-07 — old URLs redirect, so never create a new `IrminFlow/total`) (HTTPS remote, `gh` credential helper).
 
 ## Repo layout
 
@@ -157,5 +157,5 @@ git push --follow-tags # → GitHub Actions: tests, DMG+ZIP build, publishes the
   in-app source of truth — `src/main/updater.ts` imports it. The site under `site/` can't import
   `src/shared` (separate tsconfig, no path there) so it stays env-driven instead: `NEXT_PUBLIC_SITE_URL`
   for its own metadataBase (defaults to the canonical URL) and `GITHUB_REPO` for `site/lib/release.ts`
-  (defaults to `IrminFlow/total`). If the domain or repo ever changes, update `src/shared/product.ts`,
+  (defaults to `Total-org/total-org`). If the domain or repo ever changes, update `src/shared/product.ts`,
   Vercel's env vars, and the note above together.
