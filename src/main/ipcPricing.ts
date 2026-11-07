@@ -35,13 +35,13 @@ export function registerPricingIpc(handle: Handle, company: () => Company): void
     return priceLevels.setGridRate(db(), q.priceLevelId, q.stockItemId, q.date, q.rate)
   })
   handle('pricing:updateRate', (p) => {
-    const { id, data } = z.object({ id: z.number().int().positive(), data: z.unknown() }).parse(p)
+    const { id, data } = z.object({ id: z.number().int().positive(), data: z.unknown().optional() }).parse(p)
     return priceLevels.saveRate(db(), data as Parameters<typeof priceLevels.saveRate>[1], id)
   })
   handle('pricing:bulkUpdate', (p) => priceLevels.bulkUpdateRates(db(), bulkRateUpdateSchema.parse(p)))
   handle('pricing:copyLevel', (p) => priceLevels.copyLevel(db(), copyLevelSchema.parse(p)))
   handle('pricing:exportCsv', (p) => {
-    const { priceLevelId } = z.object({ priceLevelId: z.number().int().positive().optional() }).default({}).parse(p ?? {})
+    const { priceLevelId } = z.object({ priceLevelId: z.number().int().positive().optional() }).prefault({}).parse(p ?? {})
     return { csv: priceLevels.exportRatesCsv(db(), priceLevelId) }
   }, 'viewer')
   handle('pricing:importCsv', (p) => {
@@ -51,7 +51,7 @@ export function registerPricingIpc(handle: Handle, company: () => Company): void
 
   // ---------- party-wise rates ----------
   handle('pricing:partyRates', (p) => {
-    const { ledgerId } = z.object({ ledgerId: z.number().int().positive().optional() }).default({}).parse(p ?? {})
+    const { ledgerId } = z.object({ ledgerId: z.number().int().positive().optional() }).prefault({}).parse(p ?? {})
     return pricing.listPartyRates(db(), ledgerId)
   }, 'viewer')
   handle('pricing:savePartyRate', (p) => {
