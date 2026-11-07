@@ -1,4 +1,4 @@
-// WP 7.2 review: the database driver is better-sqlite3-multiple-ciphers, built for Electron's ABI.
+// WP 7.2 review: the database driver is better-sqlite3-multiple-ciphers (Node-API since v13).
 //  - plain vitest (system Node) must never load it: no *.test.ts imports it (dbtests do, under
 //    Electron-as-Node — scripts/test-db.mjs);
 //  - nothing imports the old `better-sqlite3` package any more (it is not installed: a stray
