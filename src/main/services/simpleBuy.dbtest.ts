@@ -211,7 +211,7 @@ describe('WP 9.3 Record a purchase: the form → simple:post = the purchase an a
     const { twin, ids } = handEntered(INFO, [
       (t) => ({ kind: 'purchase', form: 'invoice', state: inv(t, '2025-08-10', 'Bharat Steel', [['Widget', '10', 10_000]], 'BS/101', '2025-09-09', 'BS/101') }),
       (t) => ({ kind: 'payment', form: 'accounting', state: acc('2025-08-10', [r('dr', L('Bharat Steel', t), 50_000), r('cr', L('HDFC Bank', t), 50_000)], [{ kind: 'against', name: 'BS/101', amount: 50_000, dueDate: null }]) }),
-      (t) => ({ kind: 'purchase', form: 'invoice', state: inv(t, '2025-08-10', 'Karnataka Mills', [['Rice', '20', 5_000]], 'KM-7', '2025-08-10', 'KM-7') }),
+      (t) => ({ kind: 'purchase', form: 'invoice', state: inv(t, '2025-08-10', 'Karnataka Mills', [['Rice', '20', 5_000]], 'KM-7', '', 'KM-7') }), // no days to pay: no due date (Nov 2026)
       (t) => ({
         kind: 'purchase', form: 'accounting',
         state: acc('2025-08-10', [r('cr', L('Bharat Steel', t), 118_000), r('dr', L('Rent', t), 100_000), r('dr', L('Input CGST', t), 9_000), r('dr', L('Input SGST', t), 9_000)], [{ kind: 'new', name: 'RENT-AUG', amount: 118_000, dueDate: '2025-09-09' }], { reference: 'RENT-AUG' })
