@@ -35,7 +35,16 @@ If you already use OpenAI nothing changes: same key, same models, same requests.
   `provider.ts` gains a Chat Completions path, `createProvider` and capability refusals; new IPC
   `ai:provider:set` (owner, the shared-key rule); `ai:testConnection` now saves a model picked from
   the list when none is set or the set one is not offered (audited). No migration; no figure changes.
-||||||| cdb77f60
+
+**Plain words** (#208). Total now runs on Electron 45 (from 37), with the newer security fixes of
+its Chromium and Node. **It needs macOS 13 Ventura or later** (Electron dropped macOS 11 and 12).
+Books, backups and passphrase-locked books open exactly as before — nothing in them changes.
+For developers: the SQLite driver is better-sqlite3-multiple-ciphers 13 (Node-API, prebuilt per
+platform — no `@electron/rebuild` step; SQLite 3.53.4); electron-builder 26.18; the packaged app
+carries only its own platform's driver binary. Two small changes come with Electron: file-open
+pickers start in Downloads instead of the last folder used, and macOS shows the deadline
+notifications only for a code-signed app (ours is not signed yet — the deadlines are still on Home
+and Taxes).
 
 **GST gateway, test mode** (#209; upgrade plan Phase 4, provider-neutral). Plain words: nothing
 changes on any screen yet and nothing is sent anywhere. Underneath, Total now has ONE way to the GST

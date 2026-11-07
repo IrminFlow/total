@@ -1,6 +1,6 @@
 // Headless Total CLI launcher. Bundles src/main/cli/main.ts with esbuild (already a transitive
 // devDependency via vite — no new packages), then runs the bundle under the Electron binary with
-// ELECTRON_RUN_AS_NODE=1 so better-sqlite3's Electron-ABI build loads without a rebuild — the same
+// ELECTRON_RUN_AS_NODE=1 (the Node the app ships with; the driver is Node-API since v13) — the same
 // pattern as scripts/test-db.mjs. Safe alongside a running app: the DB layer opens every company
 // in WAL mode with a busy_timeout and takes no exclusive locks.
 //

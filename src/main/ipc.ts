@@ -3664,7 +3664,11 @@ export function registerIpc(): void {
     const db = requireCompany().db
     if (configSvc.shouldNotifyDeadlinesToday(db, todayISO())) {
       for (const item of items) {
-        new Notification({ title: item.title, body: item.body }).show()
+        const n = new Notification({ title: item.title, body: item.body })
+        // Electron 42+ shows macOS notifications through UNNotification, which needs a code-signed
+        // app: an unsigned build gets `failed` instead (the deadlines are still on Home / Taxes).
+        n.on('failed', (_e, error) => log('warn', 'deadline notification not shown', { error }))
+        n.show()
       }
     }
     return null
