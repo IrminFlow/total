@@ -355,7 +355,7 @@ describe('Money out', () => {
     const { twin, ids } = handEntered([
       {
         kind: 'purchase',
-        state: blank(TODAY, [r('cr', L('Bharat Steel'), 118_000), r('dr', L('Rent'), 100_000), r('dr', L('CGST'), 9_000), r('dr', L('SGST'), 9_000)], [{ kind: 'new', name: 'RENT-AUG', amount: 118_000, dueDate: TODAY }], { reference: 'RENT-AUG' })
+        state: blank(TODAY, [r('cr', L('Bharat Steel'), 118_000), r('dr', L('Rent'), 100_000), r('dr', L('CGST'), 9_000), r('dr', L('SGST'), 9_000)], [{ kind: 'new', name: 'RENT-AUG', amount: 118_000, dueDate: null }], { reference: 'RENT-AUG' })
       },
       { kind: 'payment', state: blank(TODAY, [r('dr', L('Bharat Steel'), 118_000), r('cr', L('HDFC Bank'), 118_000)], [{ kind: 'against', name: 'RENT-AUG', amount: 118_000, dueDate: null }]) }
     ])
@@ -387,7 +387,7 @@ describe('Money out', () => {
     const { ids } = handEntered([
       {
         kind: 'purchase',
-        state: blank(TODAY, [r('cr', L('Bharat Steel', twin), 100_050), r('dr', L('Rent', twin), 84_788), r('dr', L('Input CGST', twin), 7_631), r('dr', L('Input SGST', twin), 7_631)], [{ kind: 'new', name: 'RENT-SEP', amount: 100_050, dueDate: TODAY }], { reference: 'RENT-SEP' })
+        state: blank(TODAY, [r('cr', L('Bharat Steel', twin), 100_050), r('dr', L('Rent', twin), 84_788), r('dr', L('Input CGST', twin), 7_631), r('dr', L('Input SGST', twin), 7_631)], [{ kind: 'new', name: 'RENT-SEP', amount: 100_050, dueDate: null }], { reference: 'RENT-SEP' })
       },
       { kind: 'payment', state: blank(TODAY, [r('dr', L('Bharat Steel', twin), 100_050), r('cr', L('Cash', twin), 100_050)], [{ kind: 'against', name: 'RENT-SEP', amount: 100_050, dueDate: null }]) }
     ], twin)
