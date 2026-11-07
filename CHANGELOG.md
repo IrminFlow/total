@@ -347,6 +347,13 @@ comparatives' period maths to `shared/reportPeriod.ts`, `mulDivRound` / `instalm
   the folder after (it never did — found in #197's review); the scratch rekey checks that
   `journal_mode = MEMORY` took effect; a failed rekey of the restore's temp copy removes it; a swap that fails (copy / fsync / rename) removes its copy and
   reopens the untouched books instead of leaving a closed handle.
+- **GSTR-1's B2C (Large) row names the old limit for months before August 2024** (#204). Plain words:
+  the GSTR-1 screen said "inter-state > ₹1,00,000" even for months before 1 Aug 2024, when the
+  limit was ₹2,50,000 (Total already sorted those invoices by the old limit — only the label was
+  wrong). The screen now says "> ₹2,50,000" for those months. For developers: the label is chosen
+  on the screen (`b2clLabelForPeriod`, shared/gst/returns.ts); `buildGstr1`'s summary keeps
+  `B2CL_SUMMARY_LABEL` for every period, so exports, the CA pack's CSV and every pinned hash /
+  fixture (reportEquality's May 2024 GSTR-1, gstPostedRateParity, tradeLegacy) are unchanged.
 - **Bills to pay: a bill with no due date is not "due this week"** (#200). Plain words: on People →
   Bills to pay, a supplier's bill with no due date (the row says "no due date") was still added to
   "due this week" / "due this month" by its bill date. The totals, their "Why?" and the Due column
