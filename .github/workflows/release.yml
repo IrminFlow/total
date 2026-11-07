@@ -1,5 +1,8 @@
-# Build the macOS app and publish it to GitHub Releases whenever a version tag is pushed.
-# Tag with:  npm version patch && git push --follow-tags
+# Build the macOS + Windows apps and publish them to GitHub Releases for one version tag.
+# Two ways in:
+#   - a v* tag pushed by hand (npm version patch && git push --follow-tags) — the push trigger;
+#   - the scheduled release (scheduled-release.yml) CALLS this workflow with `tag`, because a tag
+#     pushed with GITHUB_TOKEN never triggers other workflows.
 # electron-updater in the app reads these releases to auto-update installed copies.
 name: Release
 
@@ -7,6 +10,23 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_call:
+    inputs:
+      tag:
+        description: The v* tag to build and publish (already pushed)
+        required: true
+        type: string
+  # Re-run a release whose build failed after its tag was pushed (Actions → Release → Run workflow).
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The v* tag to build and publish (already pushed)
+        required: true
+        type: string
+
+env:
+  # The tag being released: the caller's input, else the pushed tag.
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -16,6 +36,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
 
       - uses: actions/setup-node@v4
         with:
@@ -49,7 +71,12 @@ jobs:
       - name: Ensure the release exists (one per tag)
         # electron-builder's parallel asset uploads race to CREATE the release and can end up
         # with two releases on one tag (observed on v0.3.0) — pre-creating makes it only upload.
-        run: gh release create "$GITHUB_REF_NAME" --title "Total ${GITHUB_REF_NAME#v}" --notes "Release notes to follow." --repo "$GITHUB_REPOSITORY" || true
+        # Created as a DRAFT and published only after the Windows files are up (last step of
+        # release-win), so /releases/latest never points at a release without its assets.
+        # Notes = the version's CHANGELOG section when the tree has the script (scheduled releases).
+        run: |
+          if [ -f scripts/release/gate.mjs ]; then node scripts/release/gate.mjs notes "${TAG#v}" > "$RUNNER_TEMP/notes.md"; else echo "Release notes to follow." > "$RUNNER_TEMP/notes.md"; fi
+          gh release create "$TAG" --draft --title "Total ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md" --repo "$GITHUB_REPOSITORY" || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -70,6 +97,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.tag || github.ref_name }}
 
       - uses: actions/setup-node@v4
         with:
@@ -112,6 +141,12 @@ jobs:
       - name: Upload installer to the existing release
         shell: bash
         run: |
-          gh release upload "${GITHUB_REF_NAME}" dist/*.exe dist/*.exe.blockmap dist/latest.yml --clobber --repo "${GITHUB_REPOSITORY}"
+          gh release upload "${TAG}" dist/*.exe dist/*.exe.blockmap dist/latest.yml --clobber --repo "${GITHUB_REPOSITORY}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish the release (never left as a draft)
+        shell: bash
+        run: gh release edit "${TAG}" --draft=false --latest --repo "${GITHUB_REPOSITORY}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

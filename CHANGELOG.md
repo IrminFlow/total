@@ -20,6 +20,15 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
+**Releases come by themselves** (#216). Twice a day (about 09:00 and 21:00 India time) GitHub
+releases what is new on `main` as the next patch version, but only when every test on `main` passed,
+books made by the last release open in the new one with every report unchanged (trial balance, P&L,
+balance sheet, outstandings, stock, GSTR-1 / 3B) and the backup restore check passes, and no pull
+request is labelled `release-blocker`. A figure change ships only with the owner's
+`figures-approved` label. Skipped slots are explained in one GitHub issue. For developers:
+`.github/workflows/scheduled-release.yml`, `scripts/release/`; `release.yml` is now also a
+`workflow_call` with `tag`, and its release notes are the version's CHANGELOG section.
+
 - **GST golden fixtures and official schema checks** (#207, Phase 2a of the upgrade plan). Plain
   words: nothing changes on screen. 63 bills worked out by hand (intra / inter-state, B2B, B2C small /
   large by date, SEZ and exports with / without tax, reverse charge, imports, blocked credit,
