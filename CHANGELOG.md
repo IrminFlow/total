@@ -20,6 +20,46 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
+**Plain words** (#208). Total now runs on Electron 45 (from 37), with the newer security fixes of
+its Chromium and Node. **It needs macOS 13 Ventura or later** (Electron dropped macOS 11 and 12).
+Books, backups and passphrase-locked books open exactly as before — nothing in them changes.
+For developers: the SQLite driver is better-sqlite3-multiple-ciphers 13 (Node-API, prebuilt per
+platform — no `@electron/rebuild` step; SQLite 3.53.4); electron-builder 26.18; the packaged app
+carries only its own platform's driver binary. Two small changes come with Electron: file-open
+pickers start in Downloads instead of the last folder used, and macOS shows the deadline
+notifications only for a code-signed app (ours is not signed yet — the deadlines are still on Home
+and Taxes).
+
+**GST gateway, test mode** (#209; upgrade plan Phase 4, provider-neutral). Plain words: nothing
+changes on any screen yet and nothing is sent anywhere. Underneath, Total now has ONE way to the GST
+portals — the e-invoice (IRN) and e-way bill systems and the GST returns (GSTR-1, GSTR-3B, GSTR-2B) —
+and a built-in **Test GSP** that answers like the portals do (including their refusals: wrong login,
+duplicate IRN, validation codes, too many requests, OTP needed) without a network. No GSP has been
+chosen yet, so **live filing stays off and cannot be turned on in this version**; the Test GSP is the
+only choice. Settings → NIC live filing works exactly as before. For accountants: no figure changes.
+A filing made through the gateway puts its ARN and date into the same "I've filed" record the Taxes
+screen keeps; a Test GSP filing is kept there labelled as a test and never counts as filed (Home's GST
+tile, deadlines and the month-end checklist ignore it). A GSTR-2B fetched through the gateway is stored
+like an imported one, marked as fetched. A simulated (test) 2B — built from your own purchase bills,
+so it always agrees with them — is shown only on the GSTR-2B screen's matcher: Home, Taxes and the 2B
+assistant never take it for the portal's, it never replaces a real 2B (imported or fetched), and a
+file imported later replaces it. A quarterly (QRMP) filer can't file through the gateway yet. A simulated IRN or e-way bill is kept apart from the voucher: it never appears on
+a print and never locks the bill. For developers: `src/main/gstGateway/` (adapter contract
+`types.ts`, `testGsp.ts`, `nicAdapter.ts` — the NIC client folded behind it, `edocFlow.ts` — the
+IRN / e-way flows moved out of `services/nic.ts` unchanged, `returnsFlow.ts`, `sources.ts` with every
+call's official source and the UNVERIFIED list — the GSTN returns API pages are behind sign-in, so
+all GSTR-1 / 3B / 2B shapes are UNVERIFIED), `gateway:*` IPC (`ipcGateway.ts`, owner-only for portal
+calls, mapped in auditCoverage; audit entities `gst_gateway` (settings), `gst_gateway_return`,
+`gst_gateway_edoc`), migration "GST gateway" (last: `gst_gateway_test_edocs`, `gst_gateway_returns`,
+`gst2b_statements.source`; `getStatement` skips `gateway-test` unless asked; the Test GSP keeps its
+simulated portal memory in memory per company, never in the company file),
+meta `gstGateway` (no secret; the password in the secret store under `companyScope(slug)`), `gstFiled`
+entries gain an optional `via` (`readGstFiled` = real filings only, `readGstFiledAll` = all). One
+contract suite (`contract.testutil.ts`) runs against the Test GSP and the NIC client over the fake NIC
+sandbox, and against a real GSP sandbox from the manual workflow `.github/workflows/gsp-sandbox.yml`
+once an adapter exists. The UI (e-Documents, the GST returns screens, simple Taxes step 3) and the
+end-to-end scenario come in the follow-up PR.
+
 **Plain words** (#194). Total is smaller. Seven rarely used tools are gone, and seven more stay out of
 sight until a business actually uses them. Nothing already in your books changes.
 

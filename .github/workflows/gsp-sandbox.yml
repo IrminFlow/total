@@ -1,0 +1,34 @@
+# Phase 4: the GST gateway's adapter contract against a REAL GSP sandbox. Manual only — it talks to
+# the provider's sandbox with the repository secrets, so it never runs on a push or a PR. Until a
+# GSP is chosen (owner) there is no real adapter and this run fails with that message.
+name: GSP sandbox contract
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Gateway provider id of the real adapter to test
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Adapter contract against the sandbox
+        run: npx vitest run src/main/gstGateway/sandbox.contract.test.ts
+        env:
+          TOTAL_GSP_SANDBOX: ${{ inputs.provider }}
+          GSP_SANDBOX_GSTIN: ${{ secrets.GSP_SANDBOX_GSTIN }}
+          GSP_SANDBOX_USERNAME: ${{ secrets.GSP_SANDBOX_USERNAME }}
+          GSP_SANDBOX_PASSWORD: ${{ secrets.GSP_SANDBOX_PASSWORD }}
+          GSP_SANDBOX_OTP: ${{ secrets.GSP_SANDBOX_OTP }}

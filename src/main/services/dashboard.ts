@@ -25,7 +25,7 @@ import { complianceApplicability, upcomingDeadlines } from '@shared/compliance'
 import { tdsQuarterOf } from '@shared/tds'
 import { gstPeriodOf } from '@shared/dates'
 import { gstr1DueDate, gstr3bDueDate } from '@shared/gst/filing'
-import { GST_FILED_META_KEY, normalizeGstFiled, type GstFiledMeta } from '@shared/simple/taxes'
+import { GST_FILED_META_KEY, normalizeGstFiled, realGstFiled, type GstFiledMeta } from '@shared/simple/taxes'
 import { closingBalances, dashboard as dashboardRecent, descendantIdSet, profitAndLoss, stockAgeing } from './reports'
 import { netTradeRows, outstandings } from './analysis'
 import { negativeStock, stockValuesAt, withStockPass } from './stockAnalysis'
@@ -140,9 +140,9 @@ export function dashGst(db: DB, company: CompanyInfo, today: string, notBefore?:
   }
 }
 
-/** meta `gstFiled` (the Taxes screen's "I've filed" marks, shared/simple/taxes.ts); missing or
- *  malformed = none. simpleTaxes.ts writes it. */
-export function readGstFiled(db: DB): GstFiledMeta {
+/** meta `gstFiled` (the Taxes screen's "I've filed" marks, shared/simple/taxes.ts) as stored —
+ *  including the Test GSP's simulated filings (Phase 4); missing or malformed = none. */
+export function readGstFiledAll(db: DB): GstFiledMeta {
   const row = db.prepare('SELECT value FROM meta WHERE key = ?').get(GST_FILED_META_KEY) as { value: string } | undefined
   if (!row) return {}
   try {
@@ -150,6 +150,12 @@ export function readGstFiled(db: DB): GstFiledMeta {
   } catch {
     return {}
   }
+}
+
+/** The marks that count as filed (every reader of "is it filed": the GST tile, Home, Taxes):
+ *  a Test GSP filing is simulated and never counts. simpleTaxes.ts writes the meta. */
+export function readGstFiled(db: DB): GstFiledMeta {
+  return realGstFiled(readGstFiledAll(db))
 }
 
 /** The Compliance row's figures from gstr3b() for [from, to] (return period = `period`'s month):

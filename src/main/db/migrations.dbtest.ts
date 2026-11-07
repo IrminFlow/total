@@ -155,7 +155,10 @@ const EXPECTED_TABLES = [
   'voucher_fts',
   'voucher_fts_data',
   'voucher_fts_idx',
-  'voucher_fts_config'
+  'voucher_fts_config',
+  // Phase 4 (last) — the GST gateway
+  'gst_gateway_test_edocs',
+  'gst_gateway_returns'
 ]
 
 describe('migrate', () => {
@@ -167,7 +170,7 @@ describe('migrate', () => {
   })
 
   // Found by content, never by position (number by position; later entries are appended).
-  it('the reminder_log channel rebuild (PR #148) comes right before the voucher text index, then the NIC e-document columns, then the loan_vouchers disbursement rebuild, then the tax-fact snapshot columns, then the count-cost mark (last)', () => {
+  it('the reminder_log channel rebuild (PR #148) comes right before the voucher text index, then the NIC e-document columns, then the loan_vouchers disbursement rebuild, then the tax-fact snapshot columns, then the count-cost mark, then the GST gateway (last)', () => {
     const at = MIGRATIONS.findIndex((sql) => sql.includes('CREATE TABLE reminder_log_new'))
     const rebuild = MIGRATIONS[at]!
     expect(rebuild.startsWith('-- @foreign-keys-off')).toBe(true)
@@ -176,17 +179,18 @@ describe('migrate', () => {
     expect(MIGRATIONS[at + 2]).toContain('irn_signed_invoice')
     expect(MIGRATIONS[at + 3]).toContain('CREATE TABLE loan_vouchers_new')
     expect(MIGRATIONS[at + 4]).toContain('snap_tax_facts')
-    expect(MIGRATIONS.at(-1)).toContain('count_cost')
-    expect(at).toBe(MIGRATIONS.length - 6)
+    expect(MIGRATIONS[at + 5]).toContain('count_cost')
+    expect(MIGRATIONS.at(-1)).toContain('gst_gateway_returns')
+    expect(at).toBe(MIGRATIONS.length - 7)
   })
 
   // WP 3.5 follow-up: the NIC signed copies / cancel state / e-way history — appended columns only.
   it('the NIC e-document columns come right after the voucher text index (then the loan_vouchers disbursement rebuild and the tax-fact snapshot columns): columns appended to vouchers, no rebuild', () => {
-    const last = MIGRATIONS.at(-4)!
+    const last = MIGRATIONS.at(-5)!
     expect(last).toContain('irn_signed_invoice')
     expect(last.trimStart().startsWith('-- @foreign-keys-off')).toBe(false)
     expect(last).not.toMatch(/DROP TABLE|CREATE TABLE/i)
-    expect(MIGRATIONS.at(-5)).toContain('CREATE VIRTUAL TABLE voucher_fts')
+    expect(MIGRATIONS.at(-6)).toContain('CREATE VIRTUAL TABLE voucher_fts')
     const db = freshDb()
     const cols = (db.prepare('PRAGMA table_info(vouchers)').all() as { name: string }[]).map((c) => c.name)
     for (const c of ['irn_signed_invoice', 'irn_signed_qr', 'irn_cancelled_at', 'irn_cancel_reason', 'irn_cancel_remark', 'ewb_date', 'ewb_history']) {
@@ -196,7 +200,7 @@ describe('migrate', () => {
 
   // To-do §4 GST: the tax-fact snapshot columns — nullable columns appended, no rebuild, no backfill.
   it('the tax-fact snapshot columns come right before the count-cost mark: columns appended, nothing backfilled', () => {
-    const last = MIGRATIONS.at(-2)!
+    const last = MIGRATIONS.at(-3)!
     expect(last).toContain('snap_tax_facts')
     expect(last.trimStart().startsWith('-- @foreign-keys-off')).toBe(false)
     expect(last.replace(/--[^\n]*/g, '')).not.toMatch(/DROP TABLE|CREATE TABLE|UPDATE|INSERT/i)
@@ -208,8 +212,8 @@ describe('migrate', () => {
 
   // PR #188 review: the count-cost mark — one column appended (default 0 = every existing count
   // line values as before) and a partial index, no rebuild, no backfill.
-  it('the count-cost mark is the last migration: a column defaulting to 0 and a partial index, nothing backfilled', () => {
-    const last = MIGRATIONS.at(-1)!
+  it('the count-cost mark comes right before the GST gateway: a column defaulting to 0 and a partial index, nothing backfilled', () => {
+    const last = MIGRATIONS.at(-2)!
     expect(last).toContain('count_cost')
     expect(last.trimStart().startsWith('-- @foreign-keys-off')).toBe(false)
     expect(last.replace(/--[^\n]*/g, '')).not.toMatch(/DROP TABLE|CREATE TABLE|UPDATE|INSERT/i)
@@ -217,6 +221,17 @@ describe('migrate', () => {
     const col = (db.prepare('PRAGMA table_info(inventory_lines)').all() as { name: string; dflt_value: string | null; notnull: number }[]).find((c) => c.name === 'count_cost')
     expect(col).toMatchObject({ dflt_value: '0', notnull: 1 })
     expect(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_inv_count_cost'").get()).toBeTruthy()
+  })
+
+  // Phase 4: the GST gateway — new tables + one nullable column; nothing existing changes.
+  it('the GST gateway is the last migration: two new tables and gst2b_statements.source (NULL for every earlier statement)', () => {
+    const last = MIGRATIONS.at(-1)!
+    for (const t of ['gst_gateway_test_edocs', 'gst_gateway_returns']) expect(last).toContain(`CREATE TABLE ${t}`)
+    expect(last.trimStart().startsWith('-- @foreign-keys-off')).toBe(false)
+    expect(last.replace(/--[^\n]*/g, '')).not.toMatch(/DROP TABLE|\bUPDATE\b|\bINSERT\b/i)
+    const db = freshDb()
+    const col = (db.prepare('PRAGMA table_info(gst2b_statements)').all() as { name: string; dflt_value: string | null; notnull: number }[]).find((c) => c.name === 'source')
+    expect(col).toMatchObject({ dflt_value: null, notnull: 0 })
   })
 
   it('applies every migration exactly once and records them all', () => {
