@@ -16,7 +16,8 @@
     "baseUrl": ".",
     "paths": {
       "@shared/*": ["src/shared/*"],
-      "@main/*": ["src/main/*"]
+      "@main/*": ["src/main/*"],
+      "better-sqlite3-multiple-ciphers": ["node_modules/better-sqlite3-multiple-ciphers/index.d.ts"]
     }
   },
   "include": ["electron.vite.config.ts", "src/main/**/*", "src/preload/**/*", "src/shared/**/*"]
