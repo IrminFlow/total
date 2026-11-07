@@ -3,7 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../lib/client'
 import { assistantsApi } from '../lib/assistantsClient'
 import { useNav, useSession, useToasts, nextDraftId } from '../state/stores'
-import { AmountInput, Button, Checkbox, DrawerSection, EmptyState, Field, Modal, Money, Page, PageHeader, Panel, SkeletonRows, TabBar, TextInput } from '../components/ui'
+import { Gateway2bFetch } from './gst/GatewayPanel'
+import { TEST_MODE_NOTE } from '@shared/gstGateway'
+import { AmountInput, Banner, Button, Checkbox, DrawerSection, EmptyState, Field, Modal, Money, Page, PageHeader, Panel, SkeletonRows, TabBar, TextInput } from '../components/ui'
 import { OptionChoice, OptionsTable, useScreenOptions } from '../components/ScreenOptions'
 import { DataTable, defineColumns, type TableColumn } from '../components/table'
 import { normalizeGstin, type Recon2bBucket, type Recon2bMatchedBy, type Recon2bPair, type Recon2bTolerances } from '@shared/gst/recon2b'
@@ -23,6 +25,9 @@ const BUCKETS: { key: Recon2bBucket; label: string }[] = [
 interface Imported {
   jsonText: string
   fileName?: string
+  /** Phase 4: simulated by the Test GSP (from the books' own bills) — not the portal's: IMS
+   *  decisions are not offered on it. */
+  simulated?: boolean
 }
 
 function PasteModal({ onClose, onApply }: { onClose: () => void; onApply: (jsonText: string) => void }): React.JSX.Element {
@@ -338,7 +343,7 @@ export function Gstr2bScreen(): React.JSX.Element {
               label="GSTR-2B views"
               tabs={[
                 { id: 'recon', label: 'Reconciliation' },
-                { id: 'ims', label: 'IMS actions', count: result.pairs.filter((p) => p.portal).length || undefined }
+                ...(imported?.simulated ? [] : [{ id: 'ims', label: 'IMS actions', count: result.pairs.filter((p) => p.portal).length || undefined }])
               ]}
               active={tab}
               onSelect={(t) => setTab(t as 'recon' | 'ims')}
@@ -347,9 +352,20 @@ export function Gstr2bScreen(): React.JSX.Element {
         }
         controls={<MonthBar months={months} value={monthKey} onChange={setMonthKey} testId="input-gstr2b-month" />}
         secondary={
-          <Button variant="ghost" data-testid="btn-2b-paste" onClick={() => setPasteOpen(true)}>
-            Paste JSON…
-          </Button>
+          <>
+            <Gateway2bFetch
+              period={month.period}
+              onFetched={(jsonText, fileName, simulated) => {
+                // Already stored by the gateway (with its source) — never store it again as a file import.
+                storedRef.current = jsonText
+                setImported({ jsonText, ...(fileName ? { fileName } : {}), ...(simulated ? { simulated: true } : {}) })
+                if (simulated) setTab('recon')
+              }}
+            />
+            <Button variant="ghost" data-testid="btn-2b-paste" onClick={() => setPasteOpen(true)}>
+              Paste JSON…
+            </Button>
+          </>
         }
         actions={
           <Button variant="primary" data-testid="btn-2b-pick" onClick={() => void doPick()}>
@@ -375,6 +391,13 @@ export function Gstr2bScreen(): React.JSX.Element {
           )
         }}
       />
+
+      {imported?.simulated && (
+        <Banner tone="warning" className="mb-3" testId="gstr2b-simulated">
+          {TEST_MODE_NOTE} This GSTR-2B was simulated by the built-in Test GSP from your own purchase bills, so it always matches them —
+          it is not the portal&apos;s statement. IMS actions are not offered on it, and the 2B assistant, Home and Taxes ignore it.
+        </Banner>
+      )}
 
       {pasteOpen && (
         <PasteModal

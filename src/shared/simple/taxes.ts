@@ -232,6 +232,9 @@ export type SimpleTaxes =
       /** Quarterly filers: Total prepares monthly files only (see the screen's note). */
       filesMonthly: boolean
       filed: GstFiledPeriod
+      /** Phase 4: returns filed through the GST gateway's Test GSP (simulated — never counted as
+       *  filed; shown labelled). Absent when there are none. */
+      testFiled?: GstFiledPeriod
       withholding: TaxesWithholding[]
     }
 

@@ -43,6 +43,7 @@ import type { GstIssue } from '@shared/gst/validate'
 import type { Recon2bResult, Recon2bTolerances } from '@shared/gst/recon2b'
 import type { ImsActionRecord } from '@shared/gst/ims'
 import type { Gstr3bView, Gstr9View, Itc04View, ItcReversalView } from '@shared/gst/views'
+import type { Gateway2bResult, GatewayForm, GatewayReturnRecord, GatewaySettings, GatewayStatus } from '@shared/gstGateway'
 import type { Itc04PeriodKind, Itc04Periodicity } from '@shared/gst/itc04'
 import type { SelfInvoiceRow } from '@shared/gst/selfInvoice'
 import type { ImsDecisionInput, ItcReversalInputs, SelfInvoiceSeries } from '@shared/gst/expansionSchemas'
@@ -1455,6 +1456,24 @@ export const api = {
     record: (voucherId: number) => call<NicRecord>('nic:record', { voucherId }),
     /** Writes the signed invoice + signed QR JSON to the exports folder. */
     signedCopyExport: (voucherId: number) => call<{ path: string }>('nic:signedCopyExport', { voucherId })
+  },
+  /** Phase 4: the GST gateway (in 1.0 the built-in Test GSP — test mode, nothing is sent to the portal). */
+  gateway: {
+    status: () => call<GatewayStatus>('gateway:status'),
+    setSettings: (s: GatewaySettings & { password?: string }) => call<GatewayStatus>('gateway:settings:set', s),
+    edocRecord: (voucherId: number) => call<{ test: boolean; record: NicRecord }>('gateway:edoc:record', { voucherId }),
+    generateIrn: (voucherId: number) => call<{ test: boolean; irn: string; ackNo: string; ackDate: string }>('gateway:irn:generate', { voucherId }),
+    cancelIrn: (voucherId: number, reason: NicCancelReason, remark: string) => call<{ test: boolean; irn: string; cancelDate: string }>('gateway:irn:cancel', { voucherId, reason, remark }),
+    generateEwb: (voucherId: number) => call<{ test: boolean; ewbNo: string; validUpto: string }>('gateway:ewb:generate', { voucherId }),
+    cancelEwb: (voucherId: number, reason: NicCancelReason, remark: string) => call<{ test: boolean; ewbNo: string; cancelDate: string }>('gateway:ewb:cancel', { voucherId, reason, remark }),
+    requestOtp: (purpose: 'signin' | 'evc', form?: GatewayForm, period?: string) => call<{ sent: true }>('gateway:otp:request', { purpose, ...(form ? { form } : {}), ...(period ? { period } : {}) }),
+    signIn: (otp: string) => call<{ signedIn: true; expiresAt: number }>('gateway:signIn', { otp }),
+    returnGet: (form: GatewayForm, period: string) => call<GatewayReturnRecord | null>('gateway:return:get', { form, period }),
+    returnSave: (form: GatewayForm, period: string) => call<GatewayReturnRecord>('gateway:return:save', { form, period }),
+    returnStatus: (form: GatewayForm, period: string) => call<GatewayReturnRecord>('gateway:return:status', { form, period }),
+    returnOffset: (period: string) => call<GatewayReturnRecord>('gateway:return:offset', { period }),
+    returnFile: (form: GatewayForm, period: string, otp: string) => call<GatewayReturnRecord>('gateway:return:file', { form, period, otp }),
+    fetch2b: (period: string) => call<Gateway2bResult>('gateway:2b:fetch', { period })
   },
   intel: {
     suggestLedgers: (kind: string, query: string) =>

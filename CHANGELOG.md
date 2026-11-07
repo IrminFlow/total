@@ -20,6 +20,20 @@ Things to know about the version numbers:
 
 ## [Unreleased]
 
+**GST gateway on screen, test mode** (#211; upgrade plan Phase 4, part 2). Plain words: the
+e-Invoice & e-way bill screen has a **Portal (test)** button per document, and the GSTR-1 / GSTR-3B
+screens a **Send to the portal (test mode)** panel. It signs in with a code, sends the return,
+checks it, sets off the liability (GSTR-3B) and files it with the EVC code. The GSTR-2B screen can
+**Fetch from the portal (test mode)**. The simple Taxes screen's step 3 offers "Or send it to the GST
+portal from here", in plain words (Hindi and Hinglish too, machine-drafted). Every one of these says
+**test mode — nothing is sent to the GST portal**: the built-in Test GSP answers (its test code is
+shown), a simulated IRN / e-way bill never appears on the bill or its print, and a test filing is
+shown on Taxes as "Test filing only (not on the portal)", never as filed. A quarterly filer is told
+sending a quarter is not ready yet. For developers: `screens/gst/GatewayPanel.tsx`
+(`GatewayReturnPanel`, `Gateway2bFetch`), `screens/edocs/GatewayEdoc.tsx`,
+`simple/taxes/PortalSend.tsx`, `api.gateway` in the client, `SimpleTaxes.testFiled`, keys
+`simple.taxes.portal.*`; e2e 75; `__tests__/gatewayUi.test.tsx`.
+
 **Plain words** (#210 — AI service choice, upgrade plan Phase 3a). The AI helper can now use any
 service that works like OpenAI, with your own key — OpenRouter, Groq, Google Gemini, or a custom
 address — or a model running on this computer with **Ollama** or **LM Studio** (no key, nothing
