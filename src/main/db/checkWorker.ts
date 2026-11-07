@@ -11,6 +11,8 @@
 // (backup_runs + audit). Built by scripts/build-check-worker.mjs as one self-contained file —
 // no Electron, no AI / MCP code (checkWorkerBundle.test.ts).
 import { parentPort } from 'worker_threads'
+// Zod 3's default messages (a verify job runs migrations and services that parse with Zod).
+import '../../shared/zodMessages'
 import { openForCheck, runPragmaCheck, type CheckJob } from './checkHost'
 import type * as BackupVerify from '../services/backupVerify'
 

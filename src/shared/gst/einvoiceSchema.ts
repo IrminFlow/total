@@ -14,6 +14,7 @@
  * the page words it ("rupee part minus 1 … next rupee plus 1"), not checked against the IRP.
  */
 import { z } from 'zod'
+import { zod3Issues } from '../zodMessages'
 
 // ---- shared field shapes (generate-irn.html#JSONSchema) ----
 
@@ -247,7 +248,7 @@ export function einvoiceBusinessIssues(doc: EInvoiceDoc): string[] {
 export function einvoiceIssues(doc: unknown): string[] {
   const parsed = einvoiceSchema.safeParse(doc)
   if (!parsed.success) {
-    return parsed.error.issues.map((i) => `${i.path.join('.') || 'document'}: ${i.message}`)
+    return zod3Issues(parsed.error.issues).map((i) => `${i.path.map(String).join('.') || 'document'}: ${i.message}`)
   }
   return einvoiceBusinessIssues(parsed.data)
 }

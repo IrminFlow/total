@@ -15,6 +15,7 @@ import { syncFolderWarning } from '@shared/syncpath'
 import { configureI18n } from '@shared/i18n'
 // Main renders hi / hinglish synchronously (prints, errors): register both catalogues.
 import '@shared/i18n/all'
+import '@shared/zodMessages'
 import { applyWindowPolicy, mainWindowWebPreferences } from './windowPolicy'
 import { configureTrustedRenderer } from './ipcSender'
 import { dataFolderLabel } from '@shared/updateText'
