@@ -33,7 +33,6 @@ sending a quarter is not ready yet. For developers: `screens/gst/GatewayPanel.ts
 (`GatewayReturnPanel`, `Gateway2bFetch`), `screens/edocs/GatewayEdoc.tsx`,
 `simple/taxes/PortalSend.tsx`, `api.gateway` in the client, `SimpleTaxes.testFiled`, keys
 `simple.taxes.portal.*`; e2e 75; `__tests__/gatewayUi.test.tsx`.
-||||||| d0293ecc
 
 **Plain words** (#208). Total now runs on Electron 45 (from 37), with the newer security fixes of
 its Chromium and Node. **It needs macOS 13 Ventura or later** (Electron dropped macOS 11 and 12).
