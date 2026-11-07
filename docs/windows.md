@@ -14,7 +14,7 @@ and `release-win` in `release.yml` on tags. "Unit" = a vitest test that runs on 
 | --- | --- |
 | Typecheck, engine tests (`npm test`) | CI |
 | Renderer tests (`npm run test:renderer`) | CI (new in WP 7.3) |
-| DB-layer tests (`npm run test:db`, Electron-as-Node, better-sqlite3 Electron ABI) | CI |
+| DB-layer tests (`npm run test:db`, Electron-as-Node, the driver's Node-API prebuild) | CI |
 | Build (`npm run build`, both main entries incl. `out/main/pdfWorker.js`) | CI |
 | Headless CLI (`total-cli`: esbuild bundle, Electron-as-Node, data dir with a space) | CI (`help`, `create-company`, `companies`) |
 | App launch + IPC round trip (company → ledger → voucher → TB → bin/restore) | CI smoke against `out/` |

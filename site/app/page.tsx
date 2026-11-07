@@ -236,7 +236,7 @@ export default async function Home(): Promise<React.JSX.Element> {
         <div className="get" id="get">
           <h2 className="serif">Open your books tonight</h2>
           <p className="sub">
-            macOS (Apple Silicon) and Windows, free while in beta. Create a company and post your first voucher in under
+            macOS 13 or later (Apple Silicon) and Windows, free while in beta. Create a company and post your first voucher in under
             a minute.
           </p>
           <div className="hero-ctas" style={{ justifyContent: 'center' }}>
