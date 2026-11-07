@@ -1,6 +1,6 @@
 // Runs the DB-layer vitest suite (src/main/**/*.dbtest.ts) with Node re-pointed at the Electron
-// binary via ELECTRON_RUN_AS_NODE=1. This matches the ABI better-sqlite3 is built against
-// (Electron's, not plain Node's) so the native module loads without a rebuild. See CLAUDE.md.
+// binary via ELECTRON_RUN_AS_NODE=1, so the DB code is tested on the Node the app ships with. (The
+// driver is Node-API since v13 and would load under plain Node too.) See CLAUDE.md.
 import { createRequire } from 'module'
 import { spawnSync } from 'child_process'
 
