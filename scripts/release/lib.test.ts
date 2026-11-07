@@ -12,6 +12,7 @@ import {
   figuresVerdict,
   blockerVerdict,
   missingAssets,
+  lastReleaseVerdict,
   REQUIRED_CI_JOBS
 } from './lib.mjs'
 
@@ -20,8 +21,12 @@ const allJobs = REQUIRED_CI_JOBS.map(ok)
 
 describe('which changes count toward a release', () => {
   it('app code, tests, package files and help articles count', () => {
-    for (const p of ['src/main/ipc.ts', 'src/renderer/src/help/en/getting-started.md', 'package.json', 'package-lock.json', 'scripts/e2e/01-onboarding.mjs', 'resources/fonts/OFL.txt'])
+    for (const p of ['src/main/ipc.ts', 'src/renderer/src/help/en/getting-started.md', 'package.json', 'package-lock.json', 'resources/fonts/OFL.txt', 'src/main/db/testdb.ts', 'scripts/total-cli.mjs'])
       expect(countsForRelease(p), p).toBe(true)
+  })
+  it('tests, their fixtures and the e2e scenarios do not ship', () => {
+    for (const p of ['src/shared/money.test.ts', 'src/main/services/vouchers.dbtest.ts', 'src/renderer/src/__tests__/home.test.tsx', 'src/main/perf/__fixtures__/reportHashes.json', 'scripts/e2e/01-onboarding.mjs'])
+      expect(countsForRelease(p), p).toBe(false)
   })
   it('docs, site, CI, the release scripts and root Markdown do not', () => {
     for (const p of ['docs/owner/README.md', 'site/app/page.tsx', '.github/workflows/ci.yml', 'scripts/release/lib.mjs', 'CHANGELOG.md', 'CLAUDE.md', 'to-do.md', './README.md'])
@@ -142,6 +147,18 @@ describe('figure approval and blockers', () => {
   it('an open release-blocker PR stops the slot', () => {
     expect(blockerVerdict([{ number: 3, title: 'x', labels: ['release-blocker'] }]).ok).toBe(false)
     expect(blockerVerdict([{ number: 3, title: 'x', labels: ['bug'] }]).ok).toBe(true)
+  })
+})
+
+describe('the last tag must be a finished release', () => {
+  const assets = ['Total-0.12.0-arm64.dmg', 'Total-0.12.0-arm64-mac.zip', 'Total-Setup-0.12.0.exe', 'latest.yml', 'latest-mac.yml'].map((name) => ({ name }))
+  it('published with every asset = ok', () => {
+    expect(lastReleaseVerdict('v0.12.0', { draft: false, assets }).ok).toBe(true)
+  })
+  it('no release, a draft, or a missing asset is flagged', () => {
+    expect(lastReleaseVerdict('v0.12.0', null).ok).toBe(false)
+    expect(lastReleaseVerdict('v0.12.0', { draft: true, assets }).reason).toContain('draft')
+    expect(lastReleaseVerdict('v0.12.0', { draft: false, assets: assets.slice(1) }).reason).toContain('macOS DMG')
   })
 })
 

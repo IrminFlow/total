@@ -5,13 +5,17 @@
 /** Paths whose changes alone never make a release: docs, the marketing site, CI and the release
  *  machinery itself, and the Markdown files at the repo root (README, CHANGELOG, CLAUDE.md,
  *  to-do.md …). Markdown INSIDE src/ (the help articles) ships with the app and counts. */
-export const NON_RELEASE_PREFIXES = ['docs/', 'site/', '.github/', 'scripts/release/']
+export const NON_RELEASE_PREFIXES = ['docs/', 'site/', '.github/', 'scripts/release/', 'scripts/e2e/']
+
+/** Test-only files (unit / renderer / DB tests, their fixtures and helpers) never ship either. */
+const TEST_ONLY = [/\.(test|dbtest)\.tsx?$/, /(^|\/)__tests__\//, /(^|\/)__fixtures__\//]
 
 /** Does a change to `path` (repo-relative, forward slashes) count toward a release? */
 export function countsForRelease(path) {
   const p = path.replace(/\\/g, '/').replace(/^\.\//, '')
   if (NON_RELEASE_PREFIXES.some((prefix) => p.startsWith(prefix))) return false
   if (!p.includes('/') && /\.md$/i.test(p)) return false
+  if (TEST_ONLY.some((re) => re.test(p))) return false
   return true
 }
 
@@ -158,6 +162,17 @@ export function blockerVerdict(openPrs) {
   const blocking = openPrs.filter((p) => p.labels.includes(BLOCKER_LABEL))
   if (blocking.length) return { ok: false, reason: `open PR(s) labelled ${BLOCKER_LABEL}: ${blocking.map((p) => `#${p.number} ${p.title}`).join('; ')}` }
   return { ok: true, reason: `no open PR is labelled ${BLOCKER_LABEL}` }
+}
+
+/** Is the last tag a finished release — published (not a draft) with every asset? `release` is the
+ *  GitHub release for the tag, or null when there is none. */
+export function lastReleaseVerdict(tag, release) {
+  const version = String(tag).replace(/^v/, '')
+  if (!release) return { ok: false, reason: `${tag} has no GitHub release — re-run release.yml for it (Actions → Release) before the next slot` }
+  if (release.draft) return { ok: false, reason: `the ${tag} release is still a draft — its build did not finish; re-run release.yml for it` }
+  const missing = missingAssets(version, (release.assets ?? []).map((a) => a.name))
+  if (missing.length) return { ok: false, reason: `the ${tag} release lacks ${missing.join(', ')} — re-run release.yml for it` }
+  return { ok: true, reason: `${tag} is published with every asset` }
 }
 
 /** The assets every release must carry (electron-updater reads latest*.yml; the site links dmg / exe). */

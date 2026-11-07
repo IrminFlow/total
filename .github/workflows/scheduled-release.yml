@@ -46,7 +46,9 @@ on:
 
 concurrency:
   # Two slots (or a slot and a manual run) never overlap; a queued one waits, never cancels.
-  group: scheduled-release
+  # PR dry runs have their own group per PR: GitHub keeps only ONE pending run per group, so a PR
+  # push must never replace a waiting slot.
+  group: scheduled-release-${{ github.event_name == 'pull_request' && github.ref || 'main' }}
   cancel-in-progress: false
 
 permissions:
@@ -152,8 +154,9 @@ jobs:
           retention-days: 30
 
   decide:
+    # Also after a preflight crash (API outage …): that is a skip with a reason, not silence.
     needs: [preflight, upgrade]
-    if: always() && needs.preflight.result == 'success'
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -176,6 +179,9 @@ jobs:
       - name: Decide
         id: decide
         run: node scripts/release/gate.mjs decide "$RUNNER_TEMP/gate/preflight.json" "$RUNNER_TEMP/gate/upgrade.json" "$RUNNER_TEMP/gate/decision.json"
+        env:
+          PREFLIGHT_RESULT: ${{ needs.preflight.result }}
+          UPGRADE_RESULT: ${{ needs.upgrade.result }}
       - name: Skipped-release issue
         run: node scripts/release/gate.mjs issue "$RUNNER_TEMP/gate/decision.json"
         env:
@@ -187,30 +193,40 @@ jobs:
           retention-days: 30
 
   bump:
+    # Only a real slot on main (or an explicit non-dry dispatch of main) may ever release.
     needs: [preflight, decide]
-    if: needs.decide.outputs.release == 'true' && github.event_name != 'pull_request'
+    if: >-
+      needs.decide.outputs.release == 'true' && github.ref == 'refs/heads/main' &&
+      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run))
     runs-on: ubuntu-latest
     permissions:
       contents: write
     outputs:
       tag: v${{ needs.decide.outputs.version }}
+      pushed: ${{ steps.push.outputs.pushed }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
       - name: main must still be the commit the gate passed
+        id: same
         run: |
           now=$(git rev-parse HEAD)
           if [ "$now" != "${{ needs.preflight.outputs.sha }}" ]; then
-            echo "main moved to $now during the gate — the next slot releases it"; exit 1
+            echo "main moved to $now during the gate — not releasing; the next slot gates it" | tee -a "$GITHUB_STEP_SUMMARY"
+            echo "moved=true" >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/setup-node@v4
+        if: steps.same.outputs.moved != 'true'
         with:
           node-version: 22
       - name: Version + CHANGELOG
+        if: steps.same.outputs.moved != 'true'
         run: node scripts/release/gate.mjs bump "${{ needs.decide.outputs.version }}" "$(TZ=Asia/Kolkata date +%F)"
       - name: Commit, tag, push (atomic)
+        id: push
+        if: steps.same.outputs.moved != 'true'
         run: |
           v="${{ needs.decide.outputs.version }}"
           git config user.name 'github-actions[bot]'
@@ -218,10 +234,22 @@ jobs:
           git add package.json package-lock.json CHANGELOG.md
           git commit -m "release: v$v (scheduled)"
           git tag -a "v$v" -m "Total $v (scheduled release)"
-          git push --atomic origin HEAD:main "v$v"
+          # A merge that lands after the check is a rejected (non-fast-forward) push: nothing was
+          # written, so it is the same "main moved" skip, not a failed release.
+          if git push --atomic origin HEAD:main "v$v"; then
+            echo "pushed=true" >> "$GITHUB_OUTPUT"
+          else
+            git fetch -q origin main
+            if [ "$(git rev-parse origin/main)" != "${{ needs.preflight.outputs.sha }}" ]; then
+              echo "main moved while pushing — not releasing; the next slot gates it" | tee -a "$GITHUB_STEP_SUMMARY"
+            else
+              exit 1
+            fi
+          fi
 
   release:
     needs: bump
+    if: needs.bump.outputs.pushed == 'true'
     permissions:
       contents: write
     uses: ./.github/workflows/release.yml

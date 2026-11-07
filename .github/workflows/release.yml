@@ -64,10 +64,12 @@ jobs:
       - name: Ensure the release exists (one per tag)
         # electron-builder's parallel asset uploads race to CREATE the release and can end up
         # with two releases on one tag (observed on v0.3.0) — pre-creating makes it only upload.
+        # Created as a DRAFT and published only after the Windows files are up (last step of
+        # release-win), so /releases/latest never points at a release without its assets.
         # Notes = the version's CHANGELOG section when the tree has the script (scheduled releases).
         run: |
           if [ -f scripts/release/gate.mjs ]; then node scripts/release/gate.mjs notes "${TAG#v}" > "$RUNNER_TEMP/notes.md"; else echo "Release notes to follow." > "$RUNNER_TEMP/notes.md"; fi
-          gh release create "$TAG" --title "Total ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md" --repo "$GITHUB_REPOSITORY" || true
+          gh release create "$TAG" --draft --title "Total ${TAG#v}" --notes-file "$RUNNER_TEMP/notes.md" --repo "$GITHUB_REPOSITORY" || true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -133,5 +135,11 @@ jobs:
         shell: bash
         run: |
           gh release upload "${TAG}" dist/*.exe dist/*.exe.blockmap dist/latest.yml --clobber --repo "${GITHUB_REPOSITORY}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish the release (never left as a draft)
+        shell: bash
+        run: gh release edit "${TAG}" --draft=false --latest --repo "${GITHUB_REPOSITORY}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

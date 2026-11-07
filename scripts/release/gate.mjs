@@ -26,6 +26,7 @@ import {
   figuresVerdict,
   blockerVerdict,
   missingAssets,
+  lastReleaseVerdict,
   BLOCKER_LABEL
 } from './lib.mjs'
 
@@ -79,13 +80,24 @@ function preflight(outFile) {
     }
   })()
   const checks = []
+  // The last tag must be a finished release (published, every asset), or the upgrade test would
+  // start from code users never got and a broken "latest" would sit unnoticed. Not quiet.
+  const lastRelease = (() => {
+    try {
+      return ghApi(`repos/${REPO}/releases/tags/${lastTag}`)
+    } catch {
+      return null
+    }
+  })()
+  const lastDone = lastReleaseVerdict(lastTag, lastRelease)
+  checks.push({ name: 'last release complete', ...lastDone })
   let quiet = false
   let wait = false
   if (Number(commits) === 0) {
-    quiet = true
+    quiet = lastDone.ok
     checks.push({ name: 'new commits', ok: false, reason: `nothing new on main since ${lastTag}` })
   } else if (!counting.length) {
-    quiet = true
+    quiet = lastDone.ok
     checks.push({ name: 'new commits', ok: false, reason: `${commits} commit(s) since ${lastTag}, only docs / site / CI / root Markdown changed` })
   } else {
     checks.push({ name: 'new commits', ok: true, reason: `${commits} commit(s) since ${lastTag}; ${counting.length} file(s) that ship changed` })
@@ -94,13 +106,14 @@ function preflight(outFile) {
   const va = versionAllowed(version, approvalFile)
   checks.push({ name: 'version', ok: vt.ok && va.ok, reason: !vt.ok ? vt.reason : !va.ok ? va.reason : `${version} → ${nextPatch(version)} (patch)` })
 
-  const runs = ghApi(`repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${sha}&event=push&per_page=20`).workflow_runs ?? []
-  let jobs = []
-  if (runs.length) {
-    const newest = [...runs].sort((a, b) => b.id - a.id)[0]
-    jobs = (ghApi(`repos/${REPO}/actions/runs/${newest.id}/jobs?per_page=100`).jobs ?? []).map((j) => ({ name: j.name, status: j.status, conclusion: j.conclusion }))
-  }
-  const ci = ciVerdict(runs, jobs)
+  // The newest ci.yml push run on main for this exact SHA (a run id carries its latest attempt);
+  // its own jobs, so status and jobs always come from the same run.
+  const runs = ghApi(`repos/${REPO}/actions/workflows/ci.yml/runs?head_sha=${sha}&event=push&branch=main&per_page=20`).workflow_runs ?? []
+  const newest = [...runs].sort((a, b) => b.id - a.id)[0]
+  const jobs = newest
+    ? (ghApi(`repos/${REPO}/actions/runs/${newest.id}/jobs?filter=latest&per_page=100`).jobs ?? []).map((j) => ({ name: j.name, status: j.status, conclusion: j.conclusion }))
+    : []
+  const ci = ciVerdict(newest ? [newest] : [], jobs)
   wait = ci.wait
   checks.push({ name: 'CI on main HEAD', ok: ci.ok, reason: ci.reason })
 
@@ -167,7 +180,10 @@ const fmt = (v) => {
 }
 
 function decide(preflightFile, upgradeFile, outFile) {
-  const pre = readJson(preflightFile)
+  // A preflight that crashed (API outage, git error) left no file: a skip with a reason.
+  const pre = existsSync(preflightFile)
+    ? readJson(preflightFile)
+    : { sha: process.env.GATE_SHA || '(unknown)', lastTag: '(unknown)', nextVersion: '(unknown)', quiet: false, wait: false, ok: false, prs: [], checks: [{ name: 'preflight', ok: false, reason: `preflight did not finish (${process.env.PREFLIGHT_RESULT ?? 'no result'}) — see the preflight job log` }] }
   const up = upgradeFile !== '-' && existsSync(upgradeFile) ? readJson(upgradeFile) : null
   const dryRun = process.env.DRY_RUN === 'true'
   const checks = [...pre.checks]
@@ -181,7 +197,7 @@ function decide(preflightFile, upgradeFile, outFile) {
   const lines = [
     `## Scheduled release — ${verdict}${dryRun ? ' (dry run)' : ''}`,
     '',
-    `main \`${pre.sha.slice(0, 10)}\`, last release ${pre.lastTag}, next ${ok ? `v${pre.nextVersion}` : '—'}`,
+    `main \`${String(pre.sha).slice(0, 10)}\`, last release ${pre.lastTag}, next ${ok ? `v${pre.nextVersion}` : '—'}`,
     '',
     '| Check | Result | Detail |',
     '|---|---|---|',
